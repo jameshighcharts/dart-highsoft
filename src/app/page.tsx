@@ -1,9 +1,18 @@
 "use client";
-import Link from 'next/link';
-import Image from 'next/image';
-import { Button } from '@/components/ui/button';
-import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
+import Image from 'next/image';
+import Link from 'next/link';
+import { BarChart3, ChevronDown, Radio, Target, Trophy, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
+
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const QRCode = dynamic(() => import('react-qr-code'), { ssr: false });
 
@@ -35,25 +44,52 @@ export default function Home() {
               />
               <h1 className="text-2xl font-semibold md:text-3xl">Dart Scoreboard</h1>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <Button asChild>
+            <div className="flex items-center gap-3">
+              <Button asChild size="lg">
                 <Link href="/new">New Match</Link>
               </Button>
-              <Button asChild variant="outline">
-                <Link href="/tournament/new">New Tournament</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link href="/practice">Practice</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link href="/players">Players</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link href="/boards">Scolia Boards</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link href="/elo-multi">Multiplayer Elo</Link>
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="lg" className="group">
+                    More
+                    <ChevronDown className="transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" sideOffset={8} className="w-56 rounded-xl p-1.5 shadow-xl">
+                  <DropdownMenuItem asChild className="cursor-pointer rounded-lg py-2.5">
+                    <Link href="/tournament/new">
+                      <Trophy />
+                      New Tournament
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild className="cursor-pointer rounded-lg py-2.5">
+                    <Link href="/practice">
+                      <Target />
+                      Practice
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild className="cursor-pointer rounded-lg py-2.5">
+                    <Link href="/players">
+                      <Users />
+                      Players
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild className="cursor-pointer rounded-lg py-2.5">
+                    <Link href="/boards">
+                      <Radio />
+                      Scolia Boards
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild className="cursor-pointer rounded-lg py-2.5">
+                    <Link href="/elo-multi">
+                      <BarChart3 />
+                      Multiplayer Elo
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         }
