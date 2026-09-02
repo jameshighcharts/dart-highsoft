@@ -20,6 +20,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `supabase-test`: Separate Supabase config for E2E tests (port 56XXX).
 - `DEPLOYMENT.md`: Beginner-friendly production deployment guide for Vercel + Supabase.
 - `Dockerfile.scolia-worker`: Production container for the separate persistent Scolia worker.
+- `railway.json`: Railway config-as-code for the single-replica Scolia worker service.
 - `docs/SCOLIA_SOCIAL_API.md`: Markdown reference for the complete Scolia Social API v1.2 protocol.
 
 ## File Map
