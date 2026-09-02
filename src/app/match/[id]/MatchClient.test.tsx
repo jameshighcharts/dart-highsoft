@@ -298,6 +298,21 @@ describe('MatchClient', () => {
 
       view.unmount();
     });
+
+    it('renders completed-game links as a read-only stats view', async () => {
+      setSearchParams('spectator=true&history=true');
+      mockDb.matches[0]!.legs_to_win = 1;
+      mockDb.legs[0]!.winner_player_id = 'player-1';
+      const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
+
+      expect(await screen.findByRole('heading', { name: 'Match Stats' })).toBeInTheDocument();
+      expect(screen.getByText('Champion')).toBeInTheDocument();
+      expect(screen.getByText('Final Leg Score Progress')).toBeInTheDocument();
+      expect(screen.queryByText('Live Match')).not.toBeInTheDocument();
+      expect(screen.queryByText('Undo dart')).not.toBeInTheDocument();
+
+      view.unmount();
+    });
   });
 
   describe('turn rotation (game state)', () => {
