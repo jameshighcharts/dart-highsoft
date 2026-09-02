@@ -187,9 +187,11 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
   }, [currentLeg, currentPlayer, ongoingTurnRef, getScoreForPlayer, setLocalTurn, turns, turnThrowCounts]);
 
   const finishTurn = useCallback(
-    async (busted: boolean, opts?: { skipReload?: boolean }) => {
-      const ongoing = ongoingTurnRef.current;
-      if (!ongoing) return;
+    async (
+      ongoing: NonNullable<typeof ongoingTurnRef.current>,
+      busted: boolean,
+      opts?: { skipReload?: boolean }
+    ) => {
       const total = ongoing.darts.reduce((s, d) => s + d.scored, 0);
       let legCompleted = false;
       try {
@@ -205,8 +207,11 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
         return;
       }
       completedTurnPlayerIdRef.current = ongoing.playerId;
-      ongoingTurnRef.current = null;
-      setLocalTurn({ playerId: null, darts: [] });
+      const activeTurn = ongoingTurnRef.current;
+      if (!activeTurn || activeTurn.turnId === ongoing.turnId) {
+        ongoingTurnRef.current = null;
+        setLocalTurn({ playerId: null, darts: [] });
+      }
       if (legCompleted) {
         // Server already resolved the fair ending — just refresh to pick up new state
         await loadAll();
@@ -428,6 +433,10 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
       const newDartIndex = ongoingTurnRef.current!.darts.length + 1;
       const optimisticDart = { scored: result.scored, label: result.label, kind: result.kind as SegmentResult['kind'] };
       ongoingTurnRef.current!.darts.push(optimisticDart);
+      const turnSnapshot = {
+        ...ongoingTurnRef.current!,
+        darts: ongoingTurnRef.current!.darts.map((dart) => ({ ...dart })),
+      };
       setLocalTurn((prev) => ({
         playerId: currentPlayer.id,
         darts: [...prev.darts, optimisticDart],
@@ -460,7 +469,10 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
             ...ongoingTurnRef.current,
             turnId: throwResult.turnId,
           };
+        }
+        if (throwResult.turnId) {
           turnId = throwResult.turnId;
+          turnSnapshot.turnId = throwResult.turnId;
         }
         if (process.env.NODE_ENV !== 'production') {
           const ackAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -493,25 +505,25 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
       }
 
       if (outcome.busted) {
-        await finishTurn(true);
+        await finishTurn(turnSnapshot, true);
         return;
       }
 
       if (outcome.finished && match?.fair_ending) {
         // Fair ending: don't immediately end leg. Finish turn and let state recompute.
-        await finishTurn(false, { skipReload: true });
+        await finishTurn(turnSnapshot, false, { skipReload: true });
         await loadAll();
         return;
       }
 
       if (outcome.finished) {
         // Normal game: finish leg immediately
-        await finishTurn(false, { skipReload: true });
+        await finishTurn(turnSnapshot, false, { skipReload: true });
         await endLegAndMaybeMatch(currentPlayer.id);
         return;
       }
       if (newDartIndex >= 3) {
-        await finishTurn(false);
+        await finishTurn(turnSnapshot, false);
         return;
       }
     },
