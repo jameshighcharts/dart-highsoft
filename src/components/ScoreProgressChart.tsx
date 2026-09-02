@@ -1,6 +1,6 @@
 import Highcharts from 'highcharts';
-import HighchartsReact from 'highcharts-react-official';
 import { useMemo } from 'react';
+import Chart from '@/components/Chart';
 
 type Player = { id: string; display_name: string };
 type TurnRecord = {
@@ -247,8 +247,7 @@ export function ScoreProgressChart({ players, turns, startScore, currentLegId }:
 
   return (
     <div className="w-full">
-      <HighchartsReact
-        highcharts={Highcharts}
+      <Chart
         options={options}
         immutable={false}
         updateArgs={[true, true, true]}

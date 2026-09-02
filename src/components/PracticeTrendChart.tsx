@@ -1,8 +1,8 @@
 "use client";
 
-import Highcharts from 'highcharts';
-import HighchartsReact from 'highcharts-react-official';
+import type Highcharts from 'highcharts';
 import { useMemo } from 'react';
+import Chart from '@/components/Chart';
 
 type TrendData = {
   turnNumber: number;
@@ -25,7 +25,7 @@ export default function PracticeTrendChart({
   title,
   height = 200,
 }: PracticeTrendChartProps) {
-  const options = useMemo(() => {
+  const options = useMemo<Highcharts.Options>(() => {
     if (!sessionData || sessionData.length === 0) {
       return {
         chart: { height },
@@ -172,5 +172,5 @@ export default function PracticeTrendChart({
     );
   }
 
-  return <HighchartsReact highcharts={Highcharts} options={options} />;
+  return <Chart options={options} />;
 }
