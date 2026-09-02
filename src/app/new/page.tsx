@@ -17,6 +17,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { LOCATIONS, type LocationValue } from "@/utils/locations";
+import { GAME_MODE_INFO } from "@/lib/games/labels";
+import type { GameMode } from "@/lib/games/types";
+import {
+  GameConfigFields,
+  GameTypePicker,
+  defaultConfigFor,
+  gameTypeName,
+  loadStoredGameType,
+  storeGameType,
+  validateGameSelection,
+  type GameType,
+} from "@/components/games/NewGameOptions";
 
 type Player = { id: string; display_name: string; location: string | null };
 
@@ -33,6 +45,7 @@ function titleCaseStatus(status: string): string {
 
 function optionFromStatus(status: ScoliaBoardPublicStatus, current?: ScoliaBoardOption): ScoliaBoardOption {
   const activeMatchId = current?.activeMatchId ?? null;
+  const activeGameSessionId = current?.activeGameSessionId ?? null;
   const workerConnectionStatus = hasFreshScoliaHeartbeat(status)
     ? status.workerConnectionStatus
     : 'disconnected';
@@ -49,7 +62,8 @@ function optionFromStatus(status: ScoliaBoardPublicStatus, current?: ScoliaBoard
     boardStatus: status.boardStatus,
     workerHeartbeatAt: status.workerHeartbeatAt,
     activeMatchId,
-    selectable: ready && !activeMatchId,
+    activeGameSessionId,
+    selectable: ready && !activeMatchId && !activeGameSessionId,
   };
 }
 
@@ -76,6 +90,18 @@ export default function NewMatchPage() {
   const [finish, setFinish] = useState<FinishRule>("double_out");
   const [legsToWin, setLegsToWin] = useState(1);
   const [fairEnding, setFairEnding] = useState(false);
+  // Start on X01 for SSR and pick up the stored choice after hydration.
+  const [gameType, setGameType] = useState<GameType>("x01");
+  const [gameConfig, setGameConfig] = useState<Record<string, unknown>>({});
+  useEffect(() => {
+    const stored = loadStoredGameType();
+    if (stored !== "x01") {
+      setGameType(stored);
+      setGameConfig(defaultConfigFor(stored));
+    }
+  }, []);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [boards, setBoards] = useState<ScoliaBoardOption[]>([]);
   const [selectedBoardId, setSelectedBoardId] = useState(MANUAL_BOARD_VALUE);
   const [boardsLoading, setBoardsLoading] = useState(true);
@@ -199,8 +225,66 @@ export default function NewMatchPage() {
     );
   }
 
+  function changeGameType(type: GameType) {
+    setGameType(type);
+    setGameConfig(type === "x01" ? {} : defaultConfigFor(type));
+    setSubmitError(null);
+    storeGameType(type);
+  }
+
+  // Drop Killer number assignments for players who are no longer selected.
+  useEffect(() => {
+    if (gameType !== "killer") return;
+    setGameConfig((config) => {
+      const assigned = config.assignedNumbers as Record<string, number> | undefined;
+      if (!assigned) return config;
+      const stale = Object.keys(assigned).filter((id) => !selectedIds.includes(id));
+      if (stale.length === 0) return config;
+      const next = { ...assigned };
+      for (const id of stale) delete next[id];
+      return { ...config, assignedNumbers: next };
+    });
+  }, [gameType, selectedIds]);
+
+  const gameMode: GameMode | null = gameType === "x01" ? null : gameType;
+  const validationError = gameMode ? validateGameSelection(gameMode, gameConfig, selectedIds) : null;
+  const killerHint = gameMode === "killer" && selectedIds.length > 0 && selectedIds.length < 3;
+  const selectedPlayers = selectedIds
+    .map((id) => players.find((p) => p.id === id))
+    .filter((p): p is Player => Boolean(p))
+    .map((p) => ({ id: p.id, name: p.display_name }));
+
+  async function onStartGame(mode: GameMode) {
+    const problem = validateGameSelection(mode, gameConfig, selectedIds);
+    if (problem) {
+      setSubmitError(problem);
+      return;
+    }
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const result = await apiRequest<{ gameId: string }>("/api/games", {
+        body: {
+          mode,
+          config: gameConfig,
+          playerIds: selectedIds,
+          scoliaBoardId:
+            selectedBoardId === MANUAL_BOARD_VALUE ? null : selectedBoardId,
+        },
+      });
+      router.push(`/game/${result.gameId}`);
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : `Failed to start ${GAME_MODE_INFO[mode].name}`,
+      );
+      setSubmitting(false);
+    }
+  }
+
   async function onStart() {
+    if (gameMode) return onStartGame(gameMode);
     if (selectedIds.length < 2) return alert("Select at least 2 players");
+    setSubmitting(true);
     try {
       const result = await apiRequest<{ matchId: string }>("/api/matches", {
         body: {
@@ -218,12 +302,17 @@ export default function NewMatchPage() {
       const message =
         error instanceof Error ? error.message : "Failed to create match";
       alert(message);
+      setSubmitting(false);
     }
   }
 
   return (
     <div className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">New Match</h1>
+      <h1 className="text-2xl font-semibold">New Game</h1>
+      <div className="space-y-3">
+        <div className="font-medium">Game type</div>
+        <GameTypePicker value={gameType} onChange={changeGameType} />
+      </div>
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div className="font-medium">Players</div>
@@ -295,7 +384,7 @@ export default function NewMatchPage() {
                   {board.name} — Scolia:{" "}
                   {titleCaseStatus(board.workerConnectionStatus)} · Board:{" "}
                   {board.boardStatus ?? "Unknown"}
-                  {board.activeMatchId ? " · In use" : ""}
+                  {board.activeMatchId || board.activeGameSessionId ? " · In use" : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -314,10 +403,12 @@ export default function NewMatchPage() {
             </p>
           ) : (
             <p className="mt-1 text-xs text-muted-foreground">
-              Only connected, ready boards can start a Scolia match.
+              Only connected, ready boards can start a Scolia game.
             </p>
           )}
         </div>
+        {gameMode === null && (
+        <>
         <div>
           <div className="font-medium mb-1">Start score</div>
           <Select
@@ -385,9 +476,33 @@ export default function NewMatchPage() {
             </Button>
           </div>
         </div>
+        </>
+        )}
       </div>
 
-      {legsToWin === 1 && (
+      {gameMode !== null && (
+        <>
+          <GameConfigFields
+            mode={gameMode}
+            config={gameConfig}
+            onChange={(next) => {
+              setGameConfig(next);
+              setSubmitError(null);
+            }}
+            players={selectedPlayers}
+          />
+          {killerHint && (
+            <p className="text-sm text-amber-500">Killer is best with 3 or more players.</p>
+          )}
+          {(submitError ?? (selectedIds.length > 0 ? validationError : null)) && (
+            <p className="text-sm text-destructive">
+              {submitError ?? validationError}
+            </p>
+          )}
+        </>
+      )}
+
+      {gameMode === null && legsToWin === 1 && (
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -402,7 +517,16 @@ export default function NewMatchPage() {
       )}
 
       <div className="flex gap-3">
-        <Button onClick={onStart}>Start match</Button>
+        <Button
+          onClick={onStart}
+          disabled={submitting || (gameMode !== null && validationError !== null)}
+        >
+          {submitting
+            ? "Starting…"
+            : gameMode === null
+              ? "Start match"
+              : `Start ${gameTypeName(gameMode)}`}
+        </Button>
       </div>
     </div>
   );

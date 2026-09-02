@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { enqueueCurrentRoundScoliaThrowCommand } from './scoliaCommands';
+import { commandSourceForMatch, enqueueCurrentRoundScoliaThrowCommand } from './scoliaCommands';
 import type { MatchRow } from './matchGuards';
 
 const match = {
@@ -50,7 +50,7 @@ describe('enqueueCurrentRoundScoliaThrowCommand', () => {
 
     await enqueueCurrentRoundScoliaThrowCommand(
       supabase as never,
-      match,
+      commandSourceForMatch(match),
       { dartIndex: 2, scoliaEventId: 42 },
       'THROW_CORRECTED'
     );
@@ -58,6 +58,7 @@ describe('enqueueCurrentRoundScoliaThrowCommand', () => {
     expect(insert).toHaveBeenCalledWith({
       board_id: 'board-1',
       match_id: 'match-1',
+      game_session_id: null,
       command_type: 'THROW_CORRECTED',
       payload: { throwIndex: 1 },
     });
@@ -74,7 +75,7 @@ describe('enqueueCurrentRoundScoliaThrowCommand', () => {
 
     await enqueueCurrentRoundScoliaThrowCommand(
       supabase as never,
-      match,
+      commandSourceForMatch(match),
       { dartIndex: 3, scoliaEventId: 42 },
       'DELETE_THROW'
     );
@@ -86,13 +87,13 @@ describe('enqueueCurrentRoundScoliaThrowCommand', () => {
     const from = vi.fn();
     await enqueueCurrentRoundScoliaThrowCommand(
       { from } as never,
-      { ...match, scolia_board_id: null },
+      commandSourceForMatch({ ...match, scolia_board_id: null }),
       { dartIndex: 1, scoliaEventId: 42 },
       'DELETE_THROW'
     );
     await enqueueCurrentRoundScoliaThrowCommand(
       { from } as never,
-      match,
+      commandSourceForMatch(match),
       { dartIndex: 1, scoliaEventId: null },
       'DELETE_THROW'
     );

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { MatchRow } from './matchGuards';
+import type { MatchRow } from './matchGuards.ts';
+import type { GameSessionRow } from './gameGuards.ts';
 
 export type ScoliaThrowCommandType = 'DELETE_THROW' | 'THROW_CORRECTED';
 
@@ -9,42 +10,68 @@ type ThrowCommandTarget = {
   scoliaEventId: number | null;
 };
 
-/**
- * Queue a correction only when the throw came from Scolia and is still part
- * of the SBC's current physical round (no TAKEOUT_FINISHED has followed it).
- */
-export async function enqueueCurrentRoundScoliaThrowCommand(
-  supabase: SupabaseClient,
-  match: MatchRow,
-  target: ThrowCommandTarget,
-  commandType: ScoliaThrowCommandType
-): Promise<void> {
-  if (!match.scolia_board_id || target.scoliaEventId == null) return;
+/** What the command is about: the board plus the match or game that owns the dart. */
+export type ScoliaCommandSource = {
+  boardId: string | null;
+  matchId?: string | null;
+  gameSessionId?: string | null;
+};
 
+export function commandSourceForMatch(match: MatchRow): ScoliaCommandSource {
+  return { boardId: match.scolia_board_id ?? null, matchId: match.id };
+}
+
+export function commandSourceForGameSession(session: GameSessionRow): ScoliaCommandSource {
+  return { boardId: session.scolia_board_id, gameSessionId: session.id };
+}
+
+/** True when the board finished a takeout after the given event, i.e. the round is over. */
+export async function hasTakeoutSinceEvent(
+  supabase: SupabaseClient,
+  boardId: string,
+  eventId: number
+): Promise<boolean | null> {
   const { data: sourceEvent, error: sourceError } = await supabase
     .from('scolia_events')
     .select('board_id, received_at')
-    .eq('id', target.scoliaEventId)
-    .eq('board_id', match.scolia_board_id)
+    .eq('id', eventId)
+    .eq('board_id', boardId)
     .maybeSingle();
   if (sourceError) throw new Error(sourceError.message);
-  if (!sourceEvent) return;
+  if (!sourceEvent) return null;
 
   const { data: laterTakeout, error: takeoutError } = await supabase
     .from('scolia_events')
     .select('id')
-    .eq('board_id', match.scolia_board_id)
+    .eq('board_id', boardId)
     .eq('event_type', 'TAKEOUT_FINISHED')
     .gt('received_at', sourceEvent.received_at)
     .order('received_at', { ascending: true })
     .limit(1)
     .maybeSingle();
   if (takeoutError) throw new Error(takeoutError.message);
-  if (laterTakeout) return;
+  return Boolean(laterTakeout);
+}
+
+/**
+ * Queue a correction only when the throw came from Scolia and is still part
+ * of the SBC's current physical round (no TAKEOUT_FINISHED has followed it).
+ */
+export async function enqueueCurrentRoundScoliaThrowCommand(
+  supabase: SupabaseClient,
+  source: ScoliaCommandSource,
+  target: ThrowCommandTarget,
+  commandType: ScoliaThrowCommandType
+): Promise<void> {
+  if (!source.boardId || target.scoliaEventId == null) return;
+
+  const takenOut = await hasTakeoutSinceEvent(supabase, source.boardId, target.scoliaEventId);
+  if (takenOut === null || takenOut) return;
 
   const { error: insertError } = await supabase.from('scolia_commands').insert({
-    board_id: match.scolia_board_id,
-    match_id: match.id,
+    board_id: source.boardId,
+    match_id: source.matchId ?? null,
+    game_session_id: source.gameSessionId ?? null,
     command_type: commandType,
     payload: { throwIndex: target.dartIndex - 1 },
   });

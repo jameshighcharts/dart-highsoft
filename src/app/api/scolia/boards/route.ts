@@ -16,6 +16,17 @@ type ActiveMatchRow = {
   legs: { winner_player_id: string | null }[];
 };
 
+type ActiveGameRow = {
+  id: string;
+  mode: string;
+  scolia_board_id: string;
+  created_at: string;
+  game_session_players: {
+    play_order: number;
+    players: { display_name: string } | { display_name: string }[] | null;
+  }[];
+};
+
 function playerName(row: ActiveMatchRow['match_players'][number]): string | null {
   const player = Array.isArray(row.players) ? row.players[0] : row.players;
   return player?.display_name ?? null;
@@ -35,7 +46,7 @@ function errorResponse(error: unknown, operation: string) {
 export async function GET() {
   try {
     const supabase = getSupabaseServerClient();
-    const [boards, statusResult, activeMatchesResult] = await Promise.all([
+    const [boards, statusResult, activeMatchesResult, activeGamesResult] = await Promise.all([
       listScoliaBoards(),
       supabase
         .from('scolia_boards')
@@ -52,6 +63,14 @@ export async function GET() {
         .is('completed_at', null)
         .is('winner_player_id', null)
         .eq('ended_early', false),
+      supabase
+        .from('game_sessions')
+        .select(`
+          id, mode, scolia_board_id, created_at,
+          game_session_players(play_order, players(display_name))
+        `)
+        .eq('status', 'active')
+        .not('scolia_board_id', 'is', null),
     ]);
     if (statusResult.error && statusResult.error.code !== '42P01') {
       throw new Error(statusResult.error.message);
@@ -59,7 +78,22 @@ export async function GET() {
     if (activeMatchesResult.error && activeMatchesResult.error.code !== '42P01') {
       throw new Error(activeMatchesResult.error.message);
     }
+    if (activeGamesResult.error && activeGamesResult.error.code !== '42P01') {
+      throw new Error(activeGamesResult.error.message);
+    }
     const statuses = new Map((statusResult.data ?? []).map((row) => [row.serial_number as string, row]));
+    const activeGamesByBoard = new Map(
+      ((activeGamesResult.data ?? []) as unknown as ActiveGameRow[]).map((game) => [game.scolia_board_id, {
+        id: game.id,
+        mode: game.mode,
+        playerNames: game.game_session_players
+          .slice()
+          .sort((a, b) => a.play_order - b.play_order)
+          .map(playerName)
+          .filter((name): name is string => Boolean(name)),
+        createdAt: game.created_at,
+      }] as const)
+    );
     const activeMatchesByBoard = new Map(
       ((activeMatchesResult.data ?? []) as unknown as ActiveMatchRow[]).map((match) => {
         const playerNames = match.match_players
@@ -94,6 +128,7 @@ export async function GET() {
         lastEventAt: (status?.last_event_at as string | null | undefined) ?? null,
         workerHeartbeatAt: heartbeatAt ?? null,
         activeMatch: status?.id ? activeMatchesByBoard.get(status.id as string) ?? null : null,
+        activeGame: status?.id ? activeGamesByBoard.get(status.id as string) ?? null : null,
       };
     });
     return NextResponse.json({ boards: enrichedBoards });

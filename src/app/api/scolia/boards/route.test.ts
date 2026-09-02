@@ -17,30 +17,107 @@ vi.mock('@/lib/supabaseServer', () => ({
   getSupabaseServerClient: () => getSupabaseServerClientMock(),
 }));
 
+type StatusRow = Record<string, unknown>;
+
+function mockSupabase({
+  statuses,
+  activeMatches = [],
+  activeGames = [],
+}: {
+  statuses: StatusRow[];
+  activeMatches?: Record<string, unknown>[];
+  activeGames?: Record<string, unknown>[];
+}) {
+  return {
+    from(table: string) {
+      if (table === 'scolia_boards') {
+        return {
+          select() { return this; },
+          eq() { return Promise.resolve({ data: statuses, error: null }); },
+        };
+      }
+      if (table === 'matches') {
+        return {
+          select() { return this; },
+          not() { return this; },
+          is() { return this; },
+          eq() { return Promise.resolve({ data: activeMatches, error: null }); },
+        };
+      }
+      if (table === 'game_sessions') {
+        return {
+          select() { return this; },
+          eq(column: string, value: unknown) {
+            expect([column, value]).toEqual(['status', 'active']);
+            return this;
+          },
+          not(column: string, operator: string, value: unknown) {
+            expect([column, operator, value]).toEqual(['scolia_board_id', 'is', null]);
+            return Promise.resolve({ data: activeGames, error: null });
+          },
+        };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    },
+  };
+}
+
+const OFFICE_BOARD = { name: 'Office board', serialNumber: 'SCOLIA-1', isHomeSbc: false };
+const OFFICE_STATUS: StatusRow = {
+  id: 'board-1',
+  serial_number: 'SCOLIA-1',
+  worker_connection_status: 'connected',
+  board_status: 'Ready',
+  board_phase: 'Throw',
+  error_type: null,
+  last_event_at: '2026-09-01T11:59:59.000Z',
+  worker_heartbeat_at: '2026-09-01T11:59:50.000Z',
+};
+
 describe('GET /api/scolia/boards', () => {
   afterEach(() => {
     vi.clearAllMocks();
     vi.restoreAllMocks();
   });
 
+  it('includes the ongoing party game for each board driving one', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-01T12:00:00.000Z'));
+    listScoliaBoardsMock.mockResolvedValue([OFFICE_BOARD]);
+    const activeGames = [{
+      id: 'game-1',
+      mode: 'cricket',
+      scolia_board_id: 'board-1',
+      created_at: '2026-09-01T11:45:00.000Z',
+      game_session_players: [
+        { play_order: 1, players: [{ display_name: 'Second' }] },
+        { play_order: 0, players: { display_name: 'First' } },
+      ],
+    }];
+
+    getSupabaseServerClientMock.mockReturnValue(mockSupabase({ statuses: [OFFICE_STATUS], activeGames }));
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.boards[0]).toEqual(expect.objectContaining({
+      id: 'board-1',
+      workerConnectionStatus: 'connected',
+      activeMatch: null,
+      activeGame: {
+        id: 'game-1',
+        mode: 'cricket',
+        playerNames: ['First', 'Second'],
+        createdAt: '2026-09-01T11:45:00.000Z',
+      },
+    }));
+  });
+
   it('includes the ongoing app match for each busy board', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-01T12:00:00.000Z'));
-    listScoliaBoardsMock.mockResolvedValue([{
-      name: 'Office board',
-      serialNumber: 'SCOLIA-1',
-      isHomeSbc: false,
-    }]);
+    listScoliaBoardsMock.mockResolvedValue([OFFICE_BOARD]);
 
-    const statuses = [{
-      id: 'board-1',
-      serial_number: 'SCOLIA-1',
-      worker_connection_status: 'connected',
-      board_status: 'Ready',
-      board_phase: 'Throw',
-      error_type: null,
-      last_event_at: '2026-09-01T11:59:59.000Z',
-      worker_heartbeat_at: '2026-09-01T11:59:50.000Z',
-    }];
+    const statuses = [OFFICE_STATUS];
     const activeMatches = [{
       id: 'match-1',
       scolia_board_id: 'board-1',
@@ -54,25 +131,7 @@ describe('GET /api/scolia/boards', () => {
       legs: [{ winner_player_id: 'player-1' }, { winner_player_id: null }],
     }];
 
-    getSupabaseServerClientMock.mockReturnValue({
-      from(table: string) {
-        if (table === 'scolia_boards') {
-          return {
-            select() { return this; },
-            eq() { return Promise.resolve({ data: statuses, error: null }); },
-          };
-        }
-        if (table === 'matches') {
-          return {
-            select() { return this; },
-            not() { return this; },
-            is() { return this; },
-            eq() { return Promise.resolve({ data: activeMatches, error: null }); },
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      },
-    });
+    getSupabaseServerClientMock.mockReturnValue(mockSupabase({ statuses, activeMatches }));
 
     const response = await GET();
     const body = await response.json();
@@ -81,6 +140,7 @@ describe('GET /api/scolia/boards', () => {
     expect(body.boards[0]).toEqual(expect.objectContaining({
       name: 'Office board',
       workerConnectionStatus: 'connected',
+      activeGame: null,
       activeMatch: {
         id: 'match-1',
         startScore: '501',

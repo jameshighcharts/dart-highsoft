@@ -151,6 +151,13 @@ create policy "public delete" on public.table_name for delete using (true);
 - **Legs**: Individual games within a match, tracks starting player and winner
 - **Turns**: Player attempts within a leg, stores total score and bust status
 - **Throws**: Individual dart throws within a turn (1-3 per turn)
+- **Game sessions (party modes)** — Cricket, Killer, Shanghai, Around the Clock live outside the X01 tables:
+  - `game_sessions`: one row per game (mode, config JSON, status `active|completed|ended_early`, winner, optional `scolia_board_id`)
+  - `game_session_players`: junction with `play_order`
+  - `game_throws`: append-only dart log (session, player, turn/dart index, segment, `meta` used by the leaderboard views)
+  - Game state is never stored; it is derived by replaying `game_throws` through the engines in `src/lib/games/` (`replay.ts`, `engines/`, `registry.ts`)
+  - The Scolia worker resolves a board to either an X01 match or a game session via `src/lib/server/scoliaBoardTarget.ts` and dispatches throws accordingly
+  - Worker import rule: code under `src/lib/games` and the server helpers it reaches must use relative `.ts` imports (no `@/` aliases) and no TypeScript enums, since the worker runs outside the Next.js bundler
 
 ### Key Components
 - **MatchClient**: Main match interface handling game state, player rotation, scoring, and real-time updates

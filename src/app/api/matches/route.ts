@@ -1,5 +1,5 @@
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
-import { isScoliaBoardReady } from '@/lib/scolia/availability';
+import { assertScoliaBoardAvailable } from '@/lib/server/scoliaBoardTarget';
 import { NextRequest, NextResponse } from 'next/server';
 
 type CreateMatchRequest = {
@@ -119,42 +119,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (scoliaBoardId) {
-      const [boardResult, activeMatchResult] = await Promise.all([
-        supabase
-          .from('scolia_boards')
-          .select('worker_connection_status, board_status, worker_heartbeat_at')
-          .eq('id', scoliaBoardId)
-          .eq('enabled', true)
-          .maybeSingle(),
-        supabase
-          .from('matches')
-          .select('id')
-          .eq('scolia_board_id', scoliaBoardId)
-          .is('completed_at', null)
-          .is('winner_player_id', null)
-          .eq('ended_early', false)
-          .maybeSingle(),
-      ]);
-
-      if (boardResult.error) throw new Error(boardResult.error.message);
-      if (activeMatchResult.error) throw new Error(activeMatchResult.error.message);
-      if (!boardResult.data) {
-        return NextResponse.json({ error: 'Scolia board not found' }, { status: 404 });
-      }
-      if (activeMatchResult.data) {
-        return NextResponse.json({ error: 'This Scolia board is already assigned to an active match' }, { status: 409 });
-      }
-      if (
-        !isScoliaBoardReady({
-          workerConnectionStatus: boardResult.data.worker_connection_status as string,
-          boardStatus: boardResult.data.board_status as string | null,
-          workerHeartbeatAt: boardResult.data.worker_heartbeat_at as string | null,
-        })
-      ) {
-        return NextResponse.json({ error: 'This Scolia board is not ready' }, { status: 409 });
+      const availability = await assertScoliaBoardAvailable(supabase, scoliaBoardId);
+      if (!availability.ok) {
+        return NextResponse.json({ error: availability.error }, { status: availability.status });
       }
     }
-    
+
     // Create match
     const { data: match, error: matchError } = await supabase
       .from('matches')
