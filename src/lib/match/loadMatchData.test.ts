@@ -6,9 +6,11 @@ type QueryResult = { data: unknown; error: unknown };
 
 function createSupabaseMock(log: string[]) {
   const buildTurnsQuery = () => {
-    const state: { legId?: string; inLegIds?: string[] } = {};
+    const state: { legId?: string; inLegIds?: string[]; selection?: string } = {};
     return {
-      select() {
+      select(selection: string) {
+        state.selection = selection;
+        log.push(`turns-select:${selection}`);
         return this;
       },
       eq(column: string, value: string) {
@@ -23,7 +25,17 @@ function createSupabaseMock(log: string[]) {
         return Promise.resolve<QueryResult>({
           data: state.legId
             ? [{ id: 'turn-current', leg_id: state.legId, player_id: 'player-1', turn_number: 1, total_scored: 20, busted: false, throws: [] }]
-            : [{ id: 'turn-any', leg_id: state.inLegIds?.[0] ?? 'leg-1', player_id: 'player-1', turn_number: 1, total_scored: 20, busted: false }],
+            : [{
+                id: 'turn-any',
+                leg_id: state.inLegIds?.[0] ?? 'leg-1',
+                player_id: 'player-1',
+                turn_number: 1,
+                total_scored: 20,
+                busted: false,
+                ...(state.selection?.includes('impact_x_mm') ? {
+                  throws: [{ id: 'throw-1', impact_x_mm: 4, impact_y_mm: 102 }],
+                } : {}),
+              }],
           error: null,
         });
       },
@@ -112,5 +124,19 @@ describe('loadMatchData', () => {
     expect(Object.keys(result.turnsByLeg)).toContain('leg-1');
     const turnsCalls = log.filter((entry) => entry === 'turns');
     expect(turnsCalls.length).toBe(2);
+  });
+
+  it('loads throw geometry for all legs when requested by spectator analytics', async () => {
+    const log: string[] = [];
+    const supabase = createSupabaseMock(log);
+
+    const result = await loadMatchData(supabase as never, 'match-1', {
+      includeTurnsByLegSummary: false,
+      includeTurnsByLegThrows: true,
+    });
+
+    const allLegTurn = result.turnsByLeg['leg-1']?.[0] as { throws?: { impact_x_mm?: number }[] };
+    expect(allLegTurn.throws?.[0]?.impact_x_mm).toBe(4);
+    expect(log.some((entry) => entry.includes('turns-select:*, throws:throws') && entry.includes('impact_x_mm'))).toBe(true);
   });
 });

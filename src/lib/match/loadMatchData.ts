@@ -13,6 +13,7 @@ export type MatchLoadResult = {
 
 export type LoadMatchDataOptions = {
   includeTurnsByLegSummary?: boolean;
+  includeTurnsByLegThrows?: boolean;
 };
 
 export async function loadMatchData(
@@ -21,6 +22,7 @@ export async function loadMatchData(
   options: LoadMatchDataOptions = {}
 ): Promise<MatchLoadResult> {
   const includeTurnsByLegSummary = options.includeTurnsByLegSummary ?? true;
+  const includeTurnsByLegThrows = options.includeTurnsByLegThrows ?? false;
   const [
     { data: m, error: matchError },
     { data: mp, error: matchPlayersError },
@@ -44,7 +46,10 @@ export async function loadMatchData(
   const legs = ((lgs ?? []) as LegRecord[]) ?? [];
 
   const currentLeg = legs.find((l) => !l.winner_player_id) || legs[legs.length - 1] || null;
-  const legIds = includeTurnsByLegSummary ? legs.map((l) => l.id) : [];
+  const legIds = includeTurnsByLegSummary || includeTurnsByLegThrows ? legs.map((l) => l.id) : [];
+  const allTurnsSelection = includeTurnsByLegThrows
+    ? '*, throws:throws(id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)'
+    : '*';
 
   const [{ data: currentLegTurns, error: currentLegTurnsError }, { data: allTurns, error: allTurnsError }] =
     await Promise.all([
@@ -61,7 +66,7 @@ export async function loadMatchData(
             .order('turn_number')
         : Promise.resolve({ data: null as TurnWithThrows[] | null, error: null as unknown }),
       legIds.length > 0
-        ? supabase.from('turns').select('*').in('leg_id', legIds).order('turn_number')
+        ? supabase.from('turns').select(allTurnsSelection).in('leg_id', legIds).order('turn_number')
         : Promise.resolve({ data: null as TurnRecord[] | null, error: null as unknown }),
     ]);
 

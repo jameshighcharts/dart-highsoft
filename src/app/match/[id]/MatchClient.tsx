@@ -525,6 +525,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           orderPlayers={orderPlayers}
           spectatorCurrentPlayer={spectatorCurrentPlayer}
           turns={turns}
+          turnsByLeg={turnsByLeg}
           currentLegId={currentLeg?.id}
           startScore={startScore}
           finishRule={finishRule}

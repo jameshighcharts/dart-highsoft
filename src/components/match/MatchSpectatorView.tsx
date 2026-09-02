@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { EloChangesDisplay } from '@/components/match/EloChangesDisplay';
 import { LiveScoliaBoard } from '@/components/match/LiveScoliaBoard';
+import { ScoliaMatchHeatmaps } from '@/components/match/ScoliaMatchHeatmaps';
 import type { MatchEloChange } from '@/hooks/useMatchEloChanges';
 import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
 import type { CommentaryPersona, CommentaryPersonaId } from '@/lib/commentary/types';
@@ -42,6 +43,7 @@ type Props = {
   orderPlayers: Player[];
   spectatorCurrentPlayer: Player | null;
   turns: TurnRecord[];
+  turnsByLeg: Record<string, TurnRecord[]>;
   currentLegId?: string;
   startScore: number;
   finishRule: FinishRule;
@@ -139,6 +141,7 @@ export function MatchSpectatorView({
   orderPlayers,
   spectatorCurrentPlayer,
   turns,
+  turnsByLeg,
   currentLegId,
   startScore,
   finishRule,
@@ -530,6 +533,14 @@ export function MatchSpectatorView({
             />
           </CardContent>
         </Card>
+
+        {match.scolia_board_id ? (
+          <ScoliaMatchHeatmaps
+            players={orderPlayers}
+            turns={turns}
+            turnsByLeg={turnsByLeg}
+          />
+        ) : null}
 
         {/* Match winner modal */}
         <Dialog open={winnerModalOpen && !!matchWinnerId} onOpenChange={setWinnerModalOpen}>

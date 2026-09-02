@@ -88,7 +88,10 @@ export function useMatchData(matchId: string): UseMatchDataResult {
     setError(null);
     try {
       const supabase = await getSupabaseClient();
-      const result = await loadMatchData(supabase, matchId, { includeTurnsByLegSummary: false });
+      const result = await loadMatchData(supabase, matchId, {
+        includeTurnsByLegSummary: false,
+        includeTurnsByLegThrows: true,
+      });
 
       if (requestId !== loadAllSpectatorRequestIdRef.current) return;
 
