@@ -17,7 +17,8 @@ type MatchWithDetails = {
   legs_to_win: number;
   created_at: string;
   winner_player_id: string | null;
-  ended_early?: boolean;
+  completed_at: string | null;
+  ended_early: boolean;
   players: Array<{
     id: string;
     display_name: string;
@@ -69,6 +70,7 @@ export default function GamesPage() {
           legs_to_win,
           created_at,
           winner_player_id,
+          completed_at,
           ended_early,
           match_players!inner (
             play_order,
@@ -82,7 +84,6 @@ export default function GamesPage() {
             winner_player_id
           )
         `)
-        .eq('ended_early', false)
         .order('created_at', { ascending: false })
         .limit(20);
 
@@ -116,15 +117,12 @@ export default function GamesPage() {
       });
 
       // Separate live and completed games
-      const now = new Date();
-      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-      const live = matchesWithWinners.filter(match => 
-        !match.winner_player_id && new Date(match.created_at) > oneDayAgo
+      const live = matchesWithWinners.filter(match =>
+        !match.winner_player_id && !match.completed_at && !match.ended_early
       );
 
       const recent = matchesWithWinners
-        .filter(match => match.winner_player_id)
+        .filter(match => match.winner_player_id || match.completed_at || match.ended_early)
         .slice(0, 10);
 
       setLiveGames(live);
@@ -197,7 +195,7 @@ export default function GamesPage() {
   };
 
   const getGameDuration = (match: MatchWithDetails) => {
-    const legsPlayed = match.legs.length;
+    const legsPlayed = match.legs.filter((leg) => leg.winner_player_id).length;
     const totalLegs = match.legs_to_win * 2 - 1; // Assuming best of format
     return `${legsPlayed}/${totalLegs} legs`;
   };
@@ -205,7 +203,7 @@ export default function GamesPage() {
   const getGameProgress = (match: MatchWithDetails) => {
     if (match.winner_player_id) return 'Completed';
     
-    const legsPlayed = match.legs.length;
+    const legsPlayed = match.legs.filter((leg) => leg.winner_player_id).length;
     if (legsPlayed === 0) return 'Starting';
     
     return 'In Progress';
@@ -382,13 +380,17 @@ export default function GamesPage() {
                       </div>
                     </div>
 
-                    {/* Winner */}
+                    {/* Result */}
                     <div className="space-y-1">
-                      <div className="text-sm font-medium text-muted-foreground">Winner</div>
-                      <div className="font-semibold text-green-700 flex items-center gap-1">
-                        <Trophy className="h-4 w-4" />
-                        {match.winner_name}
-                      </div>
+                      <div className="text-sm font-medium text-muted-foreground">Result</div>
+                      {match.winner_name ? (
+                        <div className="font-semibold text-green-700 flex items-center gap-1">
+                          <Trophy className="h-4 w-4" />
+                          {match.winner_name}
+                        </div>
+                      ) : (
+                        <div className="font-semibold text-muted-foreground">Ended early</div>
+                      )}
                     </div>
 
                     {/* Stats */}
