@@ -20,8 +20,16 @@ export function buildCommentaryPrompt(
   const { persona } = options;
   const rng = options.random ?? Math.random;
   const style = persona.style;
+  const significantPressure = Boolean(
+    payload.pressure
+      && (Math.abs(payload.pressure.matchWpa) >= 0.06
+        || (payload.pressure.peakPressureIndex ?? 0) >= 0.65
+        || payload.pressure.createdBogey
+        || payload.pressure.changedMatchFavorite
+        || payload.pressure.checkedOut)
+  );
 
-  if (rng() < style.plainLineProbability) {
+  if (!significantPressure && rng() < style.plainLineProbability) {
     return {
       plainLine: `${payload.playerName} scores ${payload.totalScore}; ${payload.remainingScore} left.`,
       allowSlang: false,
@@ -75,6 +83,36 @@ export function buildCommentaryPrompt(
   if (iq.setupShot) iqHints.push('Visit looked like a setup shot.');
   if (iq.bust) iqHints.push(`Bust resets to ${payload.remainingScore}.`);
 
+  const pressureHints: string[] = [];
+  if (payload.pressure) {
+    const pressure = payload.pressure;
+    const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
+    const formatPoints = (value: number) => `${value >= 0 ? '+' : ''}${Math.round(value * 100)}pp`;
+    pressureHints.push(
+      `Match win chance ${formatPercent(pressure.matchProbabilityBefore)} → ${formatPercent(pressure.matchProbabilityAfter)} (${formatPoints(pressure.matchWpa)}).`
+    );
+    pressureHints.push(
+      `Leg win chance ${formatPercent(pressure.legProbabilityBefore)} → ${formatPercent(pressure.legProbabilityAfter)} (${formatPoints(pressure.legWpa)}).`
+    );
+    if (pressure.changedMatchFavorite) pressureHints.push('This visit changed the match favorite.');
+    if (Math.abs(pressure.biggestDartMatchWpa) >= 0.03) {
+      pressureHints.push(`Biggest single-dart match swing in the visit: ${formatPoints(pressure.biggestDartMatchWpa)}.`);
+    }
+    if ((pressure.peakPressureIndex ?? 0) >= 0.5) {
+      pressureHints.push(`Peak pre-dart pressure index: ${Math.round((pressure.peakPressureIndex ?? 0) * 100)}/100.`);
+    }
+    if (pressure.createdBogey) pressureHints.push('The visit created an unfinishable bogey leave.');
+    else if (
+      pressure.setupGrade
+      && pressure.setupGrade !== 'checkout'
+      && pressure.setupGrade !== 'bust'
+    ) {
+      pressureHints.push(
+        `Setup quality: ${pressure.setupGrade} (${Math.round((pressure.setupQuality ?? 0) * 100)}/100); next-visit checkout chance ${formatPercent(pressure.nextVisitCheckoutProbability ?? 0)}.`
+      );
+    }
+  }
+
   const allowSlang = rng() < style.slangUseProbability;
   const humorStyle = humorStyleFromScore(payload.totalScore);
 
@@ -90,6 +128,7 @@ Recent: ${recentTurnsStr || 'First turn'}.${streakInfo}
 Standings: ${standingsStr || 'No standings available.'}
 
 IQ hints: ${iqHints.length ? iqHints.join(' ') : 'none'}
+Pressure Engine: ${pressureHints.length ? pressureHints.join(' ') : 'no pressure data'}
 
 Write ONE deadpan, concise line (≤ ${style.maxWords} words).
 Use ${payload.playerName}'s name and reference their ${payload.totalScore}-point turn or current checkout situation.
@@ -105,6 +144,7 @@ Tone guide:
 Slang policy: ${allowSlang ? `optional (≤${style.maxSlangPerLine} natural ${slangTermLabel}).` : 'avoid all slang this line.'}
 Stay clear of hashtags, emojis, or filler catchphrases.
 Prioritize dart intelligence (bogeys, checkout pressure, doubles, busts, setup leaves) over jokes.
+When Pressure Engine data is present, explain the consequence accurately. Pressure is the situation; call the result clutch only when the player gained probability.
 Be informative first, witty second. Output only the one-liner.`;
 
   return { prompt, allowSlang, humorStyle };

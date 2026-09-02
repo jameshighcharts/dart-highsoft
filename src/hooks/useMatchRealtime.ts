@@ -30,6 +30,12 @@ import { incrementRealtimeMetric } from '@/lib/match/realtimeMetrics';
 import type { CommentaryDebouncer } from '@/services/commentaryService';
 import type { CommentaryPersonaId } from '@/lib/commentary/types';
 import type { SegmentResult } from '@/utils/dartboard';
+import { summarizePressureForTurn } from '@/utils/pressureInsights';
+import { reconstructPressureTimeline } from '@/utils/pressureReplay';
+import type {
+  PressurePlayerHistoryProfile,
+  PressurePopulationProfile,
+} from '@/utils/pressureProfiles';
 
 function segmentLabelToKind(label: string): SegmentResult['kind'] {
   if (label === 'Miss') return 'Miss';
@@ -157,6 +163,8 @@ type UseMatchRealtimeArgs = {
     queueCommentary: (input: { text: string; personaId: CommentaryPersonaId; excitement: ReturnType<typeof getExcitementLevel> }) => Promise<void>;
     getIsPlaying: () => boolean;
   }>;
+  pressureProfilesByPlayerId: ReadonlyMap<string, PressurePlayerHistoryProfile>;
+  pressurePopulationProfile?: PressurePopulationProfile;
 };
 
 export function useMatchRealtime({
@@ -187,6 +195,8 @@ export function useMatchRealtime({
   setCommentaryPlaying,
   setCurrentCommentary,
   ttsServiceRef,
+  pressureProfilesByPlayerId,
+  pressurePopulationProfile,
 }: UseMatchRealtimeArgs) {
   const spectatorTurnsFetchRef = useRef<Promise<void> | null>(null);
   const spectatorTurnsFetchQueuedRef = useRef(false);
@@ -368,6 +378,29 @@ export function useMatchRealtime({
         const overallTurnNumber = turn.turn_number;
         const dartsUsedThisTurn = throws.length;
         const turnTotal = computeTurnTotal(turn);
+        let pressure: CommentaryContext['pressure'];
+        if (currentLeg && matchSnapshot && !matchSnapshot.fair_ending && turn.tiebreak_round == null) {
+          const initialLegsWon = legsSnapshot.reduce<Record<string, number>>((acc, leg) => {
+            if (leg.id !== currentLeg.id && leg.winner_player_id) {
+              acc[leg.winner_player_id] = (acc[leg.winner_player_id] ?? 0) + 1;
+            }
+            return acc;
+          }, {});
+          const pressureTimeline = reconstructPressureTimeline({
+            playerIds: playersSnapshot.map((player) => player.id),
+            legs: [currentLeg],
+            turnsByLeg: {
+              [currentLeg.id]: turnsSnapshot.filter((entry) => entry.leg_id === currentLeg.id),
+            },
+            startScore: startScoreValue,
+            finishRule: matchSnapshot.finish,
+            legsToWin: legsToWinValue,
+            initialLegsWon,
+            playerProfiles: Object.fromEntries(pressureProfilesByPlayerId),
+            populationProfile: pressurePopulationProfile,
+          });
+          pressure = summarizePressureForTurn(pressureTimeline, turn.id, turn.player_id) ?? undefined;
+        }
 
         const context: CommentaryContext = {
           playerName,
@@ -382,6 +415,7 @@ export function useMatchRealtime({
           busted: turn.busted,
           isHighScore: turnTotal >= 100,
           is180: turnTotal === 180,
+          pressure,
           gameContext: {
             startScore: startScoreValue,
             legsToWin: legsToWinValue,
@@ -1162,5 +1196,7 @@ export function useMatchRealtime({
     setCommentaryPlaying,
     setCurrentCommentary,
     ttsServiceRef,
+    pressureProfilesByPlayerId,
+    pressurePopulationProfile,
   ]);
 }

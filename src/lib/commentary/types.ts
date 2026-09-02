@@ -37,6 +37,25 @@ export interface CommentaryGameContext {
   consecutiveLowScores?: number;
 }
 
+export interface CommentaryPressureContext {
+  matchProbabilityBefore: number;
+  matchProbabilityAfter: number;
+  matchWpa: number;
+  legProbabilityBefore: number;
+  legProbabilityAfter: number;
+  legWpa: number;
+  biggestDartMatchWpa: number;
+  peakMatchLeverage?: number;
+  peakPressureIndex?: number;
+  changedMatchFavorite: boolean;
+  checkedOut: boolean;
+  busted: boolean;
+  setupQuality?: number;
+  setupGrade?: 'checkout' | 'optimal' | 'good' | 'neutral' | 'poor' | 'bust';
+  nextVisitCheckoutProbability?: number;
+  createdBogey?: boolean;
+}
+
 export interface CommentaryPayload {
   playerName: string;
   playerId: string;
@@ -47,6 +66,7 @@ export interface CommentaryPayload {
   isHighScore: boolean;
   is180: boolean;
   gameContext: CommentaryGameContext;
+  pressure?: CommentaryPressureContext;
 }
 
 export interface MatchRecapContext {

@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { EloChangesDisplay } from '@/components/match/EloChangesDisplay';
 import { LiveScoliaBoard } from '@/components/match/LiveScoliaBoard';
+import { PressureWinProbability } from '@/components/match/PressureWinProbability';
 import { ScoliaMatchHeatmaps } from '@/components/match/ScoliaMatchHeatmaps';
 import type { MatchEloChange } from '@/hooks/useMatchEloChanges';
 import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
@@ -18,6 +19,10 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { VoiceOption } from '@/services/ttsService';
 import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
+import type {
+  PressurePlayerHistoryProfile,
+  PressurePopulationProfile,
+} from '@/utils/pressureProfiles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 
@@ -73,6 +78,9 @@ type Props = {
   eloChanges: MatchEloChange[];
   eloChangesLoading: boolean;
   fairEndingState?: FairEndingState;
+  pressureProfilesByPlayerId: ReadonlyMap<string, PressurePlayerHistoryProfile>;
+  pressurePopulationProfile?: PressurePopulationProfile;
+  hasPersonalPressureProfiles: boolean;
 };
 
 const confettiColors = ['#22c55e', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#a855f7'];
@@ -171,6 +179,9 @@ export function MatchSpectatorView({
   eloChanges,
   eloChangesLoading,
   fairEndingState,
+  pressureProfilesByPlayerId,
+  pressurePopulationProfile,
+  hasPersonalPressureProfiles,
 }: Props) {
   const [winnerModalOpen, setWinnerModalOpen] = useState(false);
   const [scoliaBoardPhase, setScoliaBoardPhase] = useState<string | null | undefined>(undefined);
@@ -399,6 +410,23 @@ export function MatchSpectatorView({
             <div className="text-sm">Multiple players checked out — highest score wins!</div>
           </div>
         )}
+
+        <PressureWinProbability
+          orderPlayers={orderPlayers}
+          spectatorCurrentPlayer={spectatorCurrentPlayer}
+          turns={turns}
+          currentLegId={currentLegId}
+          startScore={startScore}
+          finishRule={finishRule}
+          turnThrowCounts={turnThrowCounts}
+          getAvgForPlayer={getAvgForPlayer}
+          legs={legs}
+          legsToWin={match.legs_to_win}
+          matchWinnerId={matchWinnerId}
+          profilesByPlayerId={pressureProfilesByPlayerId}
+          populationProfile={pressurePopulationProfile}
+          hasPersonalProfiles={hasPersonalPressureProfiles}
+        />
 
         {/* Cards Row - responsive layout */}
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">

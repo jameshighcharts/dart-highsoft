@@ -13,6 +13,7 @@ import { useMatchData } from '@/hooks/useMatchData';
 import { useMatchRealtime } from '@/hooks/useMatchRealtime';
 import { useMatchActions } from '@/hooks/useMatchActions';
 import { useMatchEloChanges } from '@/hooks/useMatchEloChanges';
+import { usePressureProfiles } from '@/hooks/usePressureProfiles';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useRealtime } from '@/hooks/useRealtime';
 import type { LegRecord, MatchRecord, Player, TurnRecord } from '@/lib/match/types';
@@ -114,6 +115,9 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     loadPlayersOnly,
     loadTurnsForLeg,
   } = useMatchData(matchId);
+  const finishRule: FinishRule = useMemo(() => (match?.finish ?? 'double_out'), [match?.finish]);
+  const pressurePlayerIds = useMemo(() => players.map((player) => player.id), [players]);
+  const pressureProfiles = usePressureProfiles(pressurePlayerIds, finishRule);
 
   const ongoingTurnRef = useRef<{
     turnId: string;
@@ -234,6 +238,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     setCommentaryPlaying,
     setCurrentCommentary,
     ttsServiceRef,
+    pressureProfilesByPlayerId: pressureProfiles.profilesByPlayerId,
+    pressurePopulationProfile: pressureProfiles.populationProfile,
   });
 
   // Check for spectator mode from URL params
@@ -283,7 +289,6 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   const orderPlayers = useMemo(() => selectOrderPlayers(match, players, currentLeg), [match, players, currentLeg]);
 
   const startScore: number = useMemo(() => (match?.start_score ? parseInt(match.start_score, 10) : 501), [match?.start_score]);
-  const finishRule: FinishRule = useMemo(() => (match?.finish ?? 'double_out'), [match]);
 
   // Determine if match has a winner already
   const matchWinnerId = useMemo(() => selectMatchWinnerId(match, legs), [match, legs]);
@@ -300,6 +305,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     lastInvalidatedWinnerRef.current = matchWinnerId;
     queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
     queryClient.invalidateQueries({ queryKey: ['eloHistory'] });
+    queryClient.invalidateQueries({ queryKey: ['pressure-profiles'] });
   }, [matchWinnerId, queryClient]);
 
   // Fetch ELO rating changes for the completed match
@@ -555,6 +561,9 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           eloChanges={eloChanges}
           eloChangesLoading={eloChangesLoading}
           fairEndingState={fairEndingState}
+          pressureProfilesByPlayerId={pressureProfiles.profilesByPlayerId}
+          pressurePopulationProfile={pressureProfiles.populationProfile}
+          hasPersonalPressureProfiles={pressureProfiles.hasPersonalProfiles}
         />
         <RealtimeDebugPanel
           matchId={matchId}

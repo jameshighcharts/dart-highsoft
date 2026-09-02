@@ -19,6 +19,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `supabase`: SQL migrations and local config.
 - `supabase-test`: Separate Supabase config for E2E tests (port 56XXX).
 - `DEPLOYMENT.md`: Beginner-friendly production deployment guide for Vercel + Supabase.
+- `PRESSURE_ENGINE.md`: Product and modeling roadmap for live probability, WPA, leverage, and pressure analytics.
 - `Dockerfile.scolia-worker`: Production container for the separate persistent Scolia worker.
 - `railway.json`: Railway config-as-code for the single-replica Scolia worker service.
 - `docs/SCOLIA_SOCIAL_API.md`: Markdown reference for the complete Scolia Social API v1.2 protocol.
@@ -82,6 +83,12 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `checkoutTable.ts` | Pre-computed double-out checkout lookup table |
 | `legScoreCalculator.ts` | Calculate remaining scores from turns/throws |
 | `matchStats.ts` | Live spectator scores, round stats |
+| `pressureEngine.ts` | Deterministic live leg/match win probability, expected darts, and prospective pre-dart leverage model |
+| `pressureCheckout.ts` | Deterministic checkout probability, counterfactual setup quality, and generic bogey-leave evaluation |
+| `pressureProfiles.ts` | Hierarchical personal → installation population → fallback model shrinkage for historical player strength |
+| `pressureReplay.ts` | Single-pass historical dart replay producing versioned, deduplicated before/after probability events, WPA, and leverage |
+| `pressureInsights.ts` | One-pass classifier for turning points, lead changes, stolen/thrown-away legs, and commentary moments |
+| `pressureEvents.ts` | Compact provider-neutral per-dart packets, signals, and latest-wins commentary priority classification |
 | `haptics.ts` | Mobile haptic feedback via `navigator.vibrate` |
 
 ### Hooks (`src/hooks`)
@@ -94,6 +101,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `useCommentary.ts` | Commentary feature state, persona selection, TTS, localStorage persistence |
 | `useMatchEloChanges.ts` | Fetches Elo changes after match completion |
 | `useScoliaBoardRealtime.ts` | Pushes sanitized board status and match-occupancy changes into board UIs |
+| `usePressureProfiles.ts` | Fetches and caches compact finish-rule-specific personal/population Pressure profiles once per match player set |
 
 ### Lib (`src/lib`)
 | Path | Purpose |
@@ -126,6 +134,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 |------|---------|
 | `match/MatchScoringView.tsx` | Active scoring view — scores, dartboard/keypad, actions |
 | `match/MatchSpectatorView.tsx` | Read-only spectator view |
+| `match/PressureWinProbability.tsx` | Pressure Engine broadcast strip with per-dart leg/match win probabilities and a current-player-centered circular rail for large fields |
 | `match/MatchPlayersCard.tsx` | Player list with scores, averages, legs won |
 | `match/LiveScoliaBoard.tsx` | Read-only spectator dartboard with live Scolia impact positions and detected dart orientation |
 | `match/ScoliaMatchHeatmaps.tsx` | Whole-match per-player Scolia impact density boards for spectator mode |
@@ -221,6 +230,17 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 
 **Spectator realtime:**
 `useRealtime` subscribes to Supabase channel → dispatches DOM custom events → `useMatchRealtime` listens → `applyThrowChange/applyTurnChange` (spectatorRealtimeReducer) updates state incrementally → on `needsReconcile`: `loadAll()` full refresh.
+
+Each incremental spectator throw also re-derives the current Pressure Engine snapshot in `PressureWinProbability` → `calculatePressureProjection()` blends live form with a league baseline and estimates leg/match win probability plus expected darts remaining without additional network requests. The compact header also derives the on-throw player's prospective pressure index and exact-route checkout probability without increasing the player rail height.
+
+Historical pressure replay evaluates each dart through `evaluateDartSetup()` → estimates checkout probability before/after, compares the resulting leave against every legal non-busting segment, grades setup quality, and flags bogey creation/avoidance. These facts flow into compact `PressureDartPacket` signals and deterministic commentary moments.
+
+**Pressure personalization:**
+Migrations `0055`/`0056` expose small `player_pressure_profiles` and `pressure_population_profiles` aggregates from completed, non-test, non-ended X01 matches, excluding tiebreak turns. `usePressureProfiles()` fetches both finish-rule-specific datasets in parallel and caches them by player set → `createPressureSkillModel()` applies player → installation population → conservative fallback shrinkage → the live projection and replay use the resulting scoring average, checkout conversion, and bust tendency. Current-match form is blended on top. Raw historical throws are never loaded into the spectator per-dart path.
+
+When commentary is enabled for a standard X01 turn, `useMatchRealtime` replays the current leg locally → `summarizePressureForTurn()` adds exact before/after leg and match probability context to the commentary prompt. Fair-ending/tiebreak commentary remains on the traditional context until its pressure model is implemented.
+
+The current request-per-turn commentary API plus separate TTS service is transitional. The planned architecture is a prewarmed, persistent browser-to-GPT-Realtime WebRTC session using short-lived credentials created server-side. Each accepted dart will feed a compact, deduplicated `PressureDartEvent` into the session over the data channel; the deterministic Pressure Engine remains the source of truth for metrics, while the model maintains match narrative context and streams audio plus transcript deltas directly. Feed every dart for context but gate spoken responses by significance. Use instant bundled stings for marquee events, a latest-wins priority policy that cancels stale lower-priority speech, compact checkpoints for long matches, and authoritative snapshot resynchronization after reconnects. Keep the existing commentary/TTS path temporarily behind the same interface as fallback, and instrument detection-to-first-audible-sample latency. See `PRESSURE_ENGINE.md` for the proposed boundary, targets, and delivery sequence.
 
 **Fair ending:**
 First player checks out → remaining players complete their turns in the round → if single checkout: leg resolved → if multiple checkouts: tiebreak rounds (3 darts each, highest score wins).

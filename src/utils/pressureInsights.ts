@@ -1,0 +1,310 @@
+import type { PressureDartEvent, PressureReplayState } from '@/utils/pressureReplay';
+
+export type PressureSwing = {
+  sequence: number;
+  legId: string;
+  legNumber: number;
+  playerId: string;
+  dartId: string;
+  segment: string;
+  scored: number;
+  beforeMatchProbability: number;
+  afterMatchProbability: number;
+  matchWpa: number;
+  beforeLegProbability: number;
+  afterLegProbability: number;
+  legWpa: number;
+  legLeverage: number;
+  matchLeverage: number;
+  pressureIndex: number;
+};
+
+export type PressureLeadChange = {
+  sequence: number;
+  legId: string;
+  legNumber: number;
+  dartId: string;
+  previousLeaderId: string;
+  newLeaderId: string;
+};
+
+export type PressureLegStory = {
+  legId: string;
+  legNumber: number;
+  playerId: string;
+  winnerId: string;
+  probability: number;
+  sequence: number;
+};
+
+export type PressureCommentaryMoment = {
+  kind:
+    | 'lead_change'
+    | 'surge'
+    | 'collapse'
+    | 'checkout'
+    | 'pressure_bust'
+    | 'great_setup'
+    | 'bogey_error';
+  importance: number;
+  swing: PressureSwing;
+};
+
+export type PressureInsightSummary = {
+  biggestPositiveSwing: PressureSwing | null;
+  biggestNegativeSwing: PressureSwing | null;
+  turningPoint: PressureSwing | null;
+  leadChanges: PressureLeadChange[];
+  stolenLegs: PressureLegStory[];
+  thrownAwayLegs: PressureLegStory[];
+  commentaryMoments: PressureCommentaryMoment[];
+};
+
+export type PressureInsightOptions = {
+  stolenLegThreshold?: number;
+  thrownAwayLegThreshold?: number;
+  meaningfulSwingThreshold?: number;
+};
+
+export type PressureTurnSummary = {
+  playerId: string;
+  turnId: string;
+  matchProbabilityBefore: number;
+  matchProbabilityAfter: number;
+  matchWpa: number;
+  legProbabilityBefore: number;
+  legProbabilityAfter: number;
+  legWpa: number;
+  biggestDartMatchWpa: number;
+  peakMatchLeverage: number;
+  peakPressureIndex: number;
+  changedMatchFavorite: boolean;
+  checkedOut: boolean;
+  busted: boolean;
+  setupQuality: number;
+  setupGrade: PressureDartEvent['checkout']['setupGrade'];
+  nextVisitCheckoutProbability: number;
+  createdBogey: boolean;
+};
+
+function projectionFor(state: PressureReplayState, playerId: string) {
+  return state.projections.find((projection) => projection.id === playerId);
+}
+
+function leaderId(state: PressureReplayState) {
+  let leader: { id: string; probability: number } | null = null;
+  for (const projection of state.projections) {
+    if (!leader || projection.matchWinProbability > leader.probability) {
+      leader = { id: projection.id, probability: projection.matchWinProbability };
+    }
+  }
+  return leader?.id ?? null;
+}
+
+function toSwing(event: PressureDartEvent): PressureSwing {
+  const before = projectionFor(event.before, event.playerId);
+  const after = projectionFor(event.after, event.playerId);
+  return {
+    sequence: event.sequence,
+    legId: event.legId,
+    legNumber: event.legNumber,
+    playerId: event.playerId,
+    dartId: event.dartId,
+    segment: event.segment,
+    scored: event.scored,
+    beforeMatchProbability: before?.matchWinProbability ?? 0,
+    afterMatchProbability: after?.matchWinProbability ?? 0,
+    matchWpa: event.matchWinProbabilityAdded[event.playerId] ?? 0,
+    beforeLegProbability: before?.legWinProbability ?? 0,
+    afterLegProbability: (before?.legWinProbability ?? 0) + (event.legWinProbabilityAdded[event.playerId] ?? 0),
+    legWpa: event.legWinProbabilityAdded[event.playerId] ?? 0,
+    legLeverage: event.leverage.leg,
+    matchLeverage: event.leverage.match,
+    pressureIndex: event.leverage.pressureIndex,
+  };
+}
+
+function completedLegWinner(event: PressureDartEvent) {
+  for (const [playerId, winsAfter] of Object.entries(event.after.legsWon)) {
+    if (winsAfter > (event.before.legsWon[playerId] ?? 0)) return playerId;
+  }
+  return null;
+}
+
+export function summarizePressureForTurn(
+  timeline: PressureDartEvent[],
+  turnId: string,
+  playerId: string
+): PressureTurnSummary | null {
+  let first: PressureDartEvent | null = null;
+  let last: PressureDartEvent | null = null;
+  let biggestDartMatchWpa = 0;
+  let peakMatchLeverage = 0;
+  let peakPressureIndex = 0;
+  let cumulativeLegWpa = 0;
+  let changedMatchFavorite = false;
+  let checkedOut = false;
+  let busted = false;
+
+  for (const event of timeline) {
+    if (event.turnId !== turnId || event.playerId !== playerId) continue;
+    first ??= event;
+    last = event;
+    const dartWpa = event.matchWinProbabilityAdded[playerId] ?? 0;
+    cumulativeLegWpa += event.legWinProbabilityAdded[playerId] ?? 0;
+    if (Math.abs(dartWpa) > Math.abs(biggestDartMatchWpa)) biggestDartMatchWpa = dartWpa;
+    peakMatchLeverage = Math.max(peakMatchLeverage, event.leverage.match);
+    peakPressureIndex = Math.max(peakPressureIndex, event.leverage.pressureIndex);
+    if (leaderId(event.before) !== leaderId(event.after)) changedMatchFavorite = true;
+    checkedOut ||= event.checkedOut;
+    busted ||= event.busted;
+  }
+
+  if (!first || !last) return null;
+  const before = projectionFor(first.before, playerId);
+  const after = projectionFor(last.after, playerId);
+  if (!before || !after) return null;
+  const legProbabilityAfter = before.legWinProbability + cumulativeLegWpa;
+
+  return {
+    playerId,
+    turnId,
+    matchProbabilityBefore: before.matchWinProbability,
+    matchProbabilityAfter: after.matchWinProbability,
+    matchWpa: after.matchWinProbability - before.matchWinProbability,
+    legProbabilityBefore: before.legWinProbability,
+    legProbabilityAfter,
+    legWpa: legProbabilityAfter - before.legWinProbability,
+    biggestDartMatchWpa,
+    peakMatchLeverage,
+    peakPressureIndex,
+    changedMatchFavorite,
+    checkedOut,
+    busted,
+    setupQuality: last.checkout.setupQuality,
+    setupGrade: last.checkout.setupGrade,
+    nextVisitCheckoutProbability: last.checkout.nextVisitCheckoutProbability,
+    createdBogey: last.checkout.createdBogey,
+  };
+}
+
+/**
+ * Converts the numeric dart timeline into stable, deterministic match facts.
+ * It performs one pass and emits no prose, keeping it safe for UI, commentary,
+ * notifications, or future persistence without an LLM in the critical path.
+ */
+export function analyzePressureTimeline(
+  timeline: PressureDartEvent[],
+  options: PressureInsightOptions = {}
+): PressureInsightSummary {
+  const stolenThreshold = options.stolenLegThreshold ?? 0.2;
+  const thrownAwayThreshold = options.thrownAwayLegThreshold ?? 0.8;
+  const meaningfulSwingThreshold = options.meaningfulSwingThreshold ?? 0.08;
+  let biggestPositiveSwing: PressureSwing | null = null;
+  let biggestNegativeSwing: PressureSwing | null = null;
+  let turningPoint: PressureSwing | null = null;
+  const leadChanges: PressureLeadChange[] = [];
+  const stolenLegs: PressureLegStory[] = [];
+  const thrownAwayLegs: PressureLegStory[] = [];
+  const commentaryMoments: PressureCommentaryMoment[] = [];
+  const legRanges = new Map<string, Map<string, { min: number; max: number }>>();
+
+  for (const event of timeline) {
+    const swing = toSwing(event);
+    if (swing.matchWpa > 0 && (!biggestPositiveSwing || swing.matchWpa > biggestPositiveSwing.matchWpa)) {
+      biggestPositiveSwing = swing;
+    }
+    if (swing.matchWpa < 0 && (!biggestNegativeSwing || swing.matchWpa < biggestNegativeSwing.matchWpa)) {
+      biggestNegativeSwing = swing;
+    }
+    if (!turningPoint || Math.abs(swing.matchWpa) > Math.abs(turningPoint.matchWpa)) {
+      turningPoint = swing;
+    }
+
+    let ranges = legRanges.get(event.legId);
+    if (!ranges) {
+      ranges = new Map();
+      legRanges.set(event.legId, ranges);
+    }
+    for (const projection of event.before.projections) {
+      const afterProbability = projection.legWinProbability
+        + (event.legWinProbabilityAdded[projection.id] ?? 0);
+      const current = ranges.get(projection.id) ?? { min: 1, max: 0 };
+      current.min = Math.min(current.min, projection.legWinProbability, afterProbability);
+      current.max = Math.max(current.max, projection.legWinProbability, afterProbability);
+      ranges.set(projection.id, current);
+    }
+
+    const previousLeaderId = leaderId(event.before);
+    const newLeaderId = leaderId(event.after);
+    if (previousLeaderId && newLeaderId && previousLeaderId !== newLeaderId) {
+      leadChanges.push({
+        sequence: event.sequence,
+        legId: event.legId,
+        legNumber: event.legNumber,
+        dartId: event.dartId,
+        previousLeaderId,
+        newLeaderId,
+      });
+      commentaryMoments.push({ kind: 'lead_change', importance: Math.abs(swing.matchWpa), swing });
+    } else if (swing.matchWpa >= meaningfulSwingThreshold) {
+      commentaryMoments.push({ kind: 'surge', importance: swing.matchWpa, swing });
+    } else if (swing.matchWpa <= -meaningfulSwingThreshold) {
+      commentaryMoments.push({ kind: 'collapse', importance: Math.abs(swing.matchWpa), swing });
+    }
+
+    if (event.checkedOut) {
+      commentaryMoments.push({ kind: 'checkout', importance: Math.max(Math.abs(swing.matchWpa), swing.matchLeverage, 0.1), swing });
+    } else if (event.busted && swing.beforeLegProbability >= 0.35) {
+      commentaryMoments.push({ kind: 'pressure_bust', importance: Math.max(Math.abs(swing.matchWpa), swing.matchLeverage, 0.08), swing });
+    }
+    if (event.checkout.createdBogey) {
+      commentaryMoments.push({ kind: 'bogey_error', importance: Math.max(swing.matchLeverage, 0.08), swing });
+    } else if (
+      event.dartIndex === 3
+      && !event.checkedOut
+      && (event.checkout.setupGrade === 'optimal' || event.checkout.setupGrade === 'good')
+      && event.checkout.nextVisitCheckoutProbability > 0
+    ) {
+      commentaryMoments.push({ kind: 'great_setup', importance: Math.max(swing.matchLeverage, 0.06), swing });
+    }
+
+    const winnerId = completedLegWinner(event);
+    if (winnerId) {
+      const winnerRange = ranges.get(winnerId);
+      if (winnerRange && winnerRange.min < stolenThreshold) {
+        stolenLegs.push({
+          legId: event.legId,
+          legNumber: event.legNumber,
+          playerId: winnerId,
+          winnerId,
+          probability: winnerRange.min,
+          sequence: event.sequence,
+        });
+      }
+      for (const [playerId, range] of ranges) {
+        if (playerId !== winnerId && range.max > thrownAwayThreshold) {
+          thrownAwayLegs.push({
+            legId: event.legId,
+            legNumber: event.legNumber,
+            playerId,
+            winnerId,
+            probability: range.max,
+            sequence: event.sequence,
+          });
+        }
+      }
+    }
+  }
+
+  commentaryMoments.sort((a, b) => b.importance - a.importance || a.swing.sequence - b.swing.sequence);
+  return {
+    biggestPositiveSwing,
+    biggestNegativeSwing,
+    turningPoint,
+    leadChanges,
+    stolenLegs,
+    thrownAwayLegs,
+    commentaryMoments,
+  };
+}
