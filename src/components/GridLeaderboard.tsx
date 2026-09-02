@@ -802,7 +802,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
   }
 
   return (
-    <div className="grid-leaderboard">
+    <div className="grid-leaderboard highcharts-dark">
       <div className="leaderboard-header">
         <div className="leaderboard-heading">{headerContent}</div>
         <div className="leaderboard-kpis" aria-label="Leaderboard overview">
