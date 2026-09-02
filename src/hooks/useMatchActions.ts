@@ -110,7 +110,6 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
     orderPlayers,
     finishRule,
     matchWinnerId,
-    localTurn,
     ongoingTurnRef,
     setLocalTurn,
     loadAll,
@@ -127,7 +126,6 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
     ttsServiceRef,
     broadcastRematch,
     fairEndingState,
-    startScore,
   } = args;
 
   const [editOpen, setEditOpen] = useState(false);
@@ -140,6 +138,7 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
   const [endGameLoading, setEndGameLoading] = useState(false);
   const [rematchLoading, setRematchLoading] = useState(false);
   const scoringQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const completedTurnPlayerIdRef = useRef<string | null>(null);
 
   const syncTurnFromStateIfNeeded = useCallback(() => {
     if (!currentLeg || !currentPlayer) return null as string | null;
@@ -205,6 +204,7 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
         await loadAll();
         return;
       }
+      completedTurnPlayerIdRef.current = ongoing.playerId;
       ongoingTurnRef.current = null;
       setLocalTurn({ playerId: null, darts: [] });
       if (legCompleted) {
@@ -396,6 +396,10 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
     async (_x: number, _y: number, result: SegmentResult) => {
       if (matchWinnerId) return; // match over
       if (!currentLeg || !currentPlayer) return;
+      if (completedTurnPlayerIdRef.current === currentPlayer.id && !ongoingTurnRef.current) return;
+      if (completedTurnPlayerIdRef.current !== currentPlayer.id) {
+        completedTurnPlayerIdRef.current = null;
+      }
       const isTiebreak = fairEndingState.phase === 'tiebreak';
       const clickStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
       let turnId = syncTurnFromStateIfNeeded();
@@ -416,7 +420,7 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
         outcome = { newScore: 0, busted: false, finished: false };
       } else {
         const myScoreStart = ongoingTurnRef.current?.startScore ?? getScoreForPlayer(currentPlayer.id);
-        const localSubtotal = localTurn.darts.reduce((s, d) => s + d.scored, 0);
+        const localSubtotal = ongoingTurnRef.current?.darts.reduce((s, d) => s + d.scored, 0) ?? 0;
         outcome = applyThrow(myScoreStart - localSubtotal, result, finishRule);
       }
       const hadPersistedTurnId = !turnId.startsWith('pending-');
@@ -518,7 +522,6 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
       syncTurnFromStateIfNeeded,
       ongoingTurnRef,
       getScoreForPlayer,
-      localTurn.darts,
       finishRule,
       setLocalTurn,
       finishTurn,
