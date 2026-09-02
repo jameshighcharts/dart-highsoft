@@ -1,4 +1,5 @@
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { isScoliaBoardReady } from '@/lib/scolia/availability';
 import { NextRequest, NextResponse } from 'next/server';
 
 type CreateMatchRequest = {
@@ -14,6 +15,8 @@ type CreateMatchResponse = {
   spectatorMode: string;
 };
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as
@@ -24,6 +27,7 @@ export async function POST(request: NextRequest) {
           finishRule: 'single_out' | 'double_out';
           playerIds: string[];
           fairEnding?: boolean;
+          scoliaBoardId?: string | null;
         };
     
     const supabase = getSupabaseServerClient();
@@ -33,6 +37,7 @@ export async function POST(request: NextRequest) {
     let legsToWin: number;
     let fairEnding = false;
     let playerIds: string[] = [];
+    let scoliaBoardId: string | null = null;
 
     if ('playerIds' in body) {
       if (!body.startScore || ![201, 301, 501].includes(body.startScore)) {
@@ -52,6 +57,12 @@ export async function POST(request: NextRequest) {
       legsToWin = body.legsToWin;
       fairEnding = body.fairEnding && legsToWin === 1 ? true : false;
       playerIds = body.playerIds;
+      if (body.scoliaBoardId !== undefined && body.scoliaBoardId !== null) {
+        if (typeof body.scoliaBoardId !== 'string' || !UUID_PATTERN.test(body.scoliaBoardId)) {
+          return NextResponse.json({ error: 'Invalid Scolia board' }, { status: 400 });
+        }
+        scoliaBoardId = body.scoliaBoardId;
+      }
     } else {
       if (!body.type || ![201, 301, 501].includes(body.type)) {
         return NextResponse.json({ error: 'Invalid type. Must be 201, 301, or 501' }, { status: 400 });
@@ -106,6 +117,43 @@ export async function POST(request: NextRequest) {
       }
       playerIds = trimmedNames.map((n) => resolvedByName.get(n)!.id);
     }
+
+    if (scoliaBoardId) {
+      const [boardResult, activeMatchResult] = await Promise.all([
+        supabase
+          .from('scolia_boards')
+          .select('worker_connection_status, board_status, worker_heartbeat_at')
+          .eq('id', scoliaBoardId)
+          .eq('enabled', true)
+          .maybeSingle(),
+        supabase
+          .from('matches')
+          .select('id')
+          .eq('scolia_board_id', scoliaBoardId)
+          .is('completed_at', null)
+          .is('winner_player_id', null)
+          .eq('ended_early', false)
+          .maybeSingle(),
+      ]);
+
+      if (boardResult.error) throw new Error(boardResult.error.message);
+      if (activeMatchResult.error) throw new Error(activeMatchResult.error.message);
+      if (!boardResult.data) {
+        return NextResponse.json({ error: 'Scolia board not found' }, { status: 404 });
+      }
+      if (activeMatchResult.data) {
+        return NextResponse.json({ error: 'This Scolia board is already assigned to an active match' }, { status: 409 });
+      }
+      if (
+        !isScoliaBoardReady({
+          workerConnectionStatus: boardResult.data.worker_connection_status as string,
+          boardStatus: boardResult.data.board_status as string | null,
+          workerHeartbeatAt: boardResult.data.worker_heartbeat_at as string | null,
+        })
+      ) {
+        return NextResponse.json({ error: 'This Scolia board is not ready' }, { status: 409 });
+      }
+    }
     
     // Create match
     const { data: match, error: matchError } = await supabase
@@ -116,11 +164,18 @@ export async function POST(request: NextRequest) {
         finish,
         legs_to_win: legsToWin,
         fair_ending: fairEnding,
+        scolia_board_id: scoliaBoardId,
       })
       .select('*')
       .single();
       
     if (matchError || !match) {
+      if (matchError?.code === '23505' && scoliaBoardId) {
+        return NextResponse.json(
+          { error: 'This Scolia board is already assigned to an active match' },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
         { error: 'Failed to create match' },
         { status: 500 }
@@ -144,6 +199,7 @@ export async function POST(request: NextRequest) {
       .insert(matchPlayers);
       
     if (matchPlayersError) {
+      await supabase.from('matches').delete().eq('id', matchId);
       return NextResponse.json(
         { error: 'Failed to add players to match' },
         { status: 500 }
@@ -160,6 +216,7 @@ export async function POST(request: NextRequest) {
       });
       
     if (legError) {
+      await supabase.from('matches').delete().eq('id', matchId);
       return NextResponse.json(
         { error: 'Failed to create first leg' },
         { status: 500 }

@@ -132,6 +132,7 @@ export function MatchScoringView({
   isTournamentMatch = false,
   tournamentId,
 }: Props) {
+  const isScoliaMatch = Boolean(match.scolia_board_id);
   const currentPlayerLastTurn = useMemo(() => {
     if (!currentPlayer) return null;
     for (let i = turns.length - 1; i >= 0; i--) {
@@ -306,13 +307,35 @@ export function MatchScoringView({
             })()}
           </div>
           )}
-          <div className={`${matchWinnerId ? 'pointer-events-none opacity-50' : ''} md:hidden`}>
-            <MobileKeypad onHit={(seg) => onBoardClick(0, 0, seg as unknown as ReturnType<typeof computeHit>)} />
-          </div>
+          {isScoliaMatch ? (
+            <div className="rounded-xl border border-emerald-500/40 bg-emerald-50 px-4 py-5 text-center dark:bg-emerald-950/30 md:hidden">
+              <div className="font-semibold text-emerald-900 dark:text-emerald-100">Scolia scoring active</div>
+              <p className="mt-1 text-sm text-emerald-800/80 dark:text-emerald-200/80">
+                Throw at the physical board. Detected darts appear here automatically.
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">Use Undo dart or Edit throws for corrections.</p>
+            </div>
+          ) : (
+            <div className={`${matchWinnerId ? 'pointer-events-none opacity-50' : ''} md:hidden`}>
+              <MobileKeypad onHit={(seg) => onBoardClick(0, 0, seg as unknown as ReturnType<typeof computeHit>)} />
+            </div>
+          )}
           {/* Desktop: board with buttons on the right */}
           <div className="hidden md:flex items-start gap-4">
             <div className={`flex-1 flex justify-center ${matchWinnerId ? 'pointer-events-none opacity-50' : ''}`}>
-              <Dartboard onHit={onBoardClick} />
+              {isScoliaMatch ? (
+                <div className="flex min-h-[460px] w-full max-w-2xl items-center justify-center rounded-2xl border border-emerald-500/40 bg-emerald-50 p-8 text-center dark:bg-emerald-950/30">
+                  <div>
+                    <div className="text-xl font-semibold text-emerald-900 dark:text-emerald-100">Scolia scoring active</div>
+                    <p className="mt-2 text-sm text-emerald-800/80 dark:text-emerald-200/80">
+                      Throw at the physical board. Detected darts appear here automatically.
+                    </p>
+                    <p className="mt-3 text-xs text-muted-foreground">Manual scoring is disabled for this match.</p>
+                  </div>
+                </div>
+              ) : (
+                <Dartboard onHit={onBoardClick} />
+              )}
             </div>
             <div className="flex flex-col gap-2 pt-4">
               <Button

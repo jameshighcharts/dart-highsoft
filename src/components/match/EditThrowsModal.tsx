@@ -114,4 +114,3 @@ export function EditThrowsModal({
     </div>
   );
 }
-

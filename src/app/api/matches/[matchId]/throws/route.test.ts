@@ -28,6 +28,7 @@ type ThrowRow = {
   dart_index: number;
   segment: string;
   scored: number;
+  scolia_event_id?: number | null;
 };
 
 function createThrowsTableMock({
@@ -43,7 +44,10 @@ function createThrowsTableMock({
 }) {
   return {
     select(query?: string) {
-      expect(query).toBe('id, dart_index, segment, scored');
+      expect([
+        'id, dart_index, segment, scored',
+        'id, dart_index, segment, scored, scolia_event_id',
+      ]).toContain(query);
       let rows = existingThrows.slice();
       const builder = {
         eq(column: string, value: string) {
@@ -98,6 +102,37 @@ function createThrowsTableMock({
 describe('POST /api/matches/[matchId]/throws', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('rejects manual throw creation for Scolia matches', async () => {
+    getSupabaseServerClientMock.mockReturnValue({});
+    loadMatchMock.mockResolvedValue({
+      id: 'match-1',
+      start_score: '501',
+      finish: 'double_out',
+      legs_to_win: 3,
+      scolia_board_id: 'board-1',
+    });
+    isMatchActiveMock.mockReturnValue(true);
+
+    const request = new Request('http://localhost/api/matches/match-1/throws', {
+      method: 'POST',
+      body: JSON.stringify({
+        turnId: 'turn-1',
+        dartIndex: 1,
+        segment: 'S20',
+        scored: 20,
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ matchId: 'match-1' }) });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Manual scoring is disabled for Scolia matches',
+    });
+    expect(resolveOrCreateTurnForPlayerMock).not.toHaveBeenCalled();
   });
 
   it('creates a throw without explicitly writing match_id (trigger fills it)', async () => {

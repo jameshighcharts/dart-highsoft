@@ -49,6 +49,9 @@ export default function Home() {
                 <Link href="/players">Players</Link>
               </Button>
               <Button asChild variant="outline">
+                <Link href="/boards">Scolia Boards</Link>
+              </Button>
+              <Button asChild variant="outline">
                 <Link href="/elo-multi">Multiplayer Elo</Link>
               </Button>
             </div>

@@ -11,6 +11,7 @@ export type MatchRecord = {
   ended_early?: boolean;
   fair_ending?: boolean;
   tournament_match_id?: string | null;
+  scolia_board_id?: string | null;
 };
 
 export type LegRecord = {
@@ -44,9 +45,12 @@ export type ThrowRecord = {
   dart_index: number;
   segment: string;
   scored: number;
+  impact_x_mm?: number | null;
+  impact_y_mm?: number | null;
+  angle_horizontal_deg?: number | null;
+  angle_vertical_deg?: number | null;
 };
 
 export type TurnWithThrows = TurnRecord & {
   throws: ThrowRecord[];
 };
-

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { isMatchActive, loadMatch } from '@/lib/server/matchGuards';
 import { resolveOrCreateTurnForPlayer } from '@/lib/server/turnLifecycle';
+import { enqueueCurrentRoundScoliaThrowCommand } from '@/lib/server/scoliaCommands';
 
 async function ensureTurnInMatch(
   supabase: ReturnType<typeof getSupabaseServerClient>,
@@ -23,6 +24,7 @@ type ThrowSequenceRow = {
   dart_index: number;
   segment: string;
   scored: number;
+  scolia_event_id?: number | null;
 };
 
 function scoreFromSegment(segment: string): number | null {
@@ -103,6 +105,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     const match = await loadMatch(supabase, matchId);
     if (!match) return NextResponse.json({ error: 'Match not found' }, { status: 404 });
     if (!isMatchActive(match)) return NextResponse.json({ error: 'Match is not active' }, { status: 409 });
+    if (match.scolia_board_id) {
+      return NextResponse.json(
+        { error: 'Manual scoring is disabled for Scolia matches' },
+        { status: 409 }
+      );
+    }
 
     // Only allow tiebreakRound when match has fair_ending enabled and value is valid
     let tiebreakRound: number | undefined;
@@ -222,7 +230,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ m
 
     const { data: latestThrows, error: latestError } = await supabase
       .from('throws')
-      .select('id, dart_index, segment, scored')
+      .select('id, dart_index, segment, scored, scolia_event_id')
       .eq('turn_id', body.turnId)
       .order('dart_index', { ascending: false })
       .limit(1);
@@ -239,6 +247,16 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ m
       .eq('id', latestThrow.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (count === 0) return NextResponse.json({ error: 'Throw was already removed' }, { status: 404 });
+    try {
+      await enqueueCurrentRoundScoliaThrowCommand(
+        supabase,
+        match,
+        { dartIndex: latestThrow.dart_index, scoliaEventId: latestThrow.scolia_event_id ?? null },
+        'DELETE_THROW'
+      );
+    } catch (commandError) {
+      console.error('Failed to queue Scolia throw deletion:', commandError);
+    }
     return NextResponse.json({ ok: true, deletedThrow: latestThrow });
   } catch (error) {
     console.error('DELETE /api/matches/[matchId]/throws error:', error);
