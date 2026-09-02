@@ -54,7 +54,7 @@ export async function loadMatchData(
             .select(
               `
             *,
-            throws:throws(id, turn_id, dart_index, segment, scored)
+            throws:throws(id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)
           `
             )
             .eq('leg_id', currentLeg.id)

@@ -8,13 +8,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { EloChangesDisplay } from '@/components/match/EloChangesDisplay';
+import { LiveScoliaBoard } from '@/components/match/LiveScoliaBoard';
 import type { MatchEloChange } from '@/hooks/useMatchEloChanges';
+import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
 import type { CommentaryPersona, CommentaryPersonaId } from '@/lib/commentary/types';
 import type { LegRecord, MatchRecord, Player, TurnRecord } from '@/lib/match/types';
+import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { VoiceOption } from '@/services/ttsService';
 import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 
 const ScoreProgressChart = dynamic(
@@ -167,6 +170,34 @@ export function MatchSpectatorView({
   fairEndingState,
 }: Props) {
   const [winnerModalOpen, setWinnerModalOpen] = useState(false);
+  const [scoliaBoardPhase, setScoliaBoardPhase] = useState<string | null | undefined>(undefined);
+  const scoliaBoardId = match.scolia_board_id;
+
+  const loadScoliaBoardPhase = useCallback(async () => {
+    if (!scoliaBoardId) return;
+    const supabase = await getSupabaseClient();
+    const { data } = await supabase
+      .from('scolia_board_public_status')
+      .select('board_phase')
+      .eq('board_id', scoliaBoardId)
+      .maybeSingle();
+    if (data) setScoliaBoardPhase(data.board_phase as string | null);
+  }, [scoliaBoardId]);
+
+  useEffect(() => {
+    void loadScoliaBoardPhase();
+  }, [loadScoliaBoardPhase]);
+
+  useScoliaBoardRealtime({
+    onUpsert: (status) => {
+      if (status.boardId === scoliaBoardId) setScoliaBoardPhase(status.boardPhase);
+    },
+    onRemove: (boardId) => {
+      if (boardId === scoliaBoardId) setScoliaBoardPhase(undefined);
+    },
+    onMatchChange: () => {},
+    onReconcile: () => void loadScoliaBoardPhase(),
+  }, Boolean(scoliaBoardId));
 
   useEffect(() => {
     setWinnerModalOpen(Boolean(matchWinnerId));
@@ -368,6 +399,15 @@ export function MatchSpectatorView({
 
         {/* Cards Row - responsive layout */}
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+          {match.scolia_board_id ? (
+            <LiveScoliaBoard
+              turns={turns}
+              currentLegId={currentLegId}
+              currentPlayerName={spectatorCurrentPlayer?.display_name}
+              playerById={playerById}
+              boardPhase={scoliaBoardPhase}
+            />
+          ) : null}
           <SpectatorLiveMatchCard
             match={match}
             orderPlayers={orderPlayers}
@@ -379,6 +419,7 @@ export function MatchSpectatorView({
             turnThrowCounts={turnThrowCounts}
             getAvgForPlayer={getAvgForPlayer}
             fairEndingState={fairEndingState}
+            currentPlayerPresentedElsewhere={Boolean(match.scolia_board_id)}
           />
 
           {/* Legs Summary */}

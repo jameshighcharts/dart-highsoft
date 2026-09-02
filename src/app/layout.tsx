@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Link from "next/link";
-import { Home, Gamepad2, BarChart3, Trophy } from "lucide-react";
+import { Home, Gamepad2, BarChart3, Radio, Trophy } from "lucide-react";
 import { Analytics } from "@vercel/analytics/react";
 import { MatchSpectatorHotkey } from "@/components/MatchSpectatorHotkey";
 import { QueryProvider } from "@/components/QueryProvider";
@@ -58,6 +58,10 @@ export default function RootLayout({
                 <Trophy className="size-4" />
                 Leaderboards
               </Link>
+              <Link href="/boards" className="flex items-center gap-2">
+                <Radio className="size-4" />
+                Boards
+              </Link>
               <Link href="/stats" className="flex items-center gap-2">
                 <BarChart3 className="size-4" />
                 Statistics
@@ -75,8 +79,8 @@ export default function RootLayout({
                 <Gamepad2 className="size-5" />
                 <span className="text-xs">Games</span>
               </Link>
-              <Link href="/leaderboards" className="flex flex-col items-center justify-center py-2 gap-1">
-                <Trophy className="size-5" />
+              <Link href="/boards" className="flex flex-col items-center justify-center py-2 gap-1">
+                <Radio className="size-5" />
                 <span className="text-xs">Boards</span>
               </Link>
               <Link href="/stats" className="flex flex-col items-center justify-center py-2 gap-1">

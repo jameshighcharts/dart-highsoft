@@ -5,8 +5,8 @@
  * Extracted from MatchClient to enable thorough unit testing of undo/edit scenarios.
  */
 
-import { applyThrow, FinishRule } from './x01';
-import type { SegmentResult } from './dartboard';
+import { applyThrow, type FinishRule } from './x01.ts';
+import type { SegmentResult } from './dartboard.ts';
 
 export type ThrowData = {
   segment: string;

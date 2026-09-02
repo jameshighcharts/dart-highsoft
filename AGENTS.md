@@ -12,12 +12,15 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `src/lib`: Client initializers and shared libs.
 - `src/hooks`: React hooks for match state, actions, realtime, and commentary.
 - `src/services`: External service clients (commentary API, TTS audio).
+- `src/workers`: Long-running backend processes (Scolia board WebSocket connections).
 - `src/test-utils`: Test factories, mock Supabase client.
 - `public`/`favicon`: Static assets.
 - `e2e`: Playwright E2E tests and fixtures.
 - `supabase`: SQL migrations and local config.
 - `supabase-test`: Separate Supabase config for E2E tests (port 56XXX).
 - `DEPLOYMENT.md`: Beginner-friendly production deployment guide for Vercel + Supabase.
+- `Dockerfile.scolia-worker`: Production container for the separate persistent Scolia worker.
+- `docs/SCOLIA_SOCIAL_API.md`: Markdown reference for the complete Scolia Social API v1.2 protocol.
 
 ## File Map
 
@@ -25,11 +28,12 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | Path | Purpose |
 |------|---------|
 | `page.tsx` | Home — leaderboard grid, nav to new match/practice/players |
-| `new/page.tsx` | New match creation form |
+| `new/page.tsx` | New match creation form with optional ready Scolia board selection |
 | `match/[id]/page.tsx` | Match page (server component) |
 | `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator view |
 | `games/page.tsx` | Recent games listing |
 | `players/page.tsx` | Player management (list, create, toggle active) |
+| `boards/page.tsx` | Scolia board management (connectivity, availability, active-match links, connect/disconnect) |
 | `stats/page.tsx` | Stats and leaderboards |
 | `leaderboards/page.tsx` | Detailed leaderboards |
 | `elo-multi/page.tsx` | Multiplayer Elo leaderboard |
@@ -54,6 +58,9 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `elo/update/` | POST | Update 1v1 Elo ratings |
 | `elo-multi/update/` | POST | Update multiplayer Elo ratings |
 | `players/` | GET, POST | List or create players |
+| `scolia/boards/` | GET, PUT | List/connect Scolia boards and merge worker plus active-match status |
+| `scolia/boards/available/` | GET | List safe board status and availability for match selection |
+| `scolia/boards/[serialNumber]/` | DELETE | Disconnect a board from the Scolia service account |
 | `practice/sessions/` | POST | Create practice session |
 | `practice/sessions/[id]/end/` | PATCH | End practice session |
 | `practice/sessions/[id]/throws/` | POST | Record practice throw |
@@ -84,6 +91,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `useRealtime.ts` | Low-level Supabase channel subscription, DOM custom events, connection lifecycle |
 | `useCommentary.ts` | Commentary feature state, persona selection, TTS, localStorage persistence |
 | `useMatchEloChanges.ts` | Fetches Elo changes after match completion |
+| `useScoliaBoardRealtime.ts` | Pushes sanitized board status and match-occupancy changes into board UIs |
 
 ### Lib (`src/lib`)
 | Path | Purpose |
@@ -97,11 +105,19 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `server/completeLeg.ts` | Idempotent leg completion: winner, next leg creation, Elo RPC |
 | `server/turnLifecycle.ts` | Race-tolerant turn creation, `resolveOrCreateTurnForPlayer()` |
 | `server/recomputeLegTurns.ts` | Recomputes turn scores from raw throws after edits |
+| `server/scoliaCommands.ts` | Enqueues current-round Scolia correction/deletion notifications for the worker WebSocket |
+| `server/scoliaThrowIngestion.ts` | Idempotently maps persisted Scolia detections into the active app match and completes turns/legs |
 | `commentary/personas.ts` | AI commentary persona definitions |
 | `commentary/promptBuilder.ts` | Builds LLM prompts from game context |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
 | `supabaseServer.ts` | Server-side Supabase client (API routes) |
 | `apiClient.ts` | Typed fetch wrapper: `apiRequest<T>()` |
+| `scolia/access.ts` | Development-only board-management guard pending production admin auth |
+| `scolia/availability.ts` | Pure live-heartbeat and ready-state checks for match assignment |
+| `scolia/client.ts` | Server-only Scolia REST client for board registration |
+| `scolia/commandRecovery.ts` | Pure acknowledgement timeout and bounded-retry policy for outbound board commands |
+| `scolia/protocol.ts` | Pure Scolia message/throw parsing, board-state mapping, and reconnect timing |
+| `scolia/types.ts` | Shared Scolia board response types |
 
 ### Components (`src/components`)
 | File | Purpose |
@@ -109,6 +125,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `match/MatchScoringView.tsx` | Active scoring view — scores, dartboard/keypad, actions |
 | `match/MatchSpectatorView.tsx` | Read-only spectator view |
 | `match/MatchPlayersCard.tsx` | Player list with scores, averages, legs won |
+| `match/LiveScoliaBoard.tsx` | Read-only spectator dartboard with live Scolia impact positions and detected dart orientation |
 | `match/EditThrowsModal.tsx` | Edit recorded throws in current leg |
 | `match/EditPlayersModal.tsx` | Add/remove/reorder players |
 | `match/EloChangesDisplay.tsx` | Elo rating changes after match |
@@ -121,6 +138,11 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `CommentaryDisplay.tsx` | AI commentary text display |
 | `ScoreProgressChart.tsx` | Score progression chart |
 | `TurnsHistoryCard.tsx` | Scrollable turns history for a leg |
+
+### Workers (`src/workers`)
+| File | Purpose |
+|------|---------|
+| `scoliaWorker.ts` | Persistent Scolia worker: maintains board WebSockets, persists events/status, and queues throw ingestion/recovery |
 
 ### Test Utilities (`src/test-utils`)
 | File | Purpose |
@@ -199,6 +221,18 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 
 **Fair ending:**
 First player checks out → remaining players complete their turns in the round → if single checkout: leg resolved → if multiple checkouts: tiebreak rounds (3 darts each, highest score wins).
+
+**Scolia board connectivity:**
+`npm run scolia:worker` → REST discovery of account boards → one Scolia cloud WebSocket per serial → serialize and deduplicate incoming messages → persist raw `scolia_events` + current `scolia_boards` status → retry pending/failed detections → `ingestScoliaThrowEvent` maps the sector to the active match/player/turn → existing X01 bust/checkout, fair-ending, leg completion, Elo, and Supabase realtime flows apply. `throws.scolia_event_id` enforces exactly-once scoring across reconnects.
+
+Current-round app undo/edit → match throw API mutates and recomputes app state → `enqueueCurrentRoundScoliaThrowCommand` skips manual or already-taken-out darts and creates `scolia_commands` → worker sends `DELETE_THROW`/`THROW_CORRECTED` on the owning board socket → `ACKNOWLEDGED`/`REFUSED` updates command status.
+
+**Scolia match assignment:**
+New Match and Boards load one API snapshot → `scolia_board_public_status` Postgres Realtime updates runtime status immediately while match events refresh occupancy → reconnects reconcile from the API and a local heartbeat-expiry timer detects silent worker loss. The user selects manual scoring or a connected/ready unused board → `POST /api/matches` revalidates availability → persists `matches.scolia_board_id`. A partial unique index permits only one active match per physical board.
+
+Scolia matches replace the manual keypad/dartboard with a hardware-scoring notice, and manual throw POSTs are rejected server-side. Rematch revalidates and carries the same ready board; the partial unique index rejects a concurrent claim.
+
+Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. A missing acknowledgement resets a stale command for retry; after three attempts it becomes `failed`. Deploy `Dockerfile.scolia-worker` as exactly one always-on worker replica outside Vercel.
 
 ## Supabase Migration Rule
 - Do not use `ALTER FUNCTION` in Supabase migrations. For function changes, use drop + recreate.

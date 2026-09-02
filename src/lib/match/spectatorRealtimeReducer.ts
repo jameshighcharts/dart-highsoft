@@ -105,6 +105,10 @@ export function applyThrowChange(
       dart_index: record.dart_index ?? throws[existingIndex]?.dart_index ?? throws.length + 1,
       segment: record.segment ?? throws[existingIndex]?.segment ?? 'Miss',
       scored: computedScore ?? throws[existingIndex]?.scored ?? 0,
+      impact_x_mm: record.impact_x_mm ?? throws[existingIndex]?.impact_x_mm ?? null,
+      impact_y_mm: record.impact_y_mm ?? throws[existingIndex]?.impact_y_mm ?? null,
+      angle_horizontal_deg: record.angle_horizontal_deg ?? throws[existingIndex]?.angle_horizontal_deg ?? null,
+      angle_vertical_deg: record.angle_vertical_deg ?? throws[existingIndex]?.angle_vertical_deg ?? null,
     };
     if (existingIndex >= 0) {
       throws[existingIndex] = { ...throws[existingIndex], ...nextThrow };

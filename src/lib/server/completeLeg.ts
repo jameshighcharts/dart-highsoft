@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { MatchRow } from './matchGuards';
+import type { MatchRow } from './matchGuards.ts';
 
 /**
  * Complete a leg: set the winner, check if the match is won, and either

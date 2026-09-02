@@ -23,6 +23,7 @@ type Props = {
   turnThrowCounts: Record<string, number>;
   getAvgForPlayer: (playerId: string) => number;
   fairEndingState?: FairEndingState;
+  currentPlayerPresentedElsewhere?: boolean;
 };
 
 export function SpectatorLiveMatchCard({
@@ -36,17 +37,19 @@ export function SpectatorLiveMatchCard({
   turnThrowCounts,
   getAvgForPlayer,
   fairEndingState,
+  currentPlayerPresentedElsewhere = false,
 }: Props) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const currentPlayerId = spectatorCurrentPlayer?.id;
   const reducedMotion = useMemo(() => {
     if (typeof window === 'undefined') return false;
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }, []);
 
   useEffect(() => {
-    if (!spectatorCurrentPlayer) return;
-    const el = itemRefs.current[spectatorCurrentPlayer.id];
+    if (!currentPlayerId) return;
+    const el = itemRefs.current[currentPlayerId];
     const container = listRef.current;
     if (el && container) {
       const containerRect = container.getBoundingClientRect();
@@ -56,10 +59,10 @@ export function SpectatorLiveMatchCard({
       container.scrollTo({ top: Math.max(0, target), behavior: reducedMotion ? 'auto' : 'smooth' });
     }
     return;
-  }, [spectatorCurrentPlayer?.id, reducedMotion]);
+  }, [currentPlayerId, reducedMotion]);
 
   return (
-    <Card className="xl:col-span-2">
+    <Card className="xl:col-span-2 xl:row-span-2">
       <CardHeader>
         <CardTitle>Live Match</CardTitle>
         <CardDescription>
@@ -68,68 +71,65 @@ export function SpectatorLiveMatchCard({
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {/* Current player indicator */}
-          {spectatorCurrentPlayer && (
+          {!currentPlayerPresentedElsewhere && spectatorCurrentPlayer ? (
             <div className="text-center">
               <div className="text-lg font-semibold text-muted-foreground">Current Turn</div>
               <div className="text-3xl font-bold text-primary">{spectatorCurrentPlayer.display_name}</div>
             </div>
-          )}
+          ) : null}
 
-          {/* Checkout suggestions - with space reservation (hidden during tiebreak) */}
-          <div className="min-h-8 flex justify-center">
-            {(() => {
-              const isTiebreak = fairEndingState?.phase === 'tiebreak';
-              if (!spectatorCurrentPlayer || isTiebreak) return <div className="invisible">-</div>;
+          {/* Checkout suggestions (hidden during tiebreak) */}
+          {(() => {
+            const isTiebreak = fairEndingState?.phase === 'tiebreak';
+            if (!spectatorCurrentPlayer || isTiebreak) return null;
 
-              const currentScore = getSpectatorScore(
-                turns,
-                currentLegId,
-                startScore,
-                turnThrowCounts,
-                spectatorCurrentPlayer.id
-              );
-              const playerTurns = turns.filter((turn) => turn.player_id === spectatorCurrentPlayer.id);
-              const lastTurn = playerTurns.length > 0 ? playerTurns[playerTurns.length - 1] : null;
-              const throwCount = lastTurn ? turnThrowCounts[lastTurn.id] || 0 : 0;
+            const currentScore = getSpectatorScore(
+              turns,
+              currentLegId,
+              startScore,
+              turnThrowCounts,
+              spectatorCurrentPlayer.id
+            );
+            const playerTurns = turns.filter((turn) => turn.player_id === spectatorCurrentPlayer.id);
+            const lastTurn = playerTurns.length > 0 ? playerTurns[playerTurns.length - 1] : null;
+            const throwCount = lastTurn ? turnThrowCounts[lastTurn.id] || 0 : 0;
 
-              // Determine if this is a new turn starting or continuing an incomplete turn
-              // New turn if: no turns yet, last turn was busted, or last turn completed (3 throws)
-              const isNewTurnStarting = !lastTurn || lastTurn.busted || throwCount === 3;
-              const dartsLeft = isNewTurnStarting ? 3 : Math.max(0, 3 - throwCount);
+            // Determine if this is a new turn starting or continuing an incomplete turn
+            // New turn if: no turns yet, last turn was busted, or last turn completed (3 throws)
+            const isNewTurnStarting = !lastTurn || lastTurn.busted || throwCount === 3;
+            const dartsLeft = isNewTurnStarting ? 3 : Math.max(0, 3 - throwCount);
 
-              const paths = computeCheckoutSuggestions(currentScore, dartsLeft, finishRule);
+            const paths = computeCheckoutSuggestions(currentScore, dartsLeft, finishRule);
 
-              // Only show checkout suggestions if we're actually in a checkout scenario
-              const shouldShowCheckout = currentScore > 0 && currentScore <= 170 && dartsLeft > 0;
-              const hasCheckout = shouldShowCheckout && paths.length > 0;
-              const setup = !hasCheckout && currentScore > 0 && dartsLeft > 0
-                ? computeSetupSuggestions(currentScore, dartsLeft, finishRule)
-                : null;
+            // Only show checkout suggestions if we're actually in a checkout scenario
+            const shouldShowCheckout = currentScore > 0 && currentScore <= 170 && dartsLeft > 0;
+            const hasCheckout = shouldShowCheckout && paths.length > 0;
+            const setup = !hasCheckout && currentScore > 0 && dartsLeft > 0
+              ? computeSetupSuggestions(currentScore, dartsLeft, finishRule)
+              : null;
 
-              return (
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  {hasCheckout ? (
-                    paths.map((p, i) => (
-                      <Badge key={i} variant="outline" className="text-xs">
-                        {p.join(', ')}
-                      </Badge>
-                    ))
-                  ) : setup ? (
-                    <Badge variant="secondary" className="text-xs">
-                      Setup: {setup.path.join(', ')} → {setup.target}
+            if (!hasCheckout && !setup && !shouldShowCheckout) return null;
+
+            return (
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {hasCheckout ? (
+                  paths.map((p, i) => (
+                    <Badge key={i} variant="outline" className="text-xs">
+                      {p.join(', ')}
                     </Badge>
-                  ) : shouldShowCheckout ? (
-                    <Badge variant="outline" className="text-xs text-muted-foreground">
-                      No checkout available
-                    </Badge>
-                  ) : (
-                    <div className="invisible">-</div>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
+                  ))
+                ) : setup ? (
+                  <Badge variant="secondary" className="text-xs">
+                    Setup: {setup.path.join(', ')} → {setup.target}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs text-muted-foreground">
+                    No checkout available
+                  </Badge>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Player scores with inline throw indicators */}
           <div

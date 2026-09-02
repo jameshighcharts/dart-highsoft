@@ -4,6 +4,7 @@ This guide is for someone who has already cloned the repo locally and wants to d
 
 - Vercel for the Next.js app
 - Supabase for the database and realtime backend
+- A persistent worker host such as Railway or Render when using Scolia boards
 
 The repo already contains the database migrations in [`supabase/migrations`](./supabase/migrations), so the main job is:
 
@@ -31,6 +32,12 @@ COMMENTARY_PERSONA=
 COMMENTARY_MODEL=
 ```
 
+Scolia requires one additional secret in both the Next.js app and the worker:
+
+```env
+SCOLIA_ACCESS_TOKEN=
+```
+
 Notes:
 
 - `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` come from your Supabase project.
@@ -44,7 +51,7 @@ Make sure you have:
 - A GitHub account
 - A Vercel account
 - A Supabase account
-- Node.js 18+ installed
+- Node.js 22+ installed (the Scolia worker uses Node's built-in WebSocket client)
 - `npm install` already run in this repo
 
 If you want the easy GitHub-based deployment flow, put the repo in your own GitHub account first.
@@ -159,7 +166,13 @@ COMMENTARY_PERSONA=...
 COMMENTARY_MODEL=...
 ```
 
-9. Click `Deploy`
+9. If you use Scolia, also add:
+
+```env
+SCOLIA_ACCESS_TOKEN=...
+```
+
+10. Click `Deploy`
 
 After the first deploy, every push to the connected GitHub repo should trigger a new Vercel deployment automatically.
 
@@ -173,6 +186,52 @@ After Vercel finishes:
 4. Confirm that the match page loads and scores save correctly
 
 If that works, your deployment is live.
+
+## Deploying The Persistent Scolia Worker
+
+Vercel runs request-scoped functions and must not host the persistent Scolia WebSocket worker. Deploy the worker as a separate always-on service after the Supabase migrations have been pushed.
+
+The worker requires:
+
+```env
+SCOLIA_ACCESS_TOKEN=...
+NEXT_PUBLIC_SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+`SUPABASE_SECRET_KEY` can be used instead of `SUPABASE_SERVICE_ROLE_KEY` when the Supabase project provides the newer secret-key format. Never expose either value to browser code.
+
+### Railway
+
+1. Create another service in the Railway project from this GitHub repository.
+2. Configure it to build with `Dockerfile.scolia-worker`.
+3. Add the three worker environment variables above.
+4. Keep the service private; it does not need a public domain or inbound port.
+5. Set the replica count to exactly **one** and disable sleeping/serverless scaling.
+
+### Render
+
+1. Create a **Background Worker** from this GitHub repository.
+2. Use `npm ci` as the build command and `npm run scolia:worker` as the start command, or build `Dockerfile.scolia-worker`.
+3. Add the three worker environment variables above.
+4. Run exactly **one** instance.
+
+The one-replica rule is important: every worker instance attempts one WebSocket per board, and Scolia rejects competing connections to the same board.
+
+### Verify The Worker
+
+After deployment:
+
+1. Confirm the logs contain `managing N board(s)` and `cloud connection open`.
+2. Open `/boards` in a development environment, or query persisted board state through an authenticated production admin surface once one is configured.
+3. Confirm `Scolia: Connected` and `Board: Ready` have a fresh heartbeat.
+4. Start a match with that board and throw one dart.
+5. Confirm exactly one app throw appears through Supabase realtime.
+6. Use Undo on a current-round dart and confirm the corresponding `scolia_commands` row becomes `acknowledged` or `refused`.
+
+Outbound commands time out after 10 seconds and retry up to three total attempts. A command that never receives a response becomes `failed` instead of remaining stuck as `sent`. Throw events themselves are separately deduplicated and replayed after worker recovery.
+
+Board management is currently development-only until production admin authentication is implemented. The worker can still discover and persist every board already registered to the Scolia account, and those ready boards appear in New Match.
 
 ## Option 2: CLI-First Deployment
 

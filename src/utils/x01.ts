@@ -1,4 +1,4 @@
-import { SegmentResult, isDoubleKind } from './dartboard';
+import { type SegmentResult, isDoubleKind } from './dartboard.ts';
 
 export type StartScore = 201 | 301 | 501;
 export type FinishRule = 'single_out' | 'double_out';
