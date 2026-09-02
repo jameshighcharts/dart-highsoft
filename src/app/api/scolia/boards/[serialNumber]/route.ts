@@ -1,14 +1,11 @@
 import { NextResponse } from 'next/server';
 
-import { requireScoliaBoardManagementAccess } from '@/lib/scolia/access';
 import { disconnectScoliaBoard, ScoliaApiError } from '@/lib/scolia/client';
 
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ serialNumber: string }> }
 ) {
-  const denied = requireScoliaBoardManagementAccess();
-  if (denied) return denied;
   try {
     const { serialNumber } = await params;
     if (!serialNumber || serialNumber.length > 128) {

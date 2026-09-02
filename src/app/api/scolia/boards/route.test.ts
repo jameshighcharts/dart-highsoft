@@ -7,10 +7,6 @@ vi.mock('server-only', () => ({}));
 const listScoliaBoardsMock = vi.fn();
 const getSupabaseServerClientMock = vi.fn();
 
-vi.mock('@/lib/scolia/access', () => ({
-  requireScoliaBoardManagementAccess: () => null,
-}));
-
 vi.mock('@/lib/scolia/client', () => ({
   listScoliaBoards: (...args: unknown[]) => listScoliaBoardsMock(...args),
   connectScoliaBoard: vi.fn(),

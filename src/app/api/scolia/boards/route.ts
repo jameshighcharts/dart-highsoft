@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 
-import { requireScoliaBoardManagementAccess } from '@/lib/scolia/access';
 import { connectScoliaBoard, listScoliaBoards, ScoliaApiError } from '@/lib/scolia/client';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
@@ -34,8 +33,6 @@ function errorResponse(error: unknown, operation: string) {
 }
 
 export async function GET() {
-  const denied = requireScoliaBoardManagementAccess();
-  if (denied) return denied;
   try {
     const supabase = getSupabaseServerClient();
     const [boards, statusResult, activeMatchesResult] = await Promise.all([
@@ -106,8 +103,6 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const denied = requireScoliaBoardManagementAccess();
-  if (denied) return denied;
   try {
     let body: { serialNumber?: unknown };
     try {

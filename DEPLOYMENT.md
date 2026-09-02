@@ -223,7 +223,7 @@ The one-replica rule is important: every worker instance attempts one WebSocket 
 After deployment:
 
 1. Confirm the logs contain `managing N board(s)` and `cloud connection open`.
-2. Open `/boards` in a development environment, or query persisted board state through an authenticated production admin surface once one is configured.
+2. Open `/boards` and confirm the persisted board state.
 3. Confirm `Scolia: Connected` and `Board: Ready` have a fresh heartbeat.
 4. Start a match with that board and throw one dart.
 5. Confirm exactly one app throw appears through Supabase realtime.
@@ -231,7 +231,7 @@ After deployment:
 
 Outbound commands time out after 10 seconds and retry up to three total attempts. A command that never receives a response becomes `failed` instead of remaining stuck as `sent`. Throw events themselves are separately deduplicated and replayed after worker recovery.
 
-Board management is currently development-only until production admin authentication is implemented. The worker can still discover and persist every board already registered to the Scolia account, and those ready boards appear in New Match.
+Board management is available from `/boards` in production. The worker discovers and persists every board registered to the Scolia account, and ready boards appear in New Match.
 
 ## Option 2: CLI-First Deployment
 
