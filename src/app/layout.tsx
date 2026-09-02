@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     icon: [
       { url: "/favicon.ico", sizes: "32x32" },
       { url: "/favicon-96x96.png", sizes: "96x96", type: "image/png" },
-      { url: "/icon.svg", type: "image/svg+xml" }
+      { url: "/icon-192x192.png", sizes: "192x192", type: "image/png" }
     ],
     apple: { url: "/apple-icon.png", sizes: "180x180", type: "image/png" }
   },
@@ -46,7 +46,7 @@ export default function RootLayout({
         <div className="min-h-screen pb-16 md:pb-0">
           <nav className="hidden md:flex items-center justify-between px-6 py-3 border-b bg-card">
             <Link href="/" className="flex items-center gap-3 font-semibold">
-              <Image src="/icon.svg" alt="" width={40} height={40} className="size-10" priority />
+              <Image src="/icon-192x192.png" alt="" width={40} height={40} className="size-10 object-contain" priority />
               Dart Scoreboard
             </Link>
             <div className="flex items-center gap-4 text-sm">
