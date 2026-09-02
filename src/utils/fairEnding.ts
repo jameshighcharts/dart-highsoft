@@ -24,12 +24,14 @@ export type FairEndingState = {
   winnerId: string | null;
 };
 
-type TurnInput = {
+export type FairEndingTurnInput = {
   player_id: string;
   total_scored: number;
   busted: boolean;
   tiebreak_round?: number | null;
   throw_count?: number;
+  /** Explicit lifecycle state for incremental consumers; legacy callers may omit it. */
+  completed?: boolean;
   /** Sum of individual throw scores. Used for tiebreak scoring to avoid stale total_scored. */
   throws_total?: number;
 };
@@ -46,42 +48,49 @@ const NORMAL_STATE: FairEndingState = {
 /**
  * Compute X01 remaining score for each player from normal (non-tiebreak) turns.
  */
-function computeScores(
-  turns: TurnInput[],
+function analyzeNormalTurns(
+  turns: FairEndingTurnInput[],
   playerIds: string[],
   startScore: number
-): Record<string, number> {
+): { scores: Record<string, number>; completedTurns: Record<string, number> } {
   const scores: Record<string, number> = {};
-  for (const id of playerIds) scores[id] = startScore;
+  const completedTurns: Record<string, number> = {};
+  for (const id of playerIds) {
+    scores[id] = startScore;
+    completedTurns[id] = 0;
+  }
   for (const t of turns) {
     if (t.tiebreak_round != null) continue; // skip tiebreak turns
-    if (t.busted) continue;
-    if (scores[t.player_id] !== undefined) {
-      scores[t.player_id] -= t.total_scored;
+    if (scores[t.player_id] === undefined) continue;
+
+    if (!t.busted) scores[t.player_id] -= t.total_scored;
+    const throwCount = t.throw_count ?? 3;
+    // A visit is complete after three darts, a bust, or a checkout. A partial
+    // non-zero visit must not close the fair-ending round merely because its
+    // provisional score has already been persisted or reconstructed.
+    const completed = t.completed
+      ?? (t.busted || throwCount >= 3 || t.total_scored > 0 || scores[t.player_id] <= 0);
+    if (completed) {
+      completedTurns[t.player_id]++;
     }
   }
-  return scores;
+  return { scores, completedTurns };
 }
 
-/**
- * Determine how many completed turns each player has in normal (non-tiebreak) play.
- * A turn is considered complete if it has 3+ throws, is busted, or has a non-zero total.
- * This prevents newly-created turns (total_scored=0, 1 dart thrown) from being counted
- * before the player finishes throwing.
- */
-function completedTurnCounts(
-  turns: TurnInput[],
-  playerIds: string[]
-): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const id of playerIds) counts[id] = 0;
-  for (const t of turns) {
-    if (t.tiebreak_round != null) continue;
-    // Skip incomplete turns: total_scored=0, not busted, and fewer than 3 throws
-    const throwCount = t.throw_count ?? 3; // default to 3 for backward compat (no throw_count = assume complete)
-    if (!t.busted && t.total_scored === 0 && throwCount < 3) continue;
-    if (counts[t.player_id] !== undefined) {
-      counts[t.player_id]++;
+function completedNormalTurnCounts(
+  turns: FairEndingTurnInput[],
+  playerIds: string[],
+  checkedOutPlayerIds: string[]
+) {
+  const counts = Object.fromEntries(playerIds.map((id) => [id, 0]));
+  const checkedOut = new Set(checkedOutPlayerIds);
+  for (const turn of turns) {
+    if (turn.tiebreak_round != null || counts[turn.player_id] === undefined) continue;
+    const throwCount = turn.throw_count ?? 3;
+    const completed = turn.completed
+      ?? (turn.busted || throwCount >= 3 || turn.total_scored > 0 || checkedOut.has(turn.player_id));
+    if (completed) {
+      counts[turn.player_id]++;
     }
   }
   return counts;
@@ -96,7 +105,7 @@ function completedTurnCounts(
  * @param fairEnding - Whether fair ending is enabled for this match
  */
 export function computeFairEndingState(
-  turns: TurnInput[],
+  turns: FairEndingTurnInput[],
   orderPlayers: { id: string }[],
   startScore: number,
   fairEnding: boolean
@@ -104,8 +113,7 @@ export function computeFairEndingState(
   if (!fairEnding || orderPlayers.length === 0) return NORMAL_STATE;
 
   const playerIds = orderPlayers.map((p) => p.id);
-  const scores = computeScores(turns, playerIds, startScore);
-  const counts = completedTurnCounts(turns, playerIds);
+  const { scores, completedTurns: counts } = analyzeNormalTurns(turns, playerIds, startScore);
 
   // Find players who have checked out (score reached 0)
   const checkedOutPlayerIds = playerIds.filter((id) => scores[id] <= 0);
@@ -227,7 +235,7 @@ export function computeFairEndingState(
 export function getNextFairEndingPlayer(
   state: FairEndingState,
   orderPlayers: { id: string }[],
-  turns: TurnInput[]
+  turns: FairEndingTurnInput[]
 ): string | null {
   if (state.phase === 'normal' || state.phase === 'resolved') return null;
 
@@ -235,7 +243,7 @@ export function getNextFairEndingPlayer(
 
   if (state.phase === 'completing_round') {
     // Find which players haven't completed the round yet
-    const counts = completedTurnCounts(turns, playerIds);
+    const counts = completedNormalTurnCounts(turns, playerIds, state.checkedOutPlayerIds);
     const maxCount = Math.max(...playerIds.map((id) => counts[id]));
 
     // Next player in order who hasn't completed this round
@@ -266,6 +274,36 @@ export function getNextFairEndingPlayer(
   }
 
   return null;
+}
+
+/** Players who still owe darts/visits in the current fair-ending phase. */
+export function getPendingFairEndingPlayerIds(
+  state: FairEndingState,
+  orderPlayers: { id: string }[],
+  turns: FairEndingTurnInput[]
+): string[] {
+  if (state.phase === 'normal' || state.phase === 'resolved') return [];
+  const playerIds = orderPlayers.map((player) => player.id);
+
+  if (state.phase === 'completing_round') {
+    const completedTurns = completedNormalTurnCounts(
+      turns,
+      playerIds,
+      state.checkedOutPlayerIds
+    );
+    const maxCount = Math.max(...playerIds.map((id) => completedTurns[id]));
+    return playerIds.filter((id) => completedTurns[id] < maxCount);
+  }
+
+  const completed = new Set(
+    turns
+      .filter((turn) =>
+        turn.tiebreak_round === state.tiebreakRound
+        && ((turn.throw_count ?? 3) >= 3 || turn.busted)
+      )
+      .map((turn) => turn.player_id)
+  );
+  return state.tiebreakPlayerIds.filter((id) => !completed.has(id));
 }
 
 /**

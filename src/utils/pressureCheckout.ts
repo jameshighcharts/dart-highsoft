@@ -1,6 +1,6 @@
-import type { SegmentResult } from '@/utils/dartboard';
-import { estimateExpectedDartsRemaining } from '@/utils/pressureEngine';
-import { applyThrow, type FinishRule } from '@/utils/x01';
+import type { SegmentResult } from './dartboard.ts';
+import { estimateExpectedDartsRemaining } from './pressureEngine.ts';
+import { applyThrow, type FinishRule } from './x01.ts';
 
 export type SetupQualityGrade = 'checkout' | 'optimal' | 'good' | 'neutral' | 'poor' | 'bust';
 

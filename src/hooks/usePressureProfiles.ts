@@ -6,65 +6,19 @@ import { useQuery } from '@tanstack/react-query';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import type {
   PressurePlayerHistoryProfile,
+  PressurePlayerProfileRow,
   PressurePopulationProfile,
+  PressurePopulationProfileRow,
+} from '@/utils/pressureProfiles';
+import {
+  normalizePlayerPressureProfile,
+  normalizePopulationPressureProfile,
+} from '@/utils/pressureProfiles';
+export {
+  normalizePlayerPressureProfile,
+  normalizePopulationPressureProfile,
 } from '@/utils/pressureProfiles';
 import type { FinishRule } from '@/utils/x01';
-
-type PlayerProfileRow = {
-  player_id: string;
-  finish_rule: FinishRule;
-  matches_played: number | string | null;
-  visits: number | string | null;
-  darts_thrown: number | string | null;
-  scoring_points: number | string | null;
-  three_dart_average: number | string | null;
-  busts: number | string | null;
-  bust_rate: number | string | null;
-  checkout_opportunities: number | string | null;
-  checkouts: number | string | null;
-  checkout_rate: number | string | null;
-};
-
-type PopulationProfileRow = Omit<PlayerProfileRow, 'player_id' | 'matches_played'> & {
-  player_match_samples: number | string | null;
-};
-
-function numeric(value: number | string | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function normalizeBase(row: PlayerProfileRow | PopulationProfileRow) {
-  return {
-    finishRule: row.finish_rule,
-    visits: numeric(row.visits),
-    dartsThrown: numeric(row.darts_thrown),
-    scoringPoints: numeric(row.scoring_points),
-    threeDartAverage: numeric(row.three_dart_average),
-    busts: numeric(row.busts),
-    bustRate: numeric(row.bust_rate),
-    checkoutOpportunities: numeric(row.checkout_opportunities),
-    checkouts: numeric(row.checkouts),
-    checkoutRate: numeric(row.checkout_rate),
-  };
-}
-
-export function normalizePlayerPressureProfile(row: PlayerProfileRow): PressurePlayerHistoryProfile {
-  return {
-    playerId: row.player_id,
-    matchesPlayed: numeric(row.matches_played),
-    ...normalizeBase(row),
-  };
-}
-
-export function normalizePopulationPressureProfile(
-  row: PopulationProfileRow
-): PressurePopulationProfile {
-  return {
-    matchesPlayed: numeric(row.player_match_samples),
-    ...normalizeBase(row),
-  };
-}
 
 type PressureProfilesResult = {
   playerProfiles: PressurePlayerHistoryProfile[];
@@ -93,10 +47,10 @@ async function fetchPressureProfiles(
   if (populationResult.error) throw populationResult.error;
 
   return {
-    playerProfiles: ((playersResult.data ?? []) as PlayerProfileRow[])
+    playerProfiles: ((playersResult.data ?? []) as PressurePlayerProfileRow[])
       .map(normalizePlayerPressureProfile),
     populationProfile: populationResult.data
-      ? normalizePopulationPressureProfile(populationResult.data as PopulationProfileRow)
+      ? normalizePopulationPressureProfile(populationResult.data as PressurePopulationProfileRow)
       : undefined,
   };
 }

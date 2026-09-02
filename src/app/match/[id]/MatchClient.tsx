@@ -65,12 +65,15 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     voice,
     personaId,
     currentCommentary,
+    commentaryTranscriptLog,
     commentaryLoading,
     commentaryPlaying,
     activePersona,
-    commentaryDebouncer,
     ttsServiceRef,
+    realtimeCommentaryRef,
     setCurrentCommentary,
+    recordCompletedCommentary,
+    clearCommentaryTranscriptLog,
     setCommentaryLoading,
     setCommentaryPlaying,
     setAudioEnabled,
@@ -78,7 +81,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     handleCommentaryEnabledChange,
     handleAudioEnabledChange,
     handlePersonaChange,
-  } = useCommentary();
+    skipCommentary,
+  } = useCommentary(matchId);
 
   // Ref to hold latest state for event handlers (prevents stale closure bugs)
   const latestStateRef = useRef({
@@ -233,11 +237,12 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     celebratedTurns,
     commentaryEnabled,
     personaId,
-    commentaryDebouncer,
     setCommentaryLoading,
     setCommentaryPlaying,
     setCurrentCommentary,
+    recordCompletedCommentary,
     ttsServiceRef,
+    realtimeCommentaryRef,
     pressureProfilesByPlayerId: pressureProfiles.profilesByPlayerId,
     pressurePopulationProfile: pressureProfiles.populationProfile,
   });
@@ -552,9 +557,11 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           onVoiceChange={setVoice}
           onPersonaChange={handlePersonaChange}
           currentCommentary={currentCommentary}
+          commentaryTranscriptLog={commentaryTranscriptLog}
+          onClearCommentaryTranscriptLog={clearCommentaryTranscriptLog}
           commentaryLoading={commentaryLoading}
           commentaryPlaying={commentaryPlaying}
-          onSkipCommentary={() => ttsServiceRef.current.skipCurrent()}
+          onSkipCommentary={skipCommentary}
           onToggleMute={() => setAudioEnabled(!audioEnabled)}
           queueLength={ttsServiceRef.current.getQueueLength()}
           activePersona={activePersona}

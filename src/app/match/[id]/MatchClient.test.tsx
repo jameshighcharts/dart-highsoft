@@ -127,16 +127,9 @@ vi.mock('@/lib/commentary/personas', () => ({
 }));
 
 vi.mock('@/services/commentaryService', () => {
-  class MockDebouncer {
-    canCall() {
-      return false;
-    }
-    markCalled() {}
-  }
   return {
     generateCommentary: vi.fn().mockResolvedValue({ commentary: null }),
     generateMatchRecap: vi.fn().mockResolvedValue({ commentary: null }),
-    CommentaryDebouncer: MockDebouncer,
   };
 });
 

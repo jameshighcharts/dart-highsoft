@@ -202,4 +202,58 @@ describe('pressureEngine', () => {
     expect(result.players[0].adjustedThreeDartAverage).toBeGreaterThan(68);
     expect(result.players[0].legWinProbability).toBeGreaterThan(result.players[1].legWinProbability);
   });
+
+  it('keeps fair-ending checkout-waiting probabilities provisional and normalized', () => {
+    const result = calculatePressureProjection({
+      players: [player('a', 0, 0, 55, 30), player('b', 40, 0, 55, 30)],
+      playOrder: ['a', 'b'],
+      currentPlayerId: 'b',
+      dartsRemainingInTurn: 3,
+      legsToWin: 2,
+      finishRule: 'double_out',
+      fairEnding: {
+        phase: 'completing_round',
+        checkedOutPlayerIds: ['a'],
+        tiebreakRound: 0,
+        tiebreakPlayerIds: [],
+        tiebreakScores: {},
+        winnerId: null,
+        pendingPlayerIds: ['b'],
+        tiebreakDartsThrown: {},
+      },
+    });
+
+    expect(result.approximationMode).toBe('fair-ending-weighted');
+    expect(result.players[0].legWinProbability).toBeGreaterThan(0.5);
+    expect(result.players[0].legWinProbability).toBeLessThan(1);
+    expect(result.players.reduce((sum, entry) => sum + entry.legWinProbability, 0)).toBeCloseTo(1);
+  });
+
+  it('limits tiebreak probability to eligible players in large fields', () => {
+    const players = Array.from({ length: 12 }, (_, index) =>
+      player(String(index), index < 3 ? 0 : 40, 0, 42 + index, 30)
+    );
+    const result = calculatePressureProjection({
+      players,
+      playOrder: players.map((entry) => entry.id),
+      currentPlayerId: '1',
+      dartsRemainingInTurn: 2,
+      legsToWin: 3,
+      finishRule: 'double_out',
+      fairEnding: {
+        phase: 'tiebreak',
+        checkedOutPlayerIds: ['0', '1', '2'],
+        tiebreakRound: 1,
+        tiebreakPlayerIds: ['0', '1', '2'],
+        tiebreakScores: { '0': 100, '1': 60, '2': 0 },
+        winnerId: null,
+        pendingPlayerIds: ['1', '2'],
+        tiebreakDartsThrown: { '0': 3, '1': 1, '2': 0 },
+      },
+    });
+
+    expect(result.players.slice(3).every((entry) => entry.legWinProbability === 0)).toBe(true);
+    expect(result.players.reduce((sum, entry) => sum + entry.legWinProbability, 0)).toBeCloseTo(1);
+    expect(result.players.every((entry) => Number.isFinite(entry.matchWinProbability))).toBe(true);
+  });
 });

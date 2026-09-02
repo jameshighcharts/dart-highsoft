@@ -82,4 +82,21 @@ describe('buildCommentaryPrompt pressure context', () => {
     expect(result.plainLine).toBe('Ken scores 100; 201 left.');
     expect(result.prompt).toBeUndefined();
   });
+
+  it('names the Nikita special instead of falling through to ordinary 26 commentary', () => {
+    const input = payload();
+    input.totalScore = 26;
+    input.isHighScore = false;
+    input.isNikitaSpecial = true;
+    input.throws = [
+      { segment: 'S1', scored: 1, dart_index: 1 },
+      { segment: 'S5', scored: 5, dart_index: 2 },
+      { segment: 'S20', scored: 20, dart_index: 3 },
+    ];
+
+    const result = buildCommentaryPrompt(input, { persona, random: () => 0 });
+    expect(result.plainLine).toBeUndefined();
+    expect(result.prompt).toContain('NIKITA SPECIAL');
+    expect(result.prompt).toContain('celebrate the exact 1, 5, 20 visit by name');
+  });
 });

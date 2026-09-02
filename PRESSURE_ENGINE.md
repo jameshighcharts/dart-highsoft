@@ -142,11 +142,12 @@ Clicking a swing reveals:
 
 ### Current foundation
 
-The first three foundations are in place:
+The first foundations are in place:
 
 1. A deterministic multiplayer live probability model and compact spectator strip, including the circular player rail for large fields.
 2. Deterministic per-dart replay with WPA, leverage, checkout probability, expected darts, setup quality, bogey classification, turning points, and stolen/thrown-away legs.
 3. Versioned pressure-event packets with stable IDs, normalized prospective leverage, classified signals, and commentary priorities.
+4. Pressure v2 fair-ending phases: provisional checkout waiting, deterministic bounded tiebreak projections, fair-ending signals, and direct worker-triggered Scolia commentary.
 
 Historical skill inputs are also live. A player's completed X01 history is blended into an installation-wide finish-rule baseline, with conservative fallbacks and sample-size confidence. The browser fetches compact aggregates rather than raw historical matches.
 
@@ -159,7 +160,7 @@ This is the immediate next engineering milestone.
 - Replace whole-leg replay on each commentary event with an incremental pressure state machine that advances exactly once per accepted dart.
 - Make the live state machine and the post-match replay use the same transition function so they cannot disagree.
 - Add deterministic correction handling for edited and deleted darts. A correction must invalidate superseded events and rebuild from the nearest safe checkpoint.
-- Model fair endings explicitly: a player who has checked out but is waiting for the rest of the round, multiple players checking out in the same round, and the resulting tiebreak rounds.
+- Model fair endings explicitly: a player who has checked out but is waiting for the rest of the round, multiple players checking out in the same round, and the resulting tiebreak rounds. Implemented in Pressure v2.
 - Preserve full multiplayer support. Probabilities must remain normalized for arbitrary player counts and the bounded large-field path must stay fast enough for the spectator screen.
 - Expose model version, input confidence, history sample size, and approximation mode alongside every projection for diagnostics, without cluttering the TV UI.
 
@@ -229,7 +230,7 @@ Build Phase 1 in this order: shared state transition, incremental tracker, edit/
 
 The current request-per-turn commentary endpoint and separate text-to-speech call are transitional. The target is one persistent GPT-Realtime session in the spectator browser for the duration of a match:
 
-- The server uses the standard OpenAI API key only to mint short-lived client credentials. The standard key must never be shipped to the browser.
+- The server uses the standard OpenAI API key with the unified WebRTC interface: it forwards the browser SDP offer, supplies trusted session configuration, returns the SDP answer, and retains the returned OpenAI call ID for worker sideband control. The standard key and call ID must never be shipped to the browser.
 - The browser establishes the persistent WebRTC connection and receives audio directly from the model.
 - Every accepted dart produces a compact, structured event containing the dart result, updated game state, and deterministic Pressure Engine metrics such as match/leg win probability, WPA, leverage, and classified moments.
 - The model narrates those facts; it does not calculate or invent the authoritative metrics.
@@ -248,14 +249,14 @@ The current audible path is necessarily sequential:
 
 The intended replacement removes that text-to-MP3 waterfall:
 
-`dart detected → immediate local reaction + persistent WebRTC event → streamed model audio`
+`dart detected → worker accepts/persists → Pressure event over session sideband → streamed WebRTC audio`
 
 When commentary is enabled, establish and warm the output-only WebRTC session before the next dart. Send structured dart events over its data channel; no microphone input is required. Attach the remote audio track directly to browser playback and update written commentary from transcript deltas as they arrive.
 
-Use a very small stable instruction set and cap ordinary calls to roughly 6–15 spoken words. Start with low reasoning effort, then tune against measured latency and commentary quality. Initial model candidates are:
+Use a very small stable instruction set and cap ordinary calls to roughly 6–15 spoken words. Start with low reasoning effort, then tune against measured latency and commentary quality. Model policy:
 
-- `gpt-realtime-2.1-mini` for routine live commentary because it is the faster, lower-cost model.
-- `gpt-realtime-2.1` for higher-value moments or recaps only if measurement shows a worthwhile quality gain without unacceptable delay.
+- Use `gpt-realtime-2.1` for all live commentary by default because the demo showed materially better persona and instruction-following headroom.
+- Keep Mini available only as an explicit latency/cost experiment; do not route ordinary calls to it automatically.
 
 Model routing is an optimization, not part of the event contract. Keep it configurable so model availability, pricing, and measured performance can change without touching match logic.
 
@@ -344,15 +345,165 @@ The provider-neutral boundary is the existing `PressureDartPacket` in `src/utils
 
 For every accepted dart:
 
-1. The normal match flow persists or accepts the throw and updates the canonical client state.
-2. The incremental Pressure Engine advances once and emits one deduplicated `PressureDartPacket`.
+1. The normal match flow persists or accepts the throw. For Scolia, this completes inside `ingestScoliaThrowEvent()` in the persistent worker; it does not wait for Supabase Realtime.
+2. The worker reloads canonical post-ingestion rows, reconstructs the matching `PressureDartPacket`, and creates an idempotent delivery for every active listener session. Manual scoring currently derives the same context in the browser.
 3. The commentary policy enriches the packet with display names and lightweight narrative state, then decides `silent`, `ordinary`, `notable`, `marquee`, or `terminal` handling.
-4. The transport sends the event as an `input_text` conversation item over the WebRTC data channel, even when the event is silent.
+4. For Scolia, the worker sends the event as an `input_text` conversation item over an authenticated OpenAI sideband WebSocket attached to the browser's WebRTC call. Manual scoring uses the browser data channel. Silent events still enter context.
 5. If the policy chooses speech, it first applies the latest-wins interruption rules and then emits `response.create` with moment-specific brevity and delivery instructions.
 6. WebRTC delivers generated audio as a remote media stream. Transcript delta events update `CommentaryDisplay` while the call is being spoken.
 7. `response.done`, cancellation, timeout, or transport failure closes the local response lifecycle and records latency/outcome telemetry.
 
 Do not wait for Supabase Realtime when the scoring browser already has the accepted API result and authoritative packet. Spectator browsers use the existing ordered Supabase path, deduplicate by event ID, and produce the same packet after applying the realtime event. This preserves the fastest path for the scorer without weakening spectator correctness.
+
+#### Implemented foundation (September 2026)
+
+- `POST /api/commentary/realtime/session` forwards browser SDP through OpenAI's unified WebRTC interface using the configurable Realtime model (`gpt-realtime-2.1` by default), registers the server-only call ID, and returns the SDP answer. `PUT` advances an idempotent correction epoch and returns a replacement snapshot, `PATCH` heartbeats the listener, and `DELETE` closes its registry entry.
+- `RealtimeCommentaryService` owns an output-only `RTCPeerConnection`, remote audio track, streamed transcripts, cancellation, and a user-gesture-resumed `AudioContext`. No microphone or complete audio blob is involved.
+- Migration `0057_realtime_commentary_sessions.sql` adds server-only active-session and idempotent per-throw delivery tables.
+- `ScoliaRealtimeCommentaryPublisher` attaches an authenticated worker WebSocket to each active browser call, feeds every accepted dart, retries pending sends, and applies latest-wins interruption before `response.create`.
+- `CommentaryPolicy` is shared by browser and worker for category cooldowns, repeat memory, visit timing, rapid-sequence silence, ordinary sampling, guaranteed calls, and latest-wins interruption.
+- `CommentaryVisitTiming` runs after policy selection in both paths. It holds ordinary completed-visit calls for an 850 ms natural gap, suppresses them if another dart arrives, clears routine audio that runs into the next visit, tightens notable calls when play is moving, and never delays marquee or terminal speech.
+- The exact order-independent 1 + 5 + 20 “Nikita special” is an explicit guaranteed marquee signal. The old global two-second commentary debouncer has been removed; policy now owns pacing without delaying accepted completed visits.
+- `commentaryNarrative` now turns the full deterministic Pressure replay into bounded story memory: recurring tendencies, recent exact-double non-conversions, checkout results under high pressure, the largest match-WPA swing, rematch/revenge stakes, and current average versus the shrunk historical baseline. Snapshots carry the same memory across reconnects and corrections. The model is instructed to use at most one relevant thread per call and deliver it playfully with light sass.
+- `storyArcDirector` ranks comeback, collapse, underdog, seesaw, punished-miss, checkout-duel, pressure-resilience, revenge, and dominance candidates. Listener-local `BroadcastDirector` commits to one primary angle, retains two reserves, requires a material challenger plus a minimum commitment window before switching, prevents phase regression, budgets story introductions, creates future callback obligations, and forces factual payoff or closure at resolution. Only a started, switched, or resolving arc promotes routine context to notable speech.
+- `loadScoliaRealtimeDartEvent()` reconstructs the accepted dart's personalized Pressure v2 packet directly from canonical rows and profile aggregates, including fair-ending checkout-waiting and tiebreak darts.
+- Manual matches use the browser Realtime data channel at completed-turn granularity. Scolia matches use the worker sideband for both ordinary and fair-ending play. The old text plus buffered-TTS waterfall remains available whenever the persistent session is unavailable.
+- `npm run commentary:demo` provides a local-only end-to-end broadcast harness. It provisions test players plus a synthetic Scolia board/match, refuses non-loopback Supabase hosts, persists realistic `THROW_DETECTED` payloads, runs canonical ingestion, and calls the production worker-side publisher only after a browser Realtime listener is active. Its valid 301 script exercises the Nikita special, opposing/comeback 180s, a missed double leave, and a bull-checkout story payoff.
+
+Implemented next: new/reconnected sessions receive a compact canonical match snapshot; Scolia snapshots are injected by the worker before sideband deltas and manual snapshots use the browser channel. The browser reconnects with bounded backoff and proactively rotates healthy calls at 50 minutes. The worker cold-loads Pressure history/profiles once, then appends ordered darts to an in-memory canonical cache and reuses the verified projection prefix; restart, leg transition, correction epoch, or ordering drift falls back to a clean canonical reconstruction. Throw edits/deletes cancel speech immediately, idempotently advance a server-owned listener epoch, clear the browser policy/transcript, and send a versioned authoritative correction envelope with the replacement snapshot. The worker observes epoch changes before the next accepted dart and resynchronizes its sideband plus Pressure cache.
+
+Still required: local marquee stings and per-stage latency telemetry.
+
+#### Pressure Engine handoff — fair-ending direct commentary implemented
+
+Pressure v2 now supplies fair-ending and tiebreak packets to the Realtime commentator. The remaining work in this section is incremental-state performance and deeper calibration, not removal of the speech bypass.
+
+**Outcome**
+
+Make fair-ending X01 and its high-round tiebreaks first-class states in the authoritative Pressure Engine. Every accepted dart must produce a valid, normalized `PressureDartPacket`, including darts thrown after the first checkout while the round is being completed and darts thrown in a tiebreak. The live/incremental path and a clean historical replay must produce equivalent analytical values for the same state.
+
+Do not build OpenAI, WebRTC, speech policy, or prompt logic in the Pressure Engine. The commentator consumes provider-neutral packets and treats the engine's probabilities and signals as facts.
+
+**Previous blocker**
+
+The earlier `src/lib/commentary/scoliaRealtimeEvent.ts` path skipped `loadPressurePacket()` when `matches.fair_ending` was true and forced worker speech to `silent`, because Pressure v1 assumed reaching zero immediately locked the leg winner. Pressure v2 removes that assumption and the bypass: reaching zero can remain provisional, multiple checkout players can enter a high-round tiebreak, and a non-checkout tiebreak dart can authoritatively resolve the leg or match.
+
+**Previous fair-ending fallback path**
+
+Before Pressure v2, fair-ending commentary still used the persistent Realtime session when that session was healthy. It did **not** fall back to the old generated-text plus buffered-MP3 path merely because fair ending was enabled. What changed was where and when speech was triggered:
+
+Normal Scolia X01 takes the fast worker path:
+
+`Scolia worker accepts dart → builds Pressure packet → sends it over the OpenAI sideband → browser receives streamed WebRTC audio`
+
+Fair-ending Scolia currently takes a conservative split path:
+
+`Scolia worker accepts dart → sends the dart silently for model context → Supabase Realtime reaches the browser → browser recognizes the completed turn → browser requests speech through its existing WebRTC data channel`
+
+The browser therefore waited for the completed-turn Supabase event and spoke at visit granularity instead of letting the worker trigger significant darts immediately. This added a small latency penalty and prevented per-dart pressure commentary, but preserved correct facts while Pressure v1 lacked checkout-waiting and tiebreak states. Only an unhealthy or unavailable WebRTC session continued onward to the legacy commentary/TTS fallback.
+
+That exception is now removed. The worker uses the same direct per-dart sideband path for fair-ending matches, while the browser-side completed-turn route remains useful for manual scoring and transport recovery.
+
+**Source of truth and shared transition**
+
+Use `computeFairEndingState()` in `src/utils/fairEnding.ts` as the existing rules reference, but move or wrap the necessary state transition so live projection and `reconstructPressureTimeline()` use one shared implementation. The Pressure state must carry enough information to advance one dart without rereading or replaying the leg:
+
+- phase: `normal`, `completing_round`, `tiebreak`, or `resolved`;
+- normal X01 scores and completed-turn counts for every player;
+- IDs of players who checked out during the fair-ending round;
+- current tiebreak round and eligible player IDs;
+- current tiebreak score and darts thrown for every eligible player;
+- play order/current player, legs won, finish rule, and player skill model;
+- a monotonic source sequence plus engine/schema version.
+
+The transition accepts exactly one canonical dart plus the minimum turn metadata required to know whether a visit completed or busted. It returns the next immutable state and the event facts used by `createPressureDartPacket()`. Corrections are handled above this primitive by restoring the nearest safe checkpoint and replaying canonical darts from there.
+
+**Required probability semantics**
+
+- In `normal`, keep the existing X01 model until a player reaches zero.
+- Reaching zero in a fair-ending match means `checkedOut: true`; it does **not** mean the leg or match probability becomes `1` unless the fair-ending state is actually `resolved`.
+- In `completing_round`, a checked-out player's result is contingent on whether any remaining player also checks out. Model each remaining player's checkout chance from their score, darts left, finish rule, and skill profile. If nobody joins, the existing checked-out player wins; if others join, allocate the probability mass through the tiebreak model.
+- Players who have not checked out retain only the probability mass represented by checking out in their remaining darts and then surviving the possible tiebreak. A player who can no longer complete the fair-ending round has zero leg-win probability.
+- In `tiebreak`, non-eligible players have zero leg-win probability. For eligible players, completed visits are fixed scores and unplayed/partial visits are score distributions conditioned on their remaining darts and player model. The highest three-dart total wins; tied leaders advance to another round, whose recursively repeated probability must be represented rather than arbitrarily split or discarded.
+- In `resolved`, the winner has leg probability `1` and all others `0`. Match probability follows the existing legs-to-win model, becoming `1/0` only when the match is resolved.
+- Every projection must be finite, bounded to `[0, 1]`, and sum to `1` within numerical tolerance in every phase. Use deterministic tie-breaking only for numerical stability, never to decide a game outcome.
+
+An exact analytical tiebreak calculation is not required for the first slice. A deterministic bounded approximation is acceptable if its seed/input is stable, it exposes `approximationMode` and confidence, and it stays inside the live latency budget. Never use ambient randomness that makes replay disagree with live output.
+
+**Packet and signal requirements**
+
+Keep `PressureDartPacket` provider-neutral. Extend it only where the state cannot otherwise be interpreted correctly. The preferred additive field is:
+
+```ts
+type PressureFairEndingContext = {
+  enabled: boolean;
+  phase: 'normal' | 'completing_round' | 'tiebreak' | 'resolved';
+  checkedOutPlayerIds: string[];
+  tiebreakRound: number;
+  tiebreakPlayerIds: string[];
+  tiebreakScores: Record<string, number>;
+  winnerId: string | null;
+};
+```
+
+Add this as an optional `fairEnding` field and bump the packet schema version if consumers cannot safely treat its absence as ordinary X01. Add provider-neutral signals for events the deterministic engine can prove, rather than asking the language model to infer them:
+
+- `fair_ending_checkout`: a player reaches zero but the round remains open;
+- `fair_ending_round_complete`: the equal-turn round closes;
+- `tiebreak_started`: multiple checkout players advance;
+- `tiebreak_lead_change`: the provisional high-round leader changes;
+- `tiebreak_tied`: another tiebreak round is required;
+- `leg_win` and `match_win`: only when resolution is authoritative.
+
+`checkedOut` remains a dart fact; it must not be overloaded to mean `leg_win`. WPA is always `after - before` from the acting player's perspective, including checkout-waiting and tiebreak darts. Leverage remains prospective: calculate it from the pre-dart state, not from whether the dart happened to succeed.
+
+The engine may classify analytical signals and a base significance. Final `shouldSpeak`, cooldowns, persona, interruption, and wording belong to the commentary policy. This lets the same packet drive the UI, reports, telemetry, and other consumers without speech concerns leaking into the model.
+
+**Implementation touchpoints**
+
+1. `src/utils/pressureEngine.ts`: represent/project all fair-ending phases and expose model diagnostics.
+2. `src/utils/pressureReplay.ts`: use the shared one-dart transition and emit events throughout completing-round and tiebreak play.
+3. `src/utils/pressureEvents.ts`: emit the fair-ending context and new deterministic signals without OpenAI fields.
+4. `src/utils/fairEnding.ts`: retain one canonical rules implementation; avoid a second subtly different phase machine.
+5. `src/lib/commentary/scoliaRealtimeEvent.ts`: the `match.fair_ending` Pressure bypass and `allowSpeech: !match.fair_ending` kill switch have been removed; every accepted Scolia dart now uses the Pressure packet path.
+
+The incremental tracker requested in Phase 1 should be the normal live entry point. The current worker-side whole-leg reconstruction can consume the same transition temporarily, but it is not the desired steady state.
+
+**Acceptance fixtures**
+
+Add deterministic unit fixtures for at least these cases, each asserting live/replay parity after every dart and probability normalization:
+
+1. First checkout occurs before all players have completed the round; the finisher has less than `1.0` probability while waiting.
+2. Every remaining player fails to check out; the original finisher resolves the leg on round completion.
+3. A second player checks out on dart one, two, and three in separate fixtures; both advance to tiebreak only after the round closes.
+4. A player busts while attempting to join the checkout group; scores/turn completion and probabilities remain correct.
+5. A two-player tiebreak resolves after one high round.
+6. A multiplayer tiebreak eliminates lower scorers while tied leaders advance to round two.
+7. A partial tiebreak visit changes provisional probabilities after each dart without prematurely resolving the leg.
+8. A tied completed tiebreak round creates the next round and preserves normalized probabilities.
+9. The fair-ending leg win also wins the match; only the resolution event emits `match_win` and terminal probabilities.
+10. Undo/edit of the first checkout, a joining checkout, and a tiebreak dart rebuilds to the same packets as a clean corrected replay.
+11. Sparse-history/fallback profiles and large multiplayer fields produce finite deterministic output within the existing performance budget.
+12. Event IDs and sequences remain stable and deduplicable across worker retry and clean replay.
+
+**Commentary handoff status**
+
+Completed:
+
+- Pressure v2 emits fair-ending context and deterministic packets during checkout waiting and every tiebreak dart.
+- A checkout remains provisional until the equal-turn round resolves; tiebreak resolution can emit `leg_win`/`match_win` without pretending the final dart was a checkout.
+- Projection normalization is covered for checkout waiting, partial tiebreak visits, tied next rounds, large fields, busts, and match resolution.
+- The worker-side fair-ending bypass is removed without moving rules or probability calculation into the commentary layer.
+- The commentator receives the same envelope shape for ordinary X01 and fair ending, and healthy Scolia sessions no longer wait for the browser's completed-turn speech trigger.
+
+Still required for the broader Phase 1 definition of done:
+
+- Replace worker-side whole-leg reconstruction with the shared incremental one-dart tracker and safe checkpoints.
+- Add correction/undo envelopes and prove corrected incremental state equals a clean replay.
+- Extend fixture coverage across every checkout dart position and more multiplayer elimination permutations.
+- Measure the fair-ending worker path against the existing live latency budget under realistic match history sizes.
+
+`loadScoliaRealtimeDartEvent()` now enables the packet for fair ending, Pressure v2 maps the new signals into speech priority, and a ready Scolia browser suppresses the slower completed-turn duplicate. No Realtime transport redesign was required. The worker still reconstructs the current leg for each accepted dart; replacing that query/replay with checkpointed incremental state remains a performance optimization.
 
 #### Provider-neutral commentary envelopes
 
@@ -424,7 +575,7 @@ The microphone must never be requested. Besides avoiding an irrelevant permissio
 
 The selected voice is session-scoped. If the user changes voice after audio has begun, close and rebuild the session from a fresh checkpoint; do not pretend the active session changed voice. Apply the same controlled rebuild when persona instructions change materially.
 
-Start with `gpt-realtime-2.1-mini` as the latency/cost candidate, but first compare it against `gpt-realtime-2.1` on the same frozen event fixtures. Keep model, voice, reasoning effort, response length, timeout, and truncation settings server-configurable. Do not hard-code routing decisions into `PressureDartPacket`.
+Use `gpt-realtime-2.1` as the quality baseline and compare Mini as the latency/cost candidate on the same frozen event fixtures, including persona fidelity, meta-talk, and repetition. Keep model, voice, reasoning effort, response length, timeout, and truncation settings server-configurable. Do not hard-code routing decisions into `PressureDartPacket`.
 
 #### Client session state machine
 
@@ -535,11 +686,11 @@ Corrections are an authority problem, not merely another chat message. The model
 - A lower sequence in the same epoch is stale and ignored.
 - An edit/delete invalidates the affected packet and all derived packets after it until the Pressure Engine rebuild completes.
 - During rebuild, suppress speech and immediately cancel audio sourced from invalidated events.
-- Increment `epoch`, create an authoritative replacement snapshot, and restart the Realtime session for any correction that changes score, checkout, winner, probabilities, or classified moments.
+- Increment `epoch`, cancel/clear speech, and create an authoritative replacement snapshot for any correction that changes score, checkout, winner, probabilities, or classified moments. The current transport can remain warm because subsequent envelopes are epoch-scoped; rebuild the call if resynchronization fails.
 - Resume only after the new snapshot is ready. Buffer events from the new epoch, never events from the invalidated epoch.
 - A cosmetic player-name change can use a new snapshot without a full restart if no spoken fact becomes false.
 
-Restarting after material correction is intentionally conservative. Although individual conversation items can be deleted, rebuilding from one trusted checkpoint is easier to reason about and test than proving every downstream model item was removed.
+If a warm-session correction cannot be acknowledged or the replacement snapshot cannot be delivered, rebuild from that trusted checkpoint rather than trying to prove individual downstream model items were removed.
 
 #### Long matches, checkpoints, and session rotation
 
@@ -588,20 +739,20 @@ Local assets provide the first perceptual reaction while model audio starts:
 
 The audio coordinator owns both local and remote playback. The old FIFO `TTSService` queue must not remain in front of Realtime output.
 
-#### Credential endpoint and security
+#### Session endpoint and security
 
-Add a narrowly scoped server route for Realtime session creation/client secrets. It must:
+The narrowly scoped server route uses OpenAI's unified WebRTC interface. It must:
 
 - Read the normal OpenAI API key only on the server.
-- Return only the short-lived credential/session material needed by the browser.
+- Return only the SDP answer and an opaque app-owned session ID. Keep the standard API key and provider call ID server-side.
 - Accept an allowlisted model, voice, persona, and match ID; ignore arbitrary client-supplied provider configuration.
 - Revalidate that the requested match exists and that commentary is allowed for it.
 - Apply origin/CSRF protections appropriate to the app, request-size limits, and rate limiting to prevent credential minting abuse.
 - Attach a stable privacy-preserving safety identifier when an authenticated user identity is available; never send a raw email, name, or player ID as that identifier.
 - Avoid logging secrets, SDP bodies, full prompts, raw provider payloads, or PII.
-- Return cache-control headers that prevent client-secret responses from being stored.
+- Return cache-control headers that prevent SDP/session responses from being stored.
 
-The browser must treat the credential as ephemeral memory: never localStorage, IndexedDB, URL parameters, Supabase, analytics, or error-reporting context.
+The browser must treat SDP and its opaque session ID as ephemeral memory: never localStorage, IndexedDB, URL parameters, analytics, or error-reporting context. The server-only call ID may be stored only in the protected session registry so the worker can attach its authenticated sideband.
 
 #### Per-browser versus shared broadcast
 
@@ -615,10 +766,12 @@ Prevent accidental duplicate sessions within one browser by coordinating tabs wi
 
 Names can change during implementation, but preserve these separations:
 
-- `src/app/api/commentary/realtime/session/route.ts`: protected short-lived credential/session creation.
-- `src/lib/commentary/realtimeTypes.ts`: provider-neutral envelopes, session states, response metadata, and telemetry types.
+- `src/app/api/commentary/realtime/session/route.ts`: protected unified WebRTC creation plus registry heartbeat/closure.
+- `src/lib/commentary/realtimeTypes.ts`: shared session contracts, model/voice selection, and validation.
+- `src/lib/commentary/scoliaRealtimeEvent.ts`: canonical accepted-throw plus Pressure packet loader and initial policy classification.
 - `src/lib/commentary/commentaryPolicy.ts`: deterministic speak/priority/cooldown/interruption decisions.
 - `src/services/realtimeCommentaryService.ts`: WebRTC peer/data-channel lifecycle and translation to provider events.
+- `src/services/scoliaRealtimeCommentaryPublisher.ts`: worker sideband pool, delivery retry/deduplication, and response interruption.
 - `src/services/commentaryAudioCoordinator.ts`: remote stream, stings, mute, volume, autoplay unlock, and skip.
 - `src/hooks/useRealtimeCommentary.ts`: React lifecycle, authoritative snapshots, reconnect/fallback orchestration, and UI-facing state.
 - `src/utils/pressureEvents.ts`: continue owning the compact Pressure Engine packet and significance signals.

@@ -12,6 +12,7 @@ export type MatchRecord = {
   fair_ending?: boolean;
   tournament_match_id?: string | null;
   scolia_board_id?: string | null;
+  rematch_of_match_id?: string | null;
 };
 
 export type LegRecord = {

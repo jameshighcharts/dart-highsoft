@@ -16,6 +16,7 @@ function state(
     dartsRemainingInTurn: 1,
     scores: { a: 40, b: 80 },
     legsWon: { a: legsA, b: legsB },
+    fairEnding: null,
     projections: [
       {
         id: 'a', scoreRemaining: 40, legsWon: legsA, threeDartAverage: 50, dartsThrown: 30,
@@ -46,10 +47,11 @@ function event(
   const beforeA = before.projections[0];
   const afterA = after.projections[0];
   return {
-    eventId: `pressure-v1:match-1:dart-${sequence}`, engineVersion: 'pressure-v1', matchId: 'match-1',
+    eventId: `pressure-v2:match-1:dart-${sequence}`, engineVersion: 'pressure-v2', matchId: 'match-1',
     sequence, legId: 'leg-1', legNumber: 1, turnId: 'turn-1', playerId: 'a',
     dartId: `dart-${sequence}`, dartIndex: sequence, segment: 'D20', scored: 40, turnScoreAfter: 40 * sequence,
     busted: options.busted ?? false, checkedOut: options.checkedOut ?? false,
+    fairEndingBefore: null, fairEndingAfter: null,
     leverage: { leg: 0.7, match: 0.6, pressureIndex: 0.65 },
     checkout: {
       checkoutProbabilityBefore: 0.2, checkoutProbabilityAfter: 0.1,

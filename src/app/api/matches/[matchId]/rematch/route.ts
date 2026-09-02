@@ -72,6 +72,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ matchId: 
         legs_to_win: match.legs_to_win,
         fair_ending: match.fair_ending ?? false,
         scolia_board_id: match.scolia_board_id ?? null,
+        rematch_of_match_id: match.id,
       })
       .select('*')
       .single();

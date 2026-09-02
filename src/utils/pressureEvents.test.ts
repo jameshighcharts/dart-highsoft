@@ -11,6 +11,7 @@ function state(matchProbability: number, legProbability: number): PressureReplay
     dartsRemainingInTurn: 1,
     scores: { a: 40, b: 80 },
     legsWon: { a: 0, b: 0 },
+    fairEnding: null,
     projections: [
       {
         id: 'a', scoreRemaining: 40, legsWon: 0, threeDartAverage: 60, dartsThrown: 20,
@@ -36,10 +37,11 @@ function event(overrides: Partial<PressureDartEvent> = {}): PressureDartEvent {
   const before = state(0.45, 0.55);
   const after = state(0.54, 0.7);
   return {
-    eventId: 'pressure-v1:match-1:dart-1', engineVersion: 'pressure-v1', matchId: 'match-1',
+    eventId: 'pressure-v2:match-1:dart-1', engineVersion: 'pressure-v2', matchId: 'match-1',
     sequence: 1, legId: 'leg-1', legNumber: 1, turnId: 'turn-1', playerId: 'a',
     dartId: 'dart-1', dartIndex: 1, segment: 'T20', scored: 60, turnScoreAfter: 60,
     busted: false, checkedOut: false, leverage: { leg: 0.8, match: 0.7, pressureIndex: 0.72 },
+    fairEndingBefore: null, fairEndingAfter: null,
     checkout: {
       checkoutProbabilityBefore: 0.2, checkoutProbabilityAfter: 0.1,
       nextVisitCheckoutProbability: 0.4, bestAvailableLeaveValue: 0.6,
@@ -58,8 +60,8 @@ describe('createPressureDartPacket', () => {
     const packet = createPressureDartPacket(event());
 
     expect(packet).toMatchObject({
-      schemaVersion: 1,
-      eventId: 'pressure-v1:match-1:dart-1',
+      schemaVersion: 2,
+      eventId: 'pressure-v2:match-1:dart-1',
       priority: 'notable',
       shouldSpeak: true,
       scoreBefore: 40,
@@ -124,5 +126,73 @@ describe('createPressureDartPacket', () => {
     const packet = createPressureDartPacket(source);
     expect(packet.priority).toBe('notable');
     expect(packet.signals).toContain('bogey_created');
+  });
+
+  it('announces a fair-ending checkout without prematurely declaring the leg', () => {
+    const packet = createPressureDartPacket(event({
+      checkedOut: true,
+      fairEndingBefore: {
+        phase: 'normal', checkedOutPlayerIds: [], tiebreakRound: 0,
+        tiebreakPlayerIds: [], tiebreakScores: {}, winnerId: null,
+        pendingPlayerIds: [], tiebreakDartsThrown: {}, approximationMode: 'standard',
+      },
+      fairEndingAfter: {
+        phase: 'completing_round', checkedOutPlayerIds: ['a'], tiebreakRound: 0,
+        tiebreakPlayerIds: [], tiebreakScores: {}, winnerId: null,
+        pendingPlayerIds: ['b'], tiebreakDartsThrown: {}, approximationMode: 'fair-ending-weighted',
+      },
+    }));
+
+    expect(packet.priority).toBe('marquee');
+    expect(packet.signals).toEqual(expect.arrayContaining(['checkout', 'fair_ending_checkout']));
+    expect(packet.signals).not.toContain('leg_win');
+    expect(packet.signals).not.toContain('match_win');
+    expect(packet.fairEnding).toMatchObject({ phase: 'completing_round', winnerId: null });
+  });
+
+  it('emits a terminal win when a non-checkout tiebreak dart resolves the match', () => {
+    const after = state(1, 1);
+    after.legsWon.a = 1;
+    after.projections[0].legsWon = 1;
+    const packet = createPressureDartPacket(event({
+      checkedOut: false,
+      after,
+      fairEndingBefore: {
+        phase: 'tiebreak', checkedOutPlayerIds: ['a', 'b'], tiebreakRound: 1,
+        tiebreakPlayerIds: ['a', 'b'], tiebreakScores: { a: 100, b: 70 }, winnerId: null,
+        pendingPlayerIds: ['b'], tiebreakDartsThrown: { a: 3, b: 2 },
+        approximationMode: 'fair-ending-weighted',
+      },
+      fairEndingAfter: {
+        phase: 'resolved', checkedOutPlayerIds: ['a', 'b'], tiebreakRound: 1,
+        tiebreakPlayerIds: ['a', 'b'], tiebreakScores: { a: 100, b: 80 }, winnerId: 'a',
+        pendingPlayerIds: [], tiebreakDartsThrown: { a: 3, b: 3 },
+        approximationMode: 'fair-ending-weighted',
+      },
+      matchWinProbabilityAdded: { a: 0.55, b: -0.55 },
+      legWinProbabilityAdded: { a: 0.45, b: -0.45 },
+    }));
+
+    expect(packet.priority).toBe('terminal');
+    expect(packet.signals).toEqual(expect.arrayContaining(['leg_win', 'match_win']));
+    expect(packet.signals).not.toContain('checkout');
+  });
+
+  it('keeps the accepted dart score when the replay state has rolled into the next leg', () => {
+    const after = state(0.55, 0.5);
+    after.legId = 'leg-2';
+    after.legNumber = 2;
+    after.scores.a = 301;
+    const packet = createPressureDartPacket(event({
+      segment: 'S20',
+      scored: 20,
+      before: state(0.45, 0.5),
+      after,
+      matchWinProbabilityAdded: { a: 0, b: 0 },
+      legWinProbabilityAdded: { a: 0.1, b: -0.1 },
+    }));
+
+    expect(packet.scoreBefore).toBe(40);
+    expect(packet.scoreAfter).toBe(20);
   });
 });

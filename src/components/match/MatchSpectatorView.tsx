@@ -13,7 +13,11 @@ import { PressureWinProbability } from '@/components/match/PressureWinProbabilit
 import { ScoliaMatchHeatmaps } from '@/components/match/ScoliaMatchHeatmaps';
 import type { MatchEloChange } from '@/hooks/useMatchEloChanges';
 import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
-import type { CommentaryPersona, CommentaryPersonaId } from '@/lib/commentary/types';
+import type {
+  CommentaryPersona,
+  CommentaryPersonaId,
+  CommentaryTranscriptEntry,
+} from '@/lib/commentary/types';
 import type { LegRecord, MatchRecord, Player, TurnRecord } from '@/lib/match/types';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { VoiceOption } from '@/services/ttsService';
@@ -69,6 +73,8 @@ type Props = {
   onVoiceChange: (voice: VoiceOption) => void;
   onPersonaChange: (personaId: CommentaryPersonaId) => void;
   currentCommentary: string | null;
+  commentaryTranscriptLog: CommentaryTranscriptEntry[];
+  onClearCommentaryTranscriptLog: () => void;
   commentaryLoading: boolean;
   commentaryPlaying: boolean;
   onSkipCommentary: () => void;
@@ -170,6 +176,8 @@ export function MatchSpectatorView({
   onVoiceChange,
   onPersonaChange,
   currentCommentary,
+  commentaryTranscriptLog,
+  onClearCommentaryTranscriptLog,
   commentaryLoading,
   commentaryPlaying,
   onSkipCommentary,
@@ -426,6 +434,8 @@ export function MatchSpectatorView({
           profilesByPlayerId={pressureProfilesByPlayerId}
           populationProfile={pressurePopulationProfile}
           hasPersonalProfiles={hasPersonalPressureProfiles}
+          fairEnding={Boolean(match.fair_ending)}
+          fairEndingState={fairEndingState}
         />
 
         {/* Cards Row - responsive layout */}
@@ -611,6 +621,8 @@ export function MatchSpectatorView({
             onAudioEnabledChange={onAudioEnabledChange}
             onVoiceChange={onVoiceChange}
             onPersonaChange={onPersonaChange}
+            transcriptLog={commentaryTranscriptLog}
+            onClearTranscriptLog={onClearCommentaryTranscriptLog}
           />
         </div>
 

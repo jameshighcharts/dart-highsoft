@@ -13,6 +13,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `src/hooks`: React hooks for match state, actions, realtime, and commentary.
 - `src/services`: External service clients (commentary API, TTS audio).
 - `src/workers`: Long-running backend processes (Scolia board WebSocket connections).
+- `scripts`: Local operational and demo harnesses; `commentaryDemo.ts` provisions and drives test-only synthetic Scolia matches.
 - `src/test-utils`: Test factories, mock Supabase client.
 - `public`/`favicon`: Static assets.
 - `e2e`: Playwright E2E tests and fixtures.
@@ -69,13 +70,14 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `practice/sessions/[id]/throws/` | POST | Record practice throw |
 | `around-world/sessions/` | POST | Create Around the World session |
 | `commentary/` | POST | Generate AI commentary via LLM |
+| `commentary/realtime/session/` | POST, PUT, PATCH, DELETE | Create an output-only OpenAI Realtime WebRTC call, advance its correction epoch with a replacement snapshot, heartbeat it, or close it |
 | `tts/` | POST | Text-to-speech for commentary |
 
 ### Utils (`src/utils`) — Pure Business Logic
 | File | Purpose |
 |------|---------|
 | `x01.ts` | Core X01 game engine: `applyThrow()`, `calculate3DartAverage()` |
-| `fairEnding.ts` | Fair ending state machine: `computeFairEndingState()`, `getNextFairEndingPlayer()` |
+| `fairEnding.ts` | Fair ending state machine plus current-phase pending-player selection for incremental Pressure projections |
 | `dartboard.ts` | Dartboard geometry: `computeHit()` from SVG coordinates, `segmentFromSelection()` |
 | `eloRating.ts` | 1v1 Elo: `calculateNewEloRatings()`, leaderboard/stats queries |
 | `eloRatingMultiplayer.ts` | Multiplayer Elo: `updateMatchEloRatingsMultiplayer()`, stats queries |
@@ -83,10 +85,11 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `checkoutTable.ts` | Pre-computed double-out checkout lookup table |
 | `legScoreCalculator.ts` | Calculate remaining scores from turns/throws |
 | `matchStats.ts` | Live spectator scores, round stats |
-| `pressureEngine.ts` | Deterministic live leg/match win probability, expected darts, and prospective pre-dart leverage model |
+| `nikitaSpecial.ts` | Exact order-independent detector for the marquee 1 + 5 + 20 visit |
+| `pressureEngine.ts` | Deterministic live leg/match win probability, expected darts, leverage, and bounded fair-ending/tiebreak projections |
 | `pressureCheckout.ts` | Deterministic checkout probability, counterfactual setup quality, and generic bogey-leave evaluation |
 | `pressureProfiles.ts` | Hierarchical personal → installation population → fallback model shrinkage for historical player strength |
-| `pressureReplay.ts` | Single-pass historical dart replay producing versioned, deduplicated before/after probability events, WPA, and leverage |
+| `pressureReplay.ts` | Single-pass X01/fair-ending/tiebreak dart replay producing versioned before/after probability events, WPA, and leverage |
 | `pressureInsights.ts` | One-pass classifier for turning points, lead changes, stolen/thrown-away legs, and commentary moments |
 | `pressureEvents.ts` | Compact provider-neutral per-dart packets, signals, and latest-wins commentary priority classification |
 | `haptics.ts` | Mobile haptic feedback via `navigator.vibrate` |
@@ -98,7 +101,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `useMatchActions.ts` | Player actions: `handleBoardClick`, `undoLastThrow`, `endLegAndMaybeMatch`, rematch, player management. Serializes concurrent throws via queue. |
 | `useMatchRealtime.ts` | Connects Supabase realtime events to state; uses spectator reducer for incremental updates |
 | `useRealtime.ts` | Low-level Supabase channel subscription, DOM custom events, connection lifecycle |
-| `useCommentary.ts` | Commentary feature state, persona selection, TTS, localStorage persistence |
+| `useCommentary.ts` | Commentary feature state, persona selection, TTS, localStorage persistence, and capped per-match completed-call history |
+| `useRealtimeCommentary.ts` | Owns the persistent output-only browser WebRTC commentary connection and fallback lifecycle |
 | `useMatchEloChanges.ts` | Fetches Elo changes after match completion |
 | `useScoliaBoardRealtime.ts` | Pushes sanitized board status and match-occupancy changes into board UIs |
 | `usePressureProfiles.ts` | Fetches and caches compact finish-rule-specific personal/population Pressure profiles once per match player set |
@@ -119,6 +123,17 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `server/scoliaThrowIngestion.ts` | Idempotently maps persisted Scolia detections into the active app match and completes turns/legs |
 | `commentary/personas.ts` | AI commentary persona definitions |
 | `commentary/promptBuilder.ts` | Builds LLM prompts from game context |
+| `commentary/realtimePrompt.ts` | Builds compact labeled Realtime session prompts and per-call briefs |
+| `commentary/commentaryPolicy.ts` | Listener-local deterministic speech policy: cooldowns, observation memory, completed-visit editorial scope, guaranteed calls, and latest-wins interruption |
+| `commentary/commentaryVisitTiming.ts` | Shared browser/worker visit-gap coordinator: holds ordinary calls briefly, suppresses stale pending speech, and keeps marquee calls immediate |
+| `commentary/commentaryNarrative.ts` | Builds bounded factual story memory from Pressure replay: tendencies, checkout/double history, biggest swing, rematch stakes, and baseline performance |
+| `commentary/storyArcDirector.ts` | Scores competing factual match arcs, selects one broadcast angle, and assigns analysis/sass/callback/closing treatment |
+| `commentary/broadcastDirector.ts` | Stateful listener-local producer: arc hysteresis, reserve stories, editorial budgets, callback obligations, and required payoff/closure direction |
+| `commentary/commentaryDemoScenario.ts` | Deterministic valid 301 double-out broadcast demo: Nikita special, opposing 180, comeback, missed double, and bull-checkout payoff |
+| `commentary/realtimeTypes.ts` | Shared Realtime session/correction-envelope contracts, model default, UUID validation, and legacy-to-Realtime voice mapping |
+| `commentary/realtimeSnapshot.ts` | Builds compact authoritative match snapshots for new, reconnected, and rotated Realtime sessions |
+| `commentary/scoliaRealtimeEvent.ts` | Loads an accepted Scolia throw from canonical rows, attaches its deterministic Pressure packet, and classifies speech priority without waiting for Supabase Realtime |
+| `commentary/transcriptLog.ts` | Pure completed-call transcript append, consecutive-deduplication, and bounded-history helper |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
 | `supabaseServer.ts` | Server-side Supabase client (API routes) |
 | `apiClient.ts` | Typed fetch wrapper: `apiRequest<T>()` |
@@ -148,13 +163,22 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `MultiEloLeaderboard.tsx` | Multiplayer Elo leaderboard |
 | `AroundTheWorldGame.tsx` | Around the World game UI |
 | `CommentaryDisplay.tsx` | AI commentary text display |
+| `CommentarySettings.tsx` | Persona, voice, and audio controls with a visible per-match list of recent completed commentary calls |
 | `ScoreProgressChart.tsx` | Score progression chart |
 | `TurnsHistoryCard.tsx` | Scrollable turns history for a leg |
 
 ### Workers (`src/workers`)
 | File | Purpose |
 |------|---------|
-| `scoliaWorker.ts` | Persistent Scolia worker: maintains board WebSockets, persists events/status, and queues throw ingestion/recovery |
+| `scoliaWorker.ts` | Persistent Scolia worker: maintains board WebSockets, persists events/status, queues throw ingestion/recovery, and publishes accepted throws directly to active Realtime commentary sidebands |
+
+### Services (`src/services`)
+| File | Purpose |
+|------|---------|
+| `commentaryService.ts` | Transitional request-per-turn text commentary client and debounce helper |
+| `ttsService.ts` | Transitional buffered MP3 commentary playback fallback |
+| `realtimeCommentaryService.ts` | Browser WebRTC audio/data-channel transport, transcript streaming, audio-context unlock, heartbeat, skip, and teardown |
+| `scoliaRealtimeCommentaryPublisher.ts` | Worker-side OpenAI sideband connection pool, idempotent delivery/retry, and latest-wins response triggering |
 
 ### Test Utilities (`src/test-utils`)
 | File | Purpose |
@@ -171,6 +195,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `npm run test:run`: Run all tests once (for CI/CD).
 - `npm run test:ui`: Open visual test interface.
 - `npm run test:coverage`: Generate and display coverage report.
+- `npm run commentary:demo -- preview|prepare|run <match-id>|cleanup <match-id>`: Preview, provision, play, or safely clean a test-only local synthetic Scolia commentary match. `run` waits for an active browser Realtime listener before injection.
 - `npm run test:e2e`: Run Playwright E2E tests (requires test Supabase instance).
 - `npm run test:e2e:ui`: Run E2E tests with visual UI.
 - `npm run test:e2e:headed`: Run E2E tests in a headed browser.
@@ -231,19 +256,21 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 **Spectator realtime:**
 `useRealtime` subscribes to Supabase channel → dispatches DOM custom events → `useMatchRealtime` listens → `applyThrowChange/applyTurnChange` (spectatorRealtimeReducer) updates state incrementally → on `needsReconcile`: `loadAll()` full refresh.
 
-Each incremental spectator throw also re-derives the current Pressure Engine snapshot in `PressureWinProbability` → `calculatePressureProjection()` blends live form with a league baseline and estimates leg/match win probability plus expected darts remaining without additional network requests. The compact header also derives the on-throw player's prospective pressure index and exact-route checkout probability without increasing the player rail height.
+Each incremental spectator throw also re-derives the current Pressure Engine snapshot in `PressureWinProbability` → `calculatePressureProjection()` blends live form with a league baseline and estimates leg/match win probability plus expected darts remaining without additional network requests. Fair-ending checkout-waiting and high-round tiebreak states use the same bounded deterministic projection as replay. The compact header also derives the on-throw player's prospective pressure index and exact-route checkout probability without increasing the player rail height.
 
 Historical pressure replay evaluates each dart through `evaluateDartSetup()` → estimates checkout probability before/after, compares the resulting leave against every legal non-busting segment, grades setup quality, and flags bogey creation/avoidance. These facts flow into compact `PressureDartPacket` signals and deterministic commentary moments.
 
 **Pressure personalization:**
 Migrations `0055`/`0056` expose small `player_pressure_profiles` and `pressure_population_profiles` aggregates from completed, non-test, non-ended X01 matches, excluding tiebreak turns. `usePressureProfiles()` fetches both finish-rule-specific datasets in parallel and caches them by player set → `createPressureSkillModel()` applies player → installation population → conservative fallback shrinkage → the live projection and replay use the resulting scoring average, checkout conversion, and bust tendency. Current-match form is blended on top. Raw historical throws are never loaded into the spectator per-dart path.
 
-When commentary is enabled for a standard X01 turn, `useMatchRealtime` replays the current leg locally → `summarizePressureForTurn()` adds exact before/after leg and match probability context to the commentary prompt. Fair-ending/tiebreak commentary remains on the traditional context until its pressure model is implemented.
+For manual commentary, `useMatchRealtime` replays the current leg locally → `summarizePressureForTurn()` adds exact before/after leg and match probability context to the commentary prompt, including fair-ending and tiebreak visits. Scolia browsers with a healthy Realtime session suppress this completed-turn duplicate because the worker already delivered each accepted dart directly.
 
-The current request-per-turn commentary API plus separate TTS service is transitional. The planned architecture is a prewarmed, persistent browser-to-GPT-Realtime WebRTC session using short-lived credentials created server-side. Each accepted dart will feed a compact, deduplicated `PressureDartEvent` into the session over the data channel; the deterministic Pressure Engine remains the source of truth for metrics, while the model maintains match narrative context and streams audio plus transcript deltas directly. Feed every dart for context but gate spoken responses by significance. Use instant bundled stings for marquee events, a latest-wins priority policy that cancels stale lower-priority speech, compact checkpoints for long matches, and authoritative snapshot resynchronization after reconnects. Keep the existing commentary/TTS path temporarily behind the same interface as fallback, and instrument detection-to-first-audible-sample latency. See `PRESSURE_ENGINE.md` for the proposed boundary, targets, and delivery sequence.
+Realtime commentary now creates a prewarmed, output-only browser-to-GPT-Realtime WebRTC call through the unified server interface. The server retains the returned OpenAI call ID in `commentary_realtime_sessions`; only the SDP answer, opaque app session ID, current commentary epoch, and compact canonical snapshot return to the browser. Opening/reconnect/correction snapshots include shrunk historical Pressure baselines for every player plus bounded current-match narrative memory. `commentaryNarrative` derives recurring tendencies, exact-double non-conversions, checkout-pressure history, biggest match WPA swing, and live performance versus baseline; `matches.rematch_of_match_id` supplies explicit revenge/rematch lineage rather than player-list guessing. `storyArcDirector` ranks comeback, collapse, underdog, seesaw, punished-miss, checkout-duel, pressure-resilience, revenge, and dominance candidates. Listener-local `BroadcastDirector` commits to one primary arc, retains two background candidates, prevents weak one-dart story switches, keeps phases monotonic, budgets introductions, creates explicit future callback obligations, and requires either payoff or closure when the supplied result resolves the story. Only new, switched, or resolving stories promote routine context to notable speech. Scolia sessions are seeded by the worker sideband before dart deltas; manual sessions seed through the browser data channel. Browser failures reconnect with bounded backoff, and healthy sessions rotate at 50 minutes before the provider's 60-minute limit. For Scolia matches, including fair-ending and tiebreak play, the worker calls `scoliaRealtimeCommentaryPublisher` immediately after `ingestScoliaThrowEvent()` returns `processed`: it reloads the accepted dart's canonical facts and injects the Pressure v2 packet plus refreshed narrative memory through an authenticated sideband WebSocket to the same call. The first dart cold-loads canonical full-match history/profiles; subsequent ordered darts append to an in-memory worker cache and reuse the verified Pressure prefix, with canonical rebuild on restart, leg change, correction epoch, or ordering drift. This bypasses the Supabase Realtime notification round trip and repeated history/profile queries. `commentary_realtime_deliveries` deduplicates and retries per listener/throw. Every dart feeds model context, but routine and notable speech waits for a completed visit; the third-dart envelope explicitly includes all visit segments and the visit total. Checkouts, busts, 180s, major checkouts, leg wins, match wins, and Nikita specials remain immediate/guaranteed. `CommentaryPolicy` also applies per-priority cooldowns, bounded repeat memory, rapid-sequence silence, and latest-wins interruption. `CommentaryVisitTiming` then gives an approved ordinary call an 850 ms natural pause: the next accepted dart suppresses a pending thought and clears routine audio already underway, while notable completed-visit calls remain immediate; marquee and terminal calls never wait. Corrections reset timing, policy, and director state from the authoritative replacement snapshot, so invalidated speech or stories cannot survive. The exact 1 + 5 + 20 visit is detected from canonical turn darts and explicitly named in both Realtime and fallback prompts. The obsolete global two-second commentary debouncer is gone; deterministic policy and visit timing own pacing without delaying marquee calls. Delivery is playful and lightly sassy within the selected persona, teasing results and story patterns rather than personal traits. OpenAI streams audio directly to the browser WebRTC track and transcript deltas over the data channel; completed calls are also deduplicated into a capped 50-line, per-match “Recent calls” list in commentary settings for review. On a throw edit/delete, `useMatchRealtime` immediately cancels buffered speech, `PUT /api/commentary/realtime/session` idempotently advances the listener epoch, and the browser sends the returned authoritative replacement snapshot; the worker observes that epoch before its next dart, drops its Pressure prefix, and resynchronizes the sideband. The previous commentary/TTS path remains as fallback and records its completed lines in the same list. Next work is local marquee stings and detection-to-first-audible-sample telemetry. See `PRESSURE_ENGINE.md` for boundaries and targets.
+
+The completed visit is the default commentary unit, not an absolute barrier: a notable mid-visit dart may speak immediately only when Pressure marks it as a genuinely large match-probability swing. Cheap favorite flickers, high-pressure labels, and newly proposed story arcs wait for the completed visit, while the director keeps an unspoken proposal promoted until it is actually used.
 
 **Fair ending:**
-First player checks out → remaining players complete their turns in the round → if single checkout: leg resolved → if multiple checkouts: tiebreak rounds (3 darts each, highest score wins).
+First player checks out → Pressure v2 marks the checkout provisional and projects the remaining players' chances to join → remaining players complete their turns → if single checkout: leg resolves → if multiple checkouts: eligible players enter high-round tiebreaks. Tiebreak darts update deterministic, normalized probabilities without changing X01 scores; tied leaders advance to the next round. Only authoritative resolution emits `leg_win`/`match_win`.
 
 **Scolia board connectivity:**
 `npm run scolia:worker` → REST discovery of account boards → one Scolia cloud WebSocket per serial → serialize and deduplicate incoming messages → persist raw `scolia_events` + current `scolia_boards` status → retry pending/failed detections → `ingestScoliaThrowEvent` maps the sector to the active match/player/turn → existing X01 bust/checkout, fair-ending, leg completion, Elo, and Supabase realtime flows apply. `throws.scolia_event_id` enforces exactly-once scoring across reconnects.

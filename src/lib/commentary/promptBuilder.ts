@@ -28,8 +28,29 @@ export function buildCommentaryPrompt(
         || payload.pressure.changedMatchFavorite
         || payload.pressure.checkedOut)
   );
+  const hasNarrativeHook = Boolean(
+    payload.narrative
+      && (
+        payload.narrative.rematch
+        || payload.narrative.activeStoryArc
+        || Math.abs(payload.narrative.biggestSwing?.matchWpa ?? 0) >= 0.05
+        || payload.narrative.players.some((player) =>
+          player.tendencies.length > 0
+          || player.baselinePerformance !== 'near_baseline'
+          || player.checkoutPressure.recentMissedDoubles.length > 0
+          || player.checkoutPressure.highPressureOpportunities > 0
+        )
+      )
+  );
 
-  if (!significantPressure && rng() < style.plainLineProbability) {
+  if (
+    persona.id !== 'chad'
+    &&
+    !payload.isNikitaSpecial
+    && !significantPressure
+    && !hasNarrativeHook
+    && rng() < style.plainLineProbability
+  ) {
     return {
       plainLine: `${payload.playerName} scores ${payload.totalScore}; ${payload.remainingScore} left.`,
       allowSlang: false,
@@ -53,7 +74,9 @@ export function buildCommentaryPrompt(
     .join(' | ');
 
   let resultPrefix = '';
-  if (payload.busted) {
+  if (payload.isNikitaSpecial) {
+    resultPrefix = 'NIKITA SPECIAL: exactly 1 + 5 + 20! Treat this as a beloved absurd marquee event. ';
+  } else if (payload.busted) {
     resultPrefix = 'BUST! ';
   } else if (payload.is180) {
     resultPrefix = '180! ';
@@ -113,13 +136,21 @@ export function buildCommentaryPrompt(
     }
   }
 
-  const allowSlang = rng() < style.slangUseProbability;
+  const narrativeMemory = payload.narrative
+    ? JSON.stringify(payload.narrative)
+    : 'none yet';
+
+  const allowSlang = persona.id === 'chad' || rng() < style.slangUseProbability;
   const humorStyle = humorStyleFromScore(payload.totalScore);
 
   const ordinalPosition = formatOrdinal(gameContext.positionInMatch);
   const positionLine = `Position: ${ordinalPosition} place${gameContext.isLeading ? ' (leading)' : ` (${gameContext.pointsBehindLeader} behind)`}.`;
 
   const slangTermLabel = style.maxSlangPerLine === 1 ? 'term' : 'terms';
+
+  const deliveryDirection = persona.id === 'chad'
+    ? `Write ONE concise, deadpan line (≤ ${style.maxWords} words) in Chad's original California surf-bro voice.`
+    : `Write ONE concise line (≤ ${style.maxWords} words).`;
 
   const prompt = `
 ${payload.playerName}: ${throwsDescription} = ${payload.totalScore} pts. ${resultPrefix}${payload.remainingScore} left.
@@ -129,9 +160,12 @@ Standings: ${standingsStr || 'No standings available.'}
 
 IQ hints: ${iqHints.length ? iqHints.join(' ') : 'none'}
 Pressure Engine: ${pressureHints.length ? pressureHints.join(' ') : 'no pressure data'}
+Compact narrative memory: ${narrativeMemory}
+Special event: ${payload.isNikitaSpecial ? 'Nikita special — celebrate the exact 1, 5, 20 visit by name.' : 'none'}
 
-Write ONE deadpan, concise line (≤ ${style.maxWords} words).
+${deliveryDirection}
 Use ${payload.playerName}'s name and reference their ${payload.totalScore}-point turn or current checkout situation.
+Keep it playful and lightly sassy. Tease the darts or the emerging story, never the person's identity or appearance.
 
 Humor style: ${humorStyle}.
 Tone guide:
@@ -141,10 +175,14 @@ Tone guide:
 - roast-lite: gentle ribbing, not mean
 - wry-quiet: minimal, resigned humor
 
-Slang policy: ${allowSlang ? `optional (≤${style.maxSlangPerLine} natural ${slangTermLabel}).` : 'avoid all slang this line.'}
+Slang policy: ${persona.id === 'chad'
+    ? 'let the persona and the moment decide naturally; do not follow a numeric slang quota.'
+    : allowSlang ? `optional (≤${style.maxSlangPerLine} natural ${slangTermLabel}).` : 'avoid all slang this line.'}
 Stay clear of hashtags, emojis, or filler catchphrases.
 Prioritize dart intelligence (bogeys, checkout pressure, doubles, busts, setup leaves) over jokes.
 When Pressure Engine data is present, explain the consequence accurately. Pressure is the situation; call the result clutch only when the player gained probability.
+Use at most one relevant narrative-memory thread. Build continuity without reciting the memory object or forcing history into every call.
+When broadcastDirection is present, follow its activeStoryArc as the committed angle, ignore backgroundStoryArcs, and honor payoff_due or closure_due callbacks. Otherwise use activeStoryArc. Never invent evidence beyond it.
 Be informative first, witty second. Output only the one-liner.`;
 
   return { prompt, allowSlang, humorStyle };

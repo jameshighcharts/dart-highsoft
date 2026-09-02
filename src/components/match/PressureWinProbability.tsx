@@ -10,6 +10,7 @@ import type { LegRecord, Player, TurnRecord, TurnWithThrows } from '@/lib/match/
 import { getSpectatorScore } from '@/utils/matchStats';
 import { estimateCheckoutProbability } from '@/utils/pressureCheckout';
 import { calculateDartLeverage, calculatePressureProjection } from '@/utils/pressureEngine';
+import { getPendingFairEndingPlayerIds, type FairEndingState } from '@/utils/fairEnding';
 import type {
   PressurePlayerHistoryProfile,
   PressurePopulationProfile,
@@ -31,6 +32,8 @@ type Props = {
   profilesByPlayerId: ReadonlyMap<string, PressurePlayerHistoryProfile>;
   populationProfile?: PressurePopulationProfile;
   hasPersonalProfiles: boolean;
+  fairEnding: boolean;
+  fairEndingState?: FairEndingState;
 };
 
 function formatProbability(value: number) {
@@ -54,6 +57,8 @@ export function PressureWinProbability({
   profilesByPlayerId,
   populationProfile,
   hasPersonalProfiles,
+  fairEnding,
+  fairEndingState,
 }: Props) {
   const currentPlayerId = spectatorCurrentPlayer?.id ?? null;
 
@@ -97,6 +102,48 @@ export function PressureWinProbability({
       };
     });
 
+    const fairEndingTurnInputs = turns
+      .filter((turn) => turn.leg_id === currentLegId)
+      .map((turn) => {
+        const throwCount = turnThrowCounts[turn.id] ?? (turn as TurnWithThrows).throws?.length ?? 0;
+        return {
+          player_id: turn.player_id,
+          total_scored: turn.total_scored,
+          busted: turn.busted,
+          tiebreak_round: turn.tiebreak_round,
+          throw_count: throwCount,
+          throws_total: turn.total_scored,
+          completed: turn.busted
+            || throwCount >= 3
+            || Boolean(fairEndingState?.checkedOutPlayerIds.includes(turn.player_id)),
+        };
+      });
+    const fairTurnByRoundAndPlayer = new Map(
+      fairEndingTurnInputs.map((turn) => [
+        `${turn.tiebreak_round ?? 0}:${turn.player_id}`,
+        turn,
+      ])
+    );
+    const tiebreakDartsThrown = Object.fromEntries(
+      (fairEndingState?.tiebreakPlayerIds ?? []).map((playerId) => {
+        const activeTurn = fairTurnByRoundAndPlayer.get(
+          `${fairEndingState?.tiebreakRound ?? 0}:${playerId}`
+        );
+        return [playerId, activeTurn?.throw_count ?? 0];
+      })
+    );
+    const fairProjection = fairEnding && fairEndingState
+      ? {
+          ...fairEndingState,
+          pendingPlayerIds: getPendingFairEndingPlayerIds(
+            fairEndingState,
+            orderPlayers,
+            fairEndingTurnInputs
+          ),
+          tiebreakDartsThrown,
+        }
+      : undefined;
+
     const nextProjection = calculatePressureProjection({
       players: playerStates,
       playOrder: orderPlayers.map((player) => player.id),
@@ -106,6 +153,7 @@ export function PressureWinProbability({
       finishRule,
       matchWinnerId,
       populationProfile,
+      fairEnding: fairProjection,
     });
     const currentProjection = currentPlayerId
       ? nextProjection.players.find((player) => player.id === currentPlayerId)
@@ -113,7 +161,7 @@ export function PressureWinProbability({
 
     return {
       projection: nextProjection,
-      currentCheckoutProbability: currentProjection
+      currentCheckoutProbability: currentProjection && fairEndingState?.phase !== 'tiebreak'
         ? estimateCheckoutProbability(
             currentProjection.scoreRemaining,
             dartsRemainingInTurn,
@@ -132,6 +180,8 @@ export function PressureWinProbability({
   }, [
     currentLegId,
     currentPlayerId,
+    fairEnding,
+    fairEndingState,
     finishRule,
     getAvgForPlayer,
     legs,

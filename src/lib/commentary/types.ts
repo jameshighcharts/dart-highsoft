@@ -65,8 +65,10 @@ export interface CommentaryPayload {
   busted: boolean;
   isHighScore: boolean;
   is180: boolean;
+  isNikitaSpecial?: boolean;
   gameContext: CommentaryGameContext;
   pressure?: CommentaryPressureContext;
+  narrative?: CommentaryNarrativeMemory;
 }
 
 export interface MatchRecapContext {
@@ -104,6 +106,12 @@ export interface CommentaryResult {
   error?: string;
 }
 
+export interface CommentaryTranscriptEntry {
+  id: string;
+  text: string;
+  completedAt: string;
+}
+
 export interface CommentaryStyleConfig {
   slangUseProbability: number;
   maxSlangPerLine: number;
@@ -123,3 +131,4 @@ export interface CommentaryPersona {
 
 export type CommentaryPersonaId = CommentaryPersona['id'];
 export type CommentaryExcitementLevel = 'low' | 'medium' | 'high';
+import type { CommentaryNarrativeMemory } from './commentaryNarrative';

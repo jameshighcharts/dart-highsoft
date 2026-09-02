@@ -6,7 +6,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { buildCommentaryPrompt, buildMatchRecapPrompt } from '@/lib/commentary/promptBuilder';
-import { resolvePersona } from '@/lib/commentary/personas';
+import {
+  realtimePersonaResponseInstruction,
+  resolvePersona,
+} from '@/lib/commentary/personas';
 import type { CommentaryPayload, MatchRecapPayload } from '@/lib/commentary/types';
 
 // Lazy-load OpenAI client to avoid initialization errors during build
@@ -64,6 +67,7 @@ export async function POST(request: NextRequest) {
     }
 
     const modelConfig = resolveModelConfig(process.env.COMMENTARY_MODEL);
+    const finalPrompt = `${build.prompt}\n\n${realtimePersonaResponseInstruction(persona.id)}`;
 
     let commentary: string;
     let tokenUsage: unknown;
@@ -75,7 +79,7 @@ export async function POST(request: NextRequest) {
         model: modelConfig.modelId,
         input: [
           { role: 'system', content: persona.systemPrompt },
-          { role: 'user', content: build.prompt },
+          { role: 'user', content: finalPrompt },
         ],
         temperature: 0.8,
         max_output_tokens: 800,
@@ -92,7 +96,7 @@ export async function POST(request: NextRequest) {
         model: modelConfig.modelId,
         messages: [
           { role: 'system', content: persona.systemPrompt },
-          { role: 'user', content: build.prompt },
+          { role: 'user', content: finalPrompt },
         ],
         temperature: 0.8,
         max_tokens: 120,

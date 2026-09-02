@@ -20,7 +20,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import type { VoiceOption } from '@/services/ttsService';
 import { COMMENTARY_PERSONA_LIST, resolvePersona } from '@/lib/commentary/personas';
-import type { CommentaryPersonaId } from '@/lib/commentary/types';
+import type { CommentaryPersonaId, CommentaryTranscriptEntry } from '@/lib/commentary/types';
 
 interface CommentarySettingsProps {
   enabled: boolean;
@@ -31,6 +31,8 @@ interface CommentarySettingsProps {
   onAudioEnabledChange: (enabled: boolean) => void;
   onVoiceChange: (voice: VoiceOption) => void;
   onPersonaChange: (persona: CommentaryPersonaId) => void;
+  transcriptLog: CommentaryTranscriptEntry[];
+  onClearTranscriptLog: () => void;
 }
 
 const VOICE_OPTIONS: { value: VoiceOption; label: string; description: string }[] = [
@@ -39,9 +41,8 @@ const VOICE_OPTIONS: { value: VoiceOption; label: string; description: string }[
   { value: 'ballad', label: 'Ballad', description: 'Female - smooth and melodic' },
   { value: 'coral', label: 'Coral', description: 'Female - bright and engaging' },
   { value: 'echo', label: 'Echo', description: 'Male - clear and articulate' },
-  { value: 'fable', label: 'Fable', description: 'Female - warm and expressive' },
-  { value: 'onyx', label: 'Onyx', description: 'Male - deep and authoritative' },
-  { value: 'nova', label: 'Nova', description: 'Female - friendly and energetic' },
+  { value: 'marin', label: 'Marin', description: 'Natural and polished (recommended)' },
+  { value: 'cedar', label: 'Cedar', description: 'Warm and grounded (recommended)' },
   { value: 'sage', label: 'Sage', description: 'Male - calm and composed' },
   { value: 'shimmer', label: 'Shimmer', description: 'Female - soft and soothing' },
   { value: 'verse', label: 'Verse', description: 'Male - dynamic and expressive' },
@@ -56,8 +57,10 @@ export default function CommentarySettings({
   onAudioEnabledChange,
   onVoiceChange,
   onPersonaChange,
+  transcriptLog,
+  onClearTranscriptLog,
 }: CommentarySettingsProps) {
-  const currentVoice = VOICE_OPTIONS.find((v) => v.value === voice) || VOICE_OPTIONS[2];
+  const currentVoice = VOICE_OPTIONS.find((v) => v.value === voice) || VOICE_OPTIONS[6];
   const activePersona = resolvePersona(personaId);
   const personaOptions = COMMENTARY_PERSONA_LIST;
   const buttonLabel = activePersona.label.split(' ')[0] ?? activePersona.label;
@@ -168,8 +171,43 @@ export default function CommentarySettings({
         )}
 
         <DropdownMenuSeparator />
+        <div className="px-2 py-2">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-xs font-medium">Recent calls ({transcriptLog.length})</span>
+            {transcriptLog.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={(event) => {
+                  event.preventDefault();
+                  onClearTranscriptLog();
+                }}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+          <div className="max-h-48 space-y-2 overflow-y-auto" aria-label="Recent commentary calls">
+            {transcriptLog.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Completed calls will appear here.</p>
+            ) : (
+              transcriptLog.slice().reverse().map((entry) => (
+                <p
+                  key={entry.id}
+                  className="rounded-md border bg-muted/30 px-2 py-1.5 text-xs leading-relaxed"
+                >
+                  {entry.text}
+                </p>
+              ))
+            )}
+          </div>
+        </div>
+
+        <DropdownMenuSeparator />
         <div className="px-2 py-2 text-xs text-muted-foreground">
-          Powered by OpenAI GPT-5 nano
+          Live audio powered by OpenAI Realtime
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

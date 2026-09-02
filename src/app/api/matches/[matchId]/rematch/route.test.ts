@@ -115,6 +115,7 @@ describe('POST /api/matches/[matchId]/rematch', () => {
     expect(test.getMatchInsert()).toEqual(expect.objectContaining({
       scolia_board_id: 'board-1',
       start_score: '501',
+      rematch_of_match_id: 'match-1',
     }));
     await expect(response.json()).resolves.toEqual({ newMatchId: 'match-2' });
   });

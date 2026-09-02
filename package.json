@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "scolia:worker": "node --env-file-if-exists=.env.local --experimental-strip-types src/workers/scoliaWorker.ts",
+    "commentary:demo": "node --env-file-if-exists=.env.local --experimental-strip-types scripts/commentaryDemo.ts",
     "lint": "eslint .",
     "test": "vitest",
     "test:ui": "vitest --ui",
@@ -44,7 +45,8 @@
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "react-qr-code": "^2.0.18",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

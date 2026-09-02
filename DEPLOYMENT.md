@@ -30,6 +30,7 @@ Optional environment variables for AI commentary / TTS:
 OPENAI_API_KEY=
 COMMENTARY_PERSONA=
 COMMENTARY_MODEL=
+OPENAI_REALTIME_COMMENTARY_MODEL=gpt-realtime-2.1
 ```
 
 Scolia requires one additional secret in both the Next.js app and the worker:
@@ -51,7 +52,7 @@ Make sure you have:
 - A GitHub account
 - A Vercel account
 - A Supabase account
-- Node.js 22+ installed (the Scolia worker uses Node's built-in WebSocket client)
+- Node.js 22+ installed
 - `npm install` already run in this repo
 
 If you want the easy GitHub-based deployment flow, put the repo in your own GitHub account first.
@@ -156,6 +157,7 @@ SUPABASE_SERVICE_ROLE_KEY=service_role key
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
+OPENAI_API_KEY=... # optional for scoring; required for direct Scolia Realtime commentary
 ```
 
 8. If you want commentary and TTS, also add:
@@ -205,7 +207,7 @@ SUPABASE_SERVICE_ROLE_KEY=...
 
 1. Create another service in the Railway project from this GitHub repository.
 2. Configure it to build with `Dockerfile.scolia-worker`.
-3. Add the three worker environment variables above.
+3. Add the worker environment variables above. Include `OPENAI_API_KEY` when using Realtime commentary.
 4. Keep the service private; it does not need a public domain or inbound port.
 5. Set the replica count to exactly **one** and disable sleeping/serverless scaling.
 
@@ -213,7 +215,7 @@ SUPABASE_SERVICE_ROLE_KEY=...
 
 1. Create a **Background Worker** from this GitHub repository.
 2. Use `npm ci` as the build command and `npm run scolia:worker` as the start command, or build `Dockerfile.scolia-worker`.
-3. Add the three worker environment variables above.
+3. Add the worker environment variables above. Include `OPENAI_API_KEY` when using Realtime commentary.
 4. Run exactly **one** instance.
 
 The one-replica rule is important: every worker instance attempts one WebSocket per board, and Scolia rejects competing connections to the same board.

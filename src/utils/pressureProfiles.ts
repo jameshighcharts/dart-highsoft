@@ -1,4 +1,4 @@
-import type { FinishRule } from '@/utils/x01';
+import type { FinishRule } from './x01.ts';
 
 export type PressureHistoryProfile = {
   finishRule: FinishRule;
@@ -19,6 +19,26 @@ export type PressurePlayerHistoryProfile = PressureHistoryProfile & {
 };
 
 export type PressurePopulationProfile = PressureHistoryProfile;
+
+export type PressurePlayerProfileRow = {
+  player_id: string;
+  finish_rule: FinishRule;
+  matches_played: number | string | null;
+  visits: number | string | null;
+  darts_thrown: number | string | null;
+  scoring_points: number | string | null;
+  three_dart_average: number | string | null;
+  busts: number | string | null;
+  bust_rate: number | string | null;
+  checkout_opportunities: number | string | null;
+  checkouts: number | string | null;
+  checkout_rate: number | string | null;
+};
+
+export type PressurePopulationProfileRow = Omit<
+  PressurePlayerProfileRow,
+  'player_id' | 'matches_played'
+> & { player_match_samples: number | string | null };
 
 export type PressureSkillModel = {
   threeDartAverage: number;
@@ -44,6 +64,45 @@ function blend(prior: number, observed: number, confidence: number) {
 
 function finiteOr(value: number, fallback: number) {
   return Number.isFinite(value) ? value : fallback;
+}
+
+function numeric(value: number | string | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeBase(row: PressurePlayerProfileRow | PressurePopulationProfileRow) {
+  return {
+    finishRule: row.finish_rule,
+    visits: numeric(row.visits),
+    dartsThrown: numeric(row.darts_thrown),
+    scoringPoints: numeric(row.scoring_points),
+    threeDartAverage: numeric(row.three_dart_average),
+    busts: numeric(row.busts),
+    bustRate: numeric(row.bust_rate),
+    checkoutOpportunities: numeric(row.checkout_opportunities),
+    checkouts: numeric(row.checkouts),
+    checkoutRate: numeric(row.checkout_rate),
+  };
+}
+
+export function normalizePlayerPressureProfile(
+  row: PressurePlayerProfileRow
+): PressurePlayerHistoryProfile {
+  return {
+    playerId: row.player_id,
+    matchesPlayed: numeric(row.matches_played),
+    ...normalizeBase(row),
+  };
+}
+
+export function normalizePopulationPressureProfile(
+  row: PressurePopulationProfileRow
+): PressurePopulationProfile {
+  return {
+    matchesPlayed: numeric(row.player_match_samples),
+    ...normalizeBase(row),
+  };
 }
 
 /**

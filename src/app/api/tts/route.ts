@@ -19,7 +19,8 @@ function getOpenAI(): OpenAI {
   return openaiClient;
 }
 
-type VoiceOption = 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'fable' | 'onyx' | 'nova' | 'sage' | 'shimmer' | 'verse';
+type VoiceOption = 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'marin' | 'cedar' | 'fable' | 'onyx' | 'nova' | 'sage' | 'shimmer' | 'verse';
+type TTSVoice = Exclude<VoiceOption, 'marin' | 'cedar'>;
 
 interface TTSRequest {
   text: string;
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
     const body: TTSRequest = await request.json();
     const {
       text,
-      voice = 'onyx',
+      voice = 'cedar',
       speed = 1.1,
       personaId = 'chad',
       excitement = 'medium',
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate voice option
-    const validVoices: VoiceOption[] = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'onyx', 'nova', 'sage', 'shimmer', 'verse'];
+    const validVoices: VoiceOption[] = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'marin', 'cedar', 'fable', 'onyx', 'nova', 'sage', 'shimmer', 'verse'];
     if (!validVoices.includes(voice)) {
       return NextResponse.json(
         { error: 'Invalid voice option' },
@@ -77,9 +78,10 @@ export async function POST(request: NextRequest) {
     // const combinedInput = buildSpeechInput(personaId, excitement, speed, text);
 
     const openai = getOpenAI();
+    const ttsVoice: TTSVoice = voice === 'marin' ? 'fable' : voice === 'cedar' ? 'onyx' : voice;
     const mp3 = await openai.audio.speech.create({
       model: 'tts-1', // Using cheapest TTS model
-      voice,
+      voice: ttsVoice,
       input: text,
       speed,
     });
