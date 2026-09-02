@@ -2,7 +2,7 @@
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import Link from 'next/link';
-import { BarChart3, ChevronDown, Radio, Target, Trophy, Users } from 'lucide-react';
+import { BarChart3, ChevronDown, Radio, Target, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -44,9 +44,12 @@ export default function Home() {
               />
               <h1 className="text-2xl font-semibold md:text-3xl">Dart Scoreboard</h1>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Button asChild size="lg">
                 <Link href="/new">New Match</Link>
+              </Button>
+              <Button asChild variant="outline" size="lg">
+                <Link href="/tournament/new">New Tournament</Link>
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -56,12 +59,6 @@ export default function Home() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" sideOffset={8} className="w-56 rounded-xl p-1.5 shadow-xl">
-                  <DropdownMenuItem asChild className="cursor-pointer rounded-lg py-2.5">
-                    <Link href="/tournament/new">
-                      <Trophy />
-                      New Tournament
-                    </Link>
-                  </DropdownMenuItem>
                   <DropdownMenuItem asChild className="cursor-pointer rounded-lg py-2.5">
                     <Link href="/practice">
                       <Target />
