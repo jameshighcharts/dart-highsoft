@@ -6,7 +6,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Eye, Trophy, Clock, Users, Swords } from 'lucide-react';
+import { Play, Eye, Trophy, Clock, Users, Swords, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 
 type MatchWithDetails = {
@@ -47,6 +47,7 @@ export default function GamesPage() {
   const [recentGames, setRecentGames] = useState<MatchWithDetails[]>([]);
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -175,6 +176,31 @@ export default function GamesPage() {
 
   const handleJoinLiveGame = (matchId: string) => {
     router.push(`/match/${matchId}?spectator=true`);
+  };
+
+  const handleDeleteGame = async (match: MatchWithDetails) => {
+    const passcode = window.prompt(
+      `Enter the admin passcode to permanently delete this game (${match.players.map((player) => player.display_name).join(', ')}). This cannot be undone.`
+    );
+    if (!passcode) return;
+
+    setDeletingMatchId(match.id);
+    try {
+      const response = await fetch(`/api/matches/${match.id}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-passcode': passcode },
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? 'Failed to delete game');
+      }
+      setLiveGames((games) => games.filter((game) => game.id !== match.id));
+      setRecentGames((games) => games.filter((game) => game.id !== match.id));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to delete game');
+    } finally {
+      setDeletingMatchId(null);
+    }
   };
 
   const formatTimeAgo = (dateString: string) => {
@@ -318,14 +344,25 @@ export default function GamesPage() {
                     <span>{getGameProgress(match)}</span>
                   </div>
 
-                  <Button 
-                    onClick={() => handleJoinLiveGame(match.id)}
-                    className="w-full"
-                    size="sm"
-                  >
-                    <Eye className="h-4 w-4 mr-2" />
-                    Watch Live
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => handleJoinLiveGame(match.id)}
+                      className="flex-1"
+                      size="sm"
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      Watch Live
+                    </Button>
+                    <Button
+                      aria-label="Delete game"
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => handleDeleteGame(match)}
+                      disabled={deletingMatchId === match.id}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -394,12 +431,23 @@ export default function GamesPage() {
                     </div>
 
                     {/* Stats */}
-                    <div className="space-y-1">
-                      <div className="text-sm font-medium text-muted-foreground">Game Stats</div>
-                      <div className="text-sm">
-                        <div>{getGameDuration(match)}</div>
-                        <div className="text-muted-foreground">Best of {match.legs_to_win * 2 - 1}</div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="text-sm font-medium text-muted-foreground">Game Stats</div>
+                        <div className="text-sm">
+                          <div>{getGameDuration(match)}</div>
+                          <div className="text-muted-foreground">Best of {match.legs_to_win * 2 - 1}</div>
+                        </div>
                       </div>
+                      <Button
+                        aria-label="Delete game"
+                        variant="destructive"
+                        size="icon"
+                        onClick={() => handleDeleteGame(match)}
+                        disabled={deletingMatchId === match.id}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 </CardContent>

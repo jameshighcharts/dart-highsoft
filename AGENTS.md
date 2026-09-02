@@ -45,6 +45,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | Route | Methods | Purpose |
 |-------|---------|---------|
 | `matches/` | POST | Create a new match |
+| `matches/[matchId]/` | DELETE | Passcode-protected permanent deletion of a standalone match and its dependent game data |
 | `matches/[matchId]/throws/` | POST, DELETE | Record or delete a dart throw |
 | `matches/[matchId]/throws/[throwId]/` | PATCH, DELETE | Edit or delete a specific throw |
 | `matches/[matchId]/turns/` | POST | Create a turn |

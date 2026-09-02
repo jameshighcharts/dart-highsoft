@@ -127,9 +127,11 @@ export async function getEloLeaderboard(limit?: number): Promise<EloLeaderboardE
   const supabase = await getSupabaseClient();
 
   let query = supabase
-    .from('elo_leaderboard')
+    .from('player_elo_stats')
     .select('*')
-    .gt('wins', 0);
+    .gt('total_rated_matches', 0)
+    .order('current_rating', { ascending: false })
+    .order('total_rated_matches', { ascending: false });
   if (limit) query = query.limit(limit);
   const { data, error } = await query;
     
@@ -138,7 +140,7 @@ export async function getEloLeaderboard(limit?: number): Promise<EloLeaderboardE
     return [];
   }
   
-  return data || [];
+  return (data || []).map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
 
 /**

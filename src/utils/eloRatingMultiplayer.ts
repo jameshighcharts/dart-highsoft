@@ -97,16 +97,18 @@ export async function getPlayerMultiEloStats(playerId: string): Promise<PlayerMu
 export async function getMultiEloLeaderboard(limit?: number): Promise<MultiEloLeaderboardEntry[]> {
   const supabase = await getSupabaseClient();
   let query = supabase
-    .from('elo_leaderboard_multi')
+    .from('player_elo_stats_multi')
     .select('*')
-    .gt('wins', 0);
+    .gt('total_rated_matches', 0)
+    .order('current_rating', { ascending: false })
+    .order('total_rated_matches', { ascending: false });
   if (limit) query = query.limit(limit);
   const { data, error } = await query;
   if (error) {
     console.error('Error fetching multiplayer Elo leaderboard:', error);
     return [];
   }
-  return data || [];
+  return (data || []).map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
 
 export async function getPlayerMultiEloHistory(
