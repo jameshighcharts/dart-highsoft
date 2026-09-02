@@ -33,6 +33,21 @@ export function shouldIgnoreRealtimePayload(
   return false;
 }
 
+export function shouldClearLocalOngoingTurn(params: {
+  ongoingTurnId: string;
+  localDartCount: number;
+  persistedTurn: { busted: boolean; throwCount: number } | null;
+}): boolean {
+  const { ongoingTurnId, localDartCount, persistedTurn } = params;
+
+  if (!persistedTurn) {
+    return !ongoingTurnId.startsWith('pending-');
+  }
+
+  if (persistedTurn.busted) return true;
+  return persistedTurn.throwCount >= 3 && persistedTurn.throwCount > localDartCount;
+}
+
 export class PendingThrowBuffer {
   private byTurnId = new Map<string, unknown>();
   private limit: number;
@@ -66,4 +81,3 @@ export class PendingThrowBuffer {
     this.byTurnId.clear();
   }
 }
-
