@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import "./globals.css";
 import Link from "next/link";
 import { Home, Gamepad2, BarChart3, Trophy } from "lucide-react";
@@ -44,7 +45,10 @@ export default function RootLayout({
         <QueryProvider>
         <div className="min-h-screen pb-16 md:pb-0">
           <nav className="hidden md:flex items-center justify-between px-6 py-3 border-b bg-card">
-            <div className="font-semibold">Dart Scoreboard</div>
+            <Link href="/" className="flex items-center gap-3 font-semibold">
+              <Image src="/icon.svg" alt="" width={40} height={40} className="size-10" priority />
+              Dart Scoreboard
+            </Link>
             <div className="flex items-center gap-4 text-sm">
               <Link href="/" className="flex items-center gap-2">
                 <Home className="size-4" />

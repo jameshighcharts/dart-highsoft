@@ -24,9 +24,16 @@ export default function Home() {
       <GridLeaderboard
         headerContent={
           <div className="space-y-6">
-            <div className="flex items-center gap-3">
-              <Image src="/favicon.ico" alt="Dart Scoreboard" width={32} height={32} className="rounded" />
-              <h1 className="text-2xl font-semibold">Dart Scoreboard</h1>
+            <div className="flex items-center gap-4">
+              <Image
+                src="/icon.svg"
+                alt="Dart Scoreboard"
+                width={64}
+                height={64}
+                className="size-14 md:size-16"
+                priority
+              />
+              <h1 className="text-2xl font-semibold md:text-3xl">Dart Scoreboard</h1>
             </div>
             <div className="flex flex-wrap gap-3">
               <Button asChild>
