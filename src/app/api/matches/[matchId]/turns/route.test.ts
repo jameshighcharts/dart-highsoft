@@ -198,6 +198,39 @@ describe('POST /api/matches/[matchId]/turns', () => {
     expect(insertMock).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects a consecutive turn for a player who just completed one', async () => {
+    const insertMock = vi.fn();
+    const supabase = createSupabaseMock({
+      latestTurns: [
+        {
+          id: 'turn-complete',
+          player_id: 'player-1',
+          turn_number: 5,
+          busted: false,
+          throws: [{ dart_index: 1 }, { dart_index: 2 }, { dart_index: 3 }],
+        },
+      ],
+      insertImplementation: (payload) => {
+        insertMock(payload);
+        return { data: { id: 'unexpected-turn', ...payload }, error: null };
+      },
+    });
+    getSupabaseServerClientMock.mockReturnValue(supabase);
+
+    const request = new Request('http://localhost/api/matches/match-1/turns', {
+      method: 'POST',
+      body: JSON.stringify({ legId: 'leg-1', playerId: 'player-1' }),
+      headers: { 'content-type': 'application/json' },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ matchId: 'match-1' }) });
+    const json = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(json.error).toBe('Player turn has already been completed');
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
   it('returns 409 when match is not active', async () => {
     const supabase = {
       from() {

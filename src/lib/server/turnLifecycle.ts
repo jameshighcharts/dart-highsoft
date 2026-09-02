@@ -68,6 +68,9 @@ export async function resolveOrCreateTurnForPlayer(
     const fullTurn = await getTurnById(supabase, latest.id);
     return { turn: fullTurn ?? latest };
   }
+  if (latest?.player_id === playerId) {
+    return { error: 'Player turn has already been completed', status: 409 };
+  }
 
   // Race-tolerant create: concurrent callers can contend on turn_number uniqueness.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -99,6 +102,9 @@ export async function resolveOrCreateTurnForPlayer(
     if (latestAfterConflict && latestAfterConflict.player_id === playerId && isIncompleteTurn(latestAfterConflict)) {
       const fullTurn = await getTurnById(supabase, latestAfterConflict.id);
       return { turn: fullTurn ?? latestAfterConflict };
+    }
+    if (latestAfterConflict?.player_id === playerId) {
+      return { error: 'Player turn has already been completed', status: 409 };
     }
   }
 
