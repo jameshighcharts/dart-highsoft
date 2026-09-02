@@ -18,6 +18,7 @@ import {
   PendingThrowBuffer,
   getRealtimePayloadLegId,
   getRealtimePayloadTurnId,
+  shouldClearLocalOngoingTurn,
   shouldIgnoreRealtimePayload,
   type RealtimePayload,
 } from '@/lib/match/realtime';
@@ -776,45 +777,44 @@ export function useMatchRealtime({
             if (ongoing) {
               // Check if someone else finished this turn or if there's a newer turn
               const ourTurn = updatedTurns.find((t) => t.id === ongoing.turnId) as TurnWithThrows | undefined;
-              if (!ourTurn) {
-                // Our turn was deleted (probably by another client)
-                shouldClearOngoing = true;
-              } else {
-                // Check if our turn was completed by another client
-                const persistedThrows = (ourTurn.throws ?? []).slice().sort((a, b) => a.dart_index - b.dart_index);
-                const throwCount = persistedThrows.length;
-                if (throwCount >= 3 || ourTurn.busted) {
-                  shouldClearOngoing = true;
-                } else {
-                  const persistedDarts = persistedThrows.map((thr) => ({
-                    scored: thr.scored,
-                    label: thr.segment,
-                    kind: segmentLabelToKind(thr.segment),
-                  }));
-                  // Avoid regressing local optimistic darts while a throw request is in flight.
-                  // Reconcile only when server has at least as many darts as local.
-                  const canReconcileFromServer = persistedDarts.length >= ongoing.darts.length;
-                  const drifted =
-                    canReconcileFromServer &&
-                    (persistedDarts.length !== ongoing.darts.length ||
-                      persistedDarts.some((dart, idx) => {
-                        const local = ongoing.darts[idx];
-                        return !local || local.scored !== dart.scored || local.label !== dart.label;
-                      }));
+              const persistedThrows = (ourTurn?.throws ?? []).slice().sort((a, b) => a.dart_index - b.dart_index);
+              shouldClearOngoing = shouldClearLocalOngoingTurn({
+                ongoingTurnId: ongoing.turnId,
+                localDartCount: ongoing.darts.length,
+                persistedTurn: ourTurn
+                  ? { busted: ourTurn.busted, throwCount: persistedThrows.length }
+                  : null,
+              });
 
-                  // Keep local in-memory turn fully aligned with server throws so score math stays consistent.
-                  if (drifted) {
-                    const syncedOngoingDarts = persistedDarts.map((dart) => ({ ...dart }));
-                    const syncedLocalDarts = persistedDarts.map((dart) => ({ ...dart }));
-                    ongoingTurnRef.current = {
-                      ...ongoing,
-                      darts: syncedOngoingDarts,
-                    };
-                    nextLocalTurn = {
-                      playerId: ongoing.playerId,
-                      darts: syncedLocalDarts,
-                    };
-                  }
+              if (!shouldClearOngoing && ourTurn) {
+                const persistedDarts = persistedThrows.map((thr) => ({
+                  scored: thr.scored,
+                  label: thr.segment,
+                  kind: segmentLabelToKind(thr.segment),
+                }));
+                // Avoid regressing local optimistic darts while a throw request is in flight.
+                // Reconcile only when server has at least as many darts as local.
+                const canReconcileFromServer = persistedDarts.length >= ongoing.darts.length;
+                const drifted =
+                  canReconcileFromServer &&
+                  (persistedDarts.length !== ongoing.darts.length ||
+                    persistedDarts.some((dart, idx) => {
+                      const local = ongoing.darts[idx];
+                      return !local || local.scored !== dart.scored || local.label !== dart.label;
+                    }));
+
+                // Keep local in-memory turn fully aligned with server throws so score math stays consistent.
+                if (drifted) {
+                  const syncedOngoingDarts = persistedDarts.map((dart) => ({ ...dart }));
+                  const syncedLocalDarts = persistedDarts.map((dart) => ({ ...dart }));
+                  ongoingTurnRef.current = {
+                    ...ongoing,
+                    darts: syncedOngoingDarts,
+                  };
+                  nextLocalTurn = {
+                    playerId: ongoing.playerId,
+                    darts: syncedLocalDarts,
+                  };
                 }
               }
             }

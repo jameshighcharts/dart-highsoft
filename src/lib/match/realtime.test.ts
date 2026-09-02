@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { PendingThrowBuffer, shouldIgnoreRealtimePayload } from './realtime';
+import {
+  PendingThrowBuffer,
+  shouldClearLocalOngoingTurn,
+  shouldIgnoreRealtimePayload,
+} from './realtime';
 
 describe('shouldIgnoreRealtimePayload', () => {
   it('returns false when payload is null/undefined', () => {
@@ -69,3 +73,54 @@ describe('PendingThrowBuffer', () => {
   });
 });
 
+describe('shouldClearLocalOngoingTurn', () => {
+  it('preserves a pending turn while its create request is in flight', () => {
+    expect(
+      shouldClearLocalOngoingTurn({
+        ongoingTurnId: 'pending-123',
+        localDartCount: 1,
+        persistedTurn: null,
+      })
+    ).toBe(false);
+  });
+
+  it('clears a persisted turn that disappeared from the server snapshot', () => {
+    expect(
+      shouldClearLocalOngoingTurn({
+        ongoingTurnId: 'turn-1',
+        localDartCount: 1,
+        persistedTurn: null,
+      })
+    ).toBe(true);
+  });
+
+  it('keeps ownership while the local third dart is being finalized', () => {
+    expect(
+      shouldClearLocalOngoingTurn({
+        ongoingTurnId: 'turn-1',
+        localDartCount: 3,
+        persistedTurn: { busted: false, throwCount: 3 },
+      })
+    ).toBe(false);
+  });
+
+  it('clears when another client completed the local turn', () => {
+    expect(
+      shouldClearLocalOngoingTurn({
+        ongoingTurnId: 'turn-1',
+        localDartCount: 2,
+        persistedTurn: { busted: false, throwCount: 3 },
+      })
+    ).toBe(true);
+  });
+
+  it('clears a turn that another client marked busted', () => {
+    expect(
+      shouldClearLocalOngoingTurn({
+        ongoingTurnId: 'turn-1',
+        localDartCount: 2,
+        persistedTurn: { busted: true, throwCount: 2 },
+      })
+    ).toBe(true);
+  });
+});
