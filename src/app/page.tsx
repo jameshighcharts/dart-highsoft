@@ -25,9 +25,13 @@ export default function Home() {
           <nav className="mx-auto grid w-full max-w-2xl grid-cols-3 gap-2" aria-label="Start playing">
             {[
               { href: '/new', label: 'New match', icon: '/game-icons/newmatch.png' },
-              { href: '/tournament/new', label: 'New tournament', icon: '/game-icons/tournament.png' },
+              // The trophy is a narrow portrait shape (aspect 0.72) next to two
+              // near-square icons, so object-contain fits it by height and it
+              // reads smaller than its neighbours. Scale it up: a transform does
+              // not affect layout, so the card and the icon box are unchanged.
+              { href: '/tournament/new', label: 'New tournament', icon: '/game-icons/tournament.png', scale: 'scale-[1.05]' },
               { href: '/practice', label: 'Practice', icon: '/game-icons/practice1.png' },
-            ].map(({ href, label, icon }) => (
+            ].map(({ href, label, icon, scale }) => (
               <Link
                 key={href}
                 href={href}
@@ -39,7 +43,7 @@ export default function Home() {
                     alt=""
                     width={192}
                     height={192}
-                    className="size-20 shrink-0 object-contain sm:size-24"
+                    className={`size-20 shrink-0 object-contain sm:size-24 ${scale ?? ''}`}
                   />
                 </span>
                 <span className="text-sm font-bold leading-tight">{label}</span>
