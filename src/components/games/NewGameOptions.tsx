@@ -104,7 +104,7 @@ const GAME_ART_ICONS: Record<GameType, ComponentType<{ className?: string }>> = 
 
 /** Display names on the picker cards where they differ from the game's formal name. */
 const CARD_NAMES: Partial<Record<GameType, string>> = {
-  around_the_clock: "Around the 🌍",
+  around_the_clock: "Around 🌍",
 };
 
 /** Name shown on the picker and selected-game cards. */
