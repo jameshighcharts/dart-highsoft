@@ -19,6 +19,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `supabase`: SQL migrations and local config.
 - `supabase/tests`: SQL regression tests for migration-level invariants and RPCs.
 - `supabase-test`: Separate Supabase config for E2E tests (port 56XXX).
+- `.github/workflows/test.yml`: Required CI check for lint, unit tests, build, and Lighthouse performance budgets.
+- `.lighthouserc.json`: Mobile Lighthouse workload and performance limits for the home page.
 - `DEPLOYMENT.md`: Beginner-friendly production deployment guide for Vercel + Supabase.
 - `Dockerfile.scolia-worker`: Production container for the separate persistent Scolia worker.
 - `railway.json`: Railway config-as-code for the single-replica Scolia worker service.
@@ -194,6 +196,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `npm run lint`: Lint with Next.js + ESLint config.
 - `npm test`: Run tests in watch mode (interactive).
 - `npm run test:run`: Run all tests once (for CI/CD).
+- `npm run test:performance`: Run three Lighthouse audits against the production build and enforce the committed performance budgets.
 - `npm run test:ui`: Open visual test interface.
 - `npm run test:coverage`: Generate and display coverage report.
 - `npm run test:e2e`: Run Playwright E2E tests (requires test Supabase instance).
@@ -276,6 +279,9 @@ Scolia spectator loads include throw geometry across every leg for per-player wh
 
 **Completed match history:**
 Recent Games card → `/match/:id?spectator=true&history=true` → spectator data load includes every leg and Scolia throw geometry → read-only result hero, whole-match KPIs/player performance/top visits, final-leg score progression, Elo changes, and whole-match heatmaps. Live-only board status, QR code, current-player state, commentary, and winner popup are suppressed.
+
+**Production release gate:**
+Pull request or merge queue → `Tests / test` runs lint, unit tests, a production build, and three Lighthouse samples → GitHub branch protection permits merge only after success → Vercel Deployment Checks hold the production alias for the same commit until `Tests / test` passes.
 
 Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. A missing acknowledgement resets a stale command for retry; after three attempts it becomes `failed`. Deploy `Dockerfile.scolia-worker` as exactly one always-on worker replica outside Vercel.
 
