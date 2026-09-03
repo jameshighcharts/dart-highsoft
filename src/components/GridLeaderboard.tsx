@@ -1163,25 +1163,28 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
            There is deliberately no border: a 1px rim reads as a drawn white
            outline and flattens the chip. Volume comes from stacked background
            layers, listed top-most first: a specular hotspot high and left, a
-           dark scrim seated under the digit, a contact shadow pooling at the
-           base, then the hue body.
+           contact shadow pooling at the base, then the hue body.
 
-           The scrim is what lets the fill stay as bright as the icon while the
-           numeral stays glass white. White over the bare mint core is only
-           3.9:1; at 0.6 alpha the scrim takes the digit's seat to 5.0:1 or
-           better on every hue, without darkening the rim where the glass
-           reads. */
+           The fill is left at full icon brightness, which puts glass white at
+           roughly 3.9:1 over the mint core. The digit's legibility therefore
+           comes from the halo in its text-shadow, not from the fill -- see
+           .row-rank--top. */
         .grid-leaderboard .row-rank--top {
           border: 0;
           color: var(--glass-white);
-          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+          /* The digit sits straight on the bright fill, so its contrast comes
+             from a halo tight to the glyph rather than from a scrim behind it:
+             a scrim large enough to help was visible as a dark disc. */
+          text-shadow:
+            0 1px 1px rgba(2, 16, 12, 0.85),
+            0 0 2px rgba(2, 16, 12, 0.8),
+            0 0 5px rgba(2, 16, 12, 0.55);
         }
         .grid-leaderboard .row-rank--1,
         .grid-leaderboard .row-rank--2,
         .grid-leaderboard .row-rank--3 {
           background-image:
             radial-gradient(70% 50% at 30% 8%, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.15) 42%, rgba(255, 255, 255, 0) 72%),
-            radial-gradient(closest-side at 50% 56%, rgba(4, 26, 20, 0.6) 0%, rgba(4, 26, 20, 0.4) 62%, rgba(4, 26, 20, 0) 88%),
             radial-gradient(120% 95% at 50% 118%, rgba(0, 12, 18, 0.45) 0%, rgba(0, 12, 18, 0) 60%),
             var(--podium-body);
         }
