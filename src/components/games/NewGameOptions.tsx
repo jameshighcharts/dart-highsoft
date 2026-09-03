@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentType } from "react";
-import { Clock, Grid3x3, Skull, Sparkles, Target } from "lucide-react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,6 +14,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { GAME_MODE_INFO, GAME_MODE_ORDER, type ConfigField } from "@/lib/games/labels";
 import { isGameMode, type GameMode } from "@/lib/games/types";
+import { OptionCard } from "./OptionCard";
 
 export type GameType = "x01" | GameMode;
 
@@ -46,6 +47,13 @@ export function gameTypeName(type: GameType): string {
   return type === "x01" ? "X01" : GAME_MODE_INFO[type].name;
 }
 
+const X01_DESCRIPTION =
+  "Everyone starts on the same score and takes turns throwing three darts. Subtract what you hit and be the first to reach exactly zero. Going below zero, or landing on 1 with double out, is a bust and the turn does not count.";
+
+export function gameTypeDescription(type: GameType): string {
+  return type === "x01" ? X01_DESCRIPTION : GAME_MODE_INFO[type].description;
+}
+
 /** Fresh config for a mode, cloned from the schema defaults. */
 export function defaultConfigFor(mode: GameMode): Record<string, unknown> {
   const defaults = GAME_MODE_INFO[mode].defaults;
@@ -68,25 +76,58 @@ type GameTypeCard = {
   icon: ComponentType<{ className?: string }>;
 };
 
-const MODE_ICONS: Record<GameMode, ComponentType<{ className?: string }>> = {
-  cricket: Grid3x3,
-  killer: Skull,
-  shanghai: Sparkles,
-  around_the_clock: Clock,
+/** Rendered 3D artwork for each game, keyed from the icon sheet in public/game-icons. */
+function makeGameArtIcon(type: GameType): ComponentType<{ className?: string }> {
+  const src = `/game-icons/${type}.png`;
+  function GameArtIcon({ className }: { className?: string }) {
+    return (
+      <Image
+        src={src}
+        alt=""
+        width={192}
+        height={192}
+        className={`object-contain ${className ?? ""}`}
+      />
+    );
+  }
+  GameArtIcon.displayName = `GameArtIcon(${type})`;
+  return GameArtIcon;
+}
+
+const GAME_ART_ICONS: Record<GameType, ComponentType<{ className?: string }>> = {
+  x01: makeGameArtIcon("x01"),
+  cricket: makeGameArtIcon("cricket"),
+  killer: makeGameArtIcon("killer"),
+  shanghai: makeGameArtIcon("shanghai"),
+  around_the_clock: makeGameArtIcon("around_the_clock"),
+};
+
+/** Display names on the picker cards where they differ from the game's formal name. */
+const CARD_NAMES: Partial<Record<GameType, string>> = {
+  around_the_clock: "Around 🌍",
+};
+
+/** Name shown on the picker and selected-game cards. */
+export function gameCardName(type: GameType): string {
+  return CARD_NAMES[type] ?? gameTypeName(type);
+}
+
+/** Short one-liners so every card stays the same height. */
+const CARD_TAGLINES: Record<GameType, string> = {
+  x01: "Count down from 501, 301 or 201.",
+  cricket: "Close 15 to 20 and Bull.",
+  killer: "Last one standing wins.",
+  shanghai: "One target per round.",
+  around_the_clock: "Race 1 to 20, finish on Bull.",
 };
 
 const GAME_TYPE_CARDS: GameTypeCard[] = [
-  {
-    type: "x01",
-    name: "X01",
-    tagline: "Count down from 501, 301 or 201 and check out.",
-    icon: Target,
-  },
+  { type: "x01", name: "X01", tagline: CARD_TAGLINES.x01, icon: GAME_ART_ICONS.x01 },
   ...GAME_MODE_ORDER.map((mode) => ({
     type: mode,
-    name: GAME_MODE_INFO[mode].name,
-    tagline: GAME_MODE_INFO[mode].tagline,
-    icon: MODE_ICONS[mode],
+    name: CARD_NAMES[mode] ?? GAME_MODE_INFO[mode].name,
+    tagline: CARD_TAGLINES[mode],
+    icon: GAME_ART_ICONS[mode],
   })),
 ];
 
@@ -98,26 +139,41 @@ export function GameTypePicker({
   onChange: (type: GameType) => void;
 }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2" role="group" aria-label="Game type">
-      {GAME_TYPE_CARDS.map((card) => {
-        const Icon = card.icon;
-        const selected = card.type === value;
-        return (
-          <button
-            key={card.type}
-            type="button"
-            aria-pressed={selected}
-            onClick={() => onChange(card.type)}
-            className={`flex flex-col items-start gap-1 rounded border p-3 text-left transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-              selected ? "border-accent bg-accent/30" : ""
-            }`}
-          >
-            <Icon className="size-5" />
-            <span className="font-medium leading-tight">{card.name}</span>
-            <span className="text-xs text-muted-foreground leading-snug">{card.tagline}</span>
-          </button>
-        );
-      })}
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5" role="group" aria-label="Game type">
+      {GAME_TYPE_CARDS.map((card) => (
+        <OptionCard
+          key={card.type}
+          icon={card.icon}
+          iconSize="lg"
+          align="center"
+          title={card.name}
+          selected={card.type === value}
+          onClick={() => onChange(card.type)}
+        >
+          <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{card.tagline}</span>
+        </OptionCard>
+      ))}
+    </div>
+  );
+}
+
+/** Outlined card under the picker that names the chosen game and explains how it is played. */
+export function SelectedGameCard({ type }: { type: GameType }) {
+  const Icon = GAME_ART_ICONS[type];
+  return (
+    <div
+      className="rounded-lg border border-foreground/80 p-4"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <Icon className="size-6" />
+        <span>Selected game</span>
+      </div>
+      <div className="mt-1 font-bold">{gameCardName(type)}</div>
+      <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
+        {gameTypeDescription(type)}
+      </p>
     </div>
   );
 }
@@ -291,7 +347,6 @@ export function GameConfigFields({
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">{info.description}</p>
       <div className="grid grid-cols-2 gap-4">
         {info.fields.map((field) => {
           if (field.kind === "select") {
