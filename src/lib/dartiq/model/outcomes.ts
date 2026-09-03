@@ -63,8 +63,10 @@ type BehavioralOutcomeModelInput = {
   exactOutcomeThreshold?: number;
 };
 
-const DEFAULT_PRIOR_STRENGTH = 24;
-const DEFAULT_EXACT_OUTCOME_THRESHOLD = 40;
+export const DARTIQ_OUTCOME_CONFIGURATION = Object.freeze({
+  priorStrength: 24,
+  exactOutcomeThreshold: 40,
+});
 
 export function normalizeDartIQOutcomeObservation(
   row: DartIQOutcomeObservationRow
@@ -244,10 +246,10 @@ export function createBehavioralOutcomeModel(
 ): DartIQOutcomeModel {
   const personal = input.personal ?? [];
   const population = input.population ?? [];
-  const priorStrength = Math.max(1, input.priorStrength ?? DEFAULT_PRIOR_STRENGTH);
+  const priorStrength = Math.max(1, input.priorStrength ?? DARTIQ_OUTCOME_CONFIGURATION.priorStrength);
   const exactOutcomeThreshold = Math.max(
     1,
-    input.exactOutcomeThreshold ?? DEFAULT_EXACT_OUTCOME_THRESHOLD
+    input.exactOutcomeThreshold ?? DARTIQ_OUTCOME_CONFIGURATION.exactOutcomeThreshold
   );
   const distributionCache = new Map<string, DartIQOutcomeDistribution>();
 

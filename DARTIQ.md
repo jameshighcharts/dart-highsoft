@@ -1243,7 +1243,8 @@ emitted live from the browser and cannot wait for leg completion.
 ### One-PR execution order
 
 The work lands as one PR but remains reviewable through ordered commits. Later commits depend on the
-contracts and proofs established earlier.
+contracts and proofs established earlier. Commentary latency instrumentation is deliberately deferred;
+this PR measures DartIQ correctness and calibration rather than optimizing an unobserved speed problem.
 
 #### A. Foundation
 
@@ -1286,12 +1287,12 @@ contracts and proofs established earlier.
 11. **Telemetry schema** — add immutable model/config identity, frozen population/player evidence,
     projection events, full per-player vectors, append-only resolutions, provenance, capture status,
     and real calibration columns.
-12. **Capture path** — freeze evidence at match creation; batch completed-leg projection writes for
-    both manual and Scolia play through the shared finalization path. Live per-dart capture follows
-    the shared tracker; until then its status is explicitly partial or not supported.
-13. **Baseline instrumentation** — persist payload bytes, actual input tokens where available,
-    detection → response request → first transcript delta → first audible sample timings, and
-    deterministic speak/skip decisions with policy version.
+12. **Capture path — completed-leg path shipped** — evidence freezes at match creation and the shared
+    `completeLeg()` path batch-persists projection events, full player vectors, realized outcomes,
+    and leg/match resolutions for both manual and Scolia play. These rows are explicitly marked
+    `partial/completed_leg_reconstruction` until the shared live tracker exists.
+13. **Calibration instrumentation** — persist deterministic speak/skip decisions with policy version
+    alongside model projections and outcomes. Provider/audio latency instrumentation is out of scope.
 
 #### E. Product surface
 

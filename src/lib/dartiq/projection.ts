@@ -20,7 +20,10 @@ import {
 } from './model/race';
 import { createDartIQVisitKernel, solveDartIQVisit } from './model/visit';
 
-const PRIOR_DARTS = 12;
+export const DARTIQ_PROJECTION_CONFIGURATION = Object.freeze({
+  currentFormPriorDarts: 12,
+  maximumVisits: 40,
+});
 
 export type DartIQPlayerState = {
   id: string;
@@ -94,8 +97,9 @@ function adjustedAverage(average: number, dartsThrown: number, historicalBaselin
 
   const sampleDarts = Math.max(0, dartsThrown);
   return clamp(
-    (clamp(average, 12, 130) * sampleDarts + historicalBaseline * PRIOR_DARTS) /
-      (sampleDarts + PRIOR_DARTS),
+    (clamp(average, 12, 130) * sampleDarts
+      + historicalBaseline * DARTIQ_PROJECTION_CONFIGURATION.currentFormPriorDarts) /
+      (sampleDarts + DARTIQ_PROJECTION_CONFIGURATION.currentFormPriorDarts),
     20,
     110
   );
@@ -216,7 +220,7 @@ function createPlayerPmf(
     const pmf = createFirstFinishPmf({
       startScore: player.scoreRemaining,
       kernel,
-      maximumVisits: 40,
+      maximumVisits: DARTIQ_PROJECTION_CONFIGURATION.maximumVisits,
     });
     byState.set(key, pmf);
     return pmf;
@@ -233,7 +237,7 @@ function createPlayerPmf(
     startScore: player.scoreRemaining,
     kernel,
     firstVisit,
-    maximumVisits: 40,
+    maximumVisits: DARTIQ_PROJECTION_CONFIGURATION.maximumVisits,
   });
 }
 
