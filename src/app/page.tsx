@@ -24,9 +24,9 @@ export default function Home() {
         headerContent={
           <nav className="mx-auto grid w-full max-w-2xl grid-cols-3 gap-2" aria-label="Start playing">
             {[
-              { href: '/new', label: 'New match', icon: '/game-icons/new-match.png' },
-              { href: '/tournament/new', label: 'New tournament', icon: '/game-icons/new-tournament.png' },
-              { href: '/practice', label: 'Practice', icon: '/game-icons/practice.png' },
+              { href: '/new', label: 'New match', icon: '/game-icons/newmatch.png' },
+              { href: '/tournament/new', label: 'New tournament', icon: '/game-icons/tournament.png' },
+              { href: '/practice', label: 'Practice', icon: '/game-icons/practice1.png' },
             ].map(({ href, label, icon }) => (
               <Link
                 key={href}
