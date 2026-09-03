@@ -1,5 +1,5 @@
 import QRCode from 'react-qr-code';
-import { Home } from 'lucide-react';
+import { ArrowLeft, Home } from 'lucide-react';
 import { TurnRow } from '@/components/TurnRow';
 import { SpectatorLiveMatchCard } from '@/components/match/SpectatorLiveMatchCard';
 import CommentaryDisplay from '@/components/CommentaryDisplay';
@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { EloChangesDisplay } from '@/components/match/EloChangesDisplay';
+import { HistoricalMatchOverview } from '@/components/match/HistoricalMatchOverview';
 import { LiveScoliaBoard } from '@/components/match/LiveScoliaBoard';
 import { PressureWinProbability } from '@/components/match/PressureWinProbability';
 import { ScoliaMatchHeatmaps } from '@/components/match/ScoliaMatchHeatmaps';
@@ -89,6 +90,8 @@ type Props = {
   pressurePopulationProfile?: PressurePopulationProfile;
   pressureOutcomeModelsByPlayerId: ReadonlyMap<string, PressureOutcomeModel>;
   hasPersonalPressureProfiles: boolean;
+  isHistoryView?: boolean;
+  onBackToGames: () => void;
 };
 
 const confettiColors = ['#22c55e', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#a855f7'];
@@ -193,13 +196,15 @@ export function MatchSpectatorView({
   pressurePopulationProfile,
   pressureOutcomeModelsByPlayerId,
   hasPersonalPressureProfiles,
+  isHistoryView = false,
+  onBackToGames,
 }: Props) {
   const [winnerModalOpen, setWinnerModalOpen] = useState(false);
   const [scoliaBoardPhase, setScoliaBoardPhase] = useState<string | null | undefined>(undefined);
   const scoliaBoardId = match.scolia_board_id;
 
   const loadScoliaBoardPhase = useCallback(async () => {
-    if (!scoliaBoardId) return;
+    if (!scoliaBoardId || isHistoryView) return;
     const supabase = await getSupabaseClient();
     const { data } = await supabase
       .from('scolia_board_public_status')
@@ -207,7 +212,7 @@ export function MatchSpectatorView({
       .eq('board_id', scoliaBoardId)
       .maybeSingle();
     if (data) setScoliaBoardPhase(data.board_phase as string | null);
-  }, [scoliaBoardId]);
+  }, [isHistoryView, scoliaBoardId]);
 
   useEffect(() => {
     void loadScoliaBoardPhase();
@@ -220,13 +225,12 @@ export function MatchSpectatorView({
     onRemove: (boardId) => {
       if (boardId === scoliaBoardId) setScoliaBoardPhase(undefined);
     },
-    onMatchChange: () => {},
     onReconcile: () => void loadScoliaBoardPhase(),
-  }, Boolean(scoliaBoardId));
+  }, Boolean(scoliaBoardId) && !isHistoryView);
 
   useEffect(() => {
-    setWinnerModalOpen(Boolean(matchWinnerId));
-  }, [matchWinnerId]);
+    setWinnerModalOpen(Boolean(matchWinnerId) && !isHistoryView);
+  }, [isHistoryView, matchWinnerId]);
 
   const topThreeTurns = useMemo(
     () =>
@@ -365,8 +369,21 @@ export function MatchSpectatorView({
           </DialogContent>
         </Dialog>
 
+        {isHistoryView ? (
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold">Match Stats</h1>
+              <p className="text-muted-foreground">Completed match details and performance</p>
+            </div>
+            <Button variant="outline" onClick={onBackToGames} className="shrink-0">
+              <ArrowLeft size={16} />
+              Games
+            </Button>
+          </div>
+        ) : null}
+
         {/* Connection status and refresh indicator */}
-        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2">
+        {!isHistoryView ? <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2">
           {/* Real-time connection status */}
           <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 dark:bg-gray-800/90 shadow-sm text-xs">
             <div
@@ -395,9 +412,9 @@ export function MatchSpectatorView({
           {spectatorLoading && !realtimeIsConnected && (
             <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
           )}
-        </div>
+        </div> : null}
 
-        {matchUrl && (
+        {!isHistoryView && matchUrl && (
           <div className="fixed bottom-4 left-4 z-40 pointer-events-none opacity-80">
             <span className="sr-only">Join match QR code</span>
             <QRCode value={matchUrl} size={72} />
@@ -405,7 +422,7 @@ export function MatchSpectatorView({
         )}
 
         {/* Fair ending status banner */}
-        {fairEndingState && fairEndingState.phase === 'completing_round' && (
+        {!isHistoryView && fairEndingState && fairEndingState.phase === 'completing_round' && (
           <div className="rounded-md border border-amber-400/60 bg-amber-50 px-4 py-3 text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-200">
             <div className="font-semibold">Completing round</div>
             <div className="text-sm">
@@ -415,36 +432,49 @@ export function MatchSpectatorView({
             </div>
           </div>
         )}
-        {fairEndingState && fairEndingState.phase === 'tiebreak' && (
+        {!isHistoryView && fairEndingState && fairEndingState.phase === 'tiebreak' && (
           <div className="rounded-md border border-purple-400/60 bg-purple-50 px-4 py-3 text-purple-800 dark:border-purple-700/60 dark:bg-purple-900/20 dark:text-purple-200">
             <div className="font-semibold">Tiebreak Round {fairEndingState.tiebreakRound}</div>
             <div className="text-sm">Multiple players checked out — highest score wins!</div>
           </div>
         )}
 
-        <PressureWinProbability
-          orderPlayers={orderPlayers}
-          spectatorCurrentPlayer={spectatorCurrentPlayer}
-          turns={turns}
-          currentLegId={currentLegId}
-          startScore={startScore}
-          finishRule={finishRule}
-          turnThrowCounts={turnThrowCounts}
-          getAvgForPlayer={getAvgForPlayer}
-          legs={legs}
-          legsToWin={match.legs_to_win}
-          matchWinnerId={matchWinnerId}
-          profilesByPlayerId={pressureProfilesByPlayerId}
-          populationProfile={pressurePopulationProfile}
-          outcomeModelsByPlayerId={pressureOutcomeModelsByPlayerId}
-          hasPersonalProfiles={hasPersonalPressureProfiles}
-          fairEnding={Boolean(match.fair_ending)}
-          fairEndingState={fairEndingState}
-        />
+        {isHistoryView ? (
+          <HistoricalMatchOverview
+            match={match}
+            players={orderPlayers}
+            legs={legs}
+            turns={turns}
+            turnsByLeg={turnsByLeg}
+            matchWinnerId={matchWinnerId}
+            eloChanges={eloChanges}
+            eloChangesLoading={eloChangesLoading}
+          />
+        ) : (
+          <>
+            <PressureWinProbability
+              orderPlayers={orderPlayers}
+              spectatorCurrentPlayer={spectatorCurrentPlayer}
+              turns={turns}
+              currentLegId={currentLegId}
+              startScore={startScore}
+              finishRule={finishRule}
+              turnThrowCounts={turnThrowCounts}
+              getAvgForPlayer={getAvgForPlayer}
+              legs={legs}
+              legsToWin={match.legs_to_win}
+              matchWinnerId={matchWinnerId}
+              profilesByPlayerId={pressureProfilesByPlayerId}
+              populationProfile={pressurePopulationProfile}
+              outcomeModelsByPlayerId={pressureOutcomeModelsByPlayerId}
+              hasPersonalProfiles={hasPersonalPressureProfiles}
+              fairEnding={Boolean(match.fair_ending)}
+              fairEndingState={fairEndingState}
+            />
 
-        {/* Cards Row - responsive layout */}
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-          {match.scolia_board_id ? (
+            {/* Cards Row - responsive layout */}
+            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+          {match.scolia_board_id && !isHistoryView ? (
             <LiveScoliaBoard
               turns={turns}
               currentLegId={currentLegId}
@@ -456,7 +486,7 @@ export function MatchSpectatorView({
           <SpectatorLiveMatchCard
             match={match}
             orderPlayers={orderPlayers}
-            spectatorCurrentPlayer={spectatorCurrentPlayer}
+            spectatorCurrentPlayer={isHistoryView ? null : spectatorCurrentPlayer}
             turns={turns}
             currentLegId={currentLegId}
             startScore={startScore}
@@ -465,6 +495,7 @@ export function MatchSpectatorView({
             getAvgForPlayer={getAvgForPlayer}
             fairEndingState={fairEndingState}
             currentPlayerPresentedElsewhere={Boolean(match.scolia_board_id)}
+            title={isHistoryView ? 'Match Summary' : 'Live Match'}
           />
 
           {/* Legs Summary */}
@@ -556,12 +587,14 @@ export function MatchSpectatorView({
               </div>
             </CardContent>
           </Card>
-        </div>
+            </div>
+          </>
+        )}
 
         {/* Score Progress Chart - Second Row */}
         <Card className="w-full">
           <CardHeader>
-            <CardTitle>Score Progress</CardTitle>
+            <CardTitle>{isHistoryView ? 'Final Leg Score Progress' : 'Score Progress'}</CardTitle>
             <CardDescription>
               Player scores by round - showing the remaining points for each player over time
             </CardDescription>
@@ -613,25 +646,34 @@ export function MatchSpectatorView({
             <Home size={16} />
             Home
           </Button>
-          <Button variant="outline" onClick={onToggleSpectatorMode} className="flex-1 max-w-xs">
-            Exit Spectator Mode
-          </Button>
-          <CommentarySettings
-            enabled={commentaryEnabled}
-            audioEnabled={audioEnabled}
-            voice={voice}
-            personaId={personaId}
-            onEnabledChange={onCommentaryEnabledChange}
-            onAudioEnabledChange={onAudioEnabledChange}
-            onVoiceChange={onVoiceChange}
-            onPersonaChange={onPersonaChange}
-            transcriptLog={commentaryTranscriptLog}
-            onClearTranscriptLog={onClearCommentaryTranscriptLog}
-          />
+          {isHistoryView ? (
+            <Button variant="outline" onClick={onBackToGames} className="flex-1 max-w-xs">
+              <ArrowLeft size={16} />
+              Back to Games
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={onToggleSpectatorMode} className="flex-1 max-w-xs">
+              Exit Spectator Mode
+            </Button>
+          )}
+          {!isHistoryView ? (
+            <CommentarySettings
+              enabled={commentaryEnabled}
+              audioEnabled={audioEnabled}
+              voice={voice}
+              personaId={personaId}
+              onEnabledChange={onCommentaryEnabledChange}
+              onAudioEnabledChange={onAudioEnabledChange}
+              onVoiceChange={onVoiceChange}
+              onPersonaChange={onPersonaChange}
+              transcriptLog={commentaryTranscriptLog}
+              onClearTranscriptLog={onClearCommentaryTranscriptLog}
+            />
+          ) : null}
         </div>
 
         {/* Commentary Display */}
-        {commentaryEnabled && (
+        {!isHistoryView && commentaryEnabled && (
           <CommentaryDisplay
             commentary={currentCommentary}
             isLoading={commentaryLoading}

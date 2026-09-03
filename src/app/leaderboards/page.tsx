@@ -3,8 +3,25 @@
 import { useEffect, useState } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useLeaderboardData } from '@/hooks/useLeaderboardData';
-import { LeaderboardSection, EloLeaderboardItem, PlayerSummaryItem } from '@/components/leaderboard';
+import { LeaderboardSection, EloLeaderboardItem, PlayerSummaryItem, GameModeLeaderboardItem } from '@/components/leaderboard';
+import type { GameModeLeaderboardEntry } from '@/components/leaderboard';
 import { medal, formatLeaderboardDate } from '@/utils/leaderboard';
+import { GAME_MODE_INFO, GAME_MODE_ORDER } from '@/lib/games/labels';
+import type { GameMode } from '@/lib/games/types';
+
+const GAME_MODE_VIEWS: Record<GameMode, string> = {
+  cricket: 'cricket_leaderboard',
+  killer: 'killer_leaderboard',
+  shanghai: 'shanghai_leaderboard',
+  around_the_clock: 'around_the_clock_leaderboard',
+};
+
+const emptyGameModeLeaders = (): Record<GameMode, GameModeLeaderboardEntry[]> => ({
+  cricket: [],
+  killer: [],
+  shanghai: [],
+  around_the_clock: [],
+});
 
 type TopRoundScore = {
   id: string;
@@ -61,6 +78,8 @@ export default function LeaderboardsPage() {
   const [topScoresLoading, setTopScoresLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState(true);
   const [quickestLegsLoading, setQuickestLegsLoading] = useState(true);
+  const [gameModeLeaders, setGameModeLeaders] = useState<Record<GameMode, GameModeLeaderboardEntry[]>>(emptyGameModeLeaders);
+  const [gameModeLoading, setGameModeLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -172,6 +191,35 @@ export default function LeaderboardsPage() {
         console.error('Error loading quickest legs:', error);
       } finally {
         setQuickestLegsLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setGameModeLoading(true);
+        const supabase = await getSupabaseClient();
+        const results = await Promise.all(
+          GAME_MODE_ORDER.map((mode) =>
+            supabase
+              .from(GAME_MODE_VIEWS[mode])
+              .select('*')
+              .order('wins', { ascending: false })
+              .order('win_rate', { ascending: false })
+              .limit(10)
+          )
+        );
+        const next = emptyGameModeLeaders();
+        GAME_MODE_ORDER.forEach((mode, idx) => {
+          next[mode] = (results[idx].data as GameModeLeaderboardEntry[] | null) ?? [];
+        });
+        setGameModeLeaders(next);
+      } catch (error) {
+        console.error('Error loading game mode leaderboards:', error);
+        setGameModeLeaders(emptyGameModeLeaders());
+      } finally {
+        setGameModeLoading(false);
       }
     })();
   }, []);
@@ -351,6 +399,28 @@ export default function LeaderboardsPage() {
             </li>
           ))}
         </LeaderboardSection>
+      </div>
+
+      <div className="space-y-4">
+        <h2 className="text-2xl font-semibold">Game modes</h2>
+        <div className="grid md:grid-cols-2 gap-6">
+          {GAME_MODE_ORDER.map((mode) => {
+            const info = GAME_MODE_INFO[mode];
+            const entries = gameModeLeaders[mode];
+            return (
+              <LeaderboardSection
+                key={mode}
+                title={`Top 10 ${info.name}`}
+                emptyMessage={gameModeLoading ? `Loading ${info.name} leaderboard...` : `No ${info.name} games yet`}
+                isEmpty={entries.length === 0}
+              >
+                {entries.map((entry, idx) => (
+                  <GameModeLeaderboardItem key={entry.player_id} entry={entry} mode={mode} index={idx} />
+                ))}
+              </LeaderboardSection>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

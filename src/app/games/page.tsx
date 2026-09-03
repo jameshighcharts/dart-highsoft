@@ -8,6 +8,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Play, Eye, Trophy, Clock, Users, Swords, Trash2 } from 'lucide-react';
 import Link from 'next/link';
+import { GAME_MODE_INFO, gameModeName } from '@/lib/games/labels';
+import {
+  GAME_SESSION_STATUSES,
+  isGameMode,
+  isGameSessionStatus,
+  type GameMode,
+  type GameSessionStatus,
+} from '@/lib/games/types';
 
 type MatchWithDetails = {
   id: string;
@@ -31,6 +39,24 @@ type MatchWithDetails = {
   winner_name?: string;
 };
 
+type GameSessionWithDetails = {
+  id: string;
+  mode: GameMode;
+  status: GameSessionStatus;
+  created_at: string;
+  winner_player_id: string | null;
+  players: Array<{
+    id: string;
+    display_name: string;
+    play_order: number;
+  }>;
+  winner_name?: string;
+};
+
+type ListedGame =
+  | { kind: 'match'; created_at: string; match: MatchWithDetails }
+  | { kind: 'game'; created_at: string; game: GameSessionWithDetails };
+
 type TournamentSummary = {
   id: string;
   name: string;
@@ -43,8 +69,8 @@ type TournamentSummary = {
 };
 
 export default function GamesPage() {
-  const [liveGames, setLiveGames] = useState<MatchWithDetails[]>([]);
-  const [recentGames, setRecentGames] = useState<MatchWithDetails[]>([]);
+  const [liveGames, setLiveGames] = useState<ListedGame[]>([]);
+  const [recentGames, setRecentGames] = useState<ListedGame[]>([]);
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
@@ -59,54 +85,81 @@ export default function GamesPage() {
     try {
       setLoading(true);
       const supabase = await getSupabaseClient();
-      
-      // Get matches with players and legs (exclude ended early games)
-      const { data: matches } = await supabase
-        .from('matches')
-        .select(`
-          id,
-          mode,
-          start_score,
-          finish,
-          legs_to_win,
-          created_at,
-          winner_player_id,
-          completed_at,
-          ended_early,
-          match_players!inner (
-            play_order,
-            players!inner (
-              id,
-              display_name
-            )
-          ),
-          legs (
-            id,
-            winner_player_id
-          )
-        `)
-        .order('created_at', { ascending: false })
-        .limit(20);
 
-      if (!matches) return;
+      const now = new Date();
+      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+      const [matchesResult, sessionsResult] = await Promise.all([
+        supabase
+          .from('matches')
+          .select(`
+            id,
+            mode,
+            start_score,
+            finish,
+            legs_to_win,
+            created_at,
+            winner_player_id,
+            completed_at,
+            ended_early,
+            match_players!inner (
+              play_order,
+              players!inner (
+                id,
+                display_name
+              )
+            ),
+            legs (
+              id,
+              winner_player_id
+            )
+          `)
+          .order('created_at', { ascending: false })
+          .limit(20),
+        supabase
+          .from('game_sessions')
+          .select(`
+            id,
+            mode,
+            status,
+            created_at,
+            winner_player_id,
+            game_session_players!inner (
+              play_order,
+              players!inner (
+                id,
+                display_name
+              )
+            )
+          `)
+          .in('status', [...GAME_SESSION_STATUSES])
+          .order('created_at', { ascending: false })
+          .limit(20),
+      ]);
+
+      type PlayerRelation = Array<{
+        play_order: number;
+        players: { id: string; display_name: string };
+      }>;
+      const mapPlayers = (relation: PlayerRelation) =>
+        relation
+          .map((mp) => ({
+            id: mp.players.id,
+            display_name: mp.players.display_name,
+            play_order: mp.play_order,
+          }))
+          .sort((a, b) => a.play_order - b.play_order);
+
+      const matches = matchesResult.data ?? [];
 
       // Transform the data
       const transformedMatches = matches.map((match) => ({
         ...match,
-        players: (match as unknown as {
-          match_players: Array<{
-            play_order: number;
-            players: { id: string; display_name: string };
-          }>
-        }).match_players.map((mp) => ({
-          id: mp.players.id,
-          display_name: mp.players.display_name,
-          play_order: mp.play_order
-        })).sort((a, b) => a.play_order - b.play_order)
+        players: mapPlayers((match as unknown as { match_players: PlayerRelation }).match_players),
       }));
 
       // Add winner names
-      const matchesWithWinners = transformedMatches.map((match) => {
+      const matchesWithWinners: MatchWithDetails[] = transformedMatches.map((match) => {
         if (match.winner_player_id) {
           const winner = match.players.find(p => p.id === match.winner_player_id);
           return {
@@ -117,17 +170,48 @@ export default function GamesPage() {
         return match;
       });
 
-      // Separate live and completed games
-      const live = matchesWithWinners.filter(match =>
-        !match.winner_player_id && !match.completed_at && !match.ended_early
-      );
+      const sessions: GameSessionWithDetails[] = (sessionsResult.data ?? []).flatMap((session) => {
+        if (!isGameMode(session.mode) || !isGameSessionStatus(session.status)) return [];
+        const players = mapPlayers(
+          (session as unknown as { game_session_players: PlayerRelation }).game_session_players
+        );
+        const winner = session.winner_player_id
+          ? players.find((p) => p.id === session.winner_player_id)
+          : undefined;
+        return [{
+          id: session.id,
+          mode: session.mode,
+          status: session.status,
+          created_at: session.created_at,
+          winner_player_id: session.winner_player_id,
+          players,
+          winner_name: session.winner_player_id ? winner?.display_name || 'Unknown' : undefined,
+        }];
+      });
 
-      const recent = matchesWithWinners
+      const liveMatches: ListedGame[] = matchesWithWinners
+        .filter(match => !match.winner_player_id && !match.completed_at && !match.ended_early)
+        .map((match) => ({ kind: 'match', created_at: match.created_at, match }));
+
+      const recentMatches: ListedGame[] = matchesWithWinners
         .filter(match => match.winner_player_id || match.completed_at || match.ended_early)
-        .slice(0, 10);
+        .slice(0, 10)
+        .map((match) => ({ kind: 'match', created_at: match.created_at, match }));
 
-      setLiveGames(live);
-      setRecentGames(recent);
+      const liveSessions: ListedGame[] = sessions
+        .filter((game) => game.status === 'active' && new Date(game.created_at) > oneDayAgo)
+        .map((game) => ({ kind: 'game', created_at: game.created_at, game }));
+
+      const recentSessions: ListedGame[] = sessions
+        .filter((game) => game.status !== 'active')
+        .slice(0, 10)
+        .map((game) => ({ kind: 'game', created_at: game.created_at, game }));
+
+      const byNewest = (a: ListedGame, b: ListedGame) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+
+      setLiveGames([...liveMatches, ...liveSessions].sort(byNewest));
+      setRecentGames([...recentMatches, ...recentSessions].sort(byNewest));
     } catch (error) {
       console.error('Error loading games:', error);
       setLiveGames([]);
@@ -194,8 +278,9 @@ export default function GamesPage() {
         const body = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? 'Failed to delete game');
       }
-      setLiveGames((games) => games.filter((game) => game.id !== match.id));
-      setRecentGames((games) => games.filter((game) => game.id !== match.id));
+      const keep = (entry: ListedGame) => entry.kind !== 'match' || entry.match.id !== match.id;
+      setLiveGames((games) => games.filter(keep));
+      setRecentGames((games) => games.filter(keep));
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to delete game');
     } finally {
@@ -234,6 +319,113 @@ export default function GamesPage() {
     
     return 'In Progress';
   };
+
+  const gameModeBadge = (mode: GameMode) => {
+    const info = GAME_MODE_INFO[mode];
+    if (info.shortName === info.name) return null;
+    return <Badge variant="secondary">{info.shortName}</Badge>;
+  };
+
+  const renderLiveGameSession = (game: GameSessionWithDetails) => (
+    <Card key={game.id} className="hover:shadow-md transition-shadow border-red-200">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg">{gameModeName(game.mode)}</CardTitle>
+            {gameModeBadge(game.mode)}
+          </div>
+          <Badge variant="destructive" className="animate-pulse">
+            LIVE
+          </Badge>
+        </div>
+        <CardDescription className="flex items-center gap-1">
+          <Clock className="h-4 w-4" />
+          Started {formatTimeAgo(game.created_at)}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Users className="h-4 w-4" />
+            <span className="font-medium">Players</span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {game.players.map((player) => (
+              <Badge key={player.id} variant="outline" className="text-xs">
+                {player.display_name}
+              </Badge>
+            ))}
+          </div>
+        </div>
+
+        <Button asChild className="w-full" size="sm">
+          <Link href={`/game/${game.id}?spectator=true`}>
+            <Eye className="h-4 w-4 mr-2" />
+            Watch Live
+          </Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+
+  const renderRecentGameSession = (game: GameSessionWithDetails) => (
+    <Card key={game.id} className="hover:shadow-md transition-shadow">
+      <CardContent className="py-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+          {/* Game Info */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold">{gameModeName(game.mode)}</span>
+              {gameModeBadge(game.mode)}
+            </div>
+            <div className="text-sm text-muted-foreground flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {formatTimeAgo(game.created_at)}
+            </div>
+          </div>
+
+          {/* Players */}
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-muted-foreground">Players</div>
+            <div className="flex flex-wrap gap-1">
+              {game.players.map((player) => (
+                <Badge
+                  key={player.id}
+                  variant={player.id === game.winner_player_id ? "default" : "outline"}
+                  className="text-xs"
+                >
+                  {player.display_name}
+                  {player.id === game.winner_player_id && ' 🏆'}
+                </Badge>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-muted-foreground">Result</div>
+            {game.status === 'ended_early' ? (
+              <Badge variant="secondary">Ended early</Badge>
+            ) : (
+              <div className="font-semibold text-green-700 flex items-center gap-1">
+                <Trophy className="h-4 w-4" />
+                {game.winner_name ?? 'No winner'}
+              </div>
+            )}
+          </div>
+
+          {/* Action */}
+          <div className="flex md:justify-end">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/game/${game.id}`}>
+                <Eye className="h-4 w-4 mr-2" />
+                View
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   if (loading) {
     return (
@@ -308,7 +500,10 @@ export default function GamesPage() {
           </Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {liveGames.map((match) => (
+            {liveGames.map((item) => {
+              if (item.kind === 'game') return renderLiveGameSession(item.game);
+              const match = item.match;
+              return (
               <Card key={match.id} className="hover:shadow-md transition-shadow border-red-200">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
@@ -365,7 +560,8 @@ export default function GamesPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -385,9 +581,20 @@ export default function GamesPage() {
           </Card>
         ) : (
           <div className="grid gap-4">
-            {recentGames.map((match) => (
-              <Card key={match.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="py-4">
+            {recentGames.map((item) => {
+              if (item.kind === 'game') return renderRecentGameSession(item.game);
+              const match = item.match;
+              return (
+                <Card
+                  key={match.id}
+                  className="group relative cursor-pointer transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/20"
+                >
+                  <Link
+                    href={`/match/${match.id}?spectator=true&history=true`}
+                    aria-label={`View stats for ${match.players.map((player) => player.display_name).join(' versus ')}`}
+                    className="absolute inset-0 z-0 rounded-xl outline-none"
+                  />
+                  <CardContent className="pointer-events-none relative z-10 py-4">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
                     {/* Game Info */}
                     <div className="space-y-1">
@@ -438,6 +645,10 @@ export default function GamesPage() {
                           <div>{getGameDuration(match)}</div>
                           <div className="text-muted-foreground">Best of {match.legs_to_win * 2 - 1}</div>
                         </div>
+                        <div className="flex items-center gap-1 pt-1 text-sm font-medium text-primary">
+                          <Eye className="h-4 w-4" />
+                          View stats
+                        </div>
                       </div>
                       <Button
                         aria-label="Delete game"
@@ -445,14 +656,16 @@ export default function GamesPage() {
                         size="icon"
                         onClick={() => handleDeleteGame(match)}
                         disabled={deletingMatchId === match.id}
+                        className="pointer-events-auto relative z-20"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>

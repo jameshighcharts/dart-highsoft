@@ -11,7 +11,7 @@ vi.mock('@/lib/supabaseServer', () => ({
 }));
 
 function createSupabase(options?: { matchInsertError?: { code: string; message: string } }) {
-  let matchInsert: Record<string, unknown> | null = null;
+  let matchCreation: Record<string, unknown> | null = null;
   const sourceMatch = {
     id: 'match-1',
     start_score: '501',
@@ -39,17 +39,6 @@ function createSupabase(options?: { matchInsertError?: { code: string; message: 
               },
             };
           },
-          insert(payload: Record<string, unknown>) {
-            matchInsert = payload;
-            return {
-              select() { return this; },
-              async single() {
-                return options?.matchInsertError
-                  ? { data: null, error: options.matchInsertError }
-                  : { data: { id: 'match-2', ...payload }, error: null };
-              },
-            };
-          },
         };
       }
       if (table === 'match_players') {
@@ -65,7 +54,6 @@ function createSupabase(options?: { matchInsertError?: { code: string; message: 
               error: null,
             });
           },
-          insert() { return Promise.resolve({ error: null }); },
         };
       }
       if (table === 'scolia_boards') {
@@ -85,14 +73,22 @@ function createSupabase(options?: { matchInsertError?: { code: string; message: 
           },
         };
       }
-      if (table === 'legs') {
-        return { insert: () => Promise.resolve({ error: null }) };
-      }
       throw new Error(`Unexpected table: ${table}`);
+    },
+    rpc(name: string, args: Record<string, unknown>) {
+      if (name !== 'create_x01_match_atomic') throw new Error(`Unexpected RPC: ${name}`);
+      matchCreation = args;
+      return {
+        async single() {
+          return options?.matchInsertError
+            ? { data: null, error: options.matchInsertError }
+            : { data: { id: 'match-2' }, error: null };
+        },
+      };
     },
   };
 
-  return { supabase, getMatchInsert: () => matchInsert };
+  return { supabase, getMatchCreation: () => matchCreation };
 }
 
 describe('POST /api/matches/[matchId]/rematch', () => {
@@ -112,10 +108,10 @@ describe('POST /api/matches/[matchId]/rematch', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(test.getMatchInsert()).toEqual(expect.objectContaining({
-      scolia_board_id: 'board-1',
-      start_score: '501',
-      rematch_of_match_id: 'match-1',
+    expect(test.getMatchCreation()).toEqual(expect.objectContaining({
+      p_scolia_board_id: 'board-1',
+      p_start_score: '501',
+      p_player_ids: ['player-2', 'player-1'],
     }));
     await expect(response.json()).resolves.toEqual({ newMatchId: 'match-2' });
   });
@@ -133,7 +129,7 @@ describe('POST /api/matches/[matchId]/rematch', () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
-      error: 'The Scolia board is already assigned to another active match',
+      error: 'This Scolia board is already assigned to another active match or game',
     });
   });
 });

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { createMatchForPlayers } from '@/lib/server/createMatch';
 import { isScoliaBoardReady } from '@/lib/scolia/availability';
 
 export async function POST(_: Request, { params }: { params: Promise<{ matchId: string }> }) {
@@ -63,39 +64,19 @@ export async function POST(_: Request, { params }: { params: Promise<{ matchId: 
     const remaining = playerIds.filter((id) => id !== starter);
     const order = [starter, ...remaining.sort(() => Math.random() - 0.5)];
 
-    const { data: newMatch, error: mErr } = await supabase
-      .from('matches')
-      .insert({
-        mode: 'x01',
-        start_score: match.start_score,
-        finish: match.finish,
-        legs_to_win: match.legs_to_win,
-        fair_ending: match.fair_ending ?? false,
-        scolia_board_id: match.scolia_board_id ?? null,
-        rematch_of_match_id: match.id,
-      })
-      .select('*')
-      .single();
-    if (mErr || !newMatch) {
-      if (mErr?.code === '23505' && match.scolia_board_id) {
-        return NextResponse.json(
-          { error: 'The Scolia board is already assigned to another active match' },
-          { status: 409 }
-        );
-      }
-      return NextResponse.json({ error: mErr?.message ?? 'Failed to create rematch' }, { status: 500 });
+    const creation = await createMatchForPlayers(supabase, {
+      startScore: match.start_score,
+      finish: match.finish,
+      legsToWin: match.legs_to_win,
+      fairEnding: match.fair_ending ?? false,
+      playerIds: order,
+      scoliaBoardId: match.scolia_board_id ?? null,
+    });
+    if (!creation.ok) {
+      return NextResponse.json({ error: creation.error }, { status: creation.status });
     }
 
-    const mp = order.map((id, idx) => ({ match_id: (newMatch as { id: string }).id, player_id: id, play_order: idx }));
-    const { error: mpInsertErr } = await supabase.from('match_players').insert(mp);
-    if (mpInsertErr) return NextResponse.json({ error: mpInsertErr.message }, { status: 500 });
-
-    const { error: legErr } = await supabase
-      .from('legs')
-      .insert({ match_id: (newMatch as { id: string }).id, leg_number: 1, starting_player_id: order[0] });
-    if (legErr) return NextResponse.json({ error: legErr.message }, { status: 500 });
-
-    return NextResponse.json({ newMatchId: (newMatch as { id: string }).id });
+    return NextResponse.json({ newMatchId: creation.matchId });
   } catch (error) {
     console.error('POST /api/matches/[matchId]/rematch error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

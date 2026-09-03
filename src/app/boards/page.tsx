@@ -8,6 +8,7 @@ import { apiRequest } from '@/lib/apiClient';
 import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
 import { hasFreshScoliaHeartbeat } from '@/lib/scolia/availability';
 import type { ScoliaBoard, ScoliaBoardPublicStatus } from '@/lib/scolia/types';
+import { gameModeName } from '@/lib/games/labels';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -66,7 +67,7 @@ export default function BoardsPage() {
       board.id === status.boardId ? mergePublicStatus(board, status) : board
     )),
     onRemove: (boardId) => setBoards((current) => current.filter((board) => board.id !== boardId)),
-    onMatchChange: () => void loadBoards(false),
+    onOccupancyChange: () => void loadBoards(false),
     onReconcile: () => void loadBoards(false),
   });
 
@@ -238,6 +239,19 @@ export default function BoardsPage() {
                           {' · '}{board.activeMatch.completedLegs} {board.activeMatch.completedLegs === 1 ? 'leg' : 'legs'} complete
                         </Link>
                       </div>
+                    ) : board.activeGame ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                        <Badge variant="secondary">Game in progress</Badge>
+                        <Link
+                          href={`/game/${board.activeGame.id}`}
+                          className="font-medium text-primary underline-offset-4 hover:underline"
+                        >
+                          {board.activeGame.playerNames.length > 0
+                            ? board.activeGame.playerNames.join(' vs ')
+                            : 'Open game'}
+                          {' · '}{gameModeName(board.activeGame.mode)}
+                        </Link>
+                      </div>
                     ) : (
                       <div className="mt-2 text-xs text-muted-foreground">
                         Match: {board.workerConnectionStatus === 'connected' && board.boardStatus === 'Ready'
@@ -250,12 +264,18 @@ export default function BoardsPage() {
                     type="button"
                     variant="destructive"
                     size="sm"
-                    disabled={removingSerial !== null || Boolean(board.activeMatch)}
-                    title={board.activeMatch ? 'End the active match before disconnecting this board' : undefined}
+                    disabled={removingSerial !== null || Boolean(board.activeMatch) || Boolean(board.activeGame)}
+                    title={
+                      board.activeMatch
+                        ? 'End the active match before disconnecting this board'
+                        : board.activeGame
+                          ? 'End the active game before disconnecting this board'
+                          : undefined
+                    }
                     onClick={() => void disconnectBoard(board)}
                   >
                     {removingSerial === board.serialNumber ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
-                    <span className="hidden sm:inline">{board.activeMatch ? 'In use' : 'Disconnect'}</span>
+                    <span className="hidden sm:inline">{board.activeMatch || board.activeGame ? 'In use' : 'Disconnect'}</span>
                   </Button>
                 </CardContent>
               </Card>

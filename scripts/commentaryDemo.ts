@@ -250,7 +250,8 @@ async function runDemo(supabase: SupabaseClient, matchId: string, fast: boolean)
         const event = await persistDemoDart(supabase, boardId, matchId, dart, sequence);
         const result = await ingestScoliaThrowEvent(supabase, event);
         if (result.status !== 'processed') throw new Error(`Dart ignored: ${result.reason}`);
-        await publisher.publishAcceptedThrow(result.matchId, result.throwId);
+        if (result.target.kind !== 'match') throw new Error('Demo dart was routed to a party game');
+        await publisher.publishAcceptedThrow(result.target.id, result.throwId);
         console.log(`  Dart ${dartIndex + 1}: ${dart.segment} (${dart.scored})`);
         const isVisitEnd = dartIndex === visit.darts.length - 1;
         await sleep(isVisitEnd ? visitGap : dartGap);

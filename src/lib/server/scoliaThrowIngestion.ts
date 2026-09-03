@@ -6,6 +6,8 @@ import { isMatchActive, loadMatch, type MatchRow } from './matchGuards.ts';
 import { resolveOrCreateTurnForPlayer } from './turnLifecycle.ts';
 import { replayTurn, type ThrowData } from '../../utils/legScoreCalculator.ts';
 import { computeFairEndingState, getNextFairEndingPlayer, type FairEndingState } from '../../utils/fairEnding.ts';
+import { findExistingGameThrow, ingestGameThrow, settleExistingGameThrow } from './gameScoliaIngestion.ts';
+import { findActiveScoliaBoardTarget, type ScoliaBoardTarget } from './scoliaBoardTarget.ts';
 
 export type StoredScoliaEvent = {
   id: number;
@@ -50,7 +52,7 @@ type MatchSnapshot = {
 };
 
 export type ScoliaThrowIngestionResult =
-  | { status: 'processed'; matchId: string; throwId: string }
+  | { status: 'processed'; target: ScoliaBoardTarget; throwId: string }
   | { status: 'ignored'; reason: string };
 
 function eventMessage(event: StoredScoliaEvent): ScoliaMessage {
@@ -268,7 +270,15 @@ export async function ingestScoliaThrowEvent(
       return { status: 'ignored', reason };
     }
 
-    const existingThrow = await findExistingThrow(supabase, event.id);
+    const [existingThrow, existingGameThrow] = await Promise.all([
+      findExistingThrow(supabase, event.id),
+      findExistingGameThrow(supabase, event.id),
+    ]);
+    if (existingGameThrow) {
+      await settleExistingGameThrow(supabase, existingGameThrow);
+      await updateEvent(supabase, event.id, 'processed', null);
+      return { status: 'processed', target: { kind: 'game', id: existingGameThrow.session_id }, throwId: existingGameThrow.id };
+    }
     if (existingThrow) {
       const linked = await matchAndLegForTurn(supabase, existingThrow.turn_id);
       if (linked) {
@@ -283,26 +293,27 @@ export async function ingestScoliaThrowEvent(
           );
         }
         await updateEvent(supabase, event.id, 'processed', null);
-        return { status: 'processed', matchId: linked.matchId, throwId: existingThrow.id };
+        return { status: 'processed', target: { kind: 'match', id: linked.matchId }, throwId: existingThrow.id };
       }
     }
 
-    const { data: matchData, error: matchError } = await supabase
-      .from('matches')
-      .select('id')
-      .eq('scolia_board_id', event.board_id)
-      .is('winner_player_id', null)
-      .is('completed_at', null)
-      .eq('ended_early', false)
-      .maybeSingle();
-    if (matchError) throw new Error(matchError.message);
-    if (!matchData) {
-      const reason = 'No active match is assigned to this board';
+    const target = await findActiveScoliaBoardTarget(supabase, event.board_id);
+    if (!target) {
+      const reason = 'No active match or game is assigned to this board';
       await updateEvent(supabase, event.id, 'ignored', reason);
       return { status: 'ignored', reason };
     }
+    if (target.kind === 'game') {
+      const outcome = await ingestGameThrow(supabase, target.id, event.id, event.board_id, detected);
+      if (outcome.status === 'ignored') {
+        await updateEvent(supabase, event.id, 'ignored', outcome.reason);
+        return outcome;
+      }
+      await updateEvent(supabase, event.id, 'processed', null);
+      return { status: 'processed', target, throwId: outcome.throwId };
+    }
 
-    const matchId = matchData.id as string;
+    const matchId = target.id;
     const snapshot = await loadSnapshot(supabase, matchId);
     if (!snapshot || !isMatchActive(snapshot.match)) {
       const reason = 'The assigned match has no active leg';
@@ -349,13 +360,13 @@ export async function ingestScoliaThrowEvent(
       if (!duplicate) throw new Error(insertError?.message ?? 'Failed to create Scolia throw');
       await finishThrowLifecycle(supabase, matchId, snapshot.leg.id, duplicate.turn_id, duplicate.id);
       await updateEvent(supabase, event.id, 'processed', null);
-      return { status: 'processed', matchId, throwId: duplicate.id };
+      return { status: 'processed', target, throwId: duplicate.id };
     }
 
     const inserted = insertedThrow as ThrowRow;
     await finishThrowLifecycle(supabase, matchId, snapshot.leg.id, inserted.turn_id, inserted.id);
     await updateEvent(supabase, event.id, 'processed', null);
-    return { status: 'processed', matchId, throwId: inserted.id };
+    return { status: 'processed', target, throwId: inserted.id };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown Scolia ingestion error';
     try {

@@ -253,7 +253,12 @@ export function reconstructPressureTimeline(
       legsWon: { ...legsWon },
       projections: projections.players,
       fairEnding: fairEnding
-        ? { ...fairEnding, approximationMode: projections.approximationMode }
+        ? {
+            ...fairEnding,
+            approximationMode: fairEnding.phase === 'normal'
+              ? 'standard'
+              : 'fair-ending-weighted',
+          }
         : null,
     };
   }

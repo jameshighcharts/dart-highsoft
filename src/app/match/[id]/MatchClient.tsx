@@ -45,6 +45,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const spectatorParam = searchParams.get('spectator') === 'true';
+  const historyParam = searchParams.get('history') === 'true';
   const [tournamentId, setTournamentId] = useState<string | null>(null);
   const [origin, setOrigin] = useState('');
   
@@ -517,6 +518,10 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     window.history.replaceState({}, '', url.toString());
   }, [isSpectatorMode]);
 
+  const backToGames = useCallback(() => {
+    router.push('/games');
+  }, [router]);
+
 
   if (loading) return <div className="p-4">Loading…</div>;
   if (error) return <div className="p-4 text-red-600">{error}</div>;
@@ -573,6 +578,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           pressurePopulationProfile={pressureProfiles.populationProfile}
           pressureOutcomeModelsByPlayerId={pressureProfiles.outcomeModelsByPlayerId}
           hasPersonalPressureProfiles={pressureProfiles.hasPersonalProfiles}
+          isHistoryView={historyParam}
+          onBackToGames={backToGames}
         />
         <RealtimeDebugPanel
           matchId={matchId}

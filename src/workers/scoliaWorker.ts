@@ -247,13 +247,15 @@ class BoardConnection {
       .eq('board_id', this.board.id)
       .eq('event_type', 'THROW_DETECTED')
       .in('processing_status', ['pending', 'failed'])
-      .order('received_at', { ascending: true });
+      .order('id', { ascending: true });
     if (error) throw new Error(error.message);
     for (const event of (data ?? []) as StoredScoliaEvent[]) {
       const result = await ingestScoliaThrowEvent(this.supabase, event);
       if (result.status === 'processed') {
         console.info(`[scolia] ${this.board.name}: recovered throw ${event.message_id}`);
-        await this.publishCommentary(result.matchId, result.throwId);
+        if (result.target.kind === 'match') {
+          await this.publishCommentary(result.target.id, result.throwId);
+        }
       }
     }
   }
@@ -300,7 +302,9 @@ class BoardConnection {
       const result = await ingestScoliaThrowEvent(this.supabase, storedEvent as StoredScoliaEvent);
       if (result.status === 'processed') {
         console.info(`[scolia] ${this.board.name}: scored throw ${message.id}`);
-        await this.publishCommentary(result.matchId, result.throwId);
+        if (result.target.kind === 'match') {
+          await this.publishCommentary(result.target.id, result.throwId);
+        }
       } else {
         console.info(`[scolia] ${this.board.name}: ignored throw ${message.id}: ${result.reason}`);
       }
