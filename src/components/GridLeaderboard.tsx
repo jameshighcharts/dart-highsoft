@@ -14,8 +14,14 @@ import { LOCATIONS, type LocationValue } from '@/utils/locations';
 SparklineRenderer['useHighcharts'](Highcharts);
 
 const MEDALS = ['🥇', '🥈', '🥉'];
-const TREND_UP_COLOR = '#2ff084';
-const TREND_DOWN_COLOR = '#ff4d5f';
+// Same pair as the Last 10 chips: emissive mint for a rising trend,
+// emissive violet for a falling one. These feed Highcharts options rather
+// than CSS, so they cannot use the --brand-* custom properties and are
+// kept in sync by hand with the .win-loss-pill--win / --loss rules.
+const TREND_UP_COLOR = '#5cf0b8';
+const TREND_DOWN_COLOR = '#e38cff';
+const TREND_UP_AREA = '92, 240, 184';
+const TREND_DOWN_AREA = '195, 107, 255';
 
 // Tier 5 holds the 1200 starting rating; tier 8 starts at 1400.
 const ELO_TIER_RANGES = [
@@ -59,9 +65,20 @@ function getEloTierBadgeNumber(rating: number): number {
   return 8;
 }
 
+const PODIUM_LABELS: Record<number, string> = {
+  1: '1st place',
+  2: '2nd place',
+  3: '3rd place',
+};
+
 function renderRowRankHtml(rank: number): string {
-  const top = rank <= 3 ? ' row-rank--top' : '';
-  return `<span class="row-rank${top}">${rank}</span>`;
+  const label = PODIUM_LABELS[rank];
+  if (!label) {
+    return `<span class="row-rank">${rank}</span>`;
+  }
+  // row-rank--top is kept alongside the per-position class so any existing
+  // selectors that target the podium as a group keep working.
+  return `<span class="row-rank row-rank--top row-rank--${rank}" aria-label="${label}">${rank}</span>`;
 }
 
 function renderEloBadgeHtml(value: unknown): string {
@@ -117,21 +134,14 @@ function sparklineChartOptions(this: { value: unknown }) {
 
   const positive = nums.length > 1 && nums[nums.length - 1] >= nums[0];
   const lineColor = positive ? TREND_UP_COLOR : TREND_DOWN_COLOR;
-  const areaColor: Highcharts.GradientColorObject = positive
-    ? {
-        linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
-        stops: [
-          [0, 'rgba(47, 240, 132, 0.28)'],
-          [1, 'rgba(47, 240, 132, 0)'],
-        ],
-      }
-    : {
-        linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
-        stops: [
-          [0, 'rgba(255, 77, 95, 0.26)'],
-          [1, 'rgba(255, 77, 95, 0)'],
-        ],
-      };
+  const areaRgb = positive ? TREND_UP_AREA : TREND_DOWN_AREA;
+  const areaColor: Highcharts.GradientColorObject = {
+    linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
+    stops: [
+      [0, `rgba(${areaRgb}, 0.28)`],
+      [1, `rgba(${areaRgb}, 0)`],
+    ],
+  };
 
   return {
     colors: [lineColor],
@@ -333,12 +343,20 @@ function renderWinRateHtml(value: unknown): string {
   }
 
   const clamped = Math.max(0, Math.min(100, value));
-  const isStrong = value >= 40;
+  // The bar itself is one continuous treatment; only the numeral changes
+  // state. Mint marks a winning record, muted grey marks no wins at all.
+  let valueTone = 'win-rate__value--glass';
+  if (clamped === 0) {
+    valueTone = 'win-rate__value--muted';
+  } else if (value >= 50) {
+    valueTone = 'win-rate__value--mint';
+  }
+
   return `
     <span class="win-rate">
-      <span class="win-rate__value ${isStrong ? 'win-rate__value--strong' : 'win-rate__value--muted'}">${value.toFixed(1)}%</span>
+      <span class="win-rate__value ${valueTone}">${value.toFixed(1)}%</span>
       <span class="win-rate__track">
-        <span class="win-rate__bar ${isStrong ? 'win-rate__bar--strong' : 'win-rate__bar--muted'}" style="width: ${clamped}%;"></span>
+        <span class="win-rate__bar" style="width: ${clamped}%;"></span>
       </span>
     </span>
   `;
@@ -353,9 +371,10 @@ function renderWinLossHtml(value: unknown): string {
   return `
     <span class="win-loss-strip" aria-label="${points.filter((point) => point > 0).length} wins in last ${points.length} games">
       ${points
-        .map((point) => {
+        .map((point, index) => {
           const isWin = point > 0;
-          return `<span class="win-loss-pill ${isWin ? 'win-loss-pill--win' : 'win-loss-pill--loss'}">${isWin ? 'W' : 'L'}</span>`;
+          const latest = index === points.length - 1 ? ' win-loss-pill--latest' : '';
+          return `<span class="win-loss-pill ${isWin ? 'win-loss-pill--win' : 'win-loss-pill--loss'}${latest}">${isWin ? 'W' : 'L'}</span>`;
         })
         .join('')}
     </span>
@@ -869,6 +888,12 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
       </div>
       <style>{`
         .grid-leaderboard {
+          --brand-cyan: #4fe3f5;
+          --brand-mint: #5cf0b8;
+          --brand-violet: #c36bff;
+          --glass-white: #e8fbff;
+          --muted-text: #9aa4b8;
+          --brand-sweep: linear-gradient(90deg, var(--brand-cyan) 0%, var(--brand-mint) 50%, var(--brand-violet) 100%);
           display: flex;
           flex-direction: column;
           gap: 14px;
@@ -1189,9 +1214,71 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           margin: 0 auto;
         }
+        /* Podium chips: the New match icon's own glass, sampled from
+           public/game-icons/newmatch.png. That icon is a single left-to-right
+           sweep -- electric cyan #35E6F8 into an emissive mint core #77FCAB
+           into violet-magenta #C57AE1 -- so rank 1 carries the whole sweep and
+           is literally the New match gradient. Rank 2 takes its cyan half,
+           rank 3 its violet half, so the podium reads as three views of one
+           identity rather than three unrelated colours.
+
+           There is deliberately no border: a 1px rim reads as a drawn white
+           outline and flattens the chip. Volume comes from stacked background
+           layers, listed top-most first: a specular hotspot high and left, a
+           contact shadow pooling at the base, then the hue body.
+
+           The fill is left at full icon brightness, which puts glass white at
+           roughly 3.9:1 over the mint core. The digit's legibility therefore
+           comes from the halo in its text-shadow, not from the fill -- see
+           .row-rank--top. */
         .grid-leaderboard .row-rank--top {
-          color: #f4c84a;
-          background: rgba(245, 158, 11, 0.17);
+          border: 0;
+          color: var(--glass-white);
+          /* The digit sits straight on the bright fill, so its contrast comes
+             from a halo tight to the glyph rather than from a scrim behind it:
+             a scrim large enough to help was visible as a dark disc. */
+          text-shadow:
+            0 1px 1px rgba(2, 16, 12, 0.85),
+            0 0 2px rgba(2, 16, 12, 0.8),
+            0 0 5px rgba(2, 16, 12, 0.55);
+        }
+        .grid-leaderboard .row-rank--1,
+        .grid-leaderboard .row-rank--2,
+        .grid-leaderboard .row-rank--3 {
+          background-image:
+            radial-gradient(70% 50% at 30% 8%, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.15) 42%, rgba(255, 255, 255, 0) 72%),
+            radial-gradient(120% 95% at 50% 118%, rgba(0, 12, 18, 0.45) 0%, rgba(0, 12, 18, 0) 60%),
+            var(--podium-body);
+        }
+        /* Rank 1: the full New match sweep. */
+        .grid-leaderboard .row-rank--1 {
+          --podium-body: linear-gradient(135deg, #35e6f8 0%, #77fcab 48%, #c57ae1 100%);
+          box-shadow:
+            inset 0 1.5px 1px rgba(255, 255, 255, 0.5),
+            inset 0 -3px 4px rgba(0, 30, 22, 0.4),
+            0 1px 2px rgba(0, 0, 0, 0.5),
+            0 0 12px rgba(119, 252, 171, 0.6),
+            0 0 30px rgba(119, 252, 171, 0.32);
+        }
+        /* Rank 2: the cyan half of the sweep. */
+        .grid-leaderboard .row-rank--2 {
+          --podium-body: linear-gradient(135deg, #35e6f8 0%, #5ff0d0 55%, #77fcab 100%);
+          box-shadow:
+            inset 0 1.5px 1px rgba(255, 255, 255, 0.46),
+            inset 0 -3px 4px rgba(0, 28, 34, 0.4),
+            0 1px 2px rgba(0, 0, 0, 0.5),
+            0 0 11px rgba(53, 230, 248, 0.52),
+            0 0 26px rgba(53, 230, 248, 0.26);
+        }
+        /* Rank 3: the violet half of the sweep. */
+        .grid-leaderboard .row-rank--3 {
+          --podium-body: linear-gradient(135deg, #77fcab 0%, #b083e8 55%, #c57ae1 100%);
+          box-shadow:
+            inset 0 1.5px 1px rgba(255, 255, 255, 0.42),
+            inset 0 -3px 4px rgba(22, 0, 34, 0.42),
+            0 1px 2px rgba(0, 0, 0, 0.5),
+            0 0 11px rgba(197, 122, 225, 0.52),
+            0 0 26px rgba(197, 122, 225, 0.26);
         }
         .grid-leaderboard .elo-badge {
           display: flex;
@@ -1287,7 +1374,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
         .grid-leaderboard .games-summary-empty,
         .grid-leaderboard .win-rate-empty {
-          color: #94a3b8;
+          color: var(--muted-text);
         }
         .grid-leaderboard .win-rate {
           display: inline-flex;
@@ -1304,31 +1391,46 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           letter-spacing: 0;
         }
-        .grid-leaderboard .win-rate__value--strong {
-          color: #35f58c;
+        .grid-leaderboard .win-rate__value--mint {
+          color: var(--brand-mint);
+        }
+        .grid-leaderboard .win-rate__value--glass {
+          color: var(--glass-white);
         }
         .grid-leaderboard .win-rate__value--muted {
-          color: #f8fafc;
+          color: var(--muted-text);
         }
         .grid-leaderboard .win-rate__track {
           position: relative;
           display: inline-flex;
+          box-sizing: border-box;
+          /* Must not shrink: the bar's gradient is sized to exactly 46px, so a
+             squeezed track would misalign the sweep and stop a 100% row from
+             ever reaching violet. As a flex item in a tight cell it was
+             rendering at 41px. */
+          flex: 0 0 46px;
           width: 46px;
           height: 4px;
           overflow: hidden;
+          border: 1px solid rgba(232, 251, 255, 0.1);
           border-radius: 999px;
-          background: rgba(148, 163, 184, 0.12);
+          background: rgba(232, 251, 255, 0.08);
         }
+        /* One continuous bar rather than a per-threshold colour. The gradient
+           is sized to the full 46px track and pinned left, so a shorter bar
+           shows the left slice of the same sweep: a low win rate reads cyan
+           and only a high one reaches violet. Sizing to the track instead of
+           to the bar is what makes the colour mean something -- scaled to the
+           bar, every row would end on violet regardless of its rate. */
         .grid-leaderboard .win-rate__bar {
           height: 100%;
           min-width: 3px;
           border-radius: inherit;
-        }
-        .grid-leaderboard .win-rate__bar--strong {
-          background: #35f58c;
-        }
-        .grid-leaderboard .win-rate__bar--muted {
-          background: #5db8ff;
+          background-image: var(--brand-sweep);
+          background-repeat: no-repeat;
+          background-position: left center;
+          background-size: 46px 100%;
+          box-shadow: 0 0 6px rgba(92, 240, 184, 0.45);
         }
         .grid-leaderboard .win-loss-strip {
           display: inline-flex;
@@ -1348,27 +1450,48 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           align-items: center;
           justify-content: center;
           overflow: hidden;
-          border-radius: 4px;
+          border-radius: 5px;
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
           font-size: 9px;
           font-weight: 800;
           line-height: 1;
           letter-spacing: 0;
         }
+        /* Frosted chips: emissive mint for a win, emissive violet for a loss.
+           The loss hue replaces the old red -- nothing in these two columns is
+           red, orange or gold any more. */
         .grid-leaderboard .win-loss-pill--win {
-          color: #35f58c;
-          background: rgba(47, 240, 132, 0.14);
-          border: 1px solid rgba(47, 240, 132, 0.24);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+          color: var(--brand-mint);
+          background: rgba(92, 240, 184, 0.16);
+          border: 1px solid rgba(92, 240, 184, 0.45);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 6px rgba(92, 240, 184, 0.35);
         }
         .grid-leaderboard .win-loss-pill--loss {
-          color: #ff6b78;
-          background: rgba(255, 77, 95, 0.14);
-          border: 1px solid rgba(255, 77, 95, 0.24);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+          color: #e38cff;
+          background: rgba(195, 107, 255, 0.16);
+          border: 1px solid rgba(195, 107, 255, 0.45);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 6px rgba(195, 107, 255, 0.35);
+        }
+        /* The strip is oldest-to-newest, so the last chip is the most recent
+           result: lift its rim and glow so the eye lands there first. */
+        .grid-leaderboard .win-loss-pill--latest.win-loss-pill--win {
+          border-color: rgba(92, 240, 184, 0.7);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 8px rgba(92, 240, 184, 0.45);
+        }
+        .grid-leaderboard .win-loss-pill--latest.win-loss-pill--loss {
+          border-color: rgba(195, 107, 255, 0.7);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 8px rgba(195, 107, 255, 0.45);
         }
         .grid-leaderboard .win-loss-empty {
-          color: #94a3b8;
+          color: var(--muted-text);
         }
       `}</style>
       <Grid options={options} />
