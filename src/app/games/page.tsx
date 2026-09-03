@@ -386,8 +386,16 @@ export default function GamesPage() {
         ) : (
           <div className="grid gap-4">
             {recentGames.map((match) => (
-              <Card key={match.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="py-4">
+              <Card
+                key={match.id}
+                className="group relative cursor-pointer transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/20"
+              >
+                <Link
+                  href={`/match/${match.id}?spectator=true&history=true`}
+                  aria-label={`View stats for ${match.players.map((player) => player.display_name).join(' versus ')}`}
+                  className="absolute inset-0 z-0 rounded-xl outline-none"
+                />
+                <CardContent className="pointer-events-none relative z-10 py-4">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
                     {/* Game Info */}
                     <div className="space-y-1">
@@ -438,6 +446,10 @@ export default function GamesPage() {
                           <div>{getGameDuration(match)}</div>
                           <div className="text-muted-foreground">Best of {match.legs_to_win * 2 - 1}</div>
                         </div>
+                        <div className="flex items-center gap-1 pt-1 text-sm font-medium text-primary">
+                          <Eye className="h-4 w-4" />
+                          View stats
+                        </div>
                       </div>
                       <Button
                         aria-label="Delete game"
@@ -445,6 +457,7 @@ export default function GamesPage() {
                         size="icon"
                         onClick={() => handleDeleteGame(match)}
                         disabled={deletingMatchId === match.id}
+                        className="pointer-events-auto relative z-20"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
