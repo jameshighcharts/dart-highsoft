@@ -15,7 +15,6 @@ import { Switch } from "@/components/ui/switch";
 import { GAME_MODE_INFO, GAME_MODE_ORDER, type ConfigField } from "@/lib/games/labels";
 import { isGameMode, type GameMode } from "@/lib/games/types";
 
-/** X01 (the classic match flow) plus the event-sourced party game modes. */
 export type GameType = "x01" | GameMode;
 
 export const GAME_TYPE_STORAGE_KEY = "new-match-game-type";

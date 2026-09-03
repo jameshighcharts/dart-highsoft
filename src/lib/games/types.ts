@@ -1,11 +1,11 @@
-// Shared contracts for the event-sourced party game modes.
 // Everything here is imported by the Scolia worker (node --experimental-strip-types):
 // use string unions instead of enums and relative `.ts` imports only.
 
 export const GAME_MODES = ['cricket', 'killer', 'shanghai', 'around_the_clock'] as const;
 export type GameMode = (typeof GAME_MODES)[number];
 
-export type GameSessionStatus = 'active' | 'completed' | 'ended_early';
+export const GAME_SESSION_STATUSES = ['active', 'completed', 'ended_early'] as const;
+export type GameSessionStatus = (typeof GAME_SESSION_STATUSES)[number];
 
 /** One stored dart. Order is defined by (turnIndex, dartIndex). */
 export type GameThrowInput = {
@@ -181,4 +181,8 @@ export function sortThrows<T extends { turnIndex: number; dartIndex: number }>(t
 
 export function isGameMode(value: unknown): value is GameMode {
   return typeof value === 'string' && (GAME_MODES as readonly string[]).includes(value);
+}
+
+export function isGameSessionStatus(value: unknown): value is GameSessionStatus {
+  return typeof value === 'string' && (GAME_SESSION_STATUSES as readonly string[]).includes(value);
 }

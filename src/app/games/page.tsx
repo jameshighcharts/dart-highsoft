@@ -9,7 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Play, Eye, Trophy, Clock, Users, Swords, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { GAME_MODE_INFO, gameModeName } from '@/lib/games/labels';
-import type { GameModeInfo } from '@/lib/games/labels';
+import {
+  GAME_SESSION_STATUSES,
+  isGameMode,
+  isGameSessionStatus,
+  type GameMode,
+  type GameSessionStatus,
+} from '@/lib/games/types';
 
 type MatchWithDetails = {
   id: string;
@@ -35,8 +41,8 @@ type MatchWithDetails = {
 
 type GameSessionWithDetails = {
   id: string;
-  mode: string;
-  status: string;
+  mode: GameMode;
+  status: GameSessionStatus;
   created_at: string;
   winner_player_id: string | null;
   players: Array<{
@@ -84,7 +90,6 @@ export default function GamesPage() {
       const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
       const [matchesResult, sessionsResult] = await Promise.all([
-        // Get matches with players and legs (exclude ended early games)
         supabase
           .from('matches')
           .select(`
@@ -111,7 +116,6 @@ export default function GamesPage() {
           `)
           .order('created_at', { ascending: false })
           .limit(20),
-        // Party game sessions (Cricket, Killer, Shanghai, Around the Clock)
         supabase
           .from('game_sessions')
           .select(`
@@ -128,7 +132,7 @@ export default function GamesPage() {
               )
             )
           `)
-          .in('status', ['active', 'completed'])
+          .in('status', [...GAME_SESSION_STATUSES])
           .order('created_at', { ascending: false })
           .limit(20),
       ]);
@@ -166,14 +170,15 @@ export default function GamesPage() {
         return match;
       });
 
-      const sessions: GameSessionWithDetails[] = (sessionsResult.data ?? []).map((session) => {
+      const sessions: GameSessionWithDetails[] = (sessionsResult.data ?? []).flatMap((session) => {
+        if (!isGameMode(session.mode) || !isGameSessionStatus(session.status)) return [];
         const players = mapPlayers(
           (session as unknown as { game_session_players: PlayerRelation }).game_session_players
         );
         const winner = session.winner_player_id
           ? players.find((p) => p.id === session.winner_player_id)
           : undefined;
-        return {
+        return [{
           id: session.id,
           mode: session.mode,
           status: session.status,
@@ -181,10 +186,9 @@ export default function GamesPage() {
           winner_player_id: session.winner_player_id,
           players,
           winner_name: session.winner_player_id ? winner?.display_name || 'Unknown' : undefined,
-        };
+        }];
       });
 
-      // Separate live and completed games
       const liveMatches: ListedGame[] = matchesWithWinners
         .filter(match => !match.winner_player_id && !match.completed_at && !match.ended_early)
         .map((match) => ({ kind: 'match', created_at: match.created_at, match }));
@@ -199,7 +203,7 @@ export default function GamesPage() {
         .map((game) => ({ kind: 'game', created_at: game.created_at, game }));
 
       const recentSessions: ListedGame[] = sessions
-        .filter((game) => game.status === 'completed')
+        .filter((game) => game.status !== 'active')
         .slice(0, 10)
         .map((game) => ({ kind: 'game', created_at: game.created_at, game }));
 
@@ -316,10 +320,9 @@ export default function GamesPage() {
     return 'In Progress';
   };
 
-  // Only show the short badge when it adds information (e.g. "Clock" for Around the Clock).
-  const gameModeBadge = (mode: string) => {
-    const info = (GAME_MODE_INFO as Record<string, GameModeInfo | undefined>)[mode];
-    if (!info || info.shortName === info.name) return null;
+  const gameModeBadge = (mode: GameMode) => {
+    const info = GAME_MODE_INFO[mode];
+    if (info.shortName === info.name) return null;
     return <Badge variant="secondary">{info.shortName}</Badge>;
   };
 
@@ -398,13 +401,16 @@ export default function GamesPage() {
             </div>
           </div>
 
-          {/* Winner */}
           <div className="space-y-1">
-            <div className="text-sm font-medium text-muted-foreground">Winner</div>
-            <div className="font-semibold text-green-700 flex items-center gap-1">
-              <Trophy className="h-4 w-4" />
-              {game.winner_name ?? 'No winner'}
-            </div>
+            <div className="text-sm font-medium text-muted-foreground">Result</div>
+            {game.status === 'ended_early' ? (
+              <Badge variant="secondary">Ended early</Badge>
+            ) : (
+              <div className="font-semibold text-green-700 flex items-center gap-1">
+                <Trophy className="h-4 w-4" />
+                {game.winner_name ?? 'No winner'}
+              </div>
+            )}
           </div>
 
           {/* Action */}

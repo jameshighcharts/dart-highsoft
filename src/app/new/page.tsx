@@ -151,7 +151,7 @@ export default function NewMatchPage() {
       return next.sort((a, b) => a.name.localeCompare(b.name));
     }),
     onRemove: (boardId) => setBoards((current) => current.filter((board) => board.id !== boardId)),
-    onMatchChange: () => void loadBoards(false),
+    onOccupancyChange: () => void loadBoards(false),
     onReconcile: () => void loadBoards(false),
   });
 

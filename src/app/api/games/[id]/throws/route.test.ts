@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DELETE, POST } from './route';
-import { createSupabaseMock, type MockOp, type MockRow, type TableHandler } from '@/test-utils/gameSupabaseMock';
+import {
+  createSupabaseMock,
+  type MockOp,
+  type MockRow,
+  type RpcHandler,
+  type TableHandler,
+} from '@/test-utils/gameSupabaseMock';
 import {
   BOARD_ID,
   cricketSession,
@@ -63,6 +69,31 @@ function scoliaEvents(takeoutAfter: boolean): TableHandler {
   };
 }
 
+const appendRpc: RpcHandler = (args) => ({
+  data: [{
+    id: 'throw-new',
+    session_id: args.p_session_id,
+    player_id: args.p_player_id,
+    round_number: args.p_round_number,
+    turn_index: args.p_turn_index,
+    dart_index: args.p_dart_index,
+    segment: args.p_segment,
+    scored: args.p_scored,
+    meta: args.p_meta,
+    scolia_event_id: args.p_scolia_event_id,
+    impact_x_mm: args.p_impact_x_mm,
+    impact_y_mm: args.p_impact_y_mm,
+    angle_horizontal_deg: args.p_angle_horizontal_deg,
+    angle_vertical_deg: args.p_angle_vertical_deg,
+    created_at: '2026-09-02T12:00:00.000Z',
+  }],
+  error: null,
+});
+
+function undoRpc(row: MockRow): RpcHandler {
+  return () => ({ data: [{ ...row, reopened: false }], error: null });
+}
+
 describe('POST /api/games/[id]/throws', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -116,7 +147,7 @@ describe('POST /api/games/[id]/throws', () => {
 
   it('records the dart and returns the throw plus the new state with 201', async () => {
     const rows = scriptCricketRows(ORDER, [[PLAYER_A, 'T20']]);
-    const supabase = createSupabaseMock(tables(rows));
+    const supabase = createSupabaseMock(tables(rows), { append_game_throw_atomic: appendRpc });
     getSupabaseServerClientMock.mockReturnValue(supabase);
 
     const response = await post({ segment: 'T19', scored: 57, playerId: PLAYER_A });
@@ -174,7 +205,7 @@ describe('DELETE /api/games/[id]/throws', () => {
 
   it('deletes the latest dart of a manual game without touching Scolia commands', async () => {
     const rows = scriptCricketRows(ORDER, [[PLAYER_A, 'T20'], [PLAYER_A, 'T19']]);
-    const supabase = createSupabaseMock(tables(rows));
+    const supabase = createSupabaseMock(tables(rows), { undo_last_game_throw_atomic: undoRpc(rows[1]!) });
     getSupabaseServerClientMock.mockReturnValue(supabase);
 
     const response = await del();
@@ -185,17 +216,24 @@ describe('DELETE /api/games/[id]/throws', () => {
     expect(json.deletedThrow).toEqual(expect.objectContaining({ id: 'throw-2', dart_index: 2 }));
     expect(json.reopened).toBe(false);
     expect(json.state).toEqual(expect.objectContaining({ dartsThrownInTurn: 1, turnSegments: ['T20'] }));
-    expect(supabase.opsFor('game_throws', 'delete')[0]!.filters).toEqual([{ kind: 'eq', column: 'id', value: 'throw-2' }]);
+    expect(supabase.rpcFor('undo_last_game_throw_atomic')[0]!.args).toEqual({
+      p_session_id: SESSION_ID,
+      p_expected_last_throw_id: 'throw-2',
+      p_reopen: false,
+    });
     expect(supabase.ops.some((op) => op.table === 'scolia_commands' || op.table === 'scolia_events')).toBe(false);
   });
 
   it('enqueues DELETE_THROW for a Scolia dart still in the current physical round', async () => {
     const rows = scriptCricketRows(ORDER, [[PLAYER_A, 'T20'], [PLAYER_A, 'T19']]);
     rows[1]!.scolia_event_id = 501;
-    const supabase = createSupabaseMock(tables(rows, cricketSession({ scolia_board_id: BOARD_ID }), {
-      scolia_events: scoliaEvents(false),
-      scolia_commands: [],
-    }));
+    const supabase = createSupabaseMock(
+      tables(rows, cricketSession({ scolia_board_id: BOARD_ID }), {
+        scolia_events: scoliaEvents(false),
+        scolia_commands: [],
+      }),
+      { undo_last_game_throw_atomic: undoRpc(rows[1]!) }
+    );
     getSupabaseServerClientMock.mockReturnValue(supabase);
 
     const response = await del({ throwId: 'throw-2' });
@@ -215,10 +253,13 @@ describe('DELETE /api/games/[id]/throws', () => {
   it('does not enqueue a command once the round was taken out', async () => {
     const rows = scriptCricketRows(ORDER, [[PLAYER_A, 'T20'], [PLAYER_A, 'T19'], [PLAYER_A, 'T18']]);
     rows[2]!.scolia_event_id = 501;
-    const supabase = createSupabaseMock(tables(rows, cricketSession({ scolia_board_id: BOARD_ID }), {
-      scolia_events: scoliaEvents(true),
-      scolia_commands: [],
-    }));
+    const supabase = createSupabaseMock(
+      tables(rows, cricketSession({ scolia_board_id: BOARD_ID }), {
+        scolia_events: scoliaEvents(true),
+        scolia_commands: [],
+      }),
+      { undo_last_game_throw_atomic: undoRpc(rows[2]!) }
+    );
     getSupabaseServerClientMock.mockReturnValue(supabase);
 
     const response = await del();
@@ -230,10 +271,13 @@ describe('DELETE /api/games/[id]/throws', () => {
   it('still succeeds when queueing the Scolia command fails', async () => {
     const rows = scriptCricketRows(ORDER, [[PLAYER_A, 'T20']]);
     rows[0]!.scolia_event_id = 501;
-    const supabase = createSupabaseMock(tables(rows, cricketSession({ scolia_board_id: BOARD_ID }), {
-      scolia_events: scoliaEvents(false),
-      scolia_commands: () => ({ data: null, error: { message: 'commands down' } }),
-    }));
+    const supabase = createSupabaseMock(
+      tables(rows, cricketSession({ scolia_board_id: BOARD_ID }), {
+        scolia_events: scoliaEvents(false),
+        scolia_commands: () => ({ data: null, error: { message: 'commands down' } }),
+      }),
+      { undo_last_game_throw_atomic: undoRpc(rows[0]!) }
+    );
     getSupabaseServerClientMock.mockReturnValue(supabase);
 
     const response = await del();

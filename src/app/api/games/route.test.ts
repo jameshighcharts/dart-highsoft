@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { POST } from './route';
-import { createSupabaseMock, filterValue, type MockOp, type MockRow, type TableHandler } from '@/test-utils/gameSupabaseMock';
+import {
+  createSupabaseMock,
+  filterValue,
+  type MockRow,
+  type RpcHandler,
+  type TableHandler,
+} from '@/test-utils/gameSupabaseMock';
 import { BOARD_ID, PLAYER_A, PLAYER_B, PLAYER_C } from '@/test-utils/gameFixtures';
 
 vi.mock('server-only', () => ({}));
@@ -41,6 +47,31 @@ function baseTables(overrides: Record<string, MockRow[] | TableHandler> = {}) {
     scolia_boards: [] as MockRow[],
     matches: [] as MockRow[],
     ...overrides,
+  };
+}
+
+function createSessionRpc(gameSessions: MockRow[], sessionPlayers: MockRow[]): RpcHandler {
+  return (args) => {
+    const session = {
+      id: `session-${gameSessions.length + 1}`,
+      mode: args.p_mode,
+      config: args.p_config,
+      status: 'active',
+      winner_player_id: null,
+      scolia_board_id: args.p_scolia_board_id,
+      created_at: '2026-09-02T12:00:00.000Z',
+      completed_at: null,
+    };
+    gameSessions.push(session);
+    for (const [playOrder, playerId] of (args.p_player_ids as string[]).entries()) {
+      sessionPlayers.push({
+        session_id: session.id,
+        player_id: playerId,
+        play_order: playOrder,
+        players: { display_name: `Player ${playOrder + 1}` },
+      });
+    }
+    return { data: [session], error: null };
   };
 }
 
@@ -146,30 +177,29 @@ describe('POST /api/games', () => {
 
   it('creates a session with a randomized seating order and returns the initial state', async () => {
     const tables = baseTables({ scolia_boards: [readyBoard()] });
-    const supabase = createSupabaseMock(tables);
+    const supabase = createSupabaseMock(tables, {
+      create_game_session_atomic: createSessionRpc(
+        tables.game_sessions as MockRow[],
+        tables.game_session_players as MockRow[]
+      ),
+    });
     getSupabaseServerClientMock.mockReturnValue(supabase);
 
     const response = await POST(request({ mode: 'cricket', playerIds: PLAYERS, config: { variant: 'cut_throat' }, scoliaBoardId: BOARD_ID }));
     const json = await response.json();
 
     expect(response.status).toBe(201);
-    const sessionInsert = supabase.opsFor('game_sessions', 'insert')[0]!;
-    expect(sessionInsert.payload).toEqual({
-      mode: 'cricket',
-      config: { variant: 'cut_throat', maxRounds: 20 },
-      scolia_board_id: BOARD_ID,
+    expect(supabase.rpcFor('create_game_session_atomic')[0]!.args).toEqual({
+      p_mode: 'cricket',
+      p_config: { variant: 'cut_throat', maxRounds: 20 },
+      p_player_ids: [PLAYER_B, PLAYER_C, PLAYER_A],
+      p_scolia_board_id: BOARD_ID,
     });
     const sessionId = tables.game_sessions[0]!.id as string;
     expect(json.gameId).toBe(sessionId);
     expect(json.session).toEqual(expect.objectContaining({ id: sessionId, mode: 'cricket' }));
 
     // Math.random is pinned to 0, so the Fisher-Yates shuffle of [A, B, C] is [B, C, A].
-    const playersInsert = supabase.opsFor('game_session_players', 'insert')[0]!;
-    expect(playersInsert.payload).toEqual([
-      { session_id: sessionId, player_id: PLAYER_B, play_order: 0 },
-      { session_id: sessionId, player_id: PLAYER_C, play_order: 1 },
-      { session_id: sessionId, player_id: PLAYER_A, play_order: 2 },
-    ]);
     expect(json.players.map((player: { player_id: string }) => player.player_id)).toEqual([PLAYER_B, PLAYER_C, PLAYER_A]);
     expect(json.state).toEqual(expect.objectContaining({
       mode: 'cricket',
@@ -181,13 +211,19 @@ describe('POST /api/games', () => {
   });
 
   it('finalizes Killer config with assigned numbers for the seated order', async () => {
-    const supabase = createSupabaseMock(baseTables());
+    const tables = baseTables();
+    const supabase = createSupabaseMock(tables, {
+      create_game_session_atomic: createSessionRpc(
+        tables.game_sessions as MockRow[],
+        tables.game_session_players as MockRow[]
+      ),
+    });
     getSupabaseServerClientMock.mockReturnValue(supabase);
 
     const response = await POST(request({ mode: 'killer', playerIds: PLAYERS, config: { lives: 2 } }));
 
     expect(response.status).toBe(201);
-    const config = (supabase.opsFor('game_sessions', 'insert')[0]!.payload as { config: MockRow }).config;
+    const config = supabase.rpcFor('create_game_session_atomic')[0]!.args.p_config as MockRow;
     expect(config).toEqual(expect.objectContaining({ lives: 2, assignment: 'random' }));
     const assigned = config.assignedNumbers as Record<string, number>;
     expect(Object.keys(assigned).sort()).toEqual([...PLAYERS].sort());
@@ -197,27 +233,28 @@ describe('POST /api/games', () => {
     }
   });
 
-  it('rolls back the session when inserting players fails', async () => {
-    const supabase = createSupabaseMock(baseTables({
-      game_session_players: () => ({ data: null, error: { message: 'players insert failed' } }),
-    }));
+  it('does not expose a partial session when atomic creation fails', async () => {
+    const tables = baseTables();
+    const supabase = createSupabaseMock(tables, {
+      create_game_session_atomic: () => ({ data: null, error: { message: 'players insert failed' } }),
+    });
     getSupabaseServerClientMock.mockReturnValue(supabase);
 
     const response = await POST(request({ mode: 'cricket', playerIds: PLAYERS }));
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({ error: 'Internal server error' });
-    expect(supabase.opsFor('game_sessions', 'insert')).toHaveLength(1);
-    const deletes = supabase.opsFor('game_sessions', 'delete');
-    expect(deletes).toHaveLength(1);
-    expect(deletes[0]!.filters).toEqual([{ kind: 'eq', column: 'id', value: expect.any(String) }]);
+    expect(tables.game_sessions).toHaveLength(0);
+    expect(tables.game_session_players).toHaveLength(0);
   });
 
   it('maps a unique violation on the board assignment to 409', async () => {
-    const gameSessions: TableHandler = (op: MockOp) => op.type === 'insert'
-      ? { data: null, error: { message: 'duplicate key value violates unique constraint', code: '23505' } }
-      : { data: [], error: null };
-    const supabase = createSupabaseMock(baseTables({ scolia_boards: [readyBoard()], game_sessions: gameSessions }));
+    const supabase = createSupabaseMock(baseTables({ scolia_boards: [readyBoard()] }), {
+      create_game_session_atomic: () => ({
+        data: null,
+        error: { message: 'duplicate key value violates unique constraint', code: '23505' },
+      }),
+    });
     getSupabaseServerClientMock.mockReturnValue(supabase);
 
     const response = await POST(request({ mode: 'cricket', playerIds: PLAYERS, scoliaBoardId: BOARD_ID }));

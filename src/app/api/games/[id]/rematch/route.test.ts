@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { POST } from './route';
-import { createSupabaseMock, type MockRow } from '@/test-utils/gameSupabaseMock';
+import { createSupabaseMock, type MockRow, type RpcHandler } from '@/test-utils/gameSupabaseMock';
 import { BOARD_ID, cricketSession, PLAYER_A, PLAYER_B, PLAYER_C, SESSION_ID, sessionPlayerRows } from '@/test-utils/gameFixtures';
 
 vi.mock('server-only', () => ({}));
@@ -24,6 +24,23 @@ function tables(session: MockRow) {
     players: ORDER.map((id) => ({ id })),
     scolia_boards: [] as MockRow[],
     matches: [] as MockRow[],
+  };
+}
+
+function createSessionRpc(gameSessions: MockRow[]): RpcHandler {
+  return (args) => {
+    const session = {
+      id: `session-${gameSessions.length + 1}`,
+      mode: args.p_mode,
+      config: args.p_config,
+      status: 'active',
+      winner_player_id: null,
+      scolia_board_id: args.p_scolia_board_id,
+      created_at: '2026-09-02T12:00:00.000Z',
+      completed_at: null,
+    };
+    gameSessions.push(session);
+    return { data: [session], error: null };
   };
 }
 
@@ -57,7 +74,9 @@ describe('POST /api/games/[id]/rematch', () => {
     vi.spyOn(Math, 'random').mockReturnValue(random);
     const finished = cricketSession({ status: 'completed', winner_player_id: PLAYER_A, completed_at: '2026-09-01T11:00:00.000Z' });
     const t = tables(finished as unknown as MockRow);
-    const supabase = createSupabaseMock(t);
+    const supabase = createSupabaseMock(t, {
+      create_game_session_atomic: createSessionRpc(t.game_sessions),
+    });
     getSupabaseServerClientMock.mockReturnValue(supabase);
 
     const response = await POST(request, { params });
@@ -66,31 +85,33 @@ describe('POST /api/games/[id]/rematch', () => {
     expect(response.status).toBe(201);
     const newSession = t.game_sessions.find((row) => row.id !== SESSION_ID)!;
     expect(json).toEqual({ newGameId: newSession.id });
-    expect(supabase.opsFor('game_sessions', 'insert')[0]!.payload).toEqual({
-      mode: 'cricket',
-      config: finished.config,
-      scolia_board_id: null,
+    expect(supabase.rpcFor('create_game_session_atomic')[0]!.args).toEqual({
+      p_mode: 'cricket',
+      p_config: finished.config,
+      p_player_ids: expect.any(Array),
+      p_scolia_board_id: null,
     });
 
-    const seated = supabase.opsFor('game_session_players', 'insert')[0]!.payload as { player_id: string; play_order: number; session_id: string }[];
+    const seated = supabase.rpcFor('create_game_session_atomic')[0]!.args.p_player_ids as string[];
     expect(seated).toHaveLength(3);
-    expect(seated.every((row) => row.session_id === newSession.id)).toBe(true);
-    expect(seated.map((row) => row.play_order)).toEqual([0, 1, 2]);
-    expect(seated[0]!.player_id).not.toBe(PLAYER_A);
-    expect(seated.map((row) => row.player_id).sort()).toEqual([...ORDER].sort());
+    expect(seated[0]).not.toBe(PLAYER_A);
+    expect(seated.slice().sort()).toEqual([...ORDER].sort());
   });
 
   it('keeps everyone eligible to start when the game had no winner', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const ended = cricketSession({ status: 'ended_early', completed_at: '2026-09-01T11:00:00.000Z' });
-    const supabase = createSupabaseMock(tables(ended as unknown as MockRow));
+    const t = tables(ended as unknown as MockRow);
+    const supabase = createSupabaseMock(t, {
+      create_game_session_atomic: createSessionRpc(t.game_sessions),
+    });
     getSupabaseServerClientMock.mockReturnValue(supabase);
 
     const response = await POST(request, { params });
 
     expect(response.status).toBe(201);
-    const seated = supabase.opsFor('game_session_players', 'insert')[0]!.payload as { player_id: string }[];
-    expect(seated[0]!.player_id).toBe(PLAYER_A);
+    const seated = supabase.rpcFor('create_game_session_atomic')[0]!.args.p_player_ids as string[];
+    expect(seated[0]).toBe(PLAYER_A);
   });
 
   it('carries the Scolia board over and fails when the board is no longer available', async () => {

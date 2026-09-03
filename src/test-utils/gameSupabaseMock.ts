@@ -12,7 +12,7 @@
 export type MockRow = Record<string, unknown>;
 
 export type MockFilter =
-  | { kind: 'eq' | 'gt'; column: string; value: unknown }
+  | { kind: 'eq' | 'gt' | 'lt'; column: string; value: unknown }
   | { kind: 'is'; column: string; value: unknown }
   | { kind: 'in'; column: string; values: unknown[] }
   | { kind: 'not'; column: string; operator: string; value: unknown };
@@ -38,6 +38,13 @@ export type MockResult = {
 
 export type TableHandler = (op: MockOp) => MockResult | Promise<MockResult>;
 
+export type MockRpcOp = {
+  name: string;
+  args: Record<string, unknown>;
+};
+
+export type RpcHandler = (args: Record<string, unknown>) => MockResult | Promise<MockResult>;
+
 export type LoggedOp = MockOp & { table: string };
 
 let idCounter = 0;
@@ -50,6 +57,8 @@ export function matchesFilters(row: MockRow, filters: MockFilter[]): boolean {
         return actual === filter.value;
       case 'gt':
         return (actual as number | string) > (filter.value as number | string);
+      case 'lt':
+        return (actual as number | string) < (filter.value as number | string);
       case 'is':
         return filter.value === null ? actual == null : actual === filter.value;
       case 'in':
@@ -139,6 +148,10 @@ export function createTableMock(source: MockRow[] | TableHandler, onOp?: (op: Mo
         op.filters.push({ kind: 'gt', column, value });
         return chain;
       },
+      lt(column: string, value: unknown) {
+        op.filters.push({ kind: 'lt', column, value });
+        return chain;
+      },
       order(column: string, opts?: { ascending?: boolean }) {
         op.orders.push({ column, ascending: opts?.ascending !== false });
         return chain;
@@ -171,10 +184,15 @@ export function createTableMock(source: MockRow[] | TableHandler, onOp?: (op: Mo
  * A `from(table)` client whose tables come from `tables`. Every executed
  * operation is appended to `ops` (with its table name) for assertions.
  */
-export function createSupabaseMock(tables: Record<string, MockRow[] | TableHandler>) {
+export function createSupabaseMock(
+  tables: Record<string, MockRow[] | TableHandler>,
+  rpcs: Record<string, RpcHandler> = {}
+) {
   const ops: LoggedOp[] = [];
+  const rpcOps: MockRpcOp[] = [];
   const client = {
     ops,
+    rpcOps,
     from(table: string) {
       const source = tables[table];
       if (!source) throw new Error(`Unexpected table: ${table}`);
@@ -183,6 +201,25 @@ export function createSupabaseMock(tables: Record<string, MockRow[] | TableHandl
     /** Operations logged for one table, optionally narrowed by type. */
     opsFor(table: string, type?: MockOp['type']) {
       return ops.filter((op) => op.table === table && (!type || op.type === type));
+    },
+    rpc(name: string, args: Record<string, unknown>) {
+      const handler = rpcs[name];
+      if (!handler) throw new Error(`Unexpected RPC: ${name}`);
+      rpcOps.push({ name, args });
+      const run = async (terminal: MockOp['terminal']) => finalize(await handler(args), terminal);
+      return {
+        single: () => run('single'),
+        maybeSingle: () => run('maybeSingle'),
+        then<T1 = unknown, T2 = never>(
+          onfulfilled?: ((value: Awaited<ReturnType<typeof run>>) => T1 | PromiseLike<T1>) | null,
+          onrejected?: ((reason: unknown) => T2 | PromiseLike<T2>) | null
+        ) {
+          return run('list').then(onfulfilled, onrejected);
+        },
+      };
+    },
+    rpcFor(name: string) {
+      return rpcOps.filter((op) => op.name === name);
     },
   };
   return client;

@@ -26,6 +26,46 @@ export type GameThrowRow = {
 export const GAME_THROW_COLUMNS =
   'id, session_id, player_id, round_number, turn_index, dart_index, segment, scored, meta, scolia_event_id, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg, created_at';
 
+type GameCompletion =
+  | { kind: 'continue' }
+  | { kind: 'complete'; winnerPlayerId: string };
+
+type RpcError = { code?: string; message: string };
+
+function completionFromState(state: GameState): GameCompletion {
+  if (!state.finished) return { kind: 'continue' };
+  if (!state.winnerId) throw new Error('A completed game must have a winner');
+  return { kind: 'complete', winnerPlayerId: state.winnerId };
+}
+
+function isMutationConflict(error: RpcError): boolean {
+  return error.code === '40001' || error.code === '23505' || error.message === 'stale_game_snapshot';
+}
+
+function isBoardOccupancyConflict(error: RpcError): boolean {
+  return error.code === '23505'
+    && error.message.includes('Scolia board already has an active match or game session');
+}
+
+function gameThrowRowFromRpc(value: unknown): GameThrowRow {
+  if (!value || typeof value !== 'object') throw new Error('Game throw mutation returned no row');
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.id !== 'string'
+    || typeof row.session_id !== 'string'
+    || typeof row.player_id !== 'string'
+    || typeof row.round_number !== 'number'
+    || typeof row.turn_index !== 'number'
+    || typeof row.dart_index !== 'number'
+    || typeof row.segment !== 'string'
+    || typeof row.scored !== 'number'
+    || typeof row.created_at !== 'string'
+  ) {
+    throw new Error('Game throw mutation returned an invalid row');
+  }
+  return row as GameThrowRow;
+}
+
 export type GameSessionPlayer = {
   player_id: string;
   play_order: number;
@@ -113,7 +153,6 @@ export async function loadGameSnapshot(supabase: SupabaseClient, sessionId: stri
 export type AppendGameThrowInput = {
   segment: string;
   scored?: number;
-  /** Stale-client guard: reject when this is not the current player. */
   playerId?: string;
   scoliaEventId?: number;
   impactXmm?: number | null;
@@ -126,10 +165,6 @@ export type AppendGameThrowResult =
   | { ok: true; throw: GameThrowRow; state: GameState }
   | { ok: false; status: 400 | 409; error: string; code?: 'slot_taken' | 'not_active' | 'finished' | 'wrong_player' | 'invalid_segment' };
 
-/**
- * Stamp the next slot from the derived state, insert the dart, and finalize
- * the session when the engine says the game is over.
- */
 export async function appendGameThrow(
   supabase: SupabaseClient,
   snapshot: GameSnapshot,
@@ -164,46 +199,46 @@ export async function appendGameThrow(
     [...sortThrowRows(throws).map(throwInputFromRow), candidate]
   );
 
+  const orderedThrows = sortThrowRows(throws);
+  const completion = completionFromState(nextState);
+
   const { data, error } = await supabase
-    .from('game_throws')
-    .insert({
-      session_id: session.id,
-      player_id: candidate.playerId,
-      round_number: candidate.roundNumber,
-      turn_index: candidate.turnIndex,
-      dart_index: candidate.dartIndex,
-      segment: candidate.segment,
-      scored: candidate.scored,
-      meta: nextState.lastEvent ?? {},
-      scolia_event_id: input.scoliaEventId ?? null,
-      impact_x_mm: input.impactXmm ?? null,
-      impact_y_mm: input.impactYmm ?? null,
-      angle_horizontal_deg: input.angleHorizontalDeg ?? null,
-      angle_vertical_deg: input.angleVerticalDeg ?? null,
+    .rpc('append_game_throw_atomic', {
+      p_session_id: session.id,
+      p_expected_last_throw_id: orderedThrows.at(-1)?.id ?? null,
+      p_player_id: candidate.playerId,
+      p_round_number: candidate.roundNumber,
+      p_turn_index: candidate.turnIndex,
+      p_dart_index: candidate.dartIndex,
+      p_segment: candidate.segment,
+      p_scored: candidate.scored,
+      p_meta: nextState.lastEvent ?? {},
+      p_finalize: completion.kind === 'complete',
+      p_winner_player_id: completion.kind === 'complete' ? completion.winnerPlayerId : null,
+      p_scolia_event_id: input.scoliaEventId ?? null,
+      p_impact_x_mm: input.impactXmm ?? null,
+      p_impact_y_mm: input.impactYmm ?? null,
+      p_angle_horizontal_deg: input.angleHorizontalDeg ?? null,
+      p_angle_vertical_deg: input.angleVerticalDeg ?? null,
     })
-    .select(GAME_THROW_COLUMNS)
     .single();
   if (error || !data) {
-    if (error?.code === '23505') {
+    if (error && isMutationConflict(error)) {
       return { ok: false, status: 409, error: 'Another dart was recorded first. Reload and try again.', code: 'slot_taken' };
+    }
+    if (error?.code === '55000' || error?.message === 'game_not_active') {
+      return { ok: false, status: 409, error: 'Game is not active', code: 'not_active' };
     }
     throw new Error(error?.message ?? 'Failed to record dart');
   }
 
-  if (nextState.finished) {
-    await finalizeGameSession(supabase, session.id, nextState);
-  }
-  return { ok: true, throw: data as GameThrowRow, state: nextState };
+  return { ok: true, throw: gameThrowRowFromRpc(data), state: nextState };
 }
 
 export type RemoveLastGameThrowResult =
   | { ok: true; deleted: GameThrowRow; state: GameState; reopened: boolean }
   | { ok: false; status: 404 | 409; error: string };
 
-/**
- * Undo the most recent dart. Undoing the winning dart of a completed session
- * reopens it; sessions ended early stay closed.
- */
 export async function removeLastGameThrow(
   supabase: SupabaseClient,
   snapshot: GameSnapshot,
@@ -216,39 +251,44 @@ export async function removeLastGameThrow(
   if (!last) return { ok: false, status: 404, error: 'No darts to undo' };
   if (throwId && throwId !== last.id) return { ok: false, status: 409, error: 'Only the latest dart can be undone' };
 
-  const { error, count } = await supabase.from('game_throws').delete({ count: 'exact' }).eq('id', last.id);
-  if (error) throw new Error(error.message);
-  if (count === 0) return { ok: false, status: 404, error: 'Dart was already removed' };
-
   const remaining = ordered.slice(0, -1);
   const state = deriveFromRows(engine, session, orderedPlayerIds, remaining);
-  let reopened = false;
-  if (session.status === 'completed' && !state.finished) {
-    reopened = await reopenGameSession(supabase, session.id);
-  }
-  return { ok: true, deleted: last, state, reopened };
-}
-
-/** Idempotent: only an active session can be completed. */
-export async function finalizeGameSession(supabase: SupabaseClient, sessionId: string, state: GameState): Promise<void> {
-  const { error } = await supabase
-    .from('game_sessions')
-    .update({
-      status: 'completed',
-      winner_player_id: state.winnerId,
-      completed_at: new Date().toISOString(),
+  const shouldReopen = session.status === 'completed' && !state.finished;
+  const { data, error } = await supabase
+    .rpc('undo_last_game_throw_atomic', {
+      p_session_id: session.id,
+      p_expected_last_throw_id: last.id,
+      p_reopen: shouldReopen,
     })
-    .eq('id', sessionId)
-    .eq('status', 'active');
-  if (error) throw new Error(error.message);
+    .single();
+  if (error || !data) {
+    if (error && isBoardOccupancyConflict(error)) {
+      return { ok: false, status: 409, error: 'This Scolia board is assigned to another active game' };
+    }
+    if (error && isMutationConflict(error)) {
+      return { ok: false, status: 409, error: 'Only the latest dart can be undone' };
+    }
+    if (error?.code === 'P0002') return { ok: false, status: 404, error: 'Dart was already removed' };
+    if (error?.code === '55000') return { ok: false, status: 409, error: 'Game cannot be reopened' };
+    throw new Error(error?.message ?? 'Failed to undo dart');
+  }
+  const result = data as Record<string, unknown>;
+  return {
+    ok: true,
+    deleted: gameThrowRowFromRpc(result),
+    state,
+    reopened: result.reopened === true,
+  };
 }
 
-export async function reopenGameSession(supabase: SupabaseClient, sessionId: string): Promise<boolean> {
-  const { error, count } = await supabase
-    .from('game_sessions')
-    .update({ status: 'active', winner_player_id: null, completed_at: null }, { count: 'exact' })
-    .eq('id', sessionId)
-    .eq('status', 'completed');
+export async function finalizeGameSession(
+  supabase: SupabaseClient,
+  input: { sessionId: string; expectedLastThrowId: string; winnerPlayerId: string }
+): Promise<void> {
+  const { error } = await supabase.rpc('finalize_game_session_atomic', {
+    p_session_id: input.sessionId,
+    p_expected_last_throw_id: input.expectedLastThrowId,
+    p_winner_player_id: input.winnerPlayerId,
+  });
   if (error) throw new Error(error.message);
-  return (count ?? 0) > 0;
 }

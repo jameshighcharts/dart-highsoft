@@ -29,24 +29,29 @@ export function commandSourceForGameSession(session: GameSessionRow): ScoliaComm
 export async function hasTakeoutSinceEvent(
   supabase: SupabaseClient,
   boardId: string,
-  eventId: number
+  eventId: number,
+  beforeEventId?: number
 ): Promise<boolean | null> {
   const { data: sourceEvent, error: sourceError } = await supabase
     .from('scolia_events')
-    .select('board_id, received_at')
+    .select('board_id')
     .eq('id', eventId)
     .eq('board_id', boardId)
     .maybeSingle();
   if (sourceError) throw new Error(sourceError.message);
   if (!sourceEvent) return null;
 
-  const { data: laterTakeout, error: takeoutError } = await supabase
+  let takeoutQuery = supabase
     .from('scolia_events')
     .select('id')
     .eq('board_id', boardId)
     .eq('event_type', 'TAKEOUT_FINISHED')
-    .gt('received_at', sourceEvent.received_at)
-    .order('received_at', { ascending: true })
+    .gt('id', eventId);
+  if (beforeEventId !== undefined) {
+    takeoutQuery = takeoutQuery.lt('id', beforeEventId);
+  }
+  const { data: laterTakeout, error: takeoutError } = await takeoutQuery
+    .order('id', { ascending: true })
     .limit(1)
     .maybeSingle();
   if (takeoutError) throw new Error(takeoutError.message);

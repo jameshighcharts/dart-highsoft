@@ -21,7 +21,7 @@ function sourceEventQuery() {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     maybeSingle: vi.fn().mockResolvedValue({
-      data: { board_id: 'board-1', received_at: '2026-09-01T10:00:00.000Z' },
+      data: { board_id: 'board-1' },
       error: null,
     }),
   };
@@ -55,6 +55,7 @@ describe('enqueueCurrentRoundScoliaThrowCommand', () => {
       'THROW_CORRECTED'
     );
 
+    expect(eventQueries).toHaveLength(0);
     expect(insert).toHaveBeenCalledWith({
       board_id: 'board-1',
       match_id: 'match-1',
@@ -65,7 +66,8 @@ describe('enqueueCurrentRoundScoliaThrowCommand', () => {
   });
 
   it('does not notify Scolia after that physical round was taken out', async () => {
-    const eventQueries = [sourceEventQuery(), takeoutQuery({ id: 99 })];
+    const takeout = takeoutQuery({ id: 99 });
+    const eventQueries = [sourceEventQuery(), takeout];
     const insert = vi.fn();
     const supabase = {
       from: vi.fn((table: string) => table === 'scolia_events'
@@ -80,6 +82,8 @@ describe('enqueueCurrentRoundScoliaThrowCommand', () => {
       'DELETE_THROW'
     );
 
+    expect(takeout.gt).toHaveBeenCalledWith('id', 42);
+    expect(takeout.order).toHaveBeenCalledWith('id', { ascending: true });
     expect(insert).not.toHaveBeenCalled();
   });
 

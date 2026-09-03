@@ -6,10 +6,6 @@ export type ScoliaBoardTarget =
   | { kind: 'match'; id: string }
   | { kind: 'game'; id: string };
 
-/**
- * The single active thing a Scolia board is currently driving: an X01 match or
- * a party game session. The database trigger keeps this to at most one.
- */
 export async function findActiveScoliaBoardTarget(
   supabase: SupabaseClient,
   boardId: string

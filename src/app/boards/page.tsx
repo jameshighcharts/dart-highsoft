@@ -67,7 +67,7 @@ export default function BoardsPage() {
       board.id === status.boardId ? mergePublicStatus(board, status) : board
     )),
     onRemove: (boardId) => setBoards((current) => current.filter((board) => board.id !== boardId)),
-    onMatchChange: () => void loadBoards(false),
+    onOccupancyChange: () => void loadBoards(false),
     onReconcile: () => void loadBoards(false),
   });
 

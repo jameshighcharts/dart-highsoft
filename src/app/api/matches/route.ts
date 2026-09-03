@@ -1,4 +1,5 @@
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { createMatchForPlayers } from '@/lib/server/createMatch';
 import { assertScoliaBoardAvailable } from '@/lib/server/scoliaBoardTarget';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -125,73 +126,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create match
-    const { data: match, error: matchError } = await supabase
-      .from('matches')
-      .insert({
-        mode: 'x01',
-        start_score: startScore,
-        finish,
-        legs_to_win: legsToWin,
-        fair_ending: fairEnding,
-        scolia_board_id: scoliaBoardId,
-      })
-      .select('*')
-      .single();
-      
-    if (matchError || !match) {
-      if (matchError?.code === '23505' && scoliaBoardId) {
-        return NextResponse.json(
-          { error: 'This Scolia board is already assigned to an active match' },
-          { status: 409 }
-        );
-      }
-      return NextResponse.json(
-        { error: 'Failed to create match' },
-        { status: 500 }
-      );
-    }
-    
-    const matchId = match.id;
-    
-    // Randomize player order (like the UI does)
     const order = [...playerIds].sort(() => Math.random() - 0.5);
-    
-    // Create match_players entries
-    const matchPlayers = order.map((playerId, index) => ({
-      match_id: matchId,
-      player_id: playerId,
-      play_order: index
-    }));
-    
-    const { error: matchPlayersError } = await supabase
-      .from('match_players')
-      .insert(matchPlayers);
-      
-    if (matchPlayersError) {
-      await supabase.from('matches').delete().eq('id', matchId);
-      return NextResponse.json(
-        { error: 'Failed to add players to match' },
-        { status: 500 }
-      );
+    const creation = await createMatchForPlayers(supabase, {
+      startScore,
+      finish,
+      legsToWin,
+      fairEnding,
+      playerIds: order,
+      scoliaBoardId,
+    });
+    if (!creation.ok) {
+      return NextResponse.json({ error: creation.error }, { status: creation.status });
     }
-    
-    // Create first leg
-    const { error: legError } = await supabase
-      .from('legs')
-      .insert({ 
-        match_id: matchId, 
-        leg_number: 1, 
-        starting_player_id: order[0] 
-      });
-      
-    if (legError) {
-      await supabase.from('matches').delete().eq('id', matchId);
-      return NextResponse.json(
-        { error: 'Failed to create first leg' },
-        { status: 500 }
-      );
-    }
+    const matchId = creation.matchId;
     
     // Generate URLs
     const baseUrl = request.nextUrl.origin;

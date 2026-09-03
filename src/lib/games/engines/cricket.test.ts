@@ -42,15 +42,6 @@ function derive(config: CricketConfig, order: string[], darts: Dart[]) {
   return cricketEngine.deriveState(config, order, play(config, order, darts));
 }
 
-/** Three darts per player that close a target: T20 for A etc. */
-function closeAllFor(playerId: string): Dart[] {
-  return [
-    [playerId, 'T20'],
-    [playerId, 'T19'],
-    [playerId, 'T18'],
-  ];
-}
-
 describe('cricketEngine metadata', () => {
   it('exposes mode and player bounds', () => {
     expect(cricketEngine.mode).toBe('cricket');

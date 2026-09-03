@@ -25,20 +25,18 @@ export async function findExistingGameThrow(supabase: SupabaseClient, eventId: n
   return (data as GameThrowRow | null) ?? null;
 }
 
-/** Re-run completion for an already stored dart (idempotent replay path). */
 export async function settleExistingGameThrow(supabase: SupabaseClient, existing: GameThrowRow): Promise<void> {
   const snapshot = await loadGameSnapshot(supabase, existing.session_id);
   if (!snapshot) return;
-  if (snapshot.session.status === 'active' && snapshot.state.finished) {
-    await finalizeGameSession(supabase, snapshot.session.id, snapshot.state);
+  if (snapshot.session.status === 'active' && snapshot.state.finished && snapshot.state.winnerId) {
+    await finalizeGameSession(supabase, {
+      sessionId: snapshot.session.id,
+      expectedLastThrowId: existing.id,
+      winnerPlayerId: snapshot.state.winnerId,
+    });
   }
 }
 
-/**
- * Apply a detected dart to an active game session. Mirrors the X01 path: the
- * board decides who is throwing (the engine's current player), a fourth dart
- * before takeout is dropped, and duplicates are settled instead of re-inserted.
- */
 export async function ingestGameThrow(
   supabase: SupabaseClient,
   sessionId: string,
@@ -54,12 +52,10 @@ export async function ingestGameThrow(
     return { status: 'ignored', reason: 'The assigned game is already finished' };
   }
 
-  // A dart detected after three darts but before the players pulled them is
-  // not part of anyone's turn.
   const ordered = sortThrowRows(snapshot.throws);
   const last = ordered[ordered.length - 1];
-  if (last && last.dart_index === 3 && last.scolia_event_id != null && snapshot.state.dartsThrownInTurn === 0) {
-    const takenOut = await hasTakeoutSinceEvent(supabase, boardId, last.scolia_event_id);
+  if (last && last.scolia_event_id != null && snapshot.state.turnIndex > last.turn_index) {
+    const takenOut = await hasTakeoutSinceEvent(supabase, boardId, last.scolia_event_id, eventId);
     if (takenOut === false) {
       return { status: 'ignored', reason: 'Dart detected before the previous round was taken out' };
     }

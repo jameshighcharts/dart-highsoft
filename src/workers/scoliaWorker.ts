@@ -242,7 +242,7 @@ class BoardConnection {
       .eq('board_id', this.board.id)
       .eq('event_type', 'THROW_DETECTED')
       .in('processing_status', ['pending', 'failed'])
-      .order('received_at', { ascending: true });
+      .order('id', { ascending: true });
     if (error) throw new Error(error.message);
     for (const event of (data ?? []) as StoredScoliaEvent[]) {
       const result = await ingestScoliaThrowEvent(this.supabase, event);
