@@ -3,6 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
+// The player list is live data and needs Supabase at request time, so never
+// prerender this page at build (build hosts may not have the env vars).
+export const dynamic = 'force-dynamic';
+
 export default async function PracticePage() {
   const supabase = await getSupabaseClient();
   
