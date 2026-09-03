@@ -28,12 +28,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Production already contains 0000-0054, but its migration history was
-      # created outside the CLI and is empty. Do not replay or repair that
-      # history: deploy only newer files through Supabase's migration API.
+      # Production already contains 0000-0055, but its migration history was
+      # created outside the CLI and is empty. Migration 0055 was verified
+      # against the live schema before advancing this deployment baseline.
       - name: Deploy new migrations
         env:
-          SUPABASE_MIGRATION_BASELINE: '0054'
+          SUPABASE_MIGRATION_BASELINE: '0055'
         run: |
           node <<'NODE'
           const { readdir, readFile } = require('node:fs/promises');

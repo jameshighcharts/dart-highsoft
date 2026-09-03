@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { isMatchActive, loadMatch } from '@/lib/server/matchGuards';
 import { recomputeLegTurns } from '@/lib/server/recomputeLegTurns';
-import { enqueueCurrentRoundScoliaThrowCommand } from '@/lib/server/scoliaCommands';
+import { commandSourceForMatch, enqueueCurrentRoundScoliaThrowCommand } from '@/lib/server/scoliaCommands';
 
 async function getLegIdForTurn(
   supabase: ReturnType<typeof getSupabaseServerClient>,
@@ -54,7 +54,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ma
 
     await recomputeLegTurns(supabase, target.legId, parseInt(match.start_score, 10), match.finish);
     try {
-      await enqueueCurrentRoundScoliaThrowCommand(supabase, match, target, 'THROW_CORRECTED');
+      await enqueueCurrentRoundScoliaThrowCommand(supabase, commandSourceForMatch(match), target, 'THROW_CORRECTED');
     } catch (commandError) {
       console.error('Failed to queue Scolia throw correction:', commandError);
     }
@@ -81,7 +81,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ matchId
 
     await recomputeLegTurns(supabase, target.legId, parseInt(match.start_score, 10), match.finish);
     try {
-      await enqueueCurrentRoundScoliaThrowCommand(supabase, match, target, 'DELETE_THROW');
+      await enqueueCurrentRoundScoliaThrowCommand(supabase, commandSourceForMatch(match), target, 'DELETE_THROW');
     } catch (commandError) {
       console.error('Failed to queue Scolia throw deletion:', commandError);
     }

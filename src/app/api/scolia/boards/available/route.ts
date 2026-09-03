@@ -20,7 +20,7 @@ type ActiveMatchRow = {
 export async function GET() {
   try {
     const supabase = getSupabaseServerClient();
-    const [boardsResult, activeMatchesResult] = await Promise.all([
+    const [boardsResult, activeMatchesResult, activeGamesResult] = await Promise.all([
       supabase
         .from('scolia_boards')
         .select('id, name, is_home_sbc, worker_connection_status, board_status, worker_heartbeat_at')
@@ -32,10 +32,23 @@ export async function GET() {
         .is('completed_at', null)
         .is('winner_player_id', null)
         .eq('ended_early', false),
+      supabase
+        .from('game_sessions')
+        .select('id, scolia_board_id')
+        .eq('status', 'active')
+        .not('scolia_board_id', 'is', null),
     ]);
 
     if (boardsResult.error) throw new Error(boardsResult.error.message);
     if (activeMatchesResult.error) throw new Error(activeMatchesResult.error.message);
+    if (activeGamesResult.error && activeGamesResult.error.code !== '42P01') {
+      throw new Error(activeGamesResult.error.message);
+    }
+    const activeGamesByBoard = new Map(
+      ((activeGamesResult.data ?? []) as ActiveMatchRow[])
+        .filter((game): game is ActiveMatchRow & { scolia_board_id: string } => Boolean(game.scolia_board_id))
+        .map((game) => [game.scolia_board_id, game.id])
+    );
 
     const activeMatchesByBoard = new Map(
       ((activeMatchesResult.data ?? []) as ActiveMatchRow[])
@@ -45,6 +58,7 @@ export async function GET() {
     const now = Date.now();
     const boards = ((boardsResult.data ?? []) as BoardRow[]).map((board) => {
       const activeMatchId = activeMatchesByBoard.get(board.id) ?? null;
+      const activeGameSessionId = activeGamesByBoard.get(board.id) ?? null;
       const workerConnectionStatus = hasFreshScoliaHeartbeat(
         { workerHeartbeatAt: board.worker_heartbeat_at },
         now
@@ -67,7 +81,8 @@ export async function GET() {
         boardStatus: board.board_status,
         workerHeartbeatAt: board.worker_heartbeat_at,
         activeMatchId,
-        selectable: ready && !activeMatchId,
+        activeGameSessionId,
+        selectable: ready && !activeMatchId && !activeGameSessionId,
       };
     });
 

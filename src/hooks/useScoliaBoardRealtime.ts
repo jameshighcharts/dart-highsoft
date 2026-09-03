@@ -21,7 +21,7 @@ type StatusRow = {
 type Handlers = {
   onUpsert: (status: ScoliaBoardPublicStatus) => void;
   onRemove: (boardId: string) => void;
-  onMatchChange: () => void;
+  onOccupancyChange?: () => void;
   onReconcile: () => void;
 };
 
@@ -41,6 +41,7 @@ function publicStatusFromRow(row: StatusRow): ScoliaBoardPublicStatus {
 
 export function useScoliaBoardRealtime(handlers: Handlers, enabled = true) {
   const handlersRef = useRef(handlers);
+  const watchesOccupancy = handlers.onOccupancyChange !== undefined;
 
   useEffect(() => {
     handlersRef.current = handlers;
@@ -65,20 +66,27 @@ export function useScoliaBoardRealtime(handlers: Handlers, enabled = true) {
             return;
           }
           handlersRef.current.onUpsert(publicStatusFromRow(payload.new as StatusRow));
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => {
-          handlersRef.current.onMatchChange();
-        })
-        .subscribe((status) => {
-          if (status !== 'SUBSCRIBED') return;
-          handlersRef.current.onReconcile();
         });
 
+      if (watchesOccupancy) {
+        channel = channel
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => {
+            handlersRef.current.onOccupancyChange?.();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'game_sessions' }, () => {
+            handlersRef.current.onOccupancyChange?.();
+          });
+      }
+
+      channel.subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return;
+        handlersRef.current.onReconcile();
+      });
     })();
 
     return () => {
       cancelled = true;
       if (supabase && channel) void supabase.removeChannel(channel);
     };
-  }, [enabled]);
+  }, [enabled, watchesOccupancy]);
 }

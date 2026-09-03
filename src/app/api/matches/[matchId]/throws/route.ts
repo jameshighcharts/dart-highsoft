@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { isMatchActive, loadMatch } from '@/lib/server/matchGuards';
 import { resolveOrCreateTurnForPlayer } from '@/lib/server/turnLifecycle';
-import { enqueueCurrentRoundScoliaThrowCommand } from '@/lib/server/scoliaCommands';
+import { commandSourceForMatch, enqueueCurrentRoundScoliaThrowCommand } from '@/lib/server/scoliaCommands';
+import { scoreFromSegment } from '@/lib/games/segment';
 
 async function ensureTurnInMatch(
   supabase: ReturnType<typeof getSupabaseServerClient>,
@@ -26,24 +27,6 @@ type ThrowSequenceRow = {
   scored: number;
   scolia_event_id?: number | null;
 };
-
-function scoreFromSegment(segment: string): number | null {
-  if (segment === 'Miss') return 0;
-  if (segment === 'SB' || segment === 'OuterBull') return 25;
-  if (segment === 'DB' || segment === 'InnerBull') return 50;
-
-  const match = segment.match(/^([SDT])(\d{1,2})$/);
-  if (!match) return null;
-
-  const modifier = match[1];
-  const value = Number.parseInt(match[2] ?? '', 10);
-  if (!Number.isInteger(value) || value < 1 || value > 20) return null;
-
-  if (modifier === 'S') return value;
-  if (modifier === 'D') return value * 2;
-  if (modifier === 'T') return value * 3;
-  return null;
-}
 
 function getExpectedNextDartIndex(throws: ThrowSequenceRow[]): { ok: true; nextDartIndex: number } | { ok: false; error: string } {
   const ordered = throws.slice().sort((a, b) => a.dart_index - b.dart_index);
@@ -248,9 +231,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ m
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (count === 0) return NextResponse.json({ error: 'Throw was already removed' }, { status: 404 });
     try {
-      await enqueueCurrentRoundScoliaThrowCommand(
-        supabase,
-        match,
+      await enqueueCurrentRoundScoliaThrowCommand(supabase, commandSourceForMatch(match),
         { dartIndex: latestThrow.dart_index, scoliaEventId: latestThrow.scolia_event_id ?? null },
         'DELETE_THROW'
       );

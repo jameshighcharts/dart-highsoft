@@ -203,7 +203,6 @@ export function MatchSpectatorView({
     onRemove: (boardId) => {
       if (boardId === scoliaBoardId) setScoliaBoardPhase(undefined);
     },
-    onMatchChange: () => {},
     onReconcile: () => void loadScoliaBoardPhase(),
   }, Boolean(scoliaBoardId) && !isHistoryView);
 

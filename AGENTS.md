@@ -17,6 +17,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `public`/`favicon`: Static assets.
 - `e2e`: Playwright E2E tests and fixtures.
 - `supabase`: SQL migrations and local config.
+- `supabase/tests`: SQL regression tests for migration-level invariants and RPCs.
 - `supabase-test`: Separate Supabase config for E2E tests (port 56XXX).
 - `DEPLOYMENT.md`: Beginner-friendly production deployment guide for Vercel + Supabase.
 - `Dockerfile.scolia-worker`: Production container for the separate persistent Scolia worker.
@@ -29,14 +30,16 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | Path | Purpose |
 |------|---------|
 | `page.tsx` | Home — leaderboard grid, nav to new match/practice/players |
-| `new/page.tsx` | New match creation form with optional ready Scolia board selection |
+| `new/page.tsx` | New X01 or party-game form with optional ready Scolia board selection |
 | `match/[id]/page.tsx` | Match page (server component) |
 | `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator/history stats view |
-| `games/page.tsx` | Live and recent games listing; completed games link to read-only match stats |
+| `game/[id]/page.tsx` | Party-game page (server component) |
+| `game/[id]/GameClient.tsx` | Party-game scoring and spectator client |
+| `games/page.tsx` | Live and recent X01 and party-game listing; completed X01 games link to read-only stats |
 | `players/page.tsx` | Player management (list, create, toggle active) |
-| `boards/page.tsx` | Scolia board management (connectivity, availability, active-match links, connect/disconnect) |
+| `boards/page.tsx` | Scolia board management (connectivity, availability, active match/game links, connect/disconnect) |
 | `stats/page.tsx` | Stats and leaderboards |
-| `leaderboards/page.tsx` | Detailed leaderboards |
+| `leaderboards/page.tsx` | Detailed X01, Elo, and party-mode leaderboards |
 | `elo-multi/page.tsx` | Multiplayer Elo leaderboard |
 | `practice/page.tsx` | Practice mode (select player) |
 | `practice/[playerId]/page.tsx` | Practice session for a player |
@@ -60,6 +63,11 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `elo/update/` | POST | Update 1v1 Elo ratings |
 | `elo-multi/update/` | POST | Update multiplayer Elo ratings |
 | `players/` | GET, POST | List or create players |
+| `games/` | POST | Create a Cricket, Killer, Shanghai, or Around the Clock session |
+| `games/[id]/` | GET | Load a party-game session, players, throws, and derived state |
+| `games/[id]/throws/` | POST, DELETE | Record or undo a party-game dart |
+| `games/[id]/end/` | PATCH | End a party game early |
+| `games/[id]/rematch/` | POST | Create a party-game rematch |
 | `scolia/boards/` | GET, PUT | List/connect Scolia boards and merge worker plus active-match status |
 | `scolia/boards/available/` | GET | List safe board status and availability for match selection |
 | `scolia/boards/[serialNumber]/` | DELETE | Disconnect a board from the Scolia service account |
@@ -93,7 +101,9 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `useRealtime.ts` | Low-level Supabase channel subscription, DOM custom events, connection lifecycle |
 | `useCommentary.ts` | Commentary feature state, persona selection, TTS, localStorage persistence |
 | `useMatchEloChanges.ts` | Fetches Elo changes after match completion |
-| `useScoliaBoardRealtime.ts` | Pushes sanitized board status and match-occupancy changes into board UIs |
+| `useGameData.ts` | Loads party-game rows, derives client state, and reconciles Supabase realtime changes |
+| `useGameActions.ts` | Queues party-game throws, undo, early ending, and rematch actions |
+| `useScoliaBoardRealtime.ts` | Pushes sanitized board status and optional match/game occupancy changes into board UIs |
 
 ### Lib (`src/lib`)
 | Path | Purpose |
@@ -107,8 +117,20 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `server/completeLeg.ts` | Idempotent leg completion: winner, next leg creation, Elo RPC |
 | `server/turnLifecycle.ts` | Race-tolerant turn creation, `resolveOrCreateTurnForPlayer()` |
 | `server/recomputeLegTurns.ts` | Recomputes turn scores from raw throws after edits |
+| `server/createMatch.ts` | Creates X01 matches, ordered players, and the first leg through one transaction |
+| `server/createGameSession.ts` | Validates configuration and creates party-game sessions with ordered players |
+| `server/gameGuards.ts` | Loads typed party-game rows and checks active-session state |
+| `server/gameThrowLifecycle.ts` | Owns transactional party-game append, undo, and completion mutations |
+| `server/gameScoliaIngestion.ts` | Maps persisted Scolia detections into party-game throw lifecycle operations |
+| `server/scoliaBoardTarget.ts` | Resolves whether a board is assigned to an active X01 match or party game |
 | `server/scoliaCommands.ts` | Enqueues current-round Scolia correction/deletion notifications for the worker WebSocket |
 | `server/scoliaThrowIngestion.ts` | Idempotently maps persisted Scolia detections into the active app match and completes turns/legs |
+| `games/types.ts` | Shared party-game modes, session state, engine, configuration, and event contracts |
+| `games/registry.ts` | Maps party-game modes to their replay engines |
+| `games/replay.ts` | Shared turn grouping, player rotation, and configuration parsing helpers |
+| `games/segment.ts` | Converts canonical dart segments into scores and multipliers |
+| `games/labels.ts` | Party-game labels, configuration controls, and UI defaults |
+| `games/engines/*.ts` | Pure replay engines for Cricket, Killer, Shanghai, and Around the Clock |
 | `commentary/personas.ts` | AI commentary persona definitions |
 | `commentary/promptBuilder.ts` | Builds LLM prompts from game context |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
@@ -133,6 +155,15 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `match/EditThrowsModal.tsx` | Edit recorded throws in current leg |
 | `match/EditPlayersModal.tsx` | Add/remove/reorder players |
 | `match/EloChangesDisplay.tsx` | Elo rating changes after match |
+| `games/NewGameOptions.tsx` | Party-game picker and per-mode configuration controls |
+| `games/GameHeader.tsx` | Party-game title, status, and connection header |
+| `games/GameControls.tsx` | Manual party-game dart input, undo, and end controls |
+| `games/GameResults.tsx` | Party-game result and rematch display |
+| `games/CricketBoard.tsx` | Cricket targets, marks, and points display |
+| `games/KillerBoard.tsx` | Killer numbers, lives, and elimination display |
+| `games/ShanghaiBoard.tsx` | Shanghai targets, rounds, and scores display |
+| `games/ClockBoard.tsx` | Around the Clock progress display |
+| `leaderboard/GameModeLeaderboardItem.tsx` | Player row for party-mode leaderboard statistics |
 | `Dartboard.tsx` | SVG interactive dartboard (desktop) |
 | `MobileKeypad.tsx` | Touch number pad (mobile) |
 | `GridLeaderboard.tsx` | Home page leaderboard grid |
@@ -153,6 +184,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 |------|---------|
 | `factories.ts` | Test data factories: `createMockPlayer`, `createMockMatch`, `createMockLeg`, `createMockTurn`, `createMockThrow`, `createTwoPlayerGameSetup` |
 | `mockSupabase.ts` | In-memory mock Supabase client with query builder operating on JS arrays |
+| `gameFixtures.ts` | Party-game session, player, and throw factories |
+| `gameSupabaseMock.ts` | In-memory Supabase and RPC mock for party-game lifecycle tests |
 
 ## Build, Test, and Development Commands
 - `npm run dev`: Start local dev server (Turbopack) at `http://localhost:3000`.
@@ -226,15 +259,18 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 **Fair ending:**
 First player checks out → remaining players complete their turns in the round → if single checkout: leg resolved → if multiple checkouts: tiebreak rounds (3 darts each, highest score wins).
 
+**Party-game scoring:**
+New Game selects Cricket, Killer, Shanghai, or Around the Clock → `POST /api/games` creates the session and ordered players through `create_game_session_atomic` → `GameClient` replays `game_throws` through the selected pure engine → `useGameActions` queues manual input through `POST /api/games/:id/throws` → `append_game_throw_atomic` locks the session and commits the throw with any completion → `undo_last_game_throw_atomic` deletes the latest dart and reopens a completed session when board ownership still permits it → `useGameData` reconciles session and throw changes through Supabase realtime.
+
 **Scolia board connectivity:**
-`npm run scolia:worker` → REST discovery of account boards → one Scolia cloud WebSocket per serial → serialize and deduplicate incoming messages → persist raw `scolia_events` + current `scolia_boards` status → retry pending/failed detections → `ingestScoliaThrowEvent` maps the sector to the active match/player/turn → existing X01 bust/checkout, fair-ending, leg completion, Elo, and Supabase realtime flows apply. `throws.scolia_event_id` enforces exactly-once scoring across reconnects.
+`npm run scolia:worker` → REST discovery of account boards → one Scolia cloud WebSocket per serial → serialize and deduplicate incoming messages → persist raw `scolia_events` + current `scolia_boards` status → retry pending/failed detections → resolve the board to an active X01 match or party game → dispatch to `ingestScoliaThrowEvent` or `ingestGameThrow` → existing mode-specific completion and Supabase realtime flows apply. `throws.scolia_event_id` and `game_throws.scolia_event_id` enforce exactly-once scoring across reconnects.
 
 Current-round app undo/edit → match throw API mutates and recomputes app state → `enqueueCurrentRoundScoliaThrowCommand` skips manual or already-taken-out darts and creates `scolia_commands` → worker sends `DELETE_THROW`/`THROW_CORRECTED` on the owning board socket → `ACKNOWLEDGED`/`REFUSED` updates command status.
 
 **Scolia match assignment:**
-New Match and Boards load one API snapshot → `scolia_board_public_status` Postgres Realtime updates runtime status immediately while match events refresh occupancy → reconnects reconcile from the API and a local heartbeat-expiry timer detects silent worker loss. The user selects manual scoring or a connected/ready unused board → `POST /api/matches` revalidates availability → persists `matches.scolia_board_id`. A partial unique index permits only one active match per physical board.
+New Game and Boards load one API snapshot → `scolia_board_public_status` Postgres Realtime updates runtime status immediately while match and game-session events refresh occupancy → reconnects reconcile from the API and a local heartbeat-expiry timer detects silent worker loss. The user selects manual scoring or a connected, ready, unused board → the creation API revalidates availability → persists the board on `matches` or `game_sessions`. Database constraints and triggers permit only one active scoring target per physical board.
 
-Scolia matches replace the manual keypad/dartboard with a hardware-scoring notice, and manual throw POSTs are rejected server-side. Rematch revalidates and carries the same ready board; the partial unique index rejects a concurrent claim.
+Scolia matches replace the manual keypad/dartboard with a hardware-scoring notice, and manual throw POSTs are rejected server-side. Rematch revalidates and carries the same ready board; database enforcement rejects a concurrent claim.
 
 Scolia spectator loads include throw geometry across every leg for per-player whole-match heatmaps. The current leg's realtime turns override that initial all-leg snapshot so new, edited, and deleted impacts update live without another subscription.
 

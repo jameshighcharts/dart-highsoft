@@ -10,6 +10,14 @@ export type ScoliaBoard = {
   lastEventAt?: string | null;
   workerHeartbeatAt?: string | null;
   activeMatch?: ScoliaActiveMatchSummary | null;
+  activeGame?: ScoliaActiveGameSummary | null;
+};
+
+export type ScoliaActiveGameSummary = {
+  id: string;
+  mode: string;
+  playerNames: string[];
+  createdAt: string;
 };
 
 export type ScoliaActiveMatchSummary = {
@@ -29,6 +37,7 @@ export type ScoliaBoardOption = {
   boardStatus: string | null;
   workerHeartbeatAt: string | null;
   activeMatchId: string | null;
+  activeGameSessionId: string | null;
   selectable: boolean;
 };
 
