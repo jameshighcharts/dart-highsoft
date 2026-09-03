@@ -14,8 +14,14 @@ import { LOCATIONS, type LocationValue } from '@/utils/locations';
 SparklineRenderer['useHighcharts'](Highcharts);
 
 const MEDALS = ['🥇', '🥈', '🥉'];
-const TREND_UP_COLOR = '#2ff084';
-const TREND_DOWN_COLOR = '#ff4d5f';
+// Same pair as the Last 10 chips: emissive mint for a rising trend,
+// emissive violet for a falling one. These feed Highcharts options rather
+// than CSS, so they cannot use the --brand-* custom properties and are
+// kept in sync by hand with the .win-loss-pill--win / --loss rules.
+const TREND_UP_COLOR = '#5cf0b8';
+const TREND_DOWN_COLOR = '#e38cff';
+const TREND_UP_AREA = '92, 240, 184';
+const TREND_DOWN_AREA = '195, 107, 255';
 
 const ELO_TIER_RANGES = [
   { max: 1124, tier: 1 },
@@ -115,21 +121,14 @@ function sparklineChartOptions(this: { value: unknown }) {
 
   const positive = nums.length > 1 && nums[nums.length - 1] >= nums[0];
   const lineColor = positive ? TREND_UP_COLOR : TREND_DOWN_COLOR;
-  const areaColor: Highcharts.GradientColorObject = positive
-    ? {
-        linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
-        stops: [
-          [0, 'rgba(47, 240, 132, 0.28)'],
-          [1, 'rgba(47, 240, 132, 0)'],
-        ],
-      }
-    : {
-        linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
-        stops: [
-          [0, 'rgba(255, 77, 95, 0.26)'],
-          [1, 'rgba(255, 77, 95, 0)'],
-        ],
-      };
+  const areaRgb = positive ? TREND_UP_AREA : TREND_DOWN_AREA;
+  const areaColor: Highcharts.GradientColorObject = {
+    linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
+    stops: [
+      [0, `rgba(${areaRgb}, 0.28)`],
+      [1, `rgba(${areaRgb}, 0)`],
+    ],
+  };
 
   return {
     colors: [lineColor],
