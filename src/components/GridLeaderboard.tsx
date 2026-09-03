@@ -1153,62 +1153,60 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           margin: 0 auto;
         }
         /* Podium chips: lit 3D glass bodies, one brand hue each. Rank 1 is the
-           mint "hit" colour and the brightest; 2 is electric cyan; 3 is
-           violet-magenta.
+           mint "hit" colour, 2 electric cyan, 3 violet-magenta.
 
            There is deliberately no border -- a 1px rim reads as a drawn white
            outline and flattens the chip. Volume comes from stacked background
            layers instead, in paint order: a specular hotspot high and left, a
            dark contact shadow pooling at the base, then the hue body. Because
-           these are background layers they sit behind the digit, so nothing
-           washes it out. Two outer glows at different radii give the emissive
-           falloff a rendered object has. */
+           these are background layers they sit behind the digit, so the
+           highlight can be strong without washing it out.
+
+           All three digits are glass white. That constrains the bodies: white
+           on a bright mint sits near 1.4:1 and is unreadable, so each hue is
+           taken to jewel depth at its middle stop -- where the digit sits --
+           to clear roughly 4.5:1. Brightness hierarchy is therefore carried by
+           the outer glow rather than by the fill, with rank 1 glowing hardest. */
         .grid-leaderboard .row-rank--top {
           border: 0;
-        }
-        .grid-leaderboard .row-rank--1,
-        .grid-leaderboard .row-rank--2 {
-          text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+          color: var(--glass-white);
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
         }
         .grid-leaderboard .row-rank--1 {
-          color: #062a1c;
           background:
-            radial-gradient(70% 50% at 30% 10%, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.28) 42%, rgba(255, 255, 255, 0) 72%),
-            radial-gradient(120% 95% at 50% 118%, rgba(0, 20, 12, 0.5) 0%, rgba(0, 20, 12, 0) 60%),
-            linear-gradient(180deg, #a5ffdc 0%, var(--brand-mint) 52%, #23a877 100%);
-          box-shadow:
-            inset 0 1.5px 1px rgba(255, 255, 255, 0.55),
-            inset 0 -3px 4px rgba(0, 40, 25, 0.4),
-            0 1px 2px rgba(0, 0, 0, 0.5),
-            0 0 12px rgba(92, 240, 184, 0.6),
-            0 0 30px rgba(92, 240, 184, 0.3);
-        }
-        .grid-leaderboard .row-rank--2 {
-          color: #052833;
-          background:
-            radial-gradient(70% 50% at 30% 10%, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.26) 42%, rgba(255, 255, 255, 0) 72%),
-            radial-gradient(120% 95% at 50% 118%, rgba(0, 18, 26, 0.5) 0%, rgba(0, 18, 26, 0) 60%),
-            linear-gradient(180deg, #b7f4fb 0%, var(--brand-cyan) 52%, #1a9cb0 100%);
-          box-shadow:
-            inset 0 1.5px 1px rgba(255, 255, 255, 0.5),
-            inset 0 -3px 4px rgba(0, 30, 40, 0.4),
-            0 1px 2px rgba(0, 0, 0, 0.5),
-            0 0 11px rgba(79, 227, 245, 0.52),
-            0 0 26px rgba(79, 227, 245, 0.26);
-        }
-        .grid-leaderboard .row-rank--3 {
-          color: #fbf5ff;
-          background:
-            radial-gradient(70% 50% at 30% 10%, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.2) 42%, rgba(255, 255, 255, 0) 72%),
-            radial-gradient(120% 95% at 50% 118%, rgba(24, 0, 40, 0.55) 0%, rgba(24, 0, 40, 0) 60%),
-            linear-gradient(180deg, #e6bcff 0%, var(--brand-violet) 52%, #7a2cc4 100%);
+            radial-gradient(70% 50% at 30% 10%, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.16) 42%, rgba(255, 255, 255, 0) 72%),
+            radial-gradient(120% 95% at 50% 118%, rgba(0, 20, 12, 0.55) 0%, rgba(0, 20, 12, 0) 60%),
+            linear-gradient(180deg, #4fe0ae 0%, #0d7a54 52%, #05512f 100%);
           box-shadow:
             inset 0 1.5px 1px rgba(255, 255, 255, 0.45),
-            inset 0 -3px 4px rgba(20, 0, 35, 0.45),
+            inset 0 -3px 4px rgba(0, 40, 25, 0.45),
+            0 1px 2px rgba(0, 0, 0, 0.5),
+            0 0 12px rgba(92, 240, 184, 0.6),
+            0 0 30px rgba(92, 240, 184, 0.32);
+        }
+        .grid-leaderboard .row-rank--2 {
+          background:
+            radial-gradient(70% 50% at 30% 10%, rgba(255, 255, 255, 0.58) 0%, rgba(255, 255, 255, 0.15) 42%, rgba(255, 255, 255, 0) 72%),
+            radial-gradient(120% 95% at 50% 118%, rgba(0, 18, 26, 0.55) 0%, rgba(0, 18, 26, 0) 60%),
+            linear-gradient(180deg, #5fd8e8 0%, #0d7a90 52%, #064f5f 100%);
+          box-shadow:
+            inset 0 1.5px 1px rgba(255, 255, 255, 0.42),
+            inset 0 -3px 4px rgba(0, 30, 40, 0.45),
+            0 1px 2px rgba(0, 0, 0, 0.5),
+            0 0 11px rgba(79, 227, 245, 0.52),
+            0 0 26px rgba(79, 227, 245, 0.27);
+        }
+        .grid-leaderboard .row-rank--3 {
+          background:
+            radial-gradient(70% 50% at 30% 10%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.14) 42%, rgba(255, 255, 255, 0) 72%),
+            radial-gradient(120% 95% at 50% 118%, rgba(24, 0, 40, 0.6) 0%, rgba(24, 0, 40, 0) 60%),
+            linear-gradient(180deg, #c99bff 0%, #7a2cc4 52%, #4e1580 100%);
+          box-shadow:
+            inset 0 1.5px 1px rgba(255, 255, 255, 0.4),
+            inset 0 -3px 4px rgba(20, 0, 35, 0.5),
             0 1px 2px rgba(0, 0, 0, 0.5),
             0 0 11px rgba(195, 107, 255, 0.52),
-            0 0 26px rgba(195, 107, 255, 0.26);
-          text-shadow: 0 1px 2px rgba(35, 0, 60, 0.6);
+            0 0 26px rgba(195, 107, 255, 0.27);
         }
         .grid-leaderboard .elo-badge {
           display: flex;
