@@ -932,15 +932,14 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
         .leaderboard-header {
           display: grid;
-          grid-template-columns: minmax(300px, 1fr) minmax(620px, 720px);
-          gap: 28px;
-          align-items: end;
+          grid-template-columns: 1fr;
+          gap: 14px;
         }
         .leaderboard-kpis {
           display: grid;
           grid-template-columns: 1fr 1.18fr 1fr;
           gap: 8px;
-          justify-self: end;
+          justify-self: center;
           width: min(100%, 720px);
         }
         .leaderboard-kpi {
