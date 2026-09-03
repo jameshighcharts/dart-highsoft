@@ -331,12 +331,20 @@ function renderWinRateHtml(value: unknown): string {
   }
 
   const clamped = Math.max(0, Math.min(100, value));
-  const isStrong = value >= 40;
+  // The bar itself is one continuous treatment; only the numeral changes
+  // state. Mint marks a winning record, muted grey marks no wins at all.
+  let valueTone = 'win-rate__value--glass';
+  if (clamped === 0) {
+    valueTone = 'win-rate__value--muted';
+  } else if (value >= 50) {
+    valueTone = 'win-rate__value--mint';
+  }
+
   return `
     <span class="win-rate">
-      <span class="win-rate__value ${isStrong ? 'win-rate__value--strong' : 'win-rate__value--muted'}">${value.toFixed(1)}%</span>
+      <span class="win-rate__value ${valueTone}">${value.toFixed(1)}%</span>
       <span class="win-rate__track">
-        <span class="win-rate__bar ${isStrong ? 'win-rate__bar--strong' : 'win-rate__bar--muted'}" style="width: ${clamped}%;"></span>
+        <span class="win-rate__bar" style="width: ${clamped}%;"></span>
       </span>
     </span>
   `;
@@ -351,9 +359,10 @@ function renderWinLossHtml(value: unknown): string {
   return `
     <span class="win-loss-strip" aria-label="${points.filter((point) => point > 0).length} wins in last ${points.length} games">
       ${points
-        .map((point) => {
+        .map((point, index) => {
           const isWin = point > 0;
-          return `<span class="win-loss-pill ${isWin ? 'win-loss-pill--win' : 'win-loss-pill--loss'}">${isWin ? 'W' : 'L'}</span>`;
+          const latest = index === points.length - 1 ? ' win-loss-pill--latest' : '';
+          return `<span class="win-loss-pill ${isWin ? 'win-loss-pill--win' : 'win-loss-pill--loss'}${latest}">${isWin ? 'W' : 'L'}</span>`;
         })
         .join('')}
     </span>
@@ -832,6 +841,8 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           --brand-mint: #5cf0b8;
           --brand-violet: #c36bff;
           --glass-white: #e8fbff;
+          --muted-text: #9aa4b8;
+          --brand-sweep: linear-gradient(90deg, var(--brand-cyan) 0%, var(--brand-mint) 50%, var(--brand-violet) 100%);
           display: flex;
           flex-direction: column;
           gap: 14px;
@@ -1338,7 +1349,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
         .grid-leaderboard .games-summary-empty,
         .grid-leaderboard .win-rate-empty {
-          color: #94a3b8;
+          color: var(--muted-text);
         }
         .grid-leaderboard .win-rate {
           display: inline-flex;
@@ -1355,31 +1366,46 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           letter-spacing: 0;
         }
-        .grid-leaderboard .win-rate__value--strong {
-          color: #35f58c;
+        .grid-leaderboard .win-rate__value--mint {
+          color: var(--brand-mint);
+        }
+        .grid-leaderboard .win-rate__value--glass {
+          color: var(--glass-white);
         }
         .grid-leaderboard .win-rate__value--muted {
-          color: #f8fafc;
+          color: var(--muted-text);
         }
         .grid-leaderboard .win-rate__track {
           position: relative;
           display: inline-flex;
+          box-sizing: border-box;
+          /* Must not shrink: the bar's gradient is sized to exactly 46px, so a
+             squeezed track would misalign the sweep and stop a 100% row from
+             ever reaching violet. As a flex item in a tight cell it was
+             rendering at 41px. */
+          flex: 0 0 46px;
           width: 46px;
           height: 4px;
           overflow: hidden;
+          border: 1px solid rgba(232, 251, 255, 0.1);
           border-radius: 999px;
-          background: rgba(148, 163, 184, 0.12);
+          background: rgba(232, 251, 255, 0.08);
         }
+        /* One continuous bar rather than a per-threshold colour. The gradient
+           is sized to the full 46px track and pinned left, so a shorter bar
+           shows the left slice of the same sweep: a low win rate reads cyan
+           and only a high one reaches violet. Sizing to the track instead of
+           to the bar is what makes the colour mean something -- scaled to the
+           bar, every row would end on violet regardless of its rate. */
         .grid-leaderboard .win-rate__bar {
           height: 100%;
           min-width: 3px;
           border-radius: inherit;
-        }
-        .grid-leaderboard .win-rate__bar--strong {
-          background: #35f58c;
-        }
-        .grid-leaderboard .win-rate__bar--muted {
-          background: #5db8ff;
+          background-image: var(--brand-sweep);
+          background-repeat: no-repeat;
+          background-position: left center;
+          background-size: 46px 100%;
+          box-shadow: 0 0 6px rgba(92, 240, 184, 0.45);
         }
         .grid-leaderboard .win-loss-strip {
           display: inline-flex;
@@ -1399,27 +1425,48 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           align-items: center;
           justify-content: center;
           overflow: hidden;
-          border-radius: 4px;
+          border-radius: 5px;
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
           font-size: 9px;
           font-weight: 800;
           line-height: 1;
           letter-spacing: 0;
         }
+        /* Frosted chips: emissive mint for a win, emissive violet for a loss.
+           The loss hue replaces the old red -- nothing in these two columns is
+           red, orange or gold any more. */
         .grid-leaderboard .win-loss-pill--win {
-          color: #35f58c;
-          background: rgba(47, 240, 132, 0.14);
-          border: 1px solid rgba(47, 240, 132, 0.24);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+          color: var(--brand-mint);
+          background: rgba(92, 240, 184, 0.16);
+          border: 1px solid rgba(92, 240, 184, 0.45);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 6px rgba(92, 240, 184, 0.35);
         }
         .grid-leaderboard .win-loss-pill--loss {
-          color: #ff6b78;
-          background: rgba(255, 77, 95, 0.14);
-          border: 1px solid rgba(255, 77, 95, 0.24);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+          color: #e38cff;
+          background: rgba(195, 107, 255, 0.16);
+          border: 1px solid rgba(195, 107, 255, 0.45);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 6px rgba(195, 107, 255, 0.35);
+        }
+        /* The strip is oldest-to-newest, so the last chip is the most recent
+           result: lift its rim and glow so the eye lands there first. */
+        .grid-leaderboard .win-loss-pill--latest.win-loss-pill--win {
+          border-color: rgba(92, 240, 184, 0.7);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 8px rgba(92, 240, 184, 0.45);
+        }
+        .grid-leaderboard .win-loss-pill--latest.win-loss-pill--loss {
+          border-color: rgba(195, 107, 255, 0.7);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 8px rgba(195, 107, 255, 0.45);
         }
         .grid-leaderboard .win-loss-empty {
-          color: #94a3b8;
+          color: var(--muted-text);
         }
       `}</style>
       <Grid options={options} />
