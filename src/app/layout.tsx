@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import "./globals.css";
 import Link from "next/link";
-import { Home, Gamepad2, BarChart3, Plus, Radio, Trophy, Users } from "lucide-react";
+import { Home, Gamepad2, BarChart3, Target, Trophy, Users } from "lucide-react";
 import { Analytics } from "@vercel/analytics/react";
 import { MatchSpectatorHotkey } from "@/components/MatchSpectatorHotkey";
 import { QueryProvider } from "@/components/QueryProvider";
@@ -50,13 +50,9 @@ export default function RootLayout({
               Highsoft Dart Scoreboard
             </Link>
             <div className="flex items-center gap-4 text-sm">
-              <Link href="/new" className="flex items-center gap-2">
-                <Plus className="size-4" />
-                New match
-              </Link>
               <Link href="/" className="flex items-center gap-2">
                 <Home className="size-4" />
-                The Grid
+                Home
               </Link>
               <Link href="/games" className="flex items-center gap-2">
                 <Gamepad2 className="size-4" />
@@ -71,7 +67,7 @@ export default function RootLayout({
                 Leaderboards
               </Link>
               <Link href="/boards" className="flex items-center gap-2">
-                <Radio className="size-4" />
+                <Target className="size-4" />
                 Boards
               </Link>
               <Link href="/stats" className="flex items-center gap-2">
@@ -85,7 +81,7 @@ export default function RootLayout({
             <div className="grid grid-cols-5">
               <Link href="/" className="flex flex-col items-center justify-center py-2 gap-1">
                 <Home className="size-5" />
-                <span className="text-xs">The Grid</span>
+                <span className="text-xs">Home</span>
               </Link>
               <Link href="/games" className="flex flex-col items-center justify-center py-2 gap-1">
                 <Gamepad2 className="size-5" />
@@ -96,7 +92,7 @@ export default function RootLayout({
                 <span className="text-xs">Players</span>
               </Link>
               <Link href="/boards" className="flex flex-col items-center justify-center py-2 gap-1">
-                <Radio className="size-5" />
+                <Target className="size-5" />
                 <span className="text-xs">Boards</span>
               </Link>
               <Link href="/stats" className="flex flex-col items-center justify-center py-2 gap-1">
