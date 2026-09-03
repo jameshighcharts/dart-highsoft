@@ -5,7 +5,7 @@
       "startServerCommand": "npm start",
       "startServerReadyPattern": "Ready",
       "startServerReadyTimeout": 30000,
-      "numberOfRuns": 3,
+      "numberOfRuns": 5,
       "settings": {
         "chromeFlags": "--headless --no-sandbox --disable-dev-shm-usage"
       }
