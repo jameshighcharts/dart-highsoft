@@ -19,6 +19,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `supabase`: SQL migrations and local config.
 - `supabase/tests`: SQL regression tests for migration-level invariants and RPCs.
 - `supabase-test`: Separate Supabase config for E2E tests (port 56XXX).
+- `.github/workflows/test.yml`: Required CI check for lint, unit tests, build, and Lighthouse performance budgets.
+- `.lighthouserc.json`: Mobile Lighthouse workload and performance limits for the home page.
 - `DEPLOYMENT.md`: Beginner-friendly production deployment guide for Vercel + Supabase.
 - `Dockerfile.scolia-worker`: Production container for the separate persistent Scolia worker.
 - `railway.json`: Railway config-as-code for the single-replica Scolia worker service.
@@ -77,6 +79,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `around-world/sessions/` | POST | Create Around the World session |
 | `commentary/` | POST | Generate AI commentary via LLM |
 | `tts/` | POST | Text-to-speech for commentary |
+| `slack/darts/` | POST | Verify Slack slash commands/button actions and create dart polls |
+| `background-jobs/` | POST | Authenticate Supabase job batches and run typed background handlers |
 
 ### Utils (`src/utils`) — Pure Business Logic
 | File | Purpose |
@@ -118,6 +122,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `server/turnLifecycle.ts` | Race-tolerant turn creation, `resolveOrCreateTurnForPlayer()` |
 | `server/recomputeLegTurns.ts` | Recomputes turn scores from raw throws after edits |
 | `server/createMatch.ts` | Creates X01 matches, ordered players, and the first leg through one transaction |
+| `server/backgroundJobs.ts` | Validates claimed jobs, dispatches typed handlers, and records completion/retry/failure |
 | `server/createGameSession.ts` | Validates configuration and creates party-game sessions with ordered players |
 | `server/gameGuards.ts` | Loads typed party-game rows and checks active-session state |
 | `server/gameThrowLifecycle.ts` | Owns transactional party-game append, undo, and completion mutations |
@@ -142,6 +147,10 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `scolia/commandRecovery.ts` | Pure acknowledgement timeout and bounded-retry policy for outbound board commands |
 | `scolia/protocol.ts` | Pure Scolia message/throw parsing, board-state mapping, and reconnect timing |
 | `scolia/types.ts` | Shared Scolia board response types |
+| `slack/dartPollService.ts` | Creates polls, records votes, links Slack users to players, and finalizes matches |
+| `slack/dartTime.ts` | Parses `/dart HH:MM` in the configured IANA time zone |
+| `slack/messages.ts` | Builds accessible Slack Block Kit poll messages |
+| `slack/signature.ts` | Verifies Slack request signatures and rejects replayed requests |
 
 ### Components (`src/components`)
 | File | Purpose |
@@ -194,6 +203,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `npm run lint`: Lint with Next.js + ESLint config.
 - `npm test`: Run tests in watch mode (interactive).
 - `npm run test:run`: Run all tests once (for CI/CD).
+- `npm run test:performance`: Run three Lighthouse audits against the production build and enforce the committed performance budgets.
 - `npm run test:ui`: Open visual test interface.
 - `npm run test:coverage`: Generate and display coverage report.
 - `npm run test:e2e`: Run Playwright E2E tests (requires test Supabase instance).
@@ -276,6 +286,12 @@ Scolia spectator loads include throw geometry across every leg for per-player wh
 
 **Completed match history:**
 Recent Games card → `/match/:id?spectator=true&history=true` → spectator data load includes every leg and Scolia throw geometry → read-only result hero, whole-match KPIs/player performance/top visits, final-leg score progression, Elo changes, and whole-match heatmaps. Live-only board status, QR code, current-player state, commentary, and winner popup are suppressed.
+
+**Slack dart poll:**
+`/dart HH:MM` → signed `POST /api/slack/darts` → insert poll and its `background_jobs` row atomically → publish a Yes/No Block Kit poll → signed button actions upsert one vote per Slack user → one Supabase Cron job checks for due work every five seconds → `dispatch_due_background_jobs()` atomically claims a batch and makes no HTTP request for an empty batch → authenticated `POST /api/background-jobs` dispatches `slack_dart_poll` → fewer than two Yes votes cancel; otherwise stable Slack identities resolve/create app players → `create_slack_x01_match_atomic` creates a manual 501 double-out match → Slack message links to scoring. See `docs/SLACK_DARTS.md` for setup and Vault configuration.
+
+**Production release gate:**
+Pull request or merge queue → `Tests / test` runs lint, unit tests, a production build, and three Lighthouse samples → GitHub branch protection permits merge only after success → Vercel Deployment Checks hold the production alias for the same commit until `Tests / test` passes.
 
 Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. A missing acknowledgement resets a stale command for retry; after three attempts it becomes `failed`. Deploy `Dockerfile.scolia-worker` as exactly one always-on worker replica outside Vercel.
 
