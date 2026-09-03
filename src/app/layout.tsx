@@ -43,8 +43,8 @@ export default function RootLayout({
         className={`${fontVariables} antialiased min-h-screen h-full bg-background text-foreground`}
       >
         <QueryProvider>
-        <div className="min-h-screen pb-16 md:pb-0">
-          <nav className="hidden md:flex items-center justify-between px-6 py-3 border-b bg-card">
+        <div className="min-h-screen pb-16 lg:pb-0">
+          <nav className="hidden lg:flex items-center justify-between px-6 py-3 border-b bg-card">
             <Link href="/" className="flex items-center gap-3 font-semibold">
               <Image src="/icon-192x192.png" alt="" width={40} height={40} className="size-10 object-contain" priority />
               Highsoft Dart Scoreboard
@@ -81,7 +81,7 @@ export default function RootLayout({
             </div>
           </nav>
           <main className="px-3 py-2 md:p-6">{children}</main>
-          <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-card">
+          <nav className="lg:hidden fixed bottom-0 left-0 right-0 border-t bg-card">
             <div className="grid grid-cols-5">
               <Link href="/" className="flex flex-col items-center justify-center py-2 gap-1">
                 <Home className="size-5" />
