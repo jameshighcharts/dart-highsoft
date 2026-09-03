@@ -6,7 +6,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Eye, Trophy, Clock, Users, Swords, Trash2 } from 'lucide-react';
+import { Activity, Play, Eye, Trophy, Clock, Users, Swords, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { GAME_MODE_INFO, gameModeName } from '@/lib/games/labels';
 import {
@@ -650,16 +650,22 @@ export default function GamesPage() {
                           View stats
                         </div>
                       </div>
-                      <Button
-                        aria-label="Delete game"
-                        variant="destructive"
-                        size="icon"
-                        onClick={() => handleDeleteGame(match)}
-                        disabled={deletingMatchId === match.id}
-                        className="pointer-events-auto relative z-20"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="pointer-events-auto relative z-20 flex gap-2">
+                        <Button asChild aria-label="Open DartIQ report" variant="outline" size="icon">
+                          <Link href={`/match/${match.id}/report`}>
+                            <Activity className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                        <Button
+                          aria-label="Delete game"
+                          variant="destructive"
+                          size="icon"
+                          onClick={() => handleDeleteGame(match)}
+                          disabled={deletingMatchId === match.id}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   </CardContent>

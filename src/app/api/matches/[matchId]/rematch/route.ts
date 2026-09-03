@@ -71,6 +71,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ matchId: 
       fairEnding: match.fair_ending ?? false,
       playerIds: order,
       scoliaBoardId: match.scolia_board_id ?? null,
+      rematchOfMatchId: match.id,
     });
     if (!creation.ok) {
       return NextResponse.json({ error: creation.error }, { status: creation.status });

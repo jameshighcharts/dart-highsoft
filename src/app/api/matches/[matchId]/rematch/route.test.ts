@@ -112,6 +112,7 @@ describe('POST /api/matches/[matchId]/rematch', () => {
       p_scolia_board_id: 'board-1',
       p_start_score: '501',
       p_player_ids: ['player-2', 'player-1'],
+      p_rematch_of_match_id: 'match-1',
     }));
     await expect(response.json()).resolves.toEqual({ newMatchId: 'match-2' });
   });

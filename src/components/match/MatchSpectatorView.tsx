@@ -10,15 +10,25 @@ import { Button } from '@/components/ui/button';
 import { EloChangesDisplay } from '@/components/match/EloChangesDisplay';
 import { HistoricalMatchOverview } from '@/components/match/HistoricalMatchOverview';
 import { LiveScoliaBoard } from '@/components/match/LiveScoliaBoard';
+import { DartIQLive } from '@/components/match/DartIQLive';
 import { ScoliaMatchHeatmaps } from '@/components/match/ScoliaMatchHeatmaps';
 import type { MatchEloChange } from '@/hooks/useMatchEloChanges';
 import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
-import type { CommentaryPersona, CommentaryPersonaId } from '@/lib/commentary/types';
+import type {
+  CommentaryPersona,
+  CommentaryPersonaId,
+  CommentaryTranscriptEntry,
+} from '@/lib/commentary/types';
 import type { LegRecord, MatchRecord, Player, TurnRecord } from '@/lib/match/types';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { VoiceOption } from '@/services/ttsService';
 import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
+import type {
+  DartIQPlayerHistoryProfile,
+  DartIQPopulationProfile,
+} from '@/lib/dartiq/evidence';
+import type { DartIQOutcomeModel } from '@/lib/dartiq/model/outcomes';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 
@@ -65,6 +75,8 @@ type Props = {
   onVoiceChange: (voice: VoiceOption) => void;
   onPersonaChange: (personaId: CommentaryPersonaId) => void;
   currentCommentary: string | null;
+  commentaryTranscriptLog: CommentaryTranscriptEntry[];
+  onClearCommentaryTranscriptLog: () => void;
   commentaryLoading: boolean;
   commentaryPlaying: boolean;
   onSkipCommentary: () => void;
@@ -74,6 +86,10 @@ type Props = {
   eloChanges: MatchEloChange[];
   eloChangesLoading: boolean;
   fairEndingState?: FairEndingState;
+  dartIQEvidenceByPlayerId: ReadonlyMap<string, DartIQPlayerHistoryProfile>;
+  dartIQPopulationEvidence?: DartIQPopulationProfile;
+  dartIQModelsByPlayerId: ReadonlyMap<string, DartIQOutcomeModel>;
+  hasPersonalDartIQEvidence: boolean;
   isHistoryView?: boolean;
   onBackToGames: () => void;
 };
@@ -165,6 +181,8 @@ export function MatchSpectatorView({
   onVoiceChange,
   onPersonaChange,
   currentCommentary,
+  commentaryTranscriptLog,
+  onClearCommentaryTranscriptLog,
   commentaryLoading,
   commentaryPlaying,
   onSkipCommentary,
@@ -174,6 +192,10 @@ export function MatchSpectatorView({
   eloChanges,
   eloChangesLoading,
   fairEndingState,
+  dartIQEvidenceByPlayerId,
+  dartIQPopulationEvidence,
+  dartIQModelsByPlayerId,
+  hasPersonalDartIQEvidence,
   isHistoryView = false,
   onBackToGames,
 }: Props) {
@@ -429,8 +451,29 @@ export function MatchSpectatorView({
             eloChangesLoading={eloChangesLoading}
           />
         ) : (
-        /* Cards Row - responsive layout */
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+          <>
+            <DartIQLive
+              orderPlayers={orderPlayers}
+              spectatorCurrentPlayer={spectatorCurrentPlayer}
+              turns={turns}
+              currentLegId={currentLegId}
+              startScore={startScore}
+              finishRule={finishRule}
+              turnThrowCounts={turnThrowCounts}
+              getAvgForPlayer={getAvgForPlayer}
+              legs={legs}
+              legsToWin={match.legs_to_win}
+              matchWinnerId={matchWinnerId}
+              profilesByPlayerId={dartIQEvidenceByPlayerId}
+              populationProfile={dartIQPopulationEvidence}
+              outcomeModelsByPlayerId={dartIQModelsByPlayerId}
+              hasPersonalProfiles={hasPersonalDartIQEvidence}
+              fairEnding={Boolean(match.fair_ending)}
+              fairEndingState={fairEndingState}
+            />
+
+            {/* Cards Row - responsive layout */}
+            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
           {match.scolia_board_id && !isHistoryView ? (
             <LiveScoliaBoard
               turns={turns}
@@ -544,7 +587,8 @@ export function MatchSpectatorView({
               </div>
             </CardContent>
           </Card>
-        </div>
+            </div>
+          </>
         )}
 
         {/* Score Progress Chart - Second Row */}
@@ -622,6 +666,8 @@ export function MatchSpectatorView({
               onAudioEnabledChange={onAudioEnabledChange}
               onVoiceChange={onVoiceChange}
               onPersonaChange={onPersonaChange}
+              transcriptLog={commentaryTranscriptLog}
+              onClearTranscriptLog={onClearCommentaryTranscriptLog}
             />
           ) : null}
         </div>

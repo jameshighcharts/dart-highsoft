@@ -69,7 +69,7 @@ function getFallbackCommentary(
 }
 
 function getChadFallback(context: CommentaryContext): string {
-  const { busted, is180, isHighScore, totalScore, playerName, gameContext, remainingScore } = context;
+  const { busted, is180, isHighScore, isNikitaSpecial, totalScore, playerName, gameContext, remainingScore } = context;
   const {
     isLeading,
     pointsBehindLeader,
@@ -78,8 +78,12 @@ function getChadFallback(context: CommentaryContext): string {
     currentLegNumber,
   } = gameContext;
 
+  if (isNikitaSpecial) {
+    return `One, five, twenty — the Nikita special! ${playerName} just made chaos look intentional, bro.`;
+  }
+
   if (busted) {
-      return `${playerName} busts on leg ${currentLegNumber}. Massive L, time to touch grass and reset.`;
+    return `${playerName} busts on leg ${currentLegNumber}. Massive L, time to touch grass and reset.`;
   }
 
   if (is180) {
@@ -109,10 +113,14 @@ function getChadFallback(context: CommentaryContext): string {
 }
 
 function getBobFallback(context: CommentaryContext): string {
-  const { busted, is180, isHighScore, totalScore, playerName, gameContext, remainingScore } = context;
+  const { busted, is180, isHighScore, isNikitaSpecial, totalScore, playerName, gameContext, remainingScore } = context;
   const { currentLegNumber, playerTurnNumber, pointsBehindLeader, pointsAheadOfChaser, isLeading } = gameContext;
 
   const professionalLead = (analysis: string, quip: string) => `${analysis} ${quip}`.trim();
+
+  if (isNikitaSpecial) {
+    return `${playerName} lands the Nikita special: one, five, twenty. Rare precision of a wonderfully questionable kind.`;
+  }
 
   if (busted) {
     return professionalLead(
@@ -137,7 +145,7 @@ function getBobFallback(context: CommentaryContext): string {
     }
     return professionalLead(
       `${playerName} scores ${totalScore}, now ${pointsBehindLeader} behind with ${remainingScore} in hand.`,
-      'Pressure’s on, but he just ordered a calm pint of composure.'
+      'DartIQ’s on, but he just ordered a calm pint of composure.'
     );
   }
 
@@ -219,34 +227,4 @@ function getMatchRecapFallback(
   }
 
   return `${context.winnerName} just closed out the W ${score}! Absolute main character energy all match. No cap, that was bussin'.`;
-}
-
-/**
- * Debounce helper to prevent rapid API calls
- */
-export class CommentaryDebouncer {
-  private timeoutId: NodeJS.Timeout | null = null;
-  private lastCall: number = 0;
-  private readonly minInterval: number;
-
-  constructor(minIntervalMs: number = 2000) {
-    this.minInterval = minIntervalMs;
-  }
-
-  canCall(): boolean {
-    const now = Date.now();
-    return now - this.lastCall >= this.minInterval;
-  }
-
-  markCalled(): void {
-    this.lastCall = Date.now();
-  }
-
-  reset(): void {
-    if (this.timeoutId) {
-      clearTimeout(this.timeoutId);
-      this.timeoutId = null;
-    }
-    this.lastCall = 0;
-  }
 }

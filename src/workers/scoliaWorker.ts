@@ -15,6 +15,7 @@ import {
   staleCommandAction,
   staleCommandCutoff,
 } from '../lib/scolia/commandRecovery.ts';
+import { ScoliaRealtimeCommentaryPublisher } from '../services/scoliaRealtimeCommentaryPublisher.ts';
 
 type AccountBoard = {
   name: string;
@@ -29,6 +30,7 @@ const SCOLIA_WEBSOCKET_URL = 'wss://game.scoliadarts.com/api/v1/social';
 const BOARD_SYNC_INTERVAL_MS = 30_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const COMMAND_POLL_INTERVAL_MS = 500;
+const COMMENTARY_RETRY_INTERVAL_MS = 2_000;
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -59,6 +61,7 @@ class BoardConnection {
   private readonly board: StoredBoard;
   private readonly accessToken: string;
   private readonly supabase: SupabaseClient;
+  private readonly commentaryPublisher: ScoliaRealtimeCommentaryPublisher;
   private socket: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
@@ -69,11 +72,13 @@ class BoardConnection {
   constructor(
     board: StoredBoard,
     accessToken: string,
-    supabase: SupabaseClient
+    supabase: SupabaseClient,
+    commentaryPublisher: ScoliaRealtimeCommentaryPublisher
   ) {
     this.board = board;
     this.accessToken = accessToken;
     this.supabase = supabase;
+    this.commentaryPublisher = commentaryPublisher;
   }
 
   start() {
@@ -248,6 +253,9 @@ class BoardConnection {
       const result = await ingestScoliaThrowEvent(this.supabase, event);
       if (result.status === 'processed') {
         console.info(`[scolia] ${this.board.name}: recovered throw ${event.message_id}`);
+        if (result.target.kind === 'match') {
+          await this.publishCommentary(result.target.id, result.throwId);
+        }
       }
     }
   }
@@ -294,6 +302,9 @@ class BoardConnection {
       const result = await ingestScoliaThrowEvent(this.supabase, storedEvent as StoredScoliaEvent);
       if (result.status === 'processed') {
         console.info(`[scolia] ${this.board.name}: scored throw ${message.id}`);
+        if (result.target.kind === 'match') {
+          await this.publishCommentary(result.target.id, result.throwId);
+        }
       } else {
         console.info(`[scolia] ${this.board.name}: ignored throw ${message.id}: ${result.reason}`);
       }
@@ -305,6 +316,15 @@ class BoardConnection {
       .update({ processing_status: 'ignored', processed_at: now })
       .eq('id', storedEvent.id);
     if (ignoreError) throw new Error(ignoreError.message);
+  }
+
+  private async publishCommentary(matchId: string, throwId: string) {
+    try {
+      await this.commentaryPublisher.publishAcceptedThrow(matchId, throwId);
+    } catch (error) {
+      // Commentary must never make an already-accepted dart fail its scoring queue.
+      console.warn(`[commentary] ${this.board.name}: could not publish throw ${throwId}`, error);
+    }
   }
 
   private async handleCommandResponse(message: ScoliaMessage, now: string) {
@@ -342,12 +362,20 @@ async function startScoliaWorker() {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SUPABASE_SECRET_KEY?.trim();
   if (!serviceRoleKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY is required');
   const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+  const commentaryPublisher = new ScoliaRealtimeCommentaryPublisher(
+    supabase,
+    process.env.OPENAI_API_KEY?.trim() || null
+  );
+  if (!commentaryPublisher.enabled) {
+    console.info('[commentary] OPENAI_API_KEY is absent; Scolia sideband commentary is disabled');
+  }
   const connections = new Map<string, BoardConnection>();
   let stopping = false;
   let syncRunning = false;
   let syncInterval: ReturnType<typeof setInterval> | null = null;
   let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   let commandInterval: ReturnType<typeof setInterval> | null = null;
+  let commentaryInterval: ReturnType<typeof setInterval> | null = null;
 
   const syncBoards = async () => {
     if (stopping || syncRunning) return;
@@ -394,7 +422,7 @@ async function startScoliaWorker() {
 
       for (const board of storedBoards) {
         if (connections.has(board.serialNumber)) continue;
-        const connection = new BoardConnection(board, accessToken, supabase);
+        const connection = new BoardConnection(board, accessToken, supabase, commentaryPublisher);
         connections.set(board.serialNumber, connection);
         connection.start();
       }
@@ -416,7 +444,9 @@ async function startScoliaWorker() {
     if (syncInterval) clearInterval(syncInterval);
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     if (commandInterval) clearInterval(commandInterval);
+    if (commentaryInterval) clearInterval(commentaryInterval);
     await Promise.all([...connections.values()].map((connection) => connection.stop()));
+    commentaryPublisher.close();
     process.exit(0);
   };
 
@@ -437,6 +467,11 @@ async function startScoliaWorker() {
       console.error('[scolia] command flush failed', error)
     );
   }, COMMAND_POLL_INTERVAL_MS);
+  commentaryInterval = setInterval(() => {
+    void commentaryPublisher.flushPending().catch((error) =>
+      console.error('[commentary] pending sideband delivery failed', error)
+    );
+  }, COMMENTARY_RETRY_INTERVAL_MS);
 }
 
 startScoliaWorker().catch((error) => {

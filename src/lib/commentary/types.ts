@@ -37,6 +37,26 @@ export interface CommentaryGameContext {
   consecutiveLowScores?: number;
 }
 
+export interface CommentaryDartIQContext {
+  matchProbabilityBefore: number;
+  matchProbabilityAfter: number;
+  matchWpa: number;
+  legProbabilityBefore: number;
+  legProbabilityAfter: number;
+  legWpa: number;
+  biggestDartMatchWpa: number;
+  peakLegConsequence?: number;
+  peakMatchConsequence?: number;
+  oneDartFinishAvailable?: boolean;
+  matchWinAvailableThisVisit?: boolean;
+  changedMatchFavorite: boolean;
+  checkedOut: boolean;
+  busted: boolean;
+  leaveProbabilityChange?: number;
+  nextVisitCheckoutProbability?: number;
+  createdBogey?: boolean;
+}
+
 export interface CommentaryPayload {
   playerName: string;
   playerId: string;
@@ -46,7 +66,10 @@ export interface CommentaryPayload {
   busted: boolean;
   isHighScore: boolean;
   is180: boolean;
+  isNikitaSpecial?: boolean;
   gameContext: CommentaryGameContext;
+  dartiq?: CommentaryDartIQContext;
+  narrative?: CommentaryNarrativeMemory;
 }
 
 export interface MatchRecapContext {
@@ -84,6 +107,12 @@ export interface CommentaryResult {
   error?: string;
 }
 
+export interface CommentaryTranscriptEntry {
+  id: string;
+  text: string;
+  completedAt: string;
+}
+
 export interface CommentaryStyleConfig {
   slangUseProbability: number;
   maxSlangPerLine: number;
@@ -103,3 +132,4 @@ export interface CommentaryPersona {
 
 export type CommentaryPersonaId = CommentaryPersona['id'];
 export type CommentaryExcitementLevel = 'low' | 'medium' | 'high';
+import type { CommentaryNarrativeMemory } from './commentaryNarrative';

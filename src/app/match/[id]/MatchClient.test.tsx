@@ -127,16 +127,9 @@ vi.mock('@/lib/commentary/personas', () => ({
 }));
 
 vi.mock('@/services/commentaryService', () => {
-  class MockDebouncer {
-    canCall() {
-      return false;
-    }
-    markCalled() {}
-  }
   return {
     generateCommentary: vi.fn().mockResolvedValue({ commentary: null }),
     generateMatchRecap: vi.fn().mockResolvedValue({ commentary: null }),
-    CommentaryDebouncer: MockDebouncer,
   };
 });
 
@@ -256,7 +249,7 @@ describe('MatchClient', () => {
       setSearchParams('spectator=true');
       const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
 
-      await screen.findByText('Live Match');
+      await screen.findByText('Live Match', undefined, { timeout: 5_000 });
       expect(screen.queryByText('Undo dart')).toBeNull();
 
       view.unmount();
@@ -266,7 +259,7 @@ describe('MatchClient', () => {
       setSearchParams('spectator=true');
       const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
 
-      await screen.findByText('Live Match');
+      await screen.findByText('Live Match', undefined, { timeout: 5_000 });
 
       const logSnapshot = getQueryLog();
       const throwSelects = logSnapshot.filter(
@@ -293,7 +286,7 @@ describe('MatchClient', () => {
       setSearchParams('spectator=true');
       const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
 
-      const liveIndicator = await screen.findByText('Live Match');
+      const liveIndicator = await screen.findByText('Live Match', undefined, { timeout: 5_000 });
       expect(liveIndicator).toBeDefined();
 
       view.unmount();

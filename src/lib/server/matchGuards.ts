@@ -11,12 +11,13 @@ export type MatchRow = {
   fair_ending: boolean;
   tournament_match_id: string | null;
   scolia_board_id?: string | null;
+  rematch_of_match_id?: string | null;
 };
 
 export async function loadMatch(supabase: SupabaseClient, matchId: string): Promise<MatchRow | null> {
   const { data, error } = await supabase
     .from('matches')
-    .select('id, winner_player_id, completed_at, ended_early, start_score, finish, legs_to_win, fair_ending, tournament_match_id, scolia_board_id')
+    .select('id, winner_player_id, completed_at, ended_early, start_score, finish, legs_to_win, fair_ending, tournament_match_id, scolia_board_id, rematch_of_match_id')
     .eq('id', matchId)
     .single();
   if (error || !data) return null;

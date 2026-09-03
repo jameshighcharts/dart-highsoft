@@ -13,6 +13,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `src/hooks`: React hooks for match state, actions, realtime, and commentary.
 - `src/services`: External service clients (commentary API, TTS audio).
 - `src/workers`: Long-running backend processes (Scolia board WebSocket connections).
+- `scripts`: Local operational and demo harnesses; `commentaryDemo.ts` provisions and drives test-only synthetic Scolia matches.
 - `src/test-utils`: Test factories, mock Supabase client.
 - `public`/`favicon`: Static assets.
 - `e2e`: Playwright E2E tests and fixtures.
@@ -22,6 +23,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `.github/workflows/test.yml`: Required CI check for lint, unit tests, build, and Lighthouse performance budgets.
 - `.lighthouserc.json`: Mobile Lighthouse workload and performance limits for the home page.
 - `DEPLOYMENT.md`: Beginner-friendly production deployment guide for Vercel + Supabase.
+- `DARTIQ.md`: Product and modeling roadmap for DartIQ probabilities, consequence, checkout analysis, commentary, and reports.
 - `Dockerfile.scolia-worker`: Production container for the separate persistent Scolia worker.
 - `railway.json`: Railway config-as-code for the single-replica Scolia worker service.
 - `docs/SCOLIA_SOCIAL_API.md`: Markdown reference for the complete Scolia Social API v1.2 protocol.
@@ -35,6 +37,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `new/page.tsx` | New X01 or party-game form with optional ready Scolia board selection |
 | `match/[id]/page.tsx` | Match page (server component) |
 | `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator/history stats view |
+| `match/[id]/report/page.tsx` | Server-rendered DartIQ Match Pulse, summary facts, and clickable ranked dart swings |
 | `game/[id]/page.tsx` | Party-game page (server component) |
 | `game/[id]/GameClient.tsx` | Party-game scoring and spectator client |
 | `games/page.tsx` | Live and recent X01 and party-game listing; completed X01 games link to read-only stats |
@@ -62,6 +65,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `matches/[matchId]/players/new/` | POST | Create new player and add to match |
 | `matches/[matchId]/players/[playerId]/` | DELETE | Remove player from match |
 | `matches/[matchId]/players/reorder/` | PATCH | Reorder players |
+| `matches/[matchId]/dartiq/evidence/` | GET | Load the match's frozen, server-authoritative DartIQ player and population evidence |
 | `elo/update/` | POST | Update 1v1 Elo ratings |
 | `elo-multi/update/` | POST | Update multiplayer Elo ratings |
 | `players/` | GET, POST | List or create players |
@@ -78,6 +82,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `practice/sessions/[id]/throws/` | POST | Record practice throw |
 | `around-world/sessions/` | POST | Create Around the World session |
 | `commentary/` | POST | Generate AI commentary via LLM |
+| `commentary/realtime/session/` | POST, PUT, PATCH, DELETE | Create an output-only OpenAI Realtime WebRTC call, advance its correction epoch with a replacement snapshot, heartbeat it, or close it |
 | `tts/` | POST | Text-to-speech for commentary |
 | `slack/darts/` | POST | Verify Slack slash commands/button actions and create dart polls |
 | `background-jobs/` | POST | Authenticate Supabase job batches and run typed background handlers |
@@ -86,7 +91,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | File | Purpose |
 |------|---------|
 | `x01.ts` | Core X01 game engine: `applyThrow()`, `calculate3DartAverage()` |
-| `fairEnding.ts` | Fair ending state machine: `computeFairEndingState()`, `getNextFairEndingPlayer()` |
+| `fairEnding.ts` | Fair ending state machine plus current-phase pending-player selection for incremental DartIQ projections |
 | `dartboard.ts` | Dartboard geometry: `computeHit()` from SVG coordinates, `segmentFromSelection()` |
 | `eloRating.ts` | 1v1 Elo: `calculateNewEloRatings()`, leaderboard/stats queries |
 | `eloRatingMultiplayer.ts` | Multiplayer Elo: `updateMatchEloRatingsMultiplayer()`, stats queries |
@@ -94,6 +99,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `checkoutTable.ts` | Pre-computed double-out checkout lookup table |
 | `legScoreCalculator.ts` | Calculate remaining scores from turns/throws |
 | `matchStats.ts` | Live spectator scores, round stats |
+| `nikitaSpecial.ts` | Exact order-independent detector for the marquee 1 + 5 + 20 visit |
 | `haptics.ts` | Mobile haptic feedback via `navigator.vibrate` |
 
 ### Hooks (`src/hooks`)
@@ -103,15 +109,24 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `useMatchActions.ts` | Player actions: `handleBoardClick`, `undoLastThrow`, `endLegAndMaybeMatch`, rematch, player management. Serializes concurrent throws via queue. |
 | `useMatchRealtime.ts` | Connects Supabase realtime events to state; uses spectator reducer for incremental updates |
 | `useRealtime.ts` | Low-level Supabase channel subscription, DOM custom events, connection lifecycle |
-| `useCommentary.ts` | Commentary feature state, persona selection, TTS, localStorage persistence |
+| `useCommentary.ts` | Commentary feature state, persona selection, TTS, localStorage persistence, and capped per-match completed-call history |
+| `useRealtimeCommentary.ts` | Owns the persistent output-only browser WebRTC commentary connection and fallback lifecycle |
 | `useMatchEloChanges.ts` | Fetches Elo changes after match completion |
+| `useScoliaBoardRealtime.ts` | Pushes sanitized board status and match-occupancy changes into board UIs |
+| `useDartIQ.ts` | Fetches match-frozen DartIQ evidence and builds cached per-player outcome models |
 | `useGameData.ts` | Loads party-game rows, derives client state, and reconciles Supabase realtime changes |
 | `useGameActions.ts` | Queues party-game throws, undo, early ending, and rematch actions |
-| `useScoliaBoardRealtime.ts` | Pushes sanitized board status and optional match/game occupancy changes into board UIs |
 
 ### Lib (`src/lib`)
 | Path | Purpose |
 |------|---------|
+| `dartiq/projection.ts` | Live leg/match probability projection, expected darts, fair-ending, tiebreak, and future-leg race semantics |
+| `dartiq/checkout.ts` | Behavioral live-visit checkout probability, descriptive leave impact, and bogey-leave evaluation |
+| `dartiq/evidence.ts` | Typed historical evidence normalization and hierarchical player skill models |
+| `dartiq/replay.ts` | Single-pass canonical dart replay with before/after projections, WPA, and full-field consequence |
+| `dartiq/insights.ts` | Turning points, lead changes, stolen/thrown-away legs, and ranked commentary moments |
+| `dartiq/events.ts` | Compact provider-neutral dart packets plus deterministic editorial classification |
+| `dartiq/model/{outcomes,visit,race}.ts` | Behavioral outcomes, double-out visit transitions, and ordered multiplayer race math |
 | `match/types.ts` | Core types: `Player`, `MatchRecord`, `LegRecord`, `TurnRecord`, `ThrowRecord` |
 | `match/selectors.ts` | Pure selectors: `selectCurrentPlayer`, `selectPlayerStats`, `canEditPlayers`, etc. |
 | `match/loadMatchData.ts` | Parallel fetch of match + players + legs + turns from Supabase |
@@ -121,6 +136,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `server/completeLeg.ts` | Idempotent leg completion: winner, next leg creation, Elo RPC |
 | `server/turnLifecycle.ts` | Race-tolerant turn creation, `resolveOrCreateTurnForPlayer()` |
 | `server/recomputeLegTurns.ts` | Recomputes turn scores from raw throws after edits |
+| `server/dartiqEvidence.ts` | Captures and loads immutable per-match DartIQ evidence without future-history leakage |
+| `server/dartiqTelemetry.ts` | Reconstructs a completed leg and batch-persists versioned inputs, full probability vectors, outcomes, and resolutions |
 | `server/createMatch.ts` | Creates X01 matches, ordered players, and the first leg through one transaction |
 | `server/backgroundJobs.ts` | Validates claimed jobs, dispatches typed handlers, and records completion/retry/failure |
 | `server/createGameSession.ts` | Validates configuration and creates party-game sessions with ordered players |
@@ -138,6 +155,17 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `games/engines/*.ts` | Pure replay engines for Cricket, Killer, Shanghai, and Around the Clock |
 | `commentary/personas.ts` | AI commentary persona definitions |
 | `commentary/promptBuilder.ts` | Builds LLM prompts from game context |
+| `commentary/realtimePrompt.ts` | Builds compact labeled Realtime session prompts and per-call briefs |
+| `commentary/commentaryPolicy.ts` | Listener-local deterministic speech policy: cooldowns, observation memory, completed-visit editorial scope, guaranteed calls, and latest-wins interruption |
+| `commentary/commentaryVisitTiming.ts` | Shared browser/worker visit-gap coordinator: holds ordinary calls briefly, suppresses stale pending speech, and keeps marquee calls immediate |
+| `commentary/commentaryNarrative.ts` | Builds bounded factual story memory from DartIQ replay: tendencies, checkout/double history, biggest swing, rematch stakes, and baseline performance |
+| `commentary/storyArcDirector.ts` | Scores competing factual match arcs, selects one broadcast angle, and assigns analysis/sass/callback/closing treatment |
+| `commentary/broadcastDirector.ts` | Stateful listener-local producer: arc hysteresis, reserve stories, editorial budgets, callback obligations, and required payoff/closure direction |
+| `commentary/commentaryDemoScenario.ts` | Deterministic valid 301 double-out broadcast demo: Nikita special, opposing 180, comeback, missed double, and bull-checkout payoff |
+| `commentary/realtimeTypes.ts` | Shared Realtime session/correction-envelope contracts, model default, UUID validation, and legacy-to-Realtime voice mapping |
+| `commentary/realtimeSnapshot.ts` | Builds compact authoritative match snapshots for new, reconnected, and rotated Realtime sessions |
+| `commentary/scoliaRealtimeEvent.ts` | Loads an accepted Scolia throw from canonical rows, attaches its deterministic DartIQ packet, and classifies speech priority without waiting for Supabase Realtime |
+| `commentary/transcriptLog.ts` | Pure completed-call transcript append, consecutive-deduplication, and bounded-history helper |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
 | `supabaseServer.ts` | Server-side Supabase client (API routes) |
 | `apiClient.ts` | Typed fetch wrapper: `apiRequest<T>()` |
@@ -157,6 +185,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 |------|---------|
 | `match/MatchScoringView.tsx` | Active scoring view — scores, dartboard/keypad, actions |
 | `match/MatchSpectatorView.tsx` | Read-only spectator view |
+| `match/DartIQLive.tsx` | DartIQ broadcast strip with per-dart leg/match win probabilities and a current-player-centered circular rail for large fields |
 | `match/MatchPlayersCard.tsx` | Player list with scores, averages, legs won |
 | `match/LiveScoliaBoard.tsx` | Read-only spectator dartboard with live Scolia impact positions and detected dart orientation |
 | `match/ScoliaMatchHeatmaps.tsx` | Whole-match per-player Scolia impact density boards for spectator mode |
@@ -180,13 +209,22 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `MultiEloLeaderboard.tsx` | Multiplayer Elo leaderboard |
 | `AroundTheWorldGame.tsx` | Around the World game UI |
 | `CommentaryDisplay.tsx` | AI commentary text display |
+| `CommentarySettings.tsx` | Persona, voice, and audio controls with a visible per-match list of recent completed commentary calls |
 | `ScoreProgressChart.tsx` | Score progression chart |
 | `TurnsHistoryCard.tsx` | Scrollable turns history for a leg |
 
 ### Workers (`src/workers`)
 | File | Purpose |
 |------|---------|
-| `scoliaWorker.ts` | Persistent Scolia worker: maintains board WebSockets, persists events/status, and queues throw ingestion/recovery |
+| `scoliaWorker.ts` | Persistent Scolia worker: maintains board WebSockets, persists events/status, queues throw ingestion/recovery, and publishes accepted throws directly to active Realtime commentary sidebands |
+
+### Services (`src/services`)
+| File | Purpose |
+|------|---------|
+| `commentaryService.ts` | Transitional request-per-turn text commentary client and debounce helper |
+| `ttsService.ts` | Transitional buffered MP3 commentary playback fallback |
+| `realtimeCommentaryService.ts` | Browser WebRTC audio/data-channel transport, transcript streaming, audio-context unlock, heartbeat, skip, and teardown |
+| `scoliaRealtimeCommentaryPublisher.ts` | Worker-side OpenAI sideband connection pool, idempotent delivery/retry, and latest-wins response triggering |
 
 ### Test Utilities (`src/test-utils`)
 | File | Purpose |
@@ -206,6 +244,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `npm run test:performance`: Run three Lighthouse audits against the production build and enforce the committed performance budgets.
 - `npm run test:ui`: Open visual test interface.
 - `npm run test:coverage`: Generate and display coverage report.
+- `npm run commentary:demo -- preview|prepare|run <match-id>|cleanup <match-id>`: Preview, provision, play, or safely clean a test-only local synthetic Scolia commentary match. `run` waits for an active browser Realtime listener before injection.
 - `npm run test:e2e`: Run Playwright E2E tests (requires test Supabase instance).
 - `npm run test:e2e:ui`: Run E2E tests with visual UI.
 - `npm run test:e2e:headed`: Run E2E tests in a headed browser.
@@ -266,8 +305,24 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 **Spectator realtime:**
 `useRealtime` subscribes to Supabase channel → dispatches DOM custom events → `useMatchRealtime` listens → `applyThrowChange/applyTurnChange` (spectatorRealtimeReducer) updates state incrementally → on `needsReconcile`: `loadAll()` full refresh.
 
+Each incremental spectator throw also re-derives the current DartIQ snapshot in `DartIQLive` → `calculateDartIQProjection()` combines current-match form with frozen pre-match evidence and estimates leg/match win probability plus expected darts remaining without additional network requests. Fair-ending checkout-waiting and high-round tiebreak states use the same bounded deterministic projection as replay. The compact header also shows the on-throw player's checkout probability without increasing the player rail height.
+
+DartIQ replay evaluates each dart through `evaluateDartSetup()` → uses the same player-specific behavioral visit kernel to estimate checkout probability before/after and the resulting next-visit chance, while tracking bogey creation/avoidance without inferring aim or grading an imaginary optimal route. These facts flow into compact `DartIQDartPacket` signals and deterministic commentary moments.
+
+**DartIQ personalization:**
+Migration `0059_dartiq_evidence_views.sql` derives finish-rule-specific player/population profiles and behavioral outcome counts from completed, non-test, non-ended X01 history, excluding tiebreak turns. Match creation calls `capture_dartiq_match_evidence()` in the same transaction, freezing those inputs before the first dart. `useDartIQ()` loads that immutable evidence once → `createDartIQSkillModel()` and `createBehavioralOutcomeModel()` build the live projection inputs. This prevents future matches from leaking backward into replay or calibration; raw historical throws never enter the spectator per-dart path.
+
+**DartIQ calibration evidence:**
+Shared `completeLeg()` reconstructs the finished leg from canonical rows and calls `persistDartIQCompletedLeg()` for both manual and Scolia matches. Reconstructed rows are explicitly labelled `not_supported/completed_leg_reconstruction` for live-capture status. `replace_dartiq_leg_projection_events()` takes a transaction-scoped advisory lock, compares the revision content hash, chooses the next monotone revision inside the lock, and atomically writes every dart plus its full per-player probability vector; incomplete or failed replacements roll back without superseding the prior active revision. Tiebreak projections remain calibratable but set `outcome_model_applicable = false` because their darts do not belong to the X01 score-transition outcome model. Commentary latency telemetry is intentionally outside this PR.
+
+For manual commentary, `useMatchRealtime` replays the current leg locally → `summarizeDartIQForTurn()` adds exact before/after leg and match probability context to the commentary prompt, including fair-ending and tiebreak visits. Scolia browsers with a healthy Realtime session suppress this completed-turn duplicate because the worker already delivered each accepted dart directly.
+
+Realtime commentary now creates a prewarmed, output-only browser-to-GPT-Realtime WebRTC call through the unified server interface. The server retains the returned OpenAI call ID in `commentary_realtime_sessions`; only the SDP answer, opaque app session ID, current commentary epoch, and compact canonical snapshot return to the browser. Opening/reconnect/correction snapshots include shrunk historical DartIQ baselines for every player plus bounded current-match narrative memory. `commentaryNarrative` derives recurring tendencies, exact-double non-conversions, checkout-pressure history, biggest match WPA swing, and live performance versus baseline; `matches.rematch_of_match_id` supplies explicit revenge/rematch lineage rather than player-list guessing. `storyArcDirector` ranks comeback, collapse, underdog, seesaw, punished-miss, checkout-duel, pressure-resilience, revenge, and dominance candidates. Listener-local `BroadcastDirector` commits to one primary arc, retains two background candidates, prevents weak one-dart story switches, keeps phases monotonic, budgets introductions, creates explicit future callback obligations, and requires either payoff or closure when the supplied result resolves the story. Only new, switched, or resolving stories promote routine context to notable speech. Scolia sessions are seeded by the worker sideband before dart deltas; manual sessions seed through the browser data channel. Browser failures reconnect with bounded backoff, and healthy sessions rotate at 50 minutes before the provider's 60-minute limit. For Scolia matches, including fair-ending and tiebreak play, the worker calls `scoliaRealtimeCommentaryPublisher` immediately after `ingestScoliaThrowEvent()` returns `processed`: it reloads the accepted dart's canonical facts and injects the DartIQ v2 packet plus refreshed narrative memory through an authenticated sideband WebSocket to the same call. The first dart cold-loads canonical full-match history/profiles; subsequent ordered darts append to an in-memory worker cache and reuse the verified DartIQ prefix, with canonical rebuild on restart, leg change, correction epoch, or ordering drift. This bypasses the Supabase Realtime notification round trip and repeated history/profile queries. `commentary_realtime_deliveries` deduplicates and retries per listener/throw. Every dart feeds model context, but routine and notable speech waits for a completed visit; the third-dart envelope explicitly includes all visit segments and the visit total. Checkouts, busts, 180s, major checkouts, leg wins, match wins, and Nikita specials remain immediate/guaranteed. `CommentaryPolicy` also applies per-priority cooldowns, bounded repeat memory, rapid-sequence silence, and latest-wins interruption. `CommentaryVisitTiming` gives an approved ordinary call an 850 ms natural pause while marquee and terminal calls remain immediate. Corrections reset timing, policy, and director state from the authoritative replacement snapshot, so invalidated speech or stories cannot survive. Delivery is playful and lightly sassy within the selected persona, teasing results and story patterns rather than personal traits. OpenAI streams audio directly to the browser WebRTC track and transcript deltas over the data channel; completed calls are deduplicated into a capped per-match “Recent calls” list. Commentary latency instrumentation is intentionally out of scope unless real usage identifies a problem. See `DARTIQ.md` for boundaries and targets.
+
+The completed visit is the default commentary unit, not an absolute barrier: a notable mid-visit dart may speak immediately only when DartIQ marks it as a genuinely large match-probability swing. Cheap favorite flickers, high-pressure labels, and newly proposed story arcs wait for the completed visit, while the director keeps an unspoken proposal promoted until it is actually used.
+
 **Fair ending:**
-First player checks out → remaining players complete their turns in the round → if single checkout: leg resolved → if multiple checkouts: tiebreak rounds (3 darts each, highest score wins).
+First player checks out → DartIQ v2 marks the checkout provisional and projects the remaining players' chances to join → remaining players complete their turns → if single checkout: leg resolves → if multiple checkouts: eligible players enter high-round tiebreaks. Tiebreak darts update deterministic, normalized probabilities without changing X01 scores; tied leaders advance to the next round. Only authoritative resolution emits `leg_win`/`match_win`.
 
 **Party-game scoring:**
 New Game selects Cricket, Killer, Shanghai, or Around the Clock → `POST /api/games` creates the session and ordered players through `create_game_session_atomic` → `GameClient` replays `game_throws` through the selected pure engine → `useGameActions` queues manual input through `POST /api/games/:id/throws` → `append_game_throw_atomic` locks the session and commits the throw with any completion → `undo_last_game_throw_atomic` deletes the latest dart and reopens a completed session when board ownership still permits it → `useGameData` reconciles session and throw changes through Supabase realtime.

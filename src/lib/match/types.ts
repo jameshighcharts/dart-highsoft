@@ -8,10 +8,12 @@ export type MatchRecord = {
   start_score: '201' | '301' | '501';
   finish: FinishRule;
   legs_to_win: number;
+  winner_player_id?: string | null;
   ended_early?: boolean;
   fair_ending?: boolean;
   tournament_match_id?: string | null;
   scolia_board_id?: string | null;
+  rematch_of_match_id?: string | null;
 };
 
 export type LegRecord = {

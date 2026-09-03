@@ -13,6 +13,7 @@ import { useMatchData } from '@/hooks/useMatchData';
 import { useMatchRealtime } from '@/hooks/useMatchRealtime';
 import { useMatchActions } from '@/hooks/useMatchActions';
 import { useMatchEloChanges } from '@/hooks/useMatchEloChanges';
+import { useDartIQ } from '@/hooks/useDartIQ';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useRealtime } from '@/hooks/useRealtime';
 import type { LegRecord, MatchRecord, Player, TurnRecord } from '@/lib/match/types';
@@ -65,12 +66,15 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     voice,
     personaId,
     currentCommentary,
+    commentaryTranscriptLog,
     commentaryLoading,
     commentaryPlaying,
     activePersona,
-    commentaryDebouncer,
     ttsServiceRef,
+    realtimeCommentaryRef,
     setCurrentCommentary,
+    recordCompletedCommentary,
+    clearCommentaryTranscriptLog,
     setCommentaryLoading,
     setCommentaryPlaying,
     setAudioEnabled,
@@ -78,7 +82,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     handleCommentaryEnabledChange,
     handleAudioEnabledChange,
     handlePersonaChange,
-  } = useCommentary();
+    skipCommentary,
+  } = useCommentary(matchId);
 
   // Ref to hold latest state for event handlers (prevents stale closure bugs)
   const latestStateRef = useRef({
@@ -115,6 +120,9 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     loadPlayersOnly,
     loadTurnsForLeg,
   } = useMatchData(matchId);
+  const finishRule: FinishRule = useMemo(() => (match?.finish ?? 'double_out'), [match?.finish]);
+  const dartIQPlayerIds = useMemo(() => players.map((player) => player.id), [players]);
+  const dartIQ = useDartIQ(matchId, dartIQPlayerIds, finishRule);
 
   const ongoingTurnRef = useRef<{
     turnId: string;
@@ -230,11 +238,15 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     celebratedTurns,
     commentaryEnabled,
     personaId,
-    commentaryDebouncer,
     setCommentaryLoading,
     setCommentaryPlaying,
     setCurrentCommentary,
+    recordCompletedCommentary,
     ttsServiceRef,
+    realtimeCommentaryRef,
+    dartIQEvidenceByPlayerId: dartIQ.profilesByPlayerId,
+    dartIQPopulationEvidence: dartIQ.populationProfile,
+    dartIQModelsByPlayerId: dartIQ.outcomeModelsByPlayerId,
   });
 
   // Check for spectator mode from URL params
@@ -284,7 +296,6 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   const orderPlayers = useMemo(() => selectOrderPlayers(match, players, currentLeg), [match, players, currentLeg]);
 
   const startScore: number = useMemo(() => (match?.start_score ? parseInt(match.start_score, 10) : 501), [match?.start_score]);
-  const finishRule: FinishRule = useMemo(() => (match?.finish ?? 'double_out'), [match]);
 
   // Determine if match has a winner already
   const matchWinnerId = useMemo(() => selectMatchWinnerId(match, legs), [match, legs]);
@@ -551,15 +562,21 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           onVoiceChange={setVoice}
           onPersonaChange={handlePersonaChange}
           currentCommentary={currentCommentary}
+          commentaryTranscriptLog={commentaryTranscriptLog}
+          onClearCommentaryTranscriptLog={clearCommentaryTranscriptLog}
           commentaryLoading={commentaryLoading}
           commentaryPlaying={commentaryPlaying}
-          onSkipCommentary={() => ttsServiceRef.current.skipCurrent()}
+          onSkipCommentary={skipCommentary}
           onToggleMute={() => setAudioEnabled(!audioEnabled)}
           queueLength={ttsServiceRef.current.getQueueLength()}
           activePersona={activePersona}
           eloChanges={eloChanges}
           eloChangesLoading={eloChangesLoading}
           fairEndingState={fairEndingState}
+          dartIQEvidenceByPlayerId={dartIQ.profilesByPlayerId}
+          dartIQPopulationEvidence={dartIQ.populationProfile}
+          dartIQModelsByPlayerId={dartIQ.outcomeModelsByPlayerId}
+          hasPersonalDartIQEvidence={dartIQ.hasPersonalProfiles}
           isHistoryView={historyParam}
           onBackToGames={backToGames}
         />

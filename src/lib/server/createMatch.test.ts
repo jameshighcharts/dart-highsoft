@@ -29,6 +29,7 @@ describe('createMatchForPlayers', () => {
       p_fair_ending: false,
       p_player_ids: [PLAYER_B, PLAYER_A],
       p_scolia_board_id: '00000000-0000-4000-8000-0000000000b0',
+      p_rematch_of_match_id: null,
     });
   });
 

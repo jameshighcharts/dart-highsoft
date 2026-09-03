@@ -27,9 +27,18 @@ import {
   applyTurnChange as applySpectatorTurnChange,
 } from '@/lib/match/spectatorRealtimeReducer';
 import { incrementRealtimeMetric } from '@/lib/match/realtimeMetrics';
-import type { CommentaryDebouncer } from '@/services/commentaryService';
 import type { CommentaryPersonaId } from '@/lib/commentary/types';
+import type { RealtimeCommentaryService } from '@/services/realtimeCommentaryService';
 import type { SegmentResult } from '@/utils/dartboard';
+import { summarizeDartIQForTurn } from '@/lib/dartiq/insights';
+import { reconstructDartIQTimeline } from '@/lib/dartiq/replay';
+import type {
+  DartIQPlayerHistoryProfile,
+  DartIQPopulationProfile,
+} from '@/lib/dartiq/evidence';
+import type { DartIQOutcomeModel } from '@/lib/dartiq/model/outcomes';
+import { isNikitaSpecial } from '@/utils/nikitaSpecial';
+import { buildCommentaryNarrativeMemory } from '@/lib/commentary/commentaryNarrative';
 
 function segmentLabelToKind(label: string): SegmentResult['kind'] {
   if (label === 'Miss') return 'Miss';
@@ -98,12 +107,6 @@ type CelebrationState = {
   throws: { segment: string; scored: number; dart_index: number }[];
 } | null;
 
-function isNikitaSpecial(throws: { scored: number }[]): boolean {
-  if (throws.length !== 3) return false;
-  const sorted = throws.map((t) => t.scored).sort((a, b) => a - b);
-  return sorted[0] === 1 && sorted[1] === 5 && sorted[2] === 20;
-}
-
 type RealtimeApi = {
   isConnected: boolean;
   connectionStatus: string;
@@ -148,15 +151,21 @@ type UseMatchRealtimeArgs = {
   celebratedTurns: React.MutableRefObject<Set<string>>;
   commentaryEnabled: boolean;
   personaId: CommentaryPersonaId;
-  commentaryDebouncer: React.MutableRefObject<CommentaryDebouncer>;
   setCommentaryLoading: (value: boolean) => void;
   setCommentaryPlaying: (value: boolean) => void;
   setCurrentCommentary: (value: string | null) => void;
+  recordCompletedCommentary: (value: string) => void;
   ttsServiceRef: React.MutableRefObject<{
     getSettings: () => { enabled: boolean; voice: VoiceOption };
     queueCommentary: (input: { text: string; personaId: CommentaryPersonaId; excitement: ReturnType<typeof getExcitementLevel> }) => Promise<void>;
     getIsPlaying: () => boolean;
+    skipCurrent: () => void;
+    clearQueue: () => void;
   }>;
+  realtimeCommentaryRef: React.MutableRefObject<RealtimeCommentaryService | null>;
+  dartIQEvidenceByPlayerId: ReadonlyMap<string, DartIQPlayerHistoryProfile>;
+  dartIQPopulationEvidence?: DartIQPopulationProfile;
+  dartIQModelsByPlayerId: ReadonlyMap<string, DartIQOutcomeModel>;
 };
 
 export function useMatchRealtime({
@@ -182,11 +191,15 @@ export function useMatchRealtime({
   celebratedTurns,
   commentaryEnabled,
   personaId,
-  commentaryDebouncer,
   setCommentaryLoading,
   setCommentaryPlaying,
   setCurrentCommentary,
+  recordCompletedCommentary,
   ttsServiceRef,
+  realtimeCommentaryRef,
+  dartIQEvidenceByPlayerId,
+  dartIQPopulationEvidence,
+  dartIQModelsByPlayerId,
 }: UseMatchRealtimeArgs) {
   const spectatorTurnsFetchRef = useRef<Promise<void> | null>(null);
   const spectatorTurnsFetchQueuedRef = useRef(false);
@@ -220,10 +233,14 @@ export function useMatchRealtime({
     const pendingThrowBuffer = pendingThrowBufferRef.current;
 
     const handleThrowChange = async (event: CustomEvent) => {
-      const payload = event.detail as RealtimePayload;
+      const payload = event.detail as RealtimePayload & {
+        eventType?: 'INSERT' | 'UPDATE' | 'DELETE';
+        new?: Partial<ThrowRecord>;
+        old?: Partial<ThrowRecord>;
+      };
       const legId = getRealtimePayloadLegId(payload);
       const turnId = getRealtimePayloadTurnId(payload);
-      const { knownLegIds } = latestStateRef.current;
+      const { knownLegIds, knownTurnIds, turns } = latestStateRef.current;
 
       // Until initial match state is loaded, ignore throw events entirely.
       // This prevents cross-match contamination when multiple matches are active.
@@ -231,8 +248,35 @@ export function useMatchRealtime({
         return;
       }
 
+      const belongsToMatch = Boolean(
+        (legId && knownLegIds.has(legId))
+        || (turnId && (knownTurnIds.has(turnId) || turns.some((turn) => turn.id === turnId)))
+      );
+      if (
+        belongsToMatch
+        && payload.eventType === 'INSERT'
+        && payload.new?.id
+        && turnId
+        && typeof payload.new.dart_index === 'number'
+      ) {
+        realtimeCommentaryRef.current?.observeMatchDart({
+          eventId: payload.new.id,
+          turnId,
+          playerId: turns.find((turn) => turn.id === turnId)?.player_id,
+          dartIndex: payload.new.dart_index,
+        });
+      }
+      if (belongsToMatch && (payload.eventType === 'UPDATE' || payload.eventType === 'DELETE')) {
+        ttsServiceRef.current.skipCurrent();
+        ttsServiceRef.current.clearQueue();
+        setCommentaryPlaying(false);
+        setCurrentCommentary(null);
+        realtimeCommentaryRef.current?.correct(
+          payload.eventType === 'UPDATE' ? 'throw_updated' : 'throw_deleted'
+        );
+      }
+
       if (!legId && turnId) {
-        const { knownTurnIds, turns } = latestStateRef.current;
         const hasTurnInState = turns.some((turn) => turn.id === turnId);
         const hasKnownTurns = knownTurnIds.size > 0;
         const isKnownTurn = hasKnownTurns && knownTurnIds.has(turnId);
@@ -368,6 +412,36 @@ export function useMatchRealtime({
         const overallTurnNumber = turn.turn_number;
         const dartsUsedThisTurn = throws.length;
         const turnTotal = computeTurnTotal(turn);
+        let dartiq: CommentaryContext['dartiq'];
+        let narrative: CommentaryContext['narrative'];
+        if (currentLeg && matchSnapshot) {
+          const initialLegsWon = legsSnapshot.reduce<Record<string, number>>((acc, leg) => {
+            if (leg.id !== currentLeg.id && leg.winner_player_id) {
+              acc[leg.winner_player_id] = (acc[leg.winner_player_id] ?? 0) + 1;
+            }
+            return acc;
+          }, {});
+          const dartIQTimeline = reconstructDartIQTimeline({
+            playerIds: playersSnapshot.map((player) => player.id),
+            legs: [currentLeg],
+            turnsByLeg: {
+              [currentLeg.id]: turnsSnapshot.filter((entry) => entry.leg_id === currentLeg.id),
+            },
+            startScore: startScoreValue,
+            finishRule: matchSnapshot.finish,
+            legsToWin: legsToWinValue,
+            initialLegsWon,
+            playerProfiles: Object.fromEntries(dartIQEvidenceByPlayerId),
+            populationProfile: dartIQPopulationEvidence,
+            outcomeModels: Object.fromEntries(dartIQModelsByPlayerId),
+            fairEnding: Boolean(matchSnapshot.fair_ending),
+          });
+          dartiq = summarizeDartIQForTurn(dartIQTimeline, turn.id, turn.player_id) ?? undefined;
+          narrative = buildCommentaryNarrativeMemory({
+            events: dartIQTimeline,
+            finishRule: matchSnapshot.finish,
+          });
+        }
 
         const context: CommentaryContext = {
           playerName,
@@ -382,6 +456,9 @@ export function useMatchRealtime({
           busted: turn.busted,
           isHighScore: turnTotal >= 100,
           is180: turnTotal === 180,
+          isNikitaSpecial: isNikitaSpecial(throws),
+          dartiq,
+          narrative,
           gameContext: {
             startScore: startScoreValue,
             legsToWin: legsToWinValue,
@@ -402,10 +479,27 @@ export function useMatchRealtime({
           },
         };
 
+        const realtimeCommentary = realtimeCommentaryRef.current;
+        if (
+          matchSnapshot?.scolia_board_id
+          && realtimeCommentary?.getStatus() === 'ready'
+        ) {
+          // The worker already injected this accepted hardware throw directly into
+          // the same session; do not announce it again after Supabase Realtime.
+          setCommentaryLoading(false);
+          return;
+        }
+
+        if (realtimeCommentary?.commentate(context)) {
+          setCommentaryLoading(false);
+          return;
+        }
+
         const response = await generateCommentary(context, personaId);
 
         if (response.commentary) {
           setCurrentCommentary(response.commentary);
+          recordCompletedCommentary(response.commentary);
 
           const tts = ttsServiceRef.current;
           if (tts.getSettings().enabled) {
@@ -718,8 +812,7 @@ export function useMatchRealtime({
               setTimeout(() => setCelebration(null), 2000);
             }
 
-            if (commentaryEnabled && commentaryDebouncer.current.canCall()) {
-              commentaryDebouncer.current.markCalled();
+            if (commentaryEnabled) {
               const snapshot: CommentarySnapshot = {
                 turns: result.turns as TurnWithThrows[],
                 legs: latestStateRef.current.legs,
@@ -1041,8 +1134,7 @@ export function useMatchRealtime({
               setTimeout(() => setCelebration(null), 2000);
             }
 
-            if (commentaryEnabled && commentaryDebouncer.current.canCall()) {
-              commentaryDebouncer.current.markCalled();
+            if (commentaryEnabled) {
               const snapshot: CommentarySnapshot = {
                 turns: result.turns as TurnWithThrows[],
                 legs: latestStateRef.current.legs,
@@ -1157,10 +1249,14 @@ export function useMatchRealtime({
     celebratedTurns,
     commentaryEnabled,
     personaId,
-    commentaryDebouncer,
     setCommentaryLoading,
     setCommentaryPlaying,
     setCurrentCommentary,
+    recordCompletedCommentary,
     ttsServiceRef,
+    realtimeCommentaryRef,
+    dartIQEvidenceByPlayerId,
+    dartIQPopulationEvidence,
+    dartIQModelsByPlayerId,
   ]);
 }

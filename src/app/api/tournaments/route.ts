@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { captureDartIQMatchEvidence } from '@/lib/server/dartiqEvidence';
 import { generateBracket } from '@/lib/tournament/bracket';
 import { fisherYatesShuffle } from '@/lib/tournament/shuffle';
 import { cleanupTournament } from '@/lib/server/cleanupTournament';
@@ -217,6 +218,13 @@ async function createMatchForTournament(
   if (legErr) {
     await supabase.from('matches').delete().eq('id', match.id);
     throw new Error(`Failed to create seeded first leg: ${legErr.message}`);
+  }
+
+  try {
+    await captureDartIQMatchEvidence(supabase, match.id);
+  } catch (error) {
+    await supabase.from('matches').delete().eq('id', match.id);
+    throw error;
   }
 
   // Link match to tournament_match (atomic: only if still unlinked)

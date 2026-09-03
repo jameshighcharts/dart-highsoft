@@ -5,7 +5,21 @@
 
 import type { CommentaryPersonaId, CommentaryExcitementLevel } from '@/lib/commentary/types';
 
-export type VoiceOption = 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'fable' | 'onyx' | 'nova' | 'sage' | 'shimmer' | 'verse';
+export type VoiceOption =
+  | 'alloy'
+  | 'ash'
+  | 'ballad'
+  | 'coral'
+  | 'echo'
+  | 'marin'
+  | 'cedar'
+  | 'sage'
+  | 'shimmer'
+  | 'verse'
+  // Accepted so existing saved preferences continue to migrate cleanly.
+  | 'fable'
+  | 'onyx'
+  | 'nova';
 
 export interface TTSSettings {
   voice: VoiceOption;
@@ -36,7 +50,7 @@ export class TTSService {
 
   constructor(settings?: Partial<TTSSettings>) {
     this.settings = {
-      voice: 'onyx', // Male voice - deep and authoritative
+      voice: 'cedar',
       speed: 1.1,
       volume: 70,
       enabled: false,
