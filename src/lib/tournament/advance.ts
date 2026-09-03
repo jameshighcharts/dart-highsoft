@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { captureDartIQMatchEvidence } from '@/lib/server/dartiqEvidence';
 import type { TournamentMatchRecord } from './types';
 
 /**
@@ -267,6 +268,13 @@ async function createMatchForSlot(
   });
   if (legErr) {
     await supabase.from('match_players').delete().eq('match_id', match.id);
+    await supabase.from('matches').delete().eq('id', match.id);
+    return;
+  }
+
+  try {
+    await captureDartIQMatchEvidence(supabase, match.id);
+  } catch {
     await supabase.from('matches').delete().eq('id', match.id);
     return;
   }

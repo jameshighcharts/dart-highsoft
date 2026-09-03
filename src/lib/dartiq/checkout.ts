@@ -1,10 +1,10 @@
-import type { SegmentResult } from './dartboard.ts';
-import { estimateExpectedDartsRemaining } from './pressureEngine.ts';
-import { applyThrow, type FinishRule } from './x01.ts';
+import type { SegmentResult } from '@/utils/dartboard';
+import { estimateExpectedDartsRemaining } from './projection';
+import { applyThrow, type FinishRule } from '@/utils/x01';
 
 export type SetupQualityGrade = 'checkout' | 'optimal' | 'good' | 'neutral' | 'poor' | 'bust';
 
-export type PressureCheckoutAssessment = {
+export type DartIQCheckoutAssessment = {
   checkoutProbabilityBefore: number;
   checkoutProbabilityAfter: number;
   nextVisitCheckoutProbability: number;
@@ -31,7 +31,7 @@ export type DartSetupInput = {
   bustRate?: number;
 };
 
-export type PressureCheckoutSkill = Pick<
+export type DartIQCheckoutSkill = Pick<
   DartSetupInput,
   'checkoutRate' | 'populationCheckoutRate'
 >;
@@ -66,7 +66,7 @@ function clamp(value: number, min = 0, max = 1) {
 function targetHitProbability(
   segment: SegmentResult,
   threeDartAverage: number,
-  checkoutSkill?: PressureCheckoutSkill
+  checkoutSkill?: DartIQCheckoutSkill
 ) {
   const skill = clamp((threeDartAverage - 25) / 75);
   // Checkout conversion is a visit-level signal, not direct double accuracy,
@@ -96,7 +96,7 @@ function targetHitProbability(
 function createCheckoutProbabilityCalculator(
   threeDartAverage: number,
   finishRule: FinishRule,
-  checkoutSkill?: PressureCheckoutSkill
+  checkoutSkill?: DartIQCheckoutSkill
 ) {
   const memo = new Map<string, number>();
 
@@ -133,7 +133,7 @@ export function estimateCheckoutProbability(
   dartsRemaining: number,
   threeDartAverage: number,
   finishRule: FinishRule,
-  checkoutSkill?: PressureCheckoutSkill
+  checkoutSkill?: DartIQCheckoutSkill
 ) {
   return createCheckoutProbabilityCalculator(threeDartAverage, finishRule, checkoutSkill)(
     scoreRemaining,
@@ -180,7 +180,7 @@ function leaveValue(
   threeDartAverage: number,
   finishRule: FinishRule,
   checkoutProbability: ReturnType<typeof createCheckoutProbabilityCalculator>,
-  skill?: PressureCheckoutSkill & { bustRate?: number }
+  skill?: DartIQCheckoutSkill & { bustRate?: number }
 ) {
   if (scoreRemaining === 0) return 1;
   const currentVisitChance = checkoutProbability(scoreRemaining, dartsThisVisit);
@@ -203,7 +203,7 @@ function leaveValue(
  * Grades the actual dart against every legal non-busting segment from the same
  * pre-dart state. This rewards route quality rather than raw points scored.
  */
-export function evaluateDartSetup(input: DartSetupInput): PressureCheckoutAssessment {
+export function evaluateDartSetup(input: DartSetupInput): DartIQCheckoutAssessment {
   const dartsBefore = Math.max(1, Math.min(3, input.dartsRemainingBefore));
   const dartsAfter = input.busted || input.checkedOut ? 0 : dartsBefore - 1;
   const checkoutProbability = createCheckoutProbabilityCalculator(

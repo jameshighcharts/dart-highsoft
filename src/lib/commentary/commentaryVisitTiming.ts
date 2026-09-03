@@ -1,11 +1,11 @@
-import type { PressureEventPriority } from '@/utils/pressureEvents';
+import type { DartIQEventPriority } from '@/lib/dartiq/events';
 
 export type CommentaryTimingEvent = {
   eventId: string;
   turnId: string;
   playerId: string;
   dartIndex: number;
-  priority: PressureEventPriority;
+  priority: DartIQEventPriority;
   guaranteed: boolean;
 };
 
@@ -110,7 +110,7 @@ export class CommentaryVisitTiming {
 }
 
 export function visitTimingInstruction(input: {
-  priority: PressureEventPriority;
+  priority: DartIQEventPriority;
   nextPlayerAlreadyThrowing: boolean;
 }) {
   if (input.priority === 'terminal' || input.priority === 'marquee') {

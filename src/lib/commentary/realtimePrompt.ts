@@ -1,4 +1,4 @@
-import type { PressureEventPriority } from '@/utils/pressureEvents';
+import type { DartIQEventPriority } from '@/lib/dartiq/events';
 
 import { broadcastDirectionInstruction, type BroadcastDirection } from './broadcastDirector.ts';
 import { priorityInstruction, visitScopeInstruction } from './commentaryPolicy.ts';
@@ -23,7 +23,7 @@ export function buildRealtimeSessionInstructions(persona: CommentaryPersona) {
 
 type RealtimeResponseBrief = {
   personaId?: CommentaryPersonaId;
-  priority: PressureEventPriority;
+  priority: DartIQEventPriority;
   dartIndex: number;
   turnScore: number;
   checkedOut: boolean;

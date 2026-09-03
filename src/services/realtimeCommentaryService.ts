@@ -17,7 +17,7 @@ import {
 import type { CommentaryContext } from '@/services/commentaryService';
 import type { VoiceOption } from '@/services/ttsService';
 import { BroadcastDirector } from '@/lib/commentary/broadcastDirector';
-import { isMaterialPressureConsequence } from '@/utils/pressurePolicy';
+import { isMaterialDartIQConsequence } from '@/lib/dartiq/events';
 import {
   RealtimeNarrativeWireState,
   renderManualRealtimeEvent,
@@ -563,14 +563,14 @@ export class RealtimeCommentaryService {
   }
 
   private manualPolicyEvent(eventId: string, context: CommentaryContext): CommentaryPolicyEvent {
-    const checkedOut = Boolean(context.pressure?.checkedOut) || (!context.busted && context.remainingScore === 0);
+    const checkedOut = Boolean(context.dartiq?.checkedOut) || (!context.busted && context.remainingScore === 0);
     const matchWon = checkedOut
       && context.gameContext.playerLegsWon + 1 >= context.gameContext.legsToWin;
     const consequence = {
-      leg: context.pressure?.peakLegConsequence ?? Math.abs(context.pressure?.legWpa ?? 0),
-      match: context.pressure?.peakMatchConsequence ?? Math.abs(context.pressure?.matchWpa ?? 0),
+      leg: context.dartiq?.peakLegConsequence ?? Math.abs(context.dartiq?.legWpa ?? 0),
+      match: context.dartiq?.peakMatchConsequence ?? Math.abs(context.dartiq?.matchWpa ?? 0),
     };
-    const materialConsequence = isMaterialPressureConsequence(
+    const materialConsequence = isMaterialDartIQConsequence(
       consequence,
       context.gameContext.allPlayers.length
     );
@@ -584,7 +584,7 @@ export class RealtimeCommentaryService {
         ? ['checkout']
         : context.busted
           ? ['bust']
-          : context.pressure?.changedMatchFavorite
+          : context.dartiq?.changedMatchFavorite
             ? ['favorite_change']
             : materialConsequence
               ? ['large_swing']
@@ -592,8 +592,8 @@ export class RealtimeCommentaryService {
                 ? ['story_arc']
                 : [];
     const semanticBust = context.busted && Boolean(
-      context.pressure?.directCheckoutOpportunity
-      || context.pressure?.matchCheckoutOpportunity
+      context.dartiq?.directCheckoutOpportunity
+      || context.dartiq?.matchCheckoutOpportunity
     );
     const priority = matchWon
       ? 'terminal'

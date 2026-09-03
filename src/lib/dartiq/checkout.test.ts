@@ -4,9 +4,9 @@ import {
   estimateCheckoutProbability,
   evaluateDartSetup,
   isBogeyLeave,
-} from './pressureCheckout';
+} from './checkout';
 
-describe('pressureCheckout', () => {
+describe('DartIQ checkout', () => {
   it('prices easier and shorter checkout routes more highly', () => {
     const double16 = estimateCheckoutProbability(32, 1, 60, 'double_out');
     const sixtyOne = estimateCheckoutProbability(61, 2, 60, 'double_out');

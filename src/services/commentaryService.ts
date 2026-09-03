@@ -145,7 +145,7 @@ function getBobFallback(context: CommentaryContext): string {
     }
     return professionalLead(
       `${playerName} scores ${totalScore}, now ${pointsBehindLeader} behind with ${remainingScore} in hand.`,
-      'Pressure’s on, but he just ordered a calm pint of composure.'
+      'DartIQ’s on, but he just ordered a calm pint of composure.'
     );
   }
 

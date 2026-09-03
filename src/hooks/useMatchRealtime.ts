@@ -30,13 +30,13 @@ import { incrementRealtimeMetric } from '@/lib/match/realtimeMetrics';
 import type { CommentaryPersonaId } from '@/lib/commentary/types';
 import type { RealtimeCommentaryService } from '@/services/realtimeCommentaryService';
 import type { SegmentResult } from '@/utils/dartboard';
-import { summarizePressureForTurn } from '@/utils/pressureInsights';
-import { reconstructPressureTimeline } from '@/utils/pressureReplay';
+import { summarizeDartIQForTurn } from '@/lib/dartiq/insights';
+import { reconstructDartIQTimeline } from '@/lib/dartiq/replay';
 import type {
-  PressurePlayerHistoryProfile,
-  PressurePopulationProfile,
-} from '@/utils/pressureProfiles';
-import type { PressureOutcomeModel } from '@/utils/pressureOutcomeModel';
+  DartIQPlayerHistoryProfile,
+  DartIQPopulationProfile,
+} from '@/lib/dartiq/evidence';
+import type { DartIQOutcomeModel } from '@/lib/dartiq/model/outcomes';
 import { isNikitaSpecial } from '@/utils/nikitaSpecial';
 import { buildCommentaryNarrativeMemory } from '@/lib/commentary/commentaryNarrative';
 
@@ -163,9 +163,9 @@ type UseMatchRealtimeArgs = {
     clearQueue: () => void;
   }>;
   realtimeCommentaryRef: React.MutableRefObject<RealtimeCommentaryService | null>;
-  pressureProfilesByPlayerId: ReadonlyMap<string, PressurePlayerHistoryProfile>;
-  pressurePopulationProfile?: PressurePopulationProfile;
-  pressureOutcomeModelsByPlayerId: ReadonlyMap<string, PressureOutcomeModel>;
+  dartIQEvidenceByPlayerId: ReadonlyMap<string, DartIQPlayerHistoryProfile>;
+  dartIQPopulationEvidence?: DartIQPopulationProfile;
+  dartIQModelsByPlayerId: ReadonlyMap<string, DartIQOutcomeModel>;
 };
 
 export function useMatchRealtime({
@@ -197,9 +197,9 @@ export function useMatchRealtime({
   recordCompletedCommentary,
   ttsServiceRef,
   realtimeCommentaryRef,
-  pressureProfilesByPlayerId,
-  pressurePopulationProfile,
-  pressureOutcomeModelsByPlayerId,
+  dartIQEvidenceByPlayerId,
+  dartIQPopulationEvidence,
+  dartIQModelsByPlayerId,
 }: UseMatchRealtimeArgs) {
   const spectatorTurnsFetchRef = useRef<Promise<void> | null>(null);
   const spectatorTurnsFetchQueuedRef = useRef(false);
@@ -412,7 +412,7 @@ export function useMatchRealtime({
         const overallTurnNumber = turn.turn_number;
         const dartsUsedThisTurn = throws.length;
         const turnTotal = computeTurnTotal(turn);
-        let pressure: CommentaryContext['pressure'];
+        let dartiq: CommentaryContext['dartiq'];
         let narrative: CommentaryContext['narrative'];
         if (currentLeg && matchSnapshot) {
           const initialLegsWon = legsSnapshot.reduce<Record<string, number>>((acc, leg) => {
@@ -421,7 +421,7 @@ export function useMatchRealtime({
             }
             return acc;
           }, {});
-          const pressureTimeline = reconstructPressureTimeline({
+          const dartIQTimeline = reconstructDartIQTimeline({
             playerIds: playersSnapshot.map((player) => player.id),
             legs: [currentLeg],
             turnsByLeg: {
@@ -431,14 +431,14 @@ export function useMatchRealtime({
             finishRule: matchSnapshot.finish,
             legsToWin: legsToWinValue,
             initialLegsWon,
-            playerProfiles: Object.fromEntries(pressureProfilesByPlayerId),
-            populationProfile: pressurePopulationProfile,
-            outcomeModels: Object.fromEntries(pressureOutcomeModelsByPlayerId),
+            playerProfiles: Object.fromEntries(dartIQEvidenceByPlayerId),
+            populationProfile: dartIQPopulationEvidence,
+            outcomeModels: Object.fromEntries(dartIQModelsByPlayerId),
             fairEnding: Boolean(matchSnapshot.fair_ending),
           });
-          pressure = summarizePressureForTurn(pressureTimeline, turn.id, turn.player_id) ?? undefined;
+          dartiq = summarizeDartIQForTurn(dartIQTimeline, turn.id, turn.player_id) ?? undefined;
           narrative = buildCommentaryNarrativeMemory({
-            events: pressureTimeline,
+            events: dartIQTimeline,
             finishRule: matchSnapshot.finish,
           });
         }
@@ -457,7 +457,7 @@ export function useMatchRealtime({
           isHighScore: turnTotal >= 100,
           is180: turnTotal === 180,
           isNikitaSpecial: isNikitaSpecial(throws),
-          pressure,
+          dartiq,
           narrative,
           gameContext: {
             startScore: startScoreValue,
@@ -1255,8 +1255,8 @@ export function useMatchRealtime({
     recordCompletedCommentary,
     ttsServiceRef,
     realtimeCommentaryRef,
-    pressureProfilesByPlayerId,
-    pressurePopulationProfile,
-    pressureOutcomeModelsByPlayerId,
+    dartIQEvidenceByPlayerId,
+    dartIQPopulationEvidence,
+    dartIQModelsByPlayerId,
   ]);
 }

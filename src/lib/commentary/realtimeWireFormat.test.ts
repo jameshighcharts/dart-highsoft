@@ -80,8 +80,8 @@ function event(narrative = snapshot().narrative): ScoliaRealtimeDartEvent {
     visitDarts: [{ dartIndex: 1, segment: 'D20', scored: 40 }],
     busted: false, checkedOut: true, matchWon: false, nikitaSpecial: false,
     priority: 'marquee', shouldSpeak: true, narrative,
-    pressure: {
-      schemaVersion: 2, engineVersion: 'behavioral-v1', type: 'dart', eventId: 'pressure',
+    dartiq: {
+      schemaVersion: 2, engineVersion: 'behavioral-v1', type: 'dart', eventId: 'dartiq',
       matchId: 'match-id', legId: 'leg', legNumber: 3, turnId: 'turn', dartId: 'dart',
       sequence: 2, playerId: PLAYER_A, dartIndex: 1, segment: 'D20', scored: 40,
       turnScoreAfter: 40, scoreBefore: 40, scoreAfter: 0, busted: false, checkedOut: true,

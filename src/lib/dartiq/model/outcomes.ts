@@ -1,28 +1,28 @@
-import type { FinishRule } from './x01.ts';
+import type { FinishRule } from '@/utils/x01';
 
-export const PRESSURE_OUTCOME_MODEL_VERSION = 'behavioral-v1' as const;
+export const DARTIQ_OUTCOME_MODEL_VERSION = 'behavioral-v1' as const;
 
-export type PressureDartsLeft = 1 | 2 | 3;
+export type DartIQDartsLeft = 1 | 2 | 3;
 
-export type PressureOutcomeContext = {
+export type DartIQOutcomeContext = {
   currentScore: number;
-  dartsLeft: PressureDartsLeft;
+  dartsLeft: DartIQDartsLeft;
   finishRule: FinishRule;
 };
 
-export type PressureDartOutcome = {
+export type DartIQDartOutcome = {
   scoreDelta: number;
   isDouble: boolean;
   probability: number;
 };
 
-export type PressureOutcomeObservation = PressureOutcomeContext & {
+export type DartIQOutcomeObservation = DartIQOutcomeContext & {
   scoreDelta: number;
   isDouble: boolean;
   count: number;
 };
 
-export type PressureOutcomeObservationRow = {
+export type DartIQOutcomeObservationRow = {
   player_id?: string;
   finish_rule: FinishRule;
   current_score: number | string;
@@ -32,7 +32,7 @@ export type PressureOutcomeObservationRow = {
   outcome_count: number | string;
 };
 
-export type PressureOutcomeBackoffLevel =
+export type DartIQOutcomeBackoffLevel =
   | 'fallback'
   | 'population_global'
   | 'population_score_class'
@@ -41,24 +41,24 @@ export type PressureOutcomeBackoffLevel =
   | 'player_score_class'
   | 'player_exact';
 
-export type PressureOutcomeDistribution = {
-  outcomes: PressureDartOutcome[];
-  stateBackoffLevel: PressureOutcomeBackoffLevel;
+export type DartIQOutcomeDistribution = {
+  outcomes: DartIQDartOutcome[];
+  stateBackoffLevel: DartIQOutcomeBackoffLevel;
   outcomeBackoffLevel: 'family' | 'exact';
   confidenceTier: 'fallback' | 'population' | 'player_sparse' | 'player_established';
   sampleSize: number;
 };
 
-export type PressureOutcomeModel = {
-  version: typeof PRESSURE_OUTCOME_MODEL_VERSION;
-  distribution(context: PressureOutcomeContext): PressureOutcomeDistribution;
+export type DartIQOutcomeModel = {
+  version: typeof DARTIQ_OUTCOME_MODEL_VERSION;
+  distribution(context: DartIQOutcomeContext): DartIQOutcomeDistribution;
 };
 
-type WeightedOutcome = Omit<PressureDartOutcome, 'probability'> & { weight: number };
+type WeightedOutcome = Omit<DartIQDartOutcome, 'probability'> & { weight: number };
 
 type BehavioralOutcomeModelInput = {
-  personal?: PressureOutcomeObservation[];
-  population?: PressureOutcomeObservation[];
+  personal?: DartIQOutcomeObservation[];
+  population?: DartIQOutcomeObservation[];
   priorStrength?: number;
   exactOutcomeThreshold?: number;
 };
@@ -66,10 +66,10 @@ type BehavioralOutcomeModelInput = {
 const DEFAULT_PRIOR_STRENGTH = 24;
 const DEFAULT_EXACT_OUTCOME_THRESHOLD = 40;
 
-export function normalizePressureOutcomeObservation(
-  row: PressureOutcomeObservationRow
-): PressureOutcomeObservation {
-  const dartsLeft = Math.min(3, Math.max(1, Number(row.darts_left))) as PressureDartsLeft;
+export function normalizeDartIQOutcomeObservation(
+  row: DartIQOutcomeObservationRow
+): DartIQOutcomeObservation {
+  const dartsLeft = Math.min(3, Math.max(1, Number(row.darts_left))) as DartIQDartsLeft;
   return {
     currentScore: Math.max(0, Number(row.current_score)),
     dartsLeft,
@@ -80,7 +80,7 @@ export function normalizePressureOutcomeObservation(
   };
 }
 
-function outcomeKey(outcome: Pick<PressureDartOutcome, 'scoreDelta' | 'isDouble'>) {
+function outcomeKey(outcome: Pick<DartIQDartOutcome, 'scoreDelta' | 'isDouble'>) {
   return `${outcome.scoreDelta}:${outcome.isDouble ? 1 : 0}`;
 }
 
@@ -94,7 +94,7 @@ function scoreClass(score: number) {
   return '231_plus';
 }
 
-function outcomeFamily(outcome: Pick<PressureDartOutcome, 'scoreDelta' | 'isDouble'>) {
+function outcomeFamily(outcome: Pick<DartIQDartOutcome, 'scoreDelta' | 'isDouble'>) {
   if (outcome.isDouble) return `double_${outcome.scoreDelta}`;
   if (outcome.scoreDelta === 0) return 'miss';
   if (outcome.scoreDelta <= 20) return 'non_double_1_20';
@@ -102,7 +102,7 @@ function outcomeFamily(outcome: Pick<PressureDartOutcome, 'scoreDelta' | 'isDoub
   return 'non_double_41_60';
 }
 
-function normalizeWeights(outcomes: WeightedOutcome[]): PressureDartOutcome[] {
+function normalizeWeights(outcomes: WeightedOutcome[]): DartIQDartOutcome[] {
   const total = outcomes.reduce((sum, outcome) => sum + outcome.weight, 0);
   if (!(total > 0)) return [{ scoreDelta: 0, isDouble: false, probability: 1 }];
   return outcomes
@@ -110,7 +110,7 @@ function normalizeWeights(outcomes: WeightedOutcome[]): PressureDartOutcome[] {
     .map(({ weight, ...outcome }) => ({ ...outcome, probability: weight / total }));
 }
 
-function createFallbackPrior(context: PressureOutcomeContext) {
+function createFallbackPrior(context: DartIQOutcomeContext) {
   const weights = new Map<string, WeightedOutcome>();
   const add = (scoreDelta: number, isDouble: boolean, weight: number) => {
     const key = outcomeKey({ scoreDelta, isDouble });
@@ -152,7 +152,7 @@ function createFallbackPrior(context: PressureOutcomeContext) {
   return normalizeWeights([...weights.values()]);
 }
 
-function aggregate(observations: PressureOutcomeObservation[]) {
+function aggregate(observations: DartIQOutcomeObservation[]) {
   const counts = new Map<string, WeightedOutcome>();
   let total = 0;
   for (const observation of observations) {
@@ -171,8 +171,8 @@ function aggregate(observations: PressureOutcomeObservation[]) {
 }
 
 function exactPosterior(
-  prior: PressureDartOutcome[],
-  observations: PressureOutcomeObservation[],
+  prior: DartIQDartOutcome[],
+  observations: DartIQOutcomeObservation[],
   priorStrength: number
 ) {
   const { counts, total } = aggregate(observations);
@@ -190,8 +190,8 @@ function exactPosterior(
 }
 
 function familyPosterior(
-  prior: PressureDartOutcome[],
-  observations: PressureOutcomeObservation[],
+  prior: DartIQDartOutcome[],
+  observations: DartIQOutcomeObservation[],
   priorStrength: number
 ) {
   const { counts, total } = aggregate(observations);
@@ -219,8 +219,8 @@ function familyPosterior(
 }
 
 function updatePosterior(
-  prior: PressureDartOutcome[],
-  observations: PressureOutcomeObservation[],
+  prior: DartIQDartOutcome[],
+  observations: DartIQOutcomeObservation[],
   priorStrength: number,
   exactOutcomeThreshold: number
 ) {
@@ -241,7 +241,7 @@ function updatePosterior(
 
 export function createBehavioralOutcomeModel(
   input: BehavioralOutcomeModelInput = {}
-): PressureOutcomeModel {
+): DartIQOutcomeModel {
   const personal = input.personal ?? [];
   const population = input.population ?? [];
   const priorStrength = Math.max(1, input.priorStrength ?? DEFAULT_PRIOR_STRENGTH);
@@ -249,28 +249,28 @@ export function createBehavioralOutcomeModel(
     1,
     input.exactOutcomeThreshold ?? DEFAULT_EXACT_OUTCOME_THRESHOLD
   );
-  const distributionCache = new Map<string, PressureOutcomeDistribution>();
+  const distributionCache = new Map<string, DartIQOutcomeDistribution>();
 
   return {
-    version: PRESSURE_OUTCOME_MODEL_VERSION,
+    version: DARTIQ_OUTCOME_MODEL_VERSION,
     distribution(context) {
       const cacheKey = `${context.finishRule}:${context.currentScore}:${context.dartsLeft}`;
       const cached = distributionCache.get(cacheKey);
       if (cached) return cached;
-      const sameRule = (observation: PressureOutcomeObservation) =>
+      const sameRule = (observation: DartIQOutcomeObservation) =>
         observation.finishRule === context.finishRule;
-      const sameClassAndDarts = (observation: PressureOutcomeObservation) =>
+      const sameClassAndDarts = (observation: DartIQOutcomeObservation) =>
         sameRule(observation)
         && scoreClass(observation.currentScore) === scoreClass(context.currentScore)
         && observation.dartsLeft === context.dartsLeft;
-      const exactState = (observation: PressureOutcomeObservation) =>
+      const exactState = (observation: DartIQOutcomeObservation) =>
         sameRule(observation)
         && observation.currentScore === context.currentScore
         && observation.dartsLeft === context.dartsLeft;
 
       const layers: Array<{
-        level: PressureOutcomeBackoffLevel;
-        observations: PressureOutcomeObservation[];
+        level: DartIQOutcomeBackoffLevel;
+        observations: DartIQOutcomeObservation[];
       }> = [
         { level: 'population_global', observations: population.filter(sameRule) },
         { level: 'population_score_class', observations: population.filter(sameClassAndDarts) },
@@ -281,7 +281,7 @@ export function createBehavioralOutcomeModel(
       ];
 
       let outcomes = createFallbackPrior(context);
-      let stateBackoffLevel: PressureOutcomeBackoffLevel = 'fallback';
+      let stateBackoffLevel: DartIQOutcomeBackoffLevel = 'fallback';
       let outcomeBackoffLevel: 'family' | 'exact' = 'family';
       let appliedSamples = 0;
       for (const layer of layers) {
@@ -312,7 +312,7 @@ export function createBehavioralOutcomeModel(
             ? 'population'
             : 'fallback';
 
-      const result: PressureOutcomeDistribution = {
+      const result: DartIQOutcomeDistribution = {
         outcomes,
         stateBackoffLevel,
         outcomeBackoffLevel,

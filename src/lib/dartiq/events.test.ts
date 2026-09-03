@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PressureDartEvent, PressureReplayState } from './pressureReplay';
-import { createPressureDartPacket } from './pressureEvents';
+import type { DartIQDartEvent, DartIQReplayState } from './replay';
+import { createDartIQDartPacket } from './events';
 
-function state(matchProbability: number, legProbability: number): PressureReplayState {
+function state(matchProbability: number, legProbability: number): DartIQReplayState {
   return {
     legId: 'leg-1',
     legNumber: 1,
@@ -33,7 +33,7 @@ function state(matchProbability: number, legProbability: number): PressureReplay
   };
 }
 
-function event(overrides: Partial<PressureDartEvent> = {}): PressureDartEvent {
+function event(overrides: Partial<DartIQDartEvent> = {}): DartIQDartEvent {
   const before = state(0.45, 0.55);
   const after = state(0.54, 0.7);
   return {
@@ -61,9 +61,9 @@ function event(overrides: Partial<PressureDartEvent> = {}): PressureDartEvent {
   };
 }
 
-describe('createPressureDartPacket', () => {
+describe('createDartIQDartPacket', () => {
   it('creates a compact notable packet for a large swing', () => {
-    const packet = createPressureDartPacket(event());
+    const packet = createDartIQDartPacket(event());
 
     expect(packet).toMatchObject({
       schemaVersion: 2,
@@ -85,7 +85,7 @@ describe('createPressureDartPacket', () => {
       after: state(0.46, 0.57),
     });
 
-    expect(createPressureDartPacket(quiet)).toMatchObject({ priority: 'silent', shouldSpeak: false });
+    expect(createDartIQDartPacket(quiet)).toMatchObject({ priority: 'silent', shouldSpeak: false });
   });
 
   it('gives a match-winning checkout terminal priority', () => {
@@ -102,13 +102,13 @@ describe('createPressureDartPacket', () => {
       legWinProbabilityAdded: { a: 0.45, b: -0.45 },
     });
 
-    const packet = createPressureDartPacket(checkout);
+    const packet = createDartIQDartPacket(checkout);
     expect(packet.priority).toBe('terminal');
     expect(packet.signals).toEqual(expect.arrayContaining(['match_win', 'checkout']));
   });
 
   it('recognizes a completed 180 visit as marquee commentary', () => {
-    const packet = createPressureDartPacket(event({
+    const packet = createDartIQDartPacket(event({
       dartIndex: 3,
       turnScoreAfter: 180,
       matchWinProbabilityAdded: { a: 0.02, b: -0.02 },
@@ -129,13 +129,13 @@ describe('createPressureDartPacket', () => {
     source.consequence = { leg: 0, match: 0 };
     source.after = state(0.45, 0.55);
 
-    const packet = createPressureDartPacket(source);
+    const packet = createDartIQDartPacket(source);
     expect(packet.priority).toBe('notable');
     expect(packet.signals).toContain('bogey_created');
   });
 
   it('announces a fair-ending checkout without prematurely declaring the leg', () => {
-    const packet = createPressureDartPacket(event({
+    const packet = createDartIQDartPacket(event({
       checkedOut: true,
       fairEndingBefore: {
         phase: 'normal', checkedOutPlayerIds: [], tiebreakRound: 0,
@@ -160,7 +160,7 @@ describe('createPressureDartPacket', () => {
     const after = state(1, 1);
     after.legsWon.a = 1;
     after.projections[0].legsWon = 1;
-    const packet = createPressureDartPacket(event({
+    const packet = createDartIQDartPacket(event({
       checkedOut: false,
       after,
       fairEndingBefore: {
@@ -189,7 +189,7 @@ describe('createPressureDartPacket', () => {
     after.legId = 'leg-2';
     after.legNumber = 2;
     after.scores.a = 301;
-    const packet = createPressureDartPacket(event({
+    const packet = createDartIQDartPacket(event({
       segment: 'S20',
       scored: 20,
       before: state(0.45, 0.5),

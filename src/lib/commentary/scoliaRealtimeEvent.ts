@@ -2,40 +2,35 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { TurnWithThrows } from '../match/types.ts';
 import {
-  createPressureDartPacket,
-  type PressureDartPacket,
-  type PressureEventPriority,
-} from '../../utils/pressureEvents.ts';
-import type {
-  PressurePlayerHistoryProfile,
-  PressurePopulationProfile,
-} from '../../utils/pressureProfiles.ts';
-import { reconstructPressureTimeline } from '../../utils/pressureReplay.ts';
+  createDartIQDartPacket,
+  type DartIQDartPacket,
+  type DartIQEventPriority,
+} from '../dartiq/events.ts';
+import { reconstructDartIQTimeline } from '../dartiq/replay.ts';
 import type { FinishRule } from '../../utils/x01.ts';
 import { isNikitaSpecial } from '../../utils/nikitaSpecial.ts';
 import {
   createBehavioralOutcomeModel,
-  normalizePressureOutcomeObservation,
-  type PressureOutcomeObservationRow,
-} from '../../utils/pressureOutcomeModel.ts';
+} from '../dartiq/model/outcomes.ts';
+import { loadFrozenDartIQEvidence } from '../server/dartiqEvidence';
 import {
   buildCommentaryNarrativeMemory,
   type CommentaryNarrativeMemory,
 } from './commentaryNarrative.ts';
 
-type CachedPressureContext = {
-  input: Parameters<typeof reconstructPressureTimeline>[0];
-  timeline: ReturnType<typeof reconstructPressureTimeline>;
+type CachedDartIQContext = {
+  input: Parameters<typeof reconstructDartIQTimeline>[0];
+  timeline: ReturnType<typeof reconstructDartIQTimeline>;
   legId: string;
   lastTurnNumber: number;
   lastDartIndex: number;
 };
 
-export class ScoliaPressureEventCache {
-  private readonly matches = new Map<string, CachedPressureContext>();
+export class ScoliaDartIQEventCache {
+  private readonly matches = new Map<string, CachedDartIQContext>();
   get(matchId: string) { return this.matches.get(matchId); }
   timeline(matchId: string) { return this.matches.get(matchId)?.timeline; }
-  set(matchId: string, value: CachedPressureContext) { this.matches.set(matchId, value); }
+  set(matchId: string, value: CachedDartIQContext) { this.matches.set(matchId, value); }
   delete(matchId: string) { this.matches.delete(matchId); }
   clear() { this.matches.clear(); }
 }
@@ -60,8 +55,8 @@ export type ScoliaRealtimeDartEvent = {
   checkedOut: boolean;
   matchWon: boolean;
   nikitaSpecial: boolean;
-  pressure?: PressureDartPacket;
-  priority: PressureEventPriority;
+  dartiq?: DartIQDartPacket;
+  priority: DartIQEventPriority;
   shouldSpeak: boolean;
   narrative?: CommentaryNarrativeMemory;
 };
@@ -75,10 +70,10 @@ export function classifyScoliaRealtimeDart(
   facts: ScoliaRealtimeDartFacts,
   options: { allowSpeech?: boolean } = {}
 ): ScoliaRealtimeDartEvent {
-  let priority: PressureEventPriority = 'silent';
+  let priority: DartIQEventPriority = 'silent';
   if (facts.matchWon) priority = 'terminal';
   else if (facts.nikitaSpecial) priority = 'marquee';
-  else if (facts.pressure) priority = facts.pressure.priority;
+  else if (facts.dartiq) priority = facts.dartiq.priority;
   else if (
     facts.checkedOut
     || (facts.dartIndex === 3 && facts.turnScore === 180)
@@ -106,7 +101,7 @@ export async function loadScoliaRealtimeDartEvent(
   supabase: SupabaseClient,
   matchId: string,
   throwId: string,
-  pressureCache?: ScoliaPressureEventCache
+  dartIQCache?: ScoliaDartIQEventCache
 ): Promise<ScoliaRealtimeDartEvent> {
   const { data: dart, error: dartError } = await supabase
     .from('throws')
@@ -149,7 +144,7 @@ export async function loadScoliaRealtimeDartEvent(
   if (matchError || !match) throw new Error(matchError?.message ?? 'Accepted Scolia match was not found');
   if (playerError || !player) throw new Error(playerError?.message ?? 'Accepted Scolia player was not found');
 
-  const pressure = await loadPressurePacket(
+  const dartiq = await loadDartIQPacket(
     supabase,
     matchId,
     throwId,
@@ -161,13 +156,13 @@ export async function loadScoliaRealtimeDartEvent(
       fairEnding: Boolean(match.fair_ending),
     },
     {
-      turn: turn as AcceptedPressureDart['turn'],
-      dart: dart as AcceptedPressureDart['dart'],
-      leg: leg as AcceptedPressureDart['leg'],
+      turn: turn as AcceptedDartIQDart['turn'],
+      dart: dart as AcceptedDartIQDart['dart'],
+      leg: leg as AcceptedDartIQDart['leg'],
     },
-    pressureCache
+    dartIQCache
   );
-  const narrativeTimeline = pressureCache?.timeline(matchId);
+  const narrativeTimeline = dartIQCache?.timeline(matchId);
   const narrative = narrativeTimeline
     ? buildCommentaryNarrativeMemory({
         events: narrativeTimeline,
@@ -198,22 +193,17 @@ export async function loadScoliaRealtimeDartEvent(
         scored: visitDart.scored,
       })),
     busted: turn.busted as boolean,
-    checkedOut: pressure?.checkedOut ?? leg.winner_player_id === turn.player_id,
+    checkedOut: dartiq?.checkedOut ?? leg.winner_player_id === turn.player_id,
     matchWon: match.winner_player_id === turn.player_id,
     nikitaSpecial: isNikitaSpecial(
       ((turn as { throws?: Array<{ scored: number }> }).throws ?? [])
     ),
-    pressure,
+    dartiq,
     narrative,
   });
 }
 
-function numeric(value: unknown) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-type AcceptedPressureDart = {
+type AcceptedDartIQDart = {
   turn: {
     id: string; leg_id: string; player_id: string; turn_number: number;
     total_scored: number; busted: boolean; tiebreak_round: number | null;
@@ -225,34 +215,19 @@ type AcceptedPressureDart = {
   };
 };
 
-function normalizeProfileBase(row: Record<string, unknown>) {
-  return {
-    finishRule: row.finish_rule as FinishRule,
-    visits: numeric(row.visits),
-    dartsThrown: numeric(row.darts_thrown),
-    scoringPoints: numeric(row.scoring_points),
-    threeDartAverage: numeric(row.three_dart_average),
-    busts: numeric(row.busts),
-    bustRate: numeric(row.bust_rate),
-    checkoutOpportunities: numeric(row.checkout_opportunities),
-    checkouts: numeric(row.checkouts),
-    checkoutRate: numeric(row.checkout_rate),
-  };
-}
-
-async function loadPressurePacket(
+async function loadDartIQPacket(
   supabase: SupabaseClient,
   matchId: string,
   throwId: string,
   currentLeg: { id: string },
   config: { startScore: number; finishRule: FinishRule; legsToWin: number; fairEnding: boolean },
-  accepted: AcceptedPressureDart,
-  pressureCache?: ScoliaPressureEventCache
-): Promise<PressureDartPacket | undefined> {
-  const cached = pressureCache?.get(matchId);
+  accepted: AcceptedDartIQDart,
+  dartIQCache?: ScoliaDartIQEventCache
+): Promise<DartIQDartPacket | undefined> {
+  const cached = dartIQCache?.get(matchId);
   if (cached) {
     const existing = cached.timeline.find((event) => event.dartId === throwId);
-    if (existing) return createPressureDartPacket(existing);
+    if (existing) return createDartIQDartPacket(existing);
     const followsCache = cached.legId === accepted.leg.id && (
       (accepted.turn.turn_number === cached.lastTurnNumber + 1 && accepted.dart.dart_index === 1)
       || (accepted.turn.turn_number === cached.lastTurnNumber
@@ -271,16 +246,16 @@ async function loadPressurePacket(
       turn.total_scored = accepted.turn.total_scored;
       turn.busted = accepted.turn.busted;
       if (!turn.throws.some((dart) => dart.id === accepted.dart.id)) turn.throws.push(accepted.dart);
-      cached.timeline = reconstructPressureTimeline(cached.input, { cachedPrefix: cached.timeline });
+      cached.timeline = reconstructDartIQTimeline(cached.input, { cachedPrefix: cached.timeline });
       cached.lastTurnNumber = accepted.turn.turn_number;
       cached.lastDartIndex = accepted.dart.dart_index;
       const event = cached.timeline.find((entry) => entry.dartId === throwId);
-      return event ? createPressureDartPacket(event) : undefined;
+      return event ? createDartIQDartPacket(event) : undefined;
     }
-    pressureCache?.delete(matchId);
+    dartIQCache?.delete(matchId);
   }
 
-  const [playersResult, legsResult, populationResult, populationOutcomesResult] = await Promise.all([
+  const [playersResult, legsResult, frozenEvidence] = await Promise.all([
     supabase
       .from('match_players')
       .select('player_id, play_order')
@@ -291,38 +266,13 @@ async function loadPressurePacket(
       .select('id, match_id, leg_number, starting_player_id, winner_player_id')
       .eq('match_id', matchId)
       .order('leg_number'),
-    supabase
-      .from('pressure_population_profiles')
-      .select('*')
-      .eq('finish_rule', config.finishRule)
-      .maybeSingle(),
-    supabase
-      .from('pressure_population_outcomes')
-      .select('*')
-      .eq('finish_rule', config.finishRule),
+    loadFrozenDartIQEvidence(supabase, matchId),
   ]);
   const error = playersResult.error
-    ?? legsResult.error
-    ?? populationResult.error
-    ?? populationOutcomesResult.error;
+    ?? legsResult.error;
   if (error) throw new Error(error.message);
 
   const playerIds = (playersResult.data ?? []).map((row) => row.player_id as string);
-  const [playerProfilesResult, playerOutcomesResult] = await Promise.all([
-    supabase
-      .from('player_pressure_profiles')
-      .select('*')
-      .eq('finish_rule', config.finishRule)
-      .in('player_id', playerIds),
-    supabase
-      .from('player_pressure_outcomes')
-      .select('*')
-      .eq('finish_rule', config.finishRule)
-      .in('player_id', playerIds),
-  ]);
-  if (playerProfilesResult.error) throw new Error(playerProfilesResult.error.message);
-  if (playerOutcomesResult.error) throw new Error(playerOutcomesResult.error.message);
-
   const playerIdSet = new Set(playerIds);
   const allLegs = (legsResult.data ?? []) as Array<{
     id: string;
@@ -348,32 +298,18 @@ async function loadPressurePacket(
     (turnsByLeg[turn.leg_id] ??= []).push(turn);
   }
   const playerProfiles = Object.fromEntries(
-    ((playerProfilesResult.data ?? []) as Record<string, unknown>[])
-      .filter((row) => playerIdSet.has(row.player_id as string))
-      .map((row) => [
-        row.player_id as string,
-        {
-          playerId: row.player_id as string,
-          matchesPlayed: numeric(row.matches_played),
-          ...normalizeProfileBase(row),
-        } satisfies PressurePlayerHistoryProfile,
-      ])
+    (frozenEvidence?.playerProfiles ?? [])
+      .filter((profile) => playerIdSet.has(profile.playerId))
+      .map((profile) => [profile.playerId, profile])
   );
-  const populationProfile = populationResult.data
-    ? {
-        matchesPlayed: numeric(populationResult.data.player_match_samples),
-        ...normalizeProfileBase(populationResult.data as Record<string, unknown>),
-      } satisfies PressurePopulationProfile
-    : undefined;
-  const populationOutcomes = (
-    (populationOutcomesResult.data ?? []) as PressureOutcomeObservationRow[]
-  ).map(normalizePressureOutcomeObservation);
-  const personalOutcomes = new Map<string, ReturnType<typeof normalizePressureOutcomeObservation>[]>();
-  for (const row of (playerOutcomesResult.data ?? []) as PressureOutcomeObservationRow[]) {
-    if (!row.player_id || !playerIdSet.has(row.player_id)) continue;
-    const existing = personalOutcomes.get(row.player_id) ?? [];
-    existing.push(normalizePressureOutcomeObservation(row));
-    personalOutcomes.set(row.player_id, existing);
+  const populationProfile = frozenEvidence?.populationProfile;
+  const populationOutcomes = frozenEvidence?.populationOutcomes ?? [];
+  const personalOutcomes = new Map<string, typeof populationOutcomes>();
+  for (const outcome of frozenEvidence?.playerOutcomes ?? []) {
+    if (!playerIdSet.has(outcome.playerId)) continue;
+    const existing = personalOutcomes.get(outcome.playerId) ?? [];
+    existing.push(outcome);
+    personalOutcomes.set(outcome.playerId, existing);
   }
   const outcomeModels = Object.fromEntries(playerIds.map((playerId) => [
     playerId,
@@ -383,7 +319,7 @@ async function loadPressurePacket(
     }),
   ]));
 
-  const input: Parameters<typeof reconstructPressureTimeline>[0] = {
+  const input: Parameters<typeof reconstructDartIQTimeline>[0] = {
     playerIds,
     legs: allLegs,
     turnsByLeg,
@@ -396,18 +332,18 @@ async function loadPressurePacket(
     outcomeModels,
     fairEnding: config.fairEnding,
   };
-  const timeline = reconstructPressureTimeline(input);
+  const timeline = reconstructDartIQTimeline(input);
   const latestEvent = timeline.at(-1);
   const latestTurn = latestEvent
     ? (input.turnsByLeg[accepted.leg.id] ?? []).find((turn) => turn.id === latestEvent.turnId)
     : undefined;
-  pressureCache?.set(matchId, {
+  dartIQCache?.set(matchId, {
     input,
     timeline,
     legId: accepted.leg.id,
     lastTurnNumber: latestTurn?.turn_number ?? accepted.turn.turn_number,
     lastDartIndex: latestEvent?.dartIndex ?? accepted.dart.dart_index,
   });
-  const pressureEvent = timeline.find((event) => event.dartId === throwId);
-  return pressureEvent ? createPressureDartPacket(pressureEvent) : undefined;
+  const dartIQEvent = timeline.find((event) => event.dartId === throwId);
+  return dartIQEvent ? createDartIQDartPacket(dartIQEvent) : undefined;
 }

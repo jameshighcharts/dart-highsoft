@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  calculatePressureProjection,
+  calculateDartIQProjection,
   estimateExpectedDartsRemaining,
-} from './pressureEngine';
+} from './projection';
 
 const player = (id: string, scoreRemaining = 501, legsWon = 0, average = 45, dartsThrown = 0) => ({
   id,
@@ -13,9 +13,9 @@ const player = (id: string, scoreRemaining = 501, legsWon = 0, average = 45, dar
   dartsThrown,
 });
 
-describe('pressureEngine', () => {
+describe('DartIQ projection', () => {
   it('gives the on-throw player a modest opening advantage', () => {
-    const result = calculatePressureProjection({
+    const result = calculateDartIQProjection({
       players: [player('a'), player('b')],
       playOrder: ['a', 'b'],
       currentPlayerId: 'a',
@@ -30,7 +30,7 @@ describe('pressureEngine', () => {
   });
 
   it('strongly favors a player on a finish over an opponent far behind', () => {
-    const result = calculatePressureProjection({
+    const result = calculateDartIQProjection({
       players: [player('a', 40, 0, 55, 30), player('b', 301, 0, 55, 30)],
       playOrder: ['a', 'b'],
       currentPlayerId: 'a',
@@ -44,7 +44,7 @@ describe('pressureEngine', () => {
   });
 
   it('carries a lead in legs into the match projection', () => {
-    const result = calculatePressureProjection({
+    const result = calculateDartIQProjection({
       players: [player('a', 501, 2), player('b', 501, 0)],
       playOrder: ['b', 'a'],
       currentPlayerId: 'b',
@@ -57,7 +57,7 @@ describe('pressureEngine', () => {
   });
 
   it('supports multiplayer races and keeps probabilities normalized', () => {
-    const result = calculatePressureProjection({
+    const result = calculateDartIQProjection({
       players: [player('a', 120), player('b', 180), player('c', 240)],
       playOrder: ['a', 'b', 'c'],
       currentPlayerId: 'a',
@@ -72,7 +72,7 @@ describe('pressureEngine', () => {
   });
 
   it('accounts for throw order and match position across four players', () => {
-    const result = calculatePressureProjection({
+    const result = calculateDartIQProjection({
       players: [
         player('a', 210, 1, 52, 30),
         player('b', 170, 0, 48, 30),
@@ -95,7 +95,7 @@ describe('pressureEngine', () => {
     const players = Array.from({ length: 16 }, (_, index) =>
       player(String(index), 501 - index * 20, index === 0 ? 1 : 0, 45 + index, 24)
     );
-    const result = calculatePressureProjection({
+    const result = calculateDartIQProjection({
       players,
       playOrder: players.map((entry) => entry.id),
       currentPlayerId: '0',
@@ -110,7 +110,7 @@ describe('pressureEngine', () => {
   });
 
   it('locks the result to a completed match winner', () => {
-    const result = calculatePressureProjection({
+    const result = calculateDartIQProjection({
       players: [player('a', 0, 1), player('b', 40, 0)],
       playOrder: ['a', 'b'],
       currentPlayerId: null,
@@ -131,7 +131,7 @@ describe('pressureEngine', () => {
   });
 
   it('makes throw advantage state-sensitive instead of scale-free', () => {
-    const opening = calculatePressureProjection({
+    const opening = calculateDartIQProjection({
       players: [player('a'), player('b')],
       playOrder: ['a', 'b'],
       currentPlayerId: 'a',
@@ -139,7 +139,7 @@ describe('pressureEngine', () => {
       legsToWin: 3,
       finishRule: 'double_out',
     });
-    const atTheDouble = calculatePressureProjection({
+    const atTheDouble = calculateDartIQProjection({
       players: [player('a', 40, 2, 55, 30), player('b', 40, 1, 55, 30)],
       playOrder: ['a', 'b'],
       currentPlayerId: 'a',
@@ -156,7 +156,7 @@ describe('pressureEngine', () => {
     const players = Array.from({ length: 20 }, (_, index) =>
       player(String(index), index === 19 ? 40 : 501 - index * 10, 0, 45 + index, 24)
     );
-    const projection = calculatePressureProjection({
+    const projection = calculateDartIQProjection({
       players,
       playOrder: players.map((entry) => entry.id),
       currentPlayerId: '0',
@@ -181,7 +181,7 @@ describe('pressureEngine', () => {
         checkoutRate: 0.3,
       },
     };
-    const result = calculatePressureProjection({
+    const result = calculateDartIQProjection({
       players: [experienced, player('b')],
       playOrder: ['a', 'b'],
       currentPlayerId: 'a',
@@ -197,7 +197,7 @@ describe('pressureEngine', () => {
   });
 
   it('keeps fair-ending checkout-waiting probabilities provisional and normalized', () => {
-    const result = calculatePressureProjection({
+    const result = calculateDartIQProjection({
       players: [player('a', 0, 0, 55, 30), player('b', 40, 0, 55, 30)],
       playOrder: ['a', 'b'],
       currentPlayerId: 'b',
@@ -226,7 +226,7 @@ describe('pressureEngine', () => {
     const players = Array.from({ length: 12 }, (_, index) =>
       player(String(index), index < 3 ? 0 : 40, 0, 42 + index, 30)
     );
-    const result = calculatePressureProjection({
+    const result = calculateDartIQProjection({
       players,
       playOrder: players.map((entry) => entry.id),
       currentPlayerId: '1',

@@ -1,39 +1,64 @@
-import type { LegRecord, ThrowRecord, TurnWithThrows } from '../lib/match/types.ts';
-import { parseSegmentLabel } from './legScoreCalculator.ts';
+import type { LegRecord, ThrowRecord, TurnWithThrows } from '@/lib/match/types';
+import { parseSegmentLabel } from '@/utils/legScoreCalculator';
 import {
   evaluateDartSetup,
   hasCheckoutRoute,
-  type PressureCheckoutAssessment,
-} from './pressureCheckout.ts';
+  type DartIQCheckoutAssessment,
+} from './checkout';
 import {
-  calculatePressureProjection,
-  type PressureFairEndingProjectionInput,
-  type PressurePlayerProjection,
-} from './pressureEngine.ts';
+  calculateDartIQProjection,
+  type DartIQFairEndingProjectionInput,
+  type DartIQPlayerProjection,
+} from './projection';
 import {
   computeFairEndingState,
   getNextFairEndingPlayer,
   getPendingFairEndingPlayerIds,
   type FairEndingState,
   type FairEndingTurnInput,
-} from './fairEnding.ts';
+} from '@/utils/fairEnding';
 import type {
-  PressurePlayerHistoryProfile,
-  PressurePopulationProfile,
-} from './pressureProfiles.ts';
+  DartIQPlayerHistoryProfile,
+  DartIQPopulationProfile,
+} from './evidence';
 import {
-  PRESSURE_OUTCOME_MODEL_VERSION,
-  type PressureOutcomeModel,
-} from './pressureOutcomeModel.ts';
-import { applyThrow, type FinishRule } from './x01.ts';
-import {
-  calculateProbabilityVectorConsequence,
-  type PressureConsequence,
-} from './pressureSignificance.ts';
+  DARTIQ_OUTCOME_MODEL_VERSION,
+  type DartIQOutcomeModel,
+} from './model/outcomes';
+import { applyThrow, type FinishRule } from '@/utils/x01';
+
+export type DartIQProbabilityPoint = {
+  id: string;
+  legWinProbability: number;
+  matchWinProbability: number;
+};
+
+export type DartIQConsequence = {
+  leg: number;
+  match: number;
+};
+
+export function calculateProbabilityVectorConsequence(
+  before: DartIQProbabilityPoint[],
+  after: DartIQProbabilityPoint[]
+): DartIQConsequence {
+  const beforeById = new Map(before.map((player) => [player.id, player]));
+  const afterById = new Map(after.map((player) => [player.id, player]));
+  const playerIds = new Set([...beforeById.keys(), ...afterById.keys()]);
+  let leg = 0;
+  let match = 0;
+  for (const playerId of playerIds) {
+    const previous = beforeById.get(playerId);
+    const next = afterById.get(playerId);
+    leg += Math.abs((next?.legWinProbability ?? 0) - (previous?.legWinProbability ?? 0));
+    match += Math.abs((next?.matchWinProbability ?? 0) - (previous?.matchWinProbability ?? 0));
+  }
+  return { leg: leg / 2, match: match / 2 };
+}
 
 type ReplayLeg = Pick<LegRecord, 'id' | 'match_id' | 'leg_number' | 'starting_player_id' | 'winner_player_id'>;
 
-export type PressureReplayInput = {
+export type DartIQReplayInput = {
   playerIds: string[];
   legs: ReplayLeg[];
   turnsByLeg: Record<string, TurnWithThrows[]>;
@@ -41,35 +66,35 @@ export type PressureReplayInput = {
   finishRule: FinishRule;
   legsToWin: number;
   initialLegsWon?: Record<string, number>;
-  playerProfiles?: Record<string, PressurePlayerHistoryProfile>;
-  populationProfile?: PressurePopulationProfile;
-  outcomeModels?: Record<string, PressureOutcomeModel>;
+  playerProfiles?: Record<string, DartIQPlayerHistoryProfile>;
+  populationProfile?: DartIQPopulationProfile;
+  outcomeModels?: Record<string, DartIQOutcomeModel>;
   fairEnding?: boolean;
 };
 
-export type PressureReplayOptions = {
+export type DartIQReplayOptions = {
   /** Previously verified prefix. Its state transitions are reused while only new darts are projected. */
-  cachedPrefix?: PressureDartEvent[];
+  cachedPrefix?: DartIQDartEvent[];
 };
 
-export type PressureFairEndingReplayState = PressureFairEndingProjectionInput & {
+export type DartIQFairEndingReplayState = DartIQFairEndingProjectionInput & {
   approximationMode: 'standard' | 'fair-ending-weighted';
 };
 
-export type PressureReplayState = {
+export type DartIQReplayState = {
   legId: string;
   legNumber: number;
   currentPlayerId: string | null;
   dartsRemainingInTurn: number;
   scores: Record<string, number>;
   legsWon: Record<string, number>;
-  projections: PressurePlayerProjection[];
-  fairEnding: PressureFairEndingReplayState | null;
+  projections: DartIQPlayerProjection[];
+  fairEnding: DartIQFairEndingReplayState | null;
 };
 
-export type PressureDartEvent = {
+export type DartIQDartEvent = {
   eventId: string;
-  engineVersion: typeof PRESSURE_OUTCOME_MODEL_VERSION;
+  engineVersion: typeof DARTIQ_OUTCOME_MODEL_VERSION;
   matchId: string;
   sequence: number;
   legId: string;
@@ -88,12 +113,12 @@ export type PressureDartEvent = {
     checkoutVisitOpportunity: boolean;
     matchCheckoutOpportunity: boolean;
   };
-  consequence: PressureConsequence;
-  checkout: PressureCheckoutAssessment;
-  fairEndingBefore: PressureFairEndingReplayState | null;
-  fairEndingAfter: PressureFairEndingReplayState | null;
-  before: PressureReplayState;
-  after: PressureReplayState;
+  consequence: DartIQConsequence;
+  checkout: DartIQCheckoutAssessment;
+  fairEndingBefore: DartIQFairEndingReplayState | null;
+  fairEndingAfter: DartIQFairEndingReplayState | null;
+  before: DartIQReplayState;
+  after: DartIQReplayState;
   matchWinProbabilityAdded: Record<string, number>;
   legWinProbabilityAdded: Record<string, number>;
 };
@@ -120,7 +145,7 @@ function createNumberRecord(playerIds: string[], initialValue: number) {
   return Object.fromEntries(playerIds.map((playerId) => [playerId, initialValue]));
 }
 
-function tiebreakCheckoutAssessment(): PressureCheckoutAssessment {
+function tiebreakCheckoutAssessment(): DartIQCheckoutAssessment {
   return {
     checkoutProbabilityBefore: 0,
     checkoutProbabilityAfter: 0,
@@ -135,7 +160,7 @@ function tiebreakCheckoutAssessment(): PressureCheckoutAssessment {
   };
 }
 
-function flattenDarts(input: PressureReplayInput): FlatDart[] {
+function flattenDarts(input: DartIQReplayInput): FlatDart[] {
   const events: FlatDart[] = [];
   const sortedLegs = input.legs.slice().sort((a, b) => a.leg_number - b.leg_number);
 
@@ -154,7 +179,7 @@ function flattenDarts(input: PressureReplayInput): FlatDart[] {
   return events;
 }
 
-function matchesCachedDart(flat: FlatDart | undefined, cached: PressureDartEvent) {
+function matchesCachedDart(flat: FlatDart | undefined, cached: DartIQDartEvent) {
   return flat?.dart.id === cached.dartId
     && flat.turn.id === cached.turnId
     && flat.dart.dart_index === cached.dartIndex
@@ -163,14 +188,14 @@ function matchesCachedDart(flat: FlatDart | undefined, cached: PressureDartEvent
 }
 
 /**
- * Reconstructs the full pressure timeline in a single chronological pass.
+ * Reconstructs the full DartIQ timeline in a single chronological pass.
  * Score and form accumulators are mutated internally, while every returned
  * state is copied so consumers can safely retain or serialize the timeline.
  */
-export function reconstructPressureTimeline(
-  input: PressureReplayInput,
-  options: PressureReplayOptions = {}
-): PressureDartEvent[] {
+export function reconstructDartIQTimeline(
+  input: DartIQReplayInput,
+  options: DartIQReplayOptions = {}
+): DartIQDartEvent[] {
   if (input.playerIds.length === 0 || input.legs.length === 0) return [];
   const orderedLegs = input.legs.slice().sort((a, b) => a.leg_number - b.leg_number);
   const darts = flattenDarts({ ...input, legs: orderedLegs });
@@ -193,7 +218,7 @@ export function reconstructPressureTimeline(
   function buildFairEndingContext(
     leg: ReplayLeg,
     turns: ReplayTurnProgress[]
-  ): PressureFairEndingProjectionInput | undefined {
+  ): DartIQFairEndingProjectionInput | undefined {
     if (!input.fairEnding) return undefined;
     const playOrder = rotatePlayerOrder(input.playerIds, leg.starting_player_id);
     const orderPlayers = playOrder.map((id) => ({ id }));
@@ -216,11 +241,11 @@ export function reconstructPressureTimeline(
     leg: ReplayLeg,
     currentPlayerId: string | null,
     dartsRemainingInTurn: number,
-    fairEnding: PressureFairEndingProjectionInput | undefined,
+    fairEnding: DartIQFairEndingProjectionInput | undefined,
     currentVisitStartScore?: number
-  ): PressureReplayState {
+  ): DartIQReplayState {
     const playOrder = rotatePlayerOrder(input.playerIds, leg.starting_player_id);
-    const projections = calculatePressureProjection({
+    const projections = calculateDartIQProjection({
       players: input.playerIds.map((playerId) => ({
         id: playerId,
         scoreRemaining: scores[playerId],
@@ -268,9 +293,9 @@ export function reconstructPressureTimeline(
   ) ? (options.cachedPrefix ?? []) : [];
   if (reusablePrefix.length === darts.length) return reusablePrefix;
 
-  const timeline: PressureDartEvent[] = [...reusablePrefix];
-  let currentFairEnding: PressureFairEndingProjectionInput | undefined;
-  let before: PressureReplayState;
+  const timeline: DartIQDartEvent[] = [...reusablePrefix];
+  let currentFairEnding: DartIQFairEndingProjectionInput | undefined;
+  let before: DartIQReplayState;
   if (reusablePrefix.length > 0) {
     const lastCached = reusablePrefix.at(-1)!;
     const lastFlat = darts[reusablePrefix.length - 1];
@@ -480,8 +505,8 @@ export function reconstructPressureTimeline(
     );
 
     timeline.push({
-      eventId: `${PRESSURE_OUTCOME_MODEL_VERSION}:${event.leg.match_id}:${event.dart.id}`,
-      engineVersion: PRESSURE_OUTCOME_MODEL_VERSION,
+      eventId: `${DARTIQ_OUTCOME_MODEL_VERSION}:${event.leg.match_id}:${event.dart.id}`,
+      engineVersion: DARTIQ_OUTCOME_MODEL_VERSION,
       matchId: event.leg.match_id,
       sequence: index + 1,
       legId: event.leg.id,

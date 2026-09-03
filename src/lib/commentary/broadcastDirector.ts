@@ -82,7 +82,7 @@ function withMonotonicPhase(previous: CommentaryStoryArc, next: CommentaryStoryA
 }
 
 /**
- * Stateful listener-local producer. Pressure proposes stories; this class
+ * Stateful listener-local producer. DartIQ proposes stories; this class
  * protects continuity, keeps reserves, and owns callback/payoff obligations.
  */
 export class BroadcastDirector {

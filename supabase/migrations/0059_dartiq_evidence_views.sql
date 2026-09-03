@@ -1,4 +1,4 @@
--- Final historical Pressure Engine profile views for this unreleased feature.
+-- Historical DartIQ evidence views for this unreleased feature.
 -- Live match evidence is frozen at match creation; these views are the source
 -- aggregates used to build that immutable snapshot.
 
@@ -6,7 +6,7 @@
 -- authoritative checkout. This supports fair-ending legs and older imported
 -- matches whose aggregate turn score cannot be perfectly reconstructed.
 
-create or replace view public.player_pressure_profiles as
+create or replace view public.dartiq_player_profiles as
 with eligible_turns as (
   select
     tu.id,
@@ -103,9 +103,9 @@ select
 from classified_visits cv
 group by cv.player_id, cv.finish;
 
-alter view public.player_pressure_profiles set (security_invoker = true);
+alter view public.dartiq_player_profiles set (security_invoker = true);
 
-create or replace view public.pressure_population_profiles as
+create or replace view public.dartiq_population_profiles as
 select
   ppp.finish_rule,
   sum(ppp.matches_played)::bigint as player_match_samples,
@@ -124,17 +124,19 @@ select
     sum(ppp.checkouts)::numeric / nullif(sum(ppp.checkout_opportunities), 0),
     4
   ) as checkout_rate
-from public.player_pressure_profiles ppp
+from public.dartiq_player_profiles ppp
 group by ppp.finish_rule;
 
-alter view public.pressure_population_profiles set (security_invoker = true);
+alter view public.dartiq_population_profiles set (security_invoker = true);
 
-grant select on public.player_pressure_profiles to anon, authenticated, service_role;
-grant select on public.pressure_population_profiles to anon, authenticated, service_role;
+revoke all on public.dartiq_player_profiles from anon, authenticated;
+revoke all on public.dartiq_population_profiles from anon, authenticated;
+grant select on public.dartiq_player_profiles to service_role;
+grant select on public.dartiq_population_profiles to service_role;
 
 -- Observable per-dart outcomes for the behavioral transition model. These are
 -- aggregate counts, not inferred targets or raw historical throw rows.
-create or replace view public.player_pressure_outcomes as
+create or replace view public.dartiq_player_outcomes as
 with eligible_turns as (
   select
     tu.id,
@@ -205,9 +207,9 @@ group by
   ds.score_delta,
   ds.is_double;
 
-alter view public.player_pressure_outcomes set (security_invoker = true);
+alter view public.dartiq_player_outcomes set (security_invoker = true);
 
-create or replace view public.pressure_population_outcomes as
+create or replace view public.dartiq_population_outcomes as
 select
   ppo.finish_rule,
   ppo.current_score,
@@ -215,7 +217,7 @@ select
   ppo.score_delta,
   ppo.is_double,
   sum(ppo.outcome_count)::bigint as outcome_count
-from public.player_pressure_outcomes ppo
+from public.dartiq_player_outcomes ppo
 group by
   ppo.finish_rule,
   ppo.current_score,
@@ -223,7 +225,9 @@ group by
   ppo.score_delta,
   ppo.is_double;
 
-alter view public.pressure_population_outcomes set (security_invoker = true);
+alter view public.dartiq_population_outcomes set (security_invoker = true);
 
-grant select on public.player_pressure_outcomes to anon, authenticated, service_role;
-grant select on public.pressure_population_outcomes to anon, authenticated, service_role;
+revoke all on public.dartiq_player_outcomes from anon, authenticated;
+revoke all on public.dartiq_population_outcomes from anon, authenticated;
+grant select on public.dartiq_player_outcomes to service_role;
+grant select on public.dartiq_population_outcomes to service_role;

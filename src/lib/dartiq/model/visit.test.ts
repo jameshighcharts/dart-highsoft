@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import type {
-  PressureDartOutcome,
-  PressureOutcomeModel,
-} from './pressureOutcomeModel';
-import { solvePressureVisit } from './pressureVisitKernel';
+  DartIQDartOutcome,
+  DartIQOutcomeModel,
+} from './outcomes';
+import { solveDartIQVisit } from './visit';
 
-function fixedModel(outcomes: PressureDartOutcome[]): PressureOutcomeModel {
+function fixedModel(outcomes: DartIQDartOutcome[]): DartIQOutcomeModel {
   return {
     version: 'behavioral-v1',
     distribution: () => ({
@@ -19,9 +19,9 @@ function fixedModel(outcomes: PressureDartOutcome[]): PressureOutcomeModel {
   };
 }
 
-describe('solvePressureVisit', () => {
+describe('solveDartIQVisit', () => {
   it('matches a closed-form one-dart finish distribution', () => {
-    const result = solvePressureVisit(fixedModel([
+    const result = solveDartIQVisit(fixedModel([
       { scoreDelta: 40, isDouble: true, probability: 0.25 },
       { scoreDelta: 20, isDouble: false, probability: 0.75 },
     ]), {
@@ -35,7 +35,7 @@ describe('solvePressureVisit', () => {
   });
 
   it('routes every double-out bust back to the visit-start score', () => {
-    const result = solvePressureVisit(fixedModel([
+    const result = solveDartIQVisit(fixedModel([
       { scoreDelta: 2, isDouble: false, probability: 0.4 },
       { scoreDelta: 1, isDouble: false, probability: 0.6 },
     ]), {
@@ -49,7 +49,7 @@ describe('solvePressureVisit', () => {
   });
 
   it('keeps the irreducible partial-visit start score through recursion', () => {
-    const result = solvePressureVisit(fixedModel([
+    const result = solveDartIQVisit(fixedModel([
       { scoreDelta: 20, isDouble: false, probability: 0.5 },
       { scoreDelta: 40, isDouble: true, probability: 0.5 },
     ]), {
@@ -65,7 +65,7 @@ describe('solvePressureVisit', () => {
   });
 
   it('allows any exact zero under single-out', () => {
-    const result = solvePressureVisit(fixedModel([
+    const result = solveDartIQVisit(fixedModel([
       { scoreDelta: 20, isDouble: false, probability: 1 },
     ]), {
       visitStartScore: 20,

@@ -55,17 +55,27 @@ describe('loadRealtimeCommentarySnapshot', () => {
         total_scored: 40, busted: false, tiebreak_round: null,
         throws: [{ id: 'dart-a', turn_id: 'turn-a', dart_index: 1, segment: 'D20', scored: 40 }],
       }],
-      player_pressure_profiles: [{
-        player_id: 'a', finish_rule: 'double_out', matches_played: 8, visits: 80,
-        darts_thrown: 240, scoring_points: 4800, three_dart_average: 60,
-        busts: 4, bust_rate: 0.05, checkout_opportunities: 30, checkouts: 9,
-        checkout_rate: 0.3,
+      dartiq_player_evidence: [{
+        match_id: 'match', player_id: 'a', raw_evidence: {
+          profile: {
+            player_id: 'a', finish_rule: 'double_out', matches_played: 8, visits: 80,
+            darts_thrown: 240, scoring_points: 4800, three_dart_average: 60,
+            busts: 4, bust_rate: 0.05, checkout_opportunities: 30, checkouts: 9,
+            checkout_rate: 0.3,
+          },
+          outcomes: [],
+        },
       }],
-      pressure_population_profiles: [{
-        finish_rule: 'double_out', player_match_samples: 30, visits: 300,
-        darts_thrown: 900, scoring_points: 13500, three_dart_average: 45,
-        busts: 15, bust_rate: 0.05, checkout_opportunities: 100, checkouts: 12,
-        checkout_rate: 0.12,
+      dartiq_population_evidence: [{
+        match_id: 'match', raw_evidence: {
+          profile: {
+            finish_rule: 'double_out', player_match_samples: 30, visits: 300,
+            darts_thrown: 900, scoring_points: 13500, three_dart_average: 45,
+            busts: 15, bust_rate: 0.05, checkout_opportunities: 100, checkouts: 12,
+            checkout_rate: 0.12,
+          },
+          outcomes: [],
+        },
       }],
       matches: [{ id: 'previous', winner_player_id: 'b' }],
     }), match);

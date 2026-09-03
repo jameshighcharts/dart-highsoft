@@ -1,6 +1,6 @@
-import type { PressureDartEvent, PressureReplayState } from '@/utils/pressureReplay';
+import type { DartIQDartEvent, DartIQReplayState } from '@/lib/dartiq/replay';
 
-export type PressureSwing = {
+export type DartIQSwing = {
   sequence: number;
   legId: string;
   legNumber: number;
@@ -18,7 +18,7 @@ export type PressureSwing = {
   matchConsequence: number;
 };
 
-export type PressureLeadChange = {
+export type DartIQLeadChange = {
   sequence: number;
   legId: string;
   legNumber: number;
@@ -27,7 +27,7 @@ export type PressureLeadChange = {
   newLeaderId: string;
 };
 
-export type PressureLegStory = {
+export type DartIQLegStory = {
   legId: string;
   legNumber: number;
   playerId: string;
@@ -36,7 +36,7 @@ export type PressureLegStory = {
   sequence: number;
 };
 
-export type PressureCommentaryMoment = {
+export type DartIQCommentaryMoment = {
   kind:
     | 'lead_change'
     | 'surge'
@@ -46,26 +46,26 @@ export type PressureCommentaryMoment = {
     | 'great_setup'
     | 'bogey_error';
   importance: number;
-  swing: PressureSwing;
+  swing: DartIQSwing;
 };
 
-export type PressureInsightSummary = {
-  biggestPositiveSwing: PressureSwing | null;
-  biggestNegativeSwing: PressureSwing | null;
-  turningPoint: PressureSwing | null;
-  leadChanges: PressureLeadChange[];
-  stolenLegs: PressureLegStory[];
-  thrownAwayLegs: PressureLegStory[];
-  commentaryMoments: PressureCommentaryMoment[];
+export type DartIQInsightSummary = {
+  biggestPositiveSwing: DartIQSwing | null;
+  biggestNegativeSwing: DartIQSwing | null;
+  turningPoint: DartIQSwing | null;
+  leadChanges: DartIQLeadChange[];
+  stolenLegs: DartIQLegStory[];
+  thrownAwayLegs: DartIQLegStory[];
+  commentaryMoments: DartIQCommentaryMoment[];
 };
 
-export type PressureInsightOptions = {
+export type DartIQInsightOptions = {
   stolenLegThreshold?: number;
   thrownAwayLegThreshold?: number;
   meaningfulSwingThreshold?: number;
 };
 
-export type PressureTurnSummary = {
+export type DartIQTurnSummary = {
   playerId: string;
   turnId: string;
   matchProbabilityBefore: number;
@@ -83,16 +83,16 @@ export type PressureTurnSummary = {
   checkedOut: boolean;
   busted: boolean;
   setupQuality: number;
-  setupGrade: PressureDartEvent['checkout']['setupGrade'];
+  setupGrade: DartIQDartEvent['checkout']['setupGrade'];
   nextVisitCheckoutProbability: number;
   createdBogey: boolean;
 };
 
-function projectionFor(state: PressureReplayState, playerId: string) {
+function projectionFor(state: DartIQReplayState, playerId: string) {
   return state.projections.find((projection) => projection.id === playerId);
 }
 
-function leaderId(state: PressureReplayState) {
+function leaderId(state: DartIQReplayState) {
   let leader: { id: string; probability: number } | null = null;
   for (const projection of state.projections) {
     if (!leader || projection.matchWinProbability > leader.probability) {
@@ -102,7 +102,7 @@ function leaderId(state: PressureReplayState) {
   return leader?.id ?? null;
 }
 
-function toSwing(event: PressureDartEvent): PressureSwing {
+function toSwing(event: DartIQDartEvent): DartIQSwing {
   const before = projectionFor(event.before, event.playerId);
   const after = projectionFor(event.after, event.playerId);
   return {
@@ -124,20 +124,20 @@ function toSwing(event: PressureDartEvent): PressureSwing {
   };
 }
 
-function completedLegWinner(event: PressureDartEvent) {
+function completedLegWinner(event: DartIQDartEvent) {
   for (const [playerId, winsAfter] of Object.entries(event.after.legsWon)) {
     if (winsAfter > (event.before.legsWon[playerId] ?? 0)) return playerId;
   }
   return null;
 }
 
-export function summarizePressureForTurn(
-  timeline: PressureDartEvent[],
+export function summarizeDartIQForTurn(
+  timeline: DartIQDartEvent[],
   turnId: string,
   playerId: string
-): PressureTurnSummary | null {
-  let first: PressureDartEvent | null = null;
-  let last: PressureDartEvent | null = null;
+): DartIQTurnSummary | null {
+  let first: DartIQDartEvent | null = null;
+  let last: DartIQDartEvent | null = null;
   let biggestDartMatchWpa = 0;
   let peakLegConsequence = 0;
   let peakMatchConsequence = 0;
@@ -199,20 +199,20 @@ export function summarizePressureForTurn(
  * It performs one pass and emits no prose, keeping it safe for UI, commentary,
  * notifications, or future persistence without an LLM in the critical path.
  */
-export function analyzePressureTimeline(
-  timeline: PressureDartEvent[],
-  options: PressureInsightOptions = {}
-): PressureInsightSummary {
+export function analyzeDartIQTimeline(
+  timeline: DartIQDartEvent[],
+  options: DartIQInsightOptions = {}
+): DartIQInsightSummary {
   const stolenThreshold = options.stolenLegThreshold ?? 0.2;
   const thrownAwayThreshold = options.thrownAwayLegThreshold ?? 0.8;
   const meaningfulSwingThreshold = options.meaningfulSwingThreshold ?? 0.08;
-  let biggestPositiveSwing: PressureSwing | null = null;
-  let biggestNegativeSwing: PressureSwing | null = null;
-  let turningPoint: PressureSwing | null = null;
-  const leadChanges: PressureLeadChange[] = [];
-  const stolenLegs: PressureLegStory[] = [];
-  const thrownAwayLegs: PressureLegStory[] = [];
-  const commentaryMoments: PressureCommentaryMoment[] = [];
+  let biggestPositiveSwing: DartIQSwing | null = null;
+  let biggestNegativeSwing: DartIQSwing | null = null;
+  let turningPoint: DartIQSwing | null = null;
+  const leadChanges: DartIQLeadChange[] = [];
+  const stolenLegs: DartIQLegStory[] = [];
+  const thrownAwayLegs: DartIQLegStory[] = [];
+  const commentaryMoments: DartIQCommentaryMoment[] = [];
   const legRanges = new Map<string, Map<string, { min: number; max: number }>>();
 
   for (const event of timeline) {

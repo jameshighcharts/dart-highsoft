@@ -4,7 +4,7 @@ import {
   combineCurrentLegWithMatch,
   combineOrderedFirstFinishPmfs,
   createFirstFinishPmf,
-} from './pressureRace';
+} from './race';
 
 describe('combineOrderedFirstFinishPmfs', () => {
   it('gives the earlier player the leg when both finish on the same visit', () => {
@@ -68,4 +68,3 @@ describe('combineCurrentLegWithMatch', () => {
     expect(result.probabilities).toEqual([0, 1]);
   });
 });
-

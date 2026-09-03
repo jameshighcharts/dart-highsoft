@@ -3,7 +3,7 @@ import { WebSocket } from 'ws';
 
 import {
   loadScoliaRealtimeDartEvent,
-  ScoliaPressureEventCache,
+  ScoliaDartIQEventCache,
   type ScoliaRealtimeDartEvent,
 } from '../lib/commentary/scoliaRealtimeEvent.ts';
 import {
@@ -64,7 +64,7 @@ export class ScoliaRealtimeCommentaryPublisher {
   private readonly apiKey: string | null;
   private readonly connections = new Map<string, SidebandConnection>();
   private readonly inFlight = new Set<string>();
-  private readonly pressureCache = new ScoliaPressureEventCache();
+  private readonly dartIQCache = new ScoliaDartIQEventCache();
   private readonly matchEpochs = new Map<string, number>();
   private flushingPending = false;
   private controlEventSequence = 0;
@@ -90,7 +90,7 @@ export class ScoliaRealtimeCommentaryPublisher {
       this.supabase,
       matchId,
       throwId,
-      this.pressureCache
+      this.dartIQCache
     );
     await Promise.all(sessions.map(async (session) => {
       const delivery = await this.ensureDelivery(session.id, throwId);
@@ -121,7 +121,7 @@ export class ScoliaRealtimeCommentaryPublisher {
             this.supabase,
             session.match_id,
             delivery.throw_id,
-            this.pressureCache
+            this.dartIQCache
           );
           await this.deliver(session, event, delivery);
         } catch (error) {
@@ -139,7 +139,7 @@ export class ScoliaRealtimeCommentaryPublisher {
       connection.socket.close(1000, 'Scolia worker stopping');
     }
     this.connections.clear();
-    this.pressureCache.clear();
+    this.dartIQCache.clear();
     this.matchEpochs.clear();
   }
 
@@ -258,7 +258,7 @@ export class ScoliaRealtimeCommentaryPublisher {
       });
 
       const story = direction?.activeStoryArc ?? directedEvent.narrative?.activeStoryArc;
-      const baseSignals = event.pressure?.signals ?? [];
+      const baseSignals = event.dartiq?.signals ?? [];
       const signals = [
         ...baseSignals,
         ...(event.nikitaSpecial ? ['nikita_special' as const] : []),
@@ -274,7 +274,7 @@ export class ScoliaRealtimeCommentaryPublisher {
         dartIndex: event.dartIndex,
         scored: event.scored,
         turnScore: event.turnScore,
-        scoreBefore: event.pressure?.scoreBefore,
+        scoreBefore: event.dartiq?.scoreBefore,
         checkedOut: event.checkedOut,
         busted: event.busted,
         matchWon: event.matchWon,
@@ -543,7 +543,7 @@ export class ScoliaRealtimeCommentaryPublisher {
   private observeEpochs(matchId: string, sessions: ActiveRealtimeCommentarySession[]) {
     const newestEpoch = sessions.reduce((latest, session) => Math.max(latest, session.epoch), 0);
     const knownEpoch = this.matchEpochs.get(matchId);
-    if (knownEpoch !== undefined && newestEpoch > knownEpoch) this.pressureCache.delete(matchId);
+    if (knownEpoch !== undefined && newestEpoch > knownEpoch) this.dartIQCache.delete(matchId);
     this.matchEpochs.set(matchId, Math.max(knownEpoch ?? 0, newestEpoch));
   }
 

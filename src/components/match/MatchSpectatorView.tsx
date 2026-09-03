@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { EloChangesDisplay } from '@/components/match/EloChangesDisplay';
 import { HistoricalMatchOverview } from '@/components/match/HistoricalMatchOverview';
 import { LiveScoliaBoard } from '@/components/match/LiveScoliaBoard';
-import { PressureWinProbability } from '@/components/match/PressureWinProbability';
+import { DartIQLive } from '@/components/match/DartIQLive';
 import { ScoliaMatchHeatmaps } from '@/components/match/ScoliaMatchHeatmaps';
 import type { MatchEloChange } from '@/hooks/useMatchEloChanges';
 import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
@@ -25,10 +25,10 @@ import type { VoiceOption } from '@/services/ttsService';
 import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
 import type {
-  PressurePlayerHistoryProfile,
-  PressurePopulationProfile,
-} from '@/utils/pressureProfiles';
-import type { PressureOutcomeModel } from '@/utils/pressureOutcomeModel';
+  DartIQPlayerHistoryProfile,
+  DartIQPopulationProfile,
+} from '@/lib/dartiq/evidence';
+import type { DartIQOutcomeModel } from '@/lib/dartiq/model/outcomes';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 
@@ -86,10 +86,10 @@ type Props = {
   eloChanges: MatchEloChange[];
   eloChangesLoading: boolean;
   fairEndingState?: FairEndingState;
-  pressureProfilesByPlayerId: ReadonlyMap<string, PressurePlayerHistoryProfile>;
-  pressurePopulationProfile?: PressurePopulationProfile;
-  pressureOutcomeModelsByPlayerId: ReadonlyMap<string, PressureOutcomeModel>;
-  hasPersonalPressureProfiles: boolean;
+  dartIQEvidenceByPlayerId: ReadonlyMap<string, DartIQPlayerHistoryProfile>;
+  dartIQPopulationEvidence?: DartIQPopulationProfile;
+  dartIQModelsByPlayerId: ReadonlyMap<string, DartIQOutcomeModel>;
+  hasPersonalDartIQEvidence: boolean;
   isHistoryView?: boolean;
   onBackToGames: () => void;
 };
@@ -192,10 +192,10 @@ export function MatchSpectatorView({
   eloChanges,
   eloChangesLoading,
   fairEndingState,
-  pressureProfilesByPlayerId,
-  pressurePopulationProfile,
-  pressureOutcomeModelsByPlayerId,
-  hasPersonalPressureProfiles,
+  dartIQEvidenceByPlayerId,
+  dartIQPopulationEvidence,
+  dartIQModelsByPlayerId,
+  hasPersonalDartIQEvidence,
   isHistoryView = false,
   onBackToGames,
 }: Props) {
@@ -452,7 +452,7 @@ export function MatchSpectatorView({
           />
         ) : (
           <>
-            <PressureWinProbability
+            <DartIQLive
               orderPlayers={orderPlayers}
               spectatorCurrentPlayer={spectatorCurrentPlayer}
               turns={turns}
@@ -464,10 +464,10 @@ export function MatchSpectatorView({
               legs={legs}
               legsToWin={match.legs_to_win}
               matchWinnerId={matchWinnerId}
-              profilesByPlayerId={pressureProfilesByPlayerId}
-              populationProfile={pressurePopulationProfile}
-              outcomeModelsByPlayerId={pressureOutcomeModelsByPlayerId}
-              hasPersonalProfiles={hasPersonalPressureProfiles}
+              profilesByPlayerId={dartIQEvidenceByPlayerId}
+              populationProfile={dartIQPopulationEvidence}
+              outcomeModelsByPlayerId={dartIQModelsByPlayerId}
+              hasPersonalProfiles={hasPersonalDartIQEvidence}
               fairEnding={Boolean(match.fair_ending)}
               fairEndingState={fairEndingState}
             />

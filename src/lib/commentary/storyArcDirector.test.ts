@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PressureDartEvent, PressureReplayState } from '@/utils/pressureReplay';
+import type { DartIQDartEvent, DartIQReplayState } from '@/lib/dartiq/replay';
 import { directCommentaryStoryArc } from './storyArcDirector';
 
-function state(a: number, b: number, scores = { a: 200, b: 200 }): PressureReplayState {
+function state(a: number, b: number, scores = { a: 200, b: 200 }): DartIQReplayState {
   return {
     legId: 'leg', legNumber: 1, currentPlayerId: 'a', dartsRemainingInTurn: 3,
     scores,
@@ -11,18 +11,18 @@ function state(a: number, b: number, scores = { a: 200, b: 200 }): PressureRepla
     projections: [
       { id: 'a', matchWinProbability: a, threeDartAverage: 50, baselineThreeDartAverage: 50, dartsThrown: 9 },
       { id: 'b', matchWinProbability: b, threeDartAverage: 50, baselineThreeDartAverage: 50, dartsThrown: 9 },
-    ] as PressureReplayState['projections'],
+    ] as DartIQReplayState['projections'],
   };
 }
 
 function event(input: {
   sequence: number;
   playerId?: string;
-  before: PressureReplayState;
-  after: PressureReplayState;
+  before: DartIQReplayState;
+  after: DartIQReplayState;
   checkedOut?: boolean;
   scoreBefore?: number;
-}): PressureDartEvent {
+}): DartIQDartEvent {
   const playerId = input.playerId ?? 'a';
   const beforeProbability = input.before.projections.find((entry) => entry.id === playerId)?.matchWinProbability ?? 0;
   const afterProbability = input.after.projections.find((entry) => entry.id === playerId)?.matchWinProbability ?? 0;

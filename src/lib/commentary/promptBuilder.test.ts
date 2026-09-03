@@ -46,10 +46,10 @@ function payload(): CommentaryPayload {
   };
 }
 
-describe('buildCommentaryPrompt pressure context', () => {
-  it('bypasses a generic plain line for a significant pressure swing', () => {
+describe('buildCommentaryPrompt DartIQ context', () => {
+  it('bypasses a generic plain line for a significant DartIQ consequence', () => {
     const input = payload();
-    input.pressure = {
+    input.dartiq = {
       matchProbabilityBefore: 0.34,
       matchProbabilityAfter: 0.51,
       matchWpa: 0.17,

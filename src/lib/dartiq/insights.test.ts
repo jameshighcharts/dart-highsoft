@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PressureDartEvent, PressureReplayState } from './pressureReplay';
-import { analyzePressureTimeline, summarizePressureForTurn } from './pressureInsights';
+import type { DartIQDartEvent, DartIQReplayState } from './replay';
+import { analyzeDartIQTimeline, summarizeDartIQForTurn } from './insights';
 
 function state(
   legProbabilityA: number,
   matchProbabilityA: number,
   legsA = 0,
   legsB = 0
-): PressureReplayState {
+): DartIQReplayState {
   return {
     legId: 'leg-1',
     legNumber: 1,
@@ -40,10 +40,10 @@ function state(
 
 function event(
   sequence: number,
-  before: PressureReplayState,
-  after: PressureReplayState,
+  before: DartIQReplayState,
+  after: DartIQReplayState,
   options: { checkedOut?: boolean; busted?: boolean } = {}
-): PressureDartEvent {
+): DartIQDartEvent {
   const beforeA = before.projections[0];
   const afterA = after.projections[0];
   return {
@@ -79,11 +79,11 @@ function event(
   };
 }
 
-describe('analyzePressureTimeline', () => {
+describe('analyzeDartIQTimeline', () => {
   it('finds the turning point and a change in match favorite', () => {
     const first = event(1, state(0.35, 0.4), state(0.6, 0.55));
     const second = event(2, state(0.6, 0.55), state(0.88, 0.82));
-    const insights = analyzePressureTimeline([first, second]);
+    const insights = analyzeDartIQTimeline([first, second]);
 
     expect(insights.leadChanges).toHaveLength(1);
     expect(insights.leadChanges[0]).toMatchObject({ previousLeaderId: 'b', newLeaderId: 'a' });
@@ -94,7 +94,7 @@ describe('analyzePressureTimeline', () => {
   it('identifies stolen and thrown-away legs from probability extremes', () => {
     const lowPoint = event(1, state(0.15, 0.3), state(0.1, 0.25));
     const comeback = event(2, state(0.1, 0.25), state(1, 1, 1, 0), { checkedOut: true });
-    const insights = analyzePressureTimeline([lowPoint, comeback]);
+    const insights = analyzeDartIQTimeline([lowPoint, comeback]);
 
     expect(insights.stolenLegs).toEqual([
       expect.objectContaining({ playerId: 'a', winnerId: 'a', probability: 0.1 }),
@@ -106,7 +106,7 @@ describe('analyzePressureTimeline', () => {
 
   it('keeps pressure busts separate from positive clutch events', () => {
     const bust = event(1, state(0.65, 0.6), state(0.4, 0.38), { busted: true });
-    const insights = analyzePressureTimeline([bust]);
+    const insights = analyzeDartIQTimeline([bust]);
 
     expect(insights.commentaryMoments.map((moment) => moment.kind)).toContain('lead_change');
     expect(insights.commentaryMoments.map((moment) => moment.kind)).toContain('pressure_bust');
@@ -114,7 +114,7 @@ describe('analyzePressureTimeline', () => {
   });
 
   it('returns an empty summary for an empty timeline', () => {
-    const insights = analyzePressureTimeline([]);
+    const insights = analyzeDartIQTimeline([]);
     expect(insights.turningPoint).toBeNull();
     expect(insights.commentaryMoments).toEqual([]);
   });
@@ -122,7 +122,7 @@ describe('analyzePressureTimeline', () => {
   it('condenses multiple darts into one commentary-safe turn summary', () => {
     const first = event(1, state(0.3, 0.35), state(0.45, 0.44));
     const second = event(2, state(0.45, 0.44), state(0.7, 0.61));
-    const summary = summarizePressureForTurn([first, second], 'turn-1', 'a');
+    const summary = summarizeDartIQForTurn([first, second], 'turn-1', 'a');
 
     expect(summary).toMatchObject({
       matchProbabilityBefore: 0.35,

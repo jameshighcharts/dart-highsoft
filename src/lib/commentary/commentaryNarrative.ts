@@ -1,6 +1,6 @@
-import type { PressureDartEvent } from '@/utils/pressureReplay';
-import { hasCheckoutRoute } from '@/utils/pressureCheckout';
-import { isMaterialPressureConsequence } from '@/utils/pressurePolicy';
+import type { DartIQDartEvent } from '@/lib/dartiq/replay';
+import { hasCheckoutRoute } from '@/lib/dartiq/checkout';
+import { isMaterialDartIQConsequence } from '@/lib/dartiq/events';
 import type { FinishRule } from '@/utils/x01';
 import {
   rankCommentaryStoryArcs,
@@ -60,8 +60,8 @@ type MutablePlayerMemory = {
   busts: number;
   strongSetups: number;
   bogeys: number;
-  positivePressureDarts: number;
-  negativePressureDarts: number;
+  positiveImpactDarts: number;
+  negativeImpactDarts: number;
   opportunities: number;
   conversions: number;
   highPressureOpportunities: number;
@@ -80,8 +80,8 @@ function emptyPlayer(): MutablePlayerMemory {
     busts: 0,
     strongSetups: 0,
     bogeys: 0,
-    positivePressureDarts: 0,
-    negativePressureDarts: 0,
+    positiveImpactDarts: 0,
+    negativeImpactDarts: 0,
     opportunities: 0,
     conversions: 0,
     highPressureOpportunities: 0,
@@ -98,9 +98,9 @@ function isOneDartDoubleLeave(score: number, finishRule: FinishRule) {
     && (score === 50 || (score >= 2 && score <= 40 && score % 2 === 0));
 }
 
-/** Builds bounded, factual story state from the deterministic Pressure timeline. */
+/** Builds bounded, factual story state from the deterministic DartIQ timeline. */
 export function buildCommentaryNarrativeMemory(input: {
-  events: readonly PressureDartEvent[];
+  events: readonly DartIQDartEvent[];
   finishRule: FinishRule;
   rematch?: CommentaryRematchContext | null;
 }): CommentaryNarrativeMemory {
@@ -148,9 +148,9 @@ export function buildCommentaryNarrativeMemory(input: {
       memory.missedDoubles = memory.missedDoubles.slice(-3);
     }
 
-    if (isMaterialPressureConsequence(event.consequence, event.before.projections.length)) {
-      if (matchWpa >= 0.02) memory.positivePressureDarts += 1;
-      if (matchWpa <= -0.02) memory.negativePressureDarts += 1;
+    if (isMaterialDartIQConsequence(event.consequence, event.before.projections.length)) {
+      if (matchWpa >= 0.02) memory.positiveImpactDarts += 1;
+      if (matchWpa <= -0.02) memory.negativeImpactDarts += 1;
     }
     if (event.checkout.createdBogey) memory.bogeys += 1;
 
@@ -195,8 +195,8 @@ export function buildCommentaryNarrativeMemory(input: {
       if (memory.busts >= 2) tendencies.push('repeat bust trouble');
       if (memory.strongSetups >= 2) tendencies.push('consistently strong setup choices');
       if (memory.bogeys >= 2) tendencies.push('repeated bogey creation');
-      if (memory.positivePressureDarts >= 2) tendencies.push('repeated gains under pressure');
-      if (memory.negativePressureDarts >= 2) tendencies.push('repeated losses under pressure');
+      if (memory.positiveImpactDarts >= 2) tendencies.push('repeated gains in win probability');
+      if (memory.negativeImpactDarts >= 2) tendencies.push('repeated losses in win probability');
       return {
         playerId,
         completedVisits: memory.completedTurnIds.size,

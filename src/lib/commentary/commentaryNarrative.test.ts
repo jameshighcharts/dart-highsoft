@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PressureDartEvent } from '@/utils/pressureReplay';
+import type { DartIQDartEvent } from '@/lib/dartiq/replay';
 import { buildCommentaryNarrativeMemory } from './commentaryNarrative';
 
-function pressureEvent(overrides: Partial<PressureDartEvent> = {}): PressureDartEvent {
+function dartIQEvent(overrides: Partial<DartIQDartEvent> = {}): DartIQDartEvent {
   return {
     eventId: 'event-1', engineVersion: 'behavioral-v1', matchId: 'match', sequence: 1,
     legId: 'leg', legNumber: 1, turnId: 'turn', playerId: 'a', dartId: 'dart',
@@ -25,14 +25,14 @@ function pressureEvent(overrides: Partial<PressureDartEvent> = {}): PressureDart
     before: {
       scores: { a: 40 },
       projections: [{ id: 'a', matchWinProbability: 0.5 }],
-    } as PressureDartEvent['before'],
+    } as DartIQDartEvent['before'],
     after: {
       scores: { a: 35 },
       projections: [{
         id: 'a', threeDartAverage: 62, baselineThreeDartAverage: 50,
         dartsThrown: 9,
       }],
-    } as PressureDartEvent['after'],
+    } as DartIQDartEvent['after'],
     matchWinProbabilityAdded: { a: -0.1 }, legWinProbabilityAdded: { a: -0.2 },
     ...overrides,
   };
@@ -42,7 +42,7 @@ describe('buildCommentaryNarrativeMemory', () => {
   it('tracks factual double misses, biggest swing, pressure history, and baseline form', () => {
     const memory = buildCommentaryNarrativeMemory({
       finishRule: 'double_out',
-      events: [pressureEvent()],
+      events: [dartIQEvent()],
       rematch: { previousMatchId: 'old', previousWinnerId: 'b', revengePlayerIds: ['a'] },
     });
 
@@ -60,7 +60,7 @@ describe('buildCommentaryNarrativeMemory', () => {
   });
 
   it('only reports tendencies after they recur', () => {
-    const events = [1, 2, 3].map((sequence) => pressureEvent({
+    const events = [1, 2, 3].map((sequence) => dartIQEvent({
       eventId: `event-${sequence}`,
       dartId: `dart-${sequence}`,
       turnId: `turn-${sequence}`,
@@ -69,7 +69,7 @@ describe('buildCommentaryNarrativeMemory', () => {
       before: {
         scores: { a: 200 },
         projections: [{ id: 'a', matchWinProbability: 0.5 }],
-      } as PressureDartEvent['before'],
+      } as DartIQDartEvent['before'],
     }));
     const memory = buildCommentaryNarrativeMemory({ events, finishRule: 'double_out' });
     expect(memory.players[0].tendencies).toContain('recurring low-scoring visits');

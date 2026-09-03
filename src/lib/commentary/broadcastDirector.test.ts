@@ -60,7 +60,7 @@ describe('BroadcastDirector', () => {
     expect(opening.callback).toMatchObject({ trigger: 'match_resolution', status: 'watching' });
     expect(ending.transition).toBe('payoff_due');
     expect(ending.callback?.instruction).toContain('Pay off');
-    expect(broadcastDirectionInstruction(ending)).toContain('resolve the active rematch_revenge arc');
+    expect(broadcastDirectionInstruction(ending)).toContain('resolve the named active story');
     director.markMentioned(ending);
     const afterPayoff = director.direct({
       sequence: 31,
@@ -90,7 +90,7 @@ describe('BroadcastDirector', () => {
 
     const held = director.direct({ sequence: 6, candidates: [comeback] });
     expect(held.shouldPromote).toBe(false);
-    expect(broadcastDirectionInstruction(held)).toContain('keep the active arc in memory');
+    expect(broadcastDirectionInstruction(held)).toContain('keep the named active story in memory');
   });
 
   it('keeps an unspoken story promoted until a completed visit can use it', () => {

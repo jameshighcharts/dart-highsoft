@@ -1,23 +1,23 @@
 import type {
-  PressureDartsLeft,
-  PressureOutcomeModel,
-} from './pressureOutcomeModel.ts';
-import type { FinishRule } from './x01.ts';
+  DartIQDartsLeft,
+  DartIQOutcomeModel,
+} from './outcomes';
+import type { FinishRule } from '@/utils/x01';
 
-export type PressureVisitState = {
+export type DartIQVisitState = {
   visitStartScore: number;
   currentScore: number;
-  dartsLeft: PressureDartsLeft;
+  dartsLeft: DartIQDartsLeft;
   finishRule: FinishRule;
 };
 
-export type PressureVisitDistribution = Map<number, number>;
+export type DartIQVisitDistribution = Map<number, number>;
 
-function addProbability(distribution: PressureVisitDistribution, score: number, probability: number) {
+function addProbability(distribution: DartIQVisitDistribution, score: number, probability: number) {
   distribution.set(score, (distribution.get(score) ?? 0) + probability);
 }
 
-function normalize(distribution: PressureVisitDistribution) {
+function normalize(distribution: DartIQVisitDistribution) {
   const total = [...distribution.values()].reduce((sum, probability) => sum + probability, 0);
   if (!(total > 0)) return new Map([[0, 1]]);
   return new Map(
@@ -27,20 +27,20 @@ function normalize(distribution: PressureVisitDistribution) {
   );
 }
 
-export function solvePressureVisit(
-  model: PressureOutcomeModel,
-  state: PressureVisitState
-): PressureVisitDistribution {
+export function solveDartIQVisit(
+  model: DartIQOutcomeModel,
+  state: DartIQVisitState
+): DartIQVisitDistribution {
   if (state.currentScore <= 0) return new Map([[0, 1]]);
-  let active: PressureVisitDistribution = new Map([[state.currentScore, 1]]);
-  const result: PressureVisitDistribution = new Map();
+  let active: DartIQVisitDistribution = new Map([[state.currentScore, 1]]);
+  const result: DartIQVisitDistribution = new Map();
 
   for (let dartsLeft = state.dartsLeft; dartsLeft >= 1; dartsLeft -= 1) {
-    const nextActive: PressureVisitDistribution = new Map();
+    const nextActive: DartIQVisitDistribution = new Map();
     for (const [currentScore, stateProbability] of active) {
       const distribution = model.distribution({
         currentScore,
-        dartsLeft: dartsLeft as PressureDartsLeft,
+        dartsLeft: dartsLeft as DartIQDartsLeft,
         finishRule: state.finishRule,
       });
       for (const outcome of distribution.outcomes) {
@@ -66,14 +66,14 @@ export function solvePressureVisit(
   return normalize(result);
 }
 
-export function createPressureVisitKernel(
-  model: PressureOutcomeModel,
+export function createDartIQVisitKernel(
+  model: DartIQOutcomeModel,
   finishRule: FinishRule,
   maximumScore = 501
 ) {
-  const kernel = new Map<number, PressureVisitDistribution>();
+  const kernel = new Map<number, DartIQVisitDistribution>();
   for (let score = 1; score <= maximumScore; score += 1) {
-    kernel.set(score, solvePressureVisit(model, {
+    kernel.set(score, solveDartIQVisit(model, {
       visitStartScore: score,
       currentScore: score,
       dartsLeft: 3,

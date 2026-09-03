@@ -1,10 +1,29 @@
-import type { PressureCheckoutAssessment } from '@/utils/pressureCheckout';
-import type { PressureDartEvent, PressureReplayState } from '@/utils/pressureReplay';
-import { isMaterialPressureConsequence } from '@/utils/pressurePolicy';
+import type { DartIQCheckoutAssessment } from '@/lib/dartiq/checkout';
+import type {
+  DartIQConsequence,
+  DartIQDartEvent,
+  DartIQReplayState,
+} from '@/lib/dartiq/replay';
 
-export type PressureEventPriority = 'silent' | 'ordinary' | 'notable' | 'marquee' | 'terminal';
+export const DARTIQ_POLICY_VERSION = 'broadcast-1' as const;
 
-export type PressureEventSignal =
+export function dartIQConsequenceFloors(playerCount: number) {
+  if (playerCount <= 2) return { leg: 0.08, match: 0.04 } as const;
+  if (playerCount <= 4) return { leg: 0.06, match: 0.03 } as const;
+  return { leg: 0.04, match: 0.02 } as const;
+}
+
+export function isMaterialDartIQConsequence(
+  consequence: DartIQConsequence,
+  playerCount: number
+) {
+  const floor = dartIQConsequenceFloors(playerCount);
+  return consequence.leg >= floor.leg || consequence.match >= floor.match;
+}
+
+export type DartIQEventPriority = 'silent' | 'ordinary' | 'notable' | 'marquee' | 'terminal';
+
+export type DartIQEventSignal =
   | 'match_win'
   | 'leg_win'
   | 'checkout'
@@ -22,9 +41,9 @@ export type PressureEventSignal =
   | 'great_setup'
   | 'bogey_created';
 
-export type PressureDartPacket = {
+export type DartIQDartPacket = {
   schemaVersion: 2;
-  engineVersion: PressureDartEvent['engineVersion'];
+  engineVersion: DartIQDartEvent['engineVersion'];
   type: 'dart';
   eventId: string;
   matchId: string;
@@ -58,22 +77,22 @@ export type PressureDartPacket = {
   matchProbabilityAfter: number;
   legWpa: number;
   matchWpa: number;
-  consequence: PressureDartEvent['consequence'];
-  semanticStakes: PressureDartEvent['semanticStakes'];
-  checkout: PressureCheckoutAssessment;
-  signals: PressureEventSignal[];
-  priority: PressureEventPriority;
+  consequence: DartIQDartEvent['consequence'];
+  semanticStakes: DartIQDartEvent['semanticStakes'];
+  checkout: DartIQCheckoutAssessment;
+  signals: DartIQEventSignal[];
+  priority: DartIQEventPriority;
   shouldSpeak: boolean;
 };
 
-function probability(state: PressureReplayState, playerId: string, kind: 'leg' | 'match') {
+function probability(state: DartIQReplayState, playerId: string, kind: 'leg' | 'match') {
   const projection = state.projections.find((entry) => entry.id === playerId);
   return kind === 'leg'
     ? projection?.legWinProbability ?? 0
     : projection?.matchWinProbability ?? 0;
 }
 
-function favoriteId(state: PressureReplayState) {
+function favoriteId(state: DartIQReplayState) {
   let favorite: { id: string; probability: number } | null = null;
   for (const projection of state.projections) {
     if (!favorite || projection.matchWinProbability > favorite.probability) {
@@ -83,7 +102,7 @@ function favoriteId(state: PressureReplayState) {
   return favorite?.id ?? null;
 }
 
-function lockedMatchWinnerId(event: PressureDartEvent) {
+function lockedMatchWinnerId(event: DartIQDartEvent) {
   const winner = event.after.projections.find((projection) => projection.matchWinProbability === 1);
   if (!winner) return null;
   return event.after.projections.every((projection) =>
@@ -91,7 +110,7 @@ function lockedMatchWinnerId(event: PressureDartEvent) {
   ) ? winner.id : null;
 }
 
-function tiebreakLeaderId(event: PressureDartEvent, kind: 'before' | 'after') {
+function tiebreakLeaderId(event: DartIQDartEvent, kind: 'before' | 'after') {
   const state = kind === 'before' ? event.fairEndingBefore : event.fairEndingAfter;
   if (!state || state.phase !== 'tiebreak' || state.tiebreakPlayerIds.length === 0) return null;
   let leaderId: string | null = null;
@@ -114,7 +133,7 @@ function tiebreakLeaderId(event: PressureDartEvent, kind: 'before' | 'after') {
  * Converts the rich replay event into a compact, provider-neutral packet for
  * live UI, telemetry, highlights, and future Realtime commentary transport.
  */
-export function createPressureDartPacket(event: PressureDartEvent): PressureDartPacket {
+export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket {
   const scoreBefore = event.before.scores[event.playerId] ?? 0;
   const crossedLegBoundary = event.after.legId !== event.before.legId;
   const scoreAfter = crossedLegBoundary
@@ -133,7 +152,7 @@ export function createPressureDartPacket(event: PressureDartEvent): PressureDart
   const fairAfter = event.fairEndingAfter;
   const fairLegResolved = fairAfter?.phase === 'resolved' && fairBefore?.phase !== 'resolved';
   const favoriteChanged = favoriteId(event.before) !== favoriteId(event.after);
-  const signals: PressureEventSignal[] = [];
+  const signals: DartIQEventSignal[] = [];
   const playerCount = event.before.projections.length;
 
   if (matchWin) signals.push('match_win');
@@ -163,7 +182,7 @@ export function createPressureDartPacket(event: PressureDartEvent): PressureDart
   if (event.dartIndex === 3 && event.turnScoreAfter === 180) signals.push('one_eighty');
   if (event.busted) signals.push('bust');
   if (favoriteChanged) signals.push('favorite_change');
-  if (isMaterialPressureConsequence(consequence, playerCount)) signals.push('large_swing');
+  if (isMaterialDartIQConsequence(consequence, playerCount)) signals.push('large_swing');
   if (event.checkout.createdBogey) signals.push('bogey_created');
   if (
     event.dartIndex === 3
@@ -174,7 +193,7 @@ export function createPressureDartPacket(event: PressureDartEvent): PressureDart
     signals.push('great_setup');
   }
 
-  let priority: PressureEventPriority = 'silent';
+  let priority: DartIQEventPriority = 'silent';
   if (matchWin) priority = 'terminal';
   else if (
     event.checkedOut

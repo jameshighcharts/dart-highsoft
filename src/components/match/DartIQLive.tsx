@@ -8,15 +8,15 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import type { LegRecord, Player, TurnRecord, TurnWithThrows } from '@/lib/match/types';
 import { getSpectatorScore } from '@/utils/matchStats';
-import { estimateCheckoutProbability } from '@/utils/pressureCheckout';
-import { calculatePressureProjection } from '@/utils/pressureEngine';
+import { estimateCheckoutProbability } from '@/lib/dartiq/checkout';
+import { calculateDartIQProjection } from '@/lib/dartiq/projection';
 import { getPendingFairEndingPlayerIds, type FairEndingState } from '@/utils/fairEnding';
 import type {
-  PressurePlayerHistoryProfile,
-  PressurePopulationProfile,
-} from '@/utils/pressureProfiles';
+  DartIQPlayerHistoryProfile,
+  DartIQPopulationProfile,
+} from '@/lib/dartiq/evidence';
 import type { FinishRule } from '@/utils/x01';
-import type { PressureOutcomeModel } from '@/utils/pressureOutcomeModel';
+import type { DartIQOutcomeModel } from '@/lib/dartiq/model/outcomes';
 
 type Props = {
   orderPlayers: Player[];
@@ -30,9 +30,9 @@ type Props = {
   legs: LegRecord[];
   legsToWin: number;
   matchWinnerId: string | null;
-  profilesByPlayerId: ReadonlyMap<string, PressurePlayerHistoryProfile>;
-  populationProfile?: PressurePopulationProfile;
-  outcomeModelsByPlayerId: ReadonlyMap<string, PressureOutcomeModel>;
+  profilesByPlayerId: ReadonlyMap<string, DartIQPlayerHistoryProfile>;
+  populationProfile?: DartIQPopulationProfile;
+  outcomeModelsByPlayerId: ReadonlyMap<string, DartIQOutcomeModel>;
   hasPersonalProfiles: boolean;
   fairEnding: boolean;
   fairEndingState?: FairEndingState;
@@ -44,7 +44,7 @@ function formatProbability(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-export function PressureWinProbability({
+export function DartIQLive({
   orderPlayers,
   spectatorCurrentPlayer,
   turns,
@@ -65,7 +65,7 @@ export function PressureWinProbability({
 }: Props) {
   const currentPlayerId = spectatorCurrentPlayer?.id ?? null;
 
-  const pressureSnapshot = useMemo(() => {
+  const dartIQSnapshot = useMemo(() => {
     const legsWon = new Map<string, number>();
     for (const leg of legs) {
       if (leg.winner_player_id) {
@@ -153,7 +153,7 @@ export function PressureWinProbability({
         }
       : undefined;
 
-    const nextProjection = calculatePressureProjection({
+    const nextProjection = calculateDartIQProjection({
       players: playerStates,
       playOrder: orderPlayers.map((player) => player.id),
       currentPlayerId,
@@ -207,7 +207,7 @@ export function PressureWinProbability({
     turns,
   ]);
 
-  const { projection, currentCheckoutProbability } = pressureSnapshot;
+  const { projection, currentCheckoutProbability } = dartIQSnapshot;
 
   const projectionById = new Map(projection.players.map((player) => [player.id, player]));
   const favorite = orderPlayers.find((player) => player.id === projection.favoritePlayerId);
@@ -236,8 +236,8 @@ export function PressureWinProbability({
     if (!rail) return;
 
     const frame = window.requestAnimationFrame(() => {
-      const candidates = Array.from(rail.querySelectorAll<HTMLElement>('[data-pressure-player]'))
-        .filter((element) => element.dataset.pressurePlayer === currentPlayerId);
+      const candidates = Array.from(rail.querySelectorAll<HTMLElement>('[data-dartiq-player]'))
+        .filter((element) => element.dataset.dartiqPlayer === currentPlayerId);
       const preferred = hasCenteredRailRef.current
         ? candidates.reduce<HTMLElement | null>((nearest, candidate) => {
             const target = candidate.offsetLeft - rail.clientWidth / 2 + candidate.clientWidth / 2;
@@ -247,7 +247,7 @@ export function PressureWinProbability({
               ? candidate
               : nearest;
           }, null)
-        : candidates.find((candidate) => candidate.dataset.pressureCycle === '1') ?? null;
+        : candidates.find((candidate) => candidate.dataset.dartiqCycle === '1') ?? null;
 
       if (!preferred) return;
       const left = preferred.offsetLeft - rail.clientWidth / 2 + preferred.clientWidth / 2;
@@ -285,7 +285,7 @@ export function PressureWinProbability({
               <div className="flex flex-wrap items-center gap-2">
                 <div className="font-black tracking-tight sm:text-lg">Live win probability</div>
                 <Badge className="border border-violet-300/30 bg-violet-500/15 text-[10px] text-violet-200">
-                  Pressure Engine · Beta
+                  DartIQ · Beta
                 </Badge>
                 {hasPersonalProfiles ? (
                   <Badge className="border border-emerald-300/25 bg-emerald-500/10 text-[10px] text-emerald-200">
@@ -363,8 +363,8 @@ export function PressureWinProbability({
             return (
               <div
                 key={`${cycle}-${player.id}`}
-                data-pressure-player={player.id}
-                data-pressure-cycle={cycle}
+                data-dartiq-player={player.id}
+                data-dartiq-cycle={cycle}
                 aria-hidden={circularField && cycle !== 1 ? true : undefined}
                 className={`rounded-lg border py-2.5 shadow-lg shadow-black/20 ${circularField ? 'min-w-[180px] basis-[calc((100%_-_3.5rem)/8)] shrink-0 px-2.5' : highField ? 'px-2.5' : 'px-3'} ${
                   isCurrent ? 'border-cyan-300/50 bg-cyan-300/[0.07]' : 'border-white/10 bg-black/15'

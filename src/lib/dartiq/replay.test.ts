@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { LegRecord, ThrowRecord, TurnWithThrows } from '@/lib/match/types';
-import { reconstructPressureTimeline } from './pressureReplay';
+import { reconstructDartIQTimeline } from './replay';
 
 function dart(id: string, turnId: string, dartIndex: number, segment: string, scored: number): ThrowRecord {
   return { id, turn_id: turnId, dart_index: dartIndex, segment, scored };
@@ -37,7 +37,7 @@ function leg(id: string, number: number, starter: string, winner: string | null)
   };
 }
 
-describe('reconstructPressureTimeline', () => {
+describe('reconstructDartIQTimeline', () => {
   it.each([
     { finishRule: 'double_out' as const, startScore: 40, segment: 'S20', scored: 20 },
     { finishRule: 'single_out' as const, startScore: 60, segment: 'S20', scored: 20 },
@@ -47,7 +47,7 @@ describe('reconstructPressureTimeline', () => {
     segment,
     scored,
   }) => {
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds: ['a', 'b'],
       legs: [leg('leg-1', 1, 'a', null)],
       turnsByLeg: {
@@ -70,7 +70,7 @@ describe('reconstructPressureTimeline', () => {
       dart('dart-2', 'turn-1', 2, 'S20', 20),
       dart('dart-1', 'turn-1', 1, 'T20', 60),
     ]);
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds: ['a', 'b'],
       legs: [leg('leg-1', 1, 'a', null)],
       turnsByLeg: { 'leg-1': [firstTurn] },
@@ -105,7 +105,7 @@ describe('reconstructPressureTimeline', () => {
       finishRule: 'double_out' as const,
       legsToWin: 2,
     };
-    const prefix = reconstructPressureTimeline({
+    const prefix = reconstructDartIQTimeline({
       ...base,
       turnsByLeg: { 'leg-1': [firstTwo] },
     });
@@ -113,11 +113,11 @@ describe('reconstructPressureTimeline', () => {
       ...firstTwo.throws,
       dart('dart-3', 'turn-1', 3, 'T19', 57),
     ]);
-    const incremental = reconstructPressureTimeline({
+    const incremental = reconstructDartIQTimeline({
       ...base,
       turnsByLeg: { 'leg-1': [completedTurn] },
     }, { cachedPrefix: prefix });
-    const clean = reconstructPressureTimeline({
+    const clean = reconstructDartIQTimeline({
       ...base,
       turnsByLeg: { 'leg-1': [completedTurn] },
     });
@@ -138,7 +138,7 @@ describe('reconstructPressureTimeline', () => {
     const original = turn('turn-1', 'leg-1', 'a', 1, [
       dart('dart-1', 'turn-1', 1, 'S20', 20),
     ]);
-    const prefix = reconstructPressureTimeline({
+    const prefix = reconstructDartIQTimeline({
       ...base,
       turnsByLeg: { 'leg-1': [original] },
     });
@@ -146,11 +146,11 @@ describe('reconstructPressureTimeline', () => {
       dart('dart-1', 'turn-1', 1, 'T20', 60),
     ]);
 
-    const incremental = reconstructPressureTimeline({
+    const incremental = reconstructDartIQTimeline({
       ...base,
       turnsByLeg: { 'leg-1': [corrected] },
     }, { cachedPrefix: prefix });
-    const clean = reconstructPressureTimeline({
+    const clean = reconstructDartIQTimeline({
       ...base,
       turnsByLeg: { 'leg-1': [corrected] },
     });
@@ -161,7 +161,7 @@ describe('reconstructPressureTimeline', () => {
   });
 
   it('restores score and removes the visit from live form after a bust', () => {
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds: ['a', 'b'],
       legs: [leg('leg-1', 1, 'a', null)],
       turnsByLeg: {
@@ -182,7 +182,7 @@ describe('reconstructPressureTimeline', () => {
   });
 
   it('rolls a completed leg into the next leg state', () => {
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds: ['a', 'b'],
       legs: [leg('leg-2', 2, 'b', null), leg('leg-1', 1, 'a', 'a')],
       turnsByLeg: {
@@ -203,7 +203,7 @@ describe('reconstructPressureTimeline', () => {
   });
 
   it('locks match probability after the winning checkout', () => {
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds: ['a', 'b', 'c'],
       legs: [leg('leg-1', 1, 'a', 'a')],
       turnsByLeg: {
@@ -222,7 +222,7 @@ describe('reconstructPressureTimeline', () => {
   });
 
   it('starts a partial replay with the supplied prior leg score', () => {
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds: ['a', 'b'],
       legs: [leg('leg-3', 3, 'a', null)],
       turnsByLeg: {
@@ -241,7 +241,7 @@ describe('reconstructPressureTimeline', () => {
 
   it('keeps multiplayer probability totals normalized throughout the replay', () => {
     const playerIds = Array.from({ length: 12 }, (_, index) => String(index));
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds,
       legs: [leg('leg-1', 1, '0', null)],
       turnsByLeg: {
@@ -263,7 +263,7 @@ describe('reconstructPressureTimeline', () => {
   });
 
   it('keeps a first fair-ending checkout provisional while the opponent completes the round', () => {
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds: ['a', 'b'],
       legs: [leg('leg-1', 1, 'a', null)],
       turnsByLeg: {
@@ -292,7 +292,7 @@ describe('reconstructPressureTimeline', () => {
   });
 
   it('resolves a fair-ending leg only after the rest of the round is complete', () => {
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds: ['a', 'b'],
       legs: [leg('leg-1', 1, 'a', 'a')],
       turnsByLeg: {
@@ -319,7 +319,7 @@ describe('reconstructPressureTimeline', () => {
   });
 
   it('models a high-round tiebreak without changing the checked-out X01 scores', () => {
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds: ['a', 'b'],
       legs: [leg('leg-1', 1, 'a', 'a')],
       turnsByLeg: {
@@ -364,7 +364,7 @@ describe('reconstructPressureTimeline', () => {
   });
 
   it('resolves the original finisher when the opponent busts while trying to join', () => {
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds: ['a', 'b'],
       legs: [leg('leg-1', 1, 'a', 'a')],
       turnsByLeg: {
@@ -389,7 +389,7 @@ describe('reconstructPressureTimeline', () => {
   });
 
   it('advances tied high-round players into a normalized second tiebreak round', () => {
-    const timeline = reconstructPressureTimeline({
+    const timeline = reconstructDartIQTimeline({
       playerIds: ['a', 'b'],
       legs: [leg('leg-1', 1, 'a', null)],
       turnsByLeg: {

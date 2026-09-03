@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { calculateProbabilityVectorConsequence } from './pressureSignificance';
+import { calculateProbabilityVectorConsequence } from './replay';
 
-describe('calculateProbabilityVectorConsequence', () => {
+describe('DartIQ replay consequence', () => {
   it('equals acting-player absolute WPA in a normalized two-player field', () => {
     const consequence = calculateProbabilityVectorConsequence(
       [

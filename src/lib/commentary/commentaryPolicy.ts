@@ -1,7 +1,7 @@
 import type {
-  PressureEventPriority,
-  PressureEventSignal,
-} from '@/utils/pressureEvents';
+  DartIQEventPriority,
+  DartIQEventSignal,
+} from '@/lib/dartiq/events';
 
 export type CommentaryPolicyEvent = {
   eventId: string;
@@ -14,15 +14,15 @@ export type CommentaryPolicyEvent = {
   checkedOut: boolean;
   busted: boolean;
   matchWon: boolean;
-  priority: PressureEventPriority;
-  signals: readonly PressureEventSignal[];
+  priority: DartIQEventPriority;
+  signals: readonly DartIQEventSignal[];
   occurredAtMs?: number;
   storyKey?: string;
 };
 
 export type CommentaryPolicyDecision = {
   shouldSpeak: boolean;
-  priority: PressureEventPriority;
+  priority: DartIQEventPriority;
   interrupt: boolean;
   guaranteed: boolean;
   observationKey: string;
@@ -39,7 +39,7 @@ export type CommentaryPolicyDecision = {
 };
 
 export type CommentaryPolicyOptions = {
-  cooldownMs?: Partial<Record<PressureEventPriority, number>>;
+  cooldownMs?: Partial<Record<DartIQEventPriority, number>>;
   rapidDartWindowMs?: number;
   repeatWindowMs?: number;
   ordinaryEveryVisits?: number;
@@ -47,7 +47,7 @@ export type CommentaryPolicyOptions = {
   majorCheckoutMinimum?: number;
 };
 
-const PRIORITY_RANK: Record<PressureEventPriority, number> = {
+const PRIORITY_RANK: Record<DartIQEventPriority, number> = {
   silent: 0,
   ordinary: 1,
   notable: 2,
@@ -55,7 +55,7 @@ const PRIORITY_RANK: Record<PressureEventPriority, number> = {
   terminal: 4,
 };
 
-const DEFAULT_COOLDOWNS: Record<PressureEventPriority, number> = {
+const DEFAULT_COOLDOWNS: Record<DartIQEventPriority, number> = {
   silent: 0,
   ordinary: 12_000,
   notable: 5_000,
@@ -63,7 +63,7 @@ const DEFAULT_COOLDOWNS: Record<PressureEventPriority, number> = {
   terminal: 0,
 };
 
-const SIGNAL_ORDER: readonly PressureEventSignal[] = [
+const SIGNAL_ORDER: readonly DartIQEventSignal[] = [
   'match_win',
   'leg_win',
   'checkout',
@@ -87,18 +87,18 @@ const SIGNAL_ORDER: readonly PressureEventSignal[] = [
  * model; this class only decides whether that context earns an audio response.
  */
 export class CommentaryPolicy {
-  private readonly cooldownMs: Record<PressureEventPriority, number>;
+  private readonly cooldownMs: Record<DartIQEventPriority, number>;
   private readonly rapidDartWindowMs: number;
   private readonly repeatWindowMs: number;
   private readonly ordinaryEveryVisits: number;
   private readonly ordinaryQuietWindowMs: number;
   private readonly majorCheckoutMinimum: number;
-  private readonly lastSpokenAtByPriority = new Map<PressureEventPriority, number>();
+  private readonly lastSpokenAtByPriority = new Map<DartIQEventPriority, number>();
   private readonly observations = new Map<string, number>();
   private lastDartAtMs: number | null = null;
   private lastSpokenAtMs: number | null = null;
   private ordinaryVisitsSinceSpeech = 0;
-  private activePriority: PressureEventPriority | null = null;
+  private activePriority: DartIQEventPriority | null = null;
   private epoch = 0;
 
   constructor(options: CommentaryPolicyOptions = {}) {
@@ -187,7 +187,7 @@ export class CommentaryPolicy {
   }
 
   private commit(
-    priority: PressureEventPriority,
+    priority: DartIQEventPriority,
     observationKey: string,
     nowMs: number,
     guaranteed: boolean,
@@ -203,7 +203,7 @@ export class CommentaryPolicy {
   }
 
   private reject(
-    priority: PressureEventPriority,
+    priority: DartIQEventPriority,
     observationKey: string,
     reason: CommentaryPolicyDecision['reason']
   ): CommentaryPolicyDecision {
@@ -245,7 +245,7 @@ export class CommentaryPolicy {
   }
 }
 
-export function priorityInstruction(priority: PressureEventPriority) {
+export function priorityInstruction(priority: DartIQEventPriority) {
   if (priority === 'terminal') {
     return 'Moment: match ending. Name the winner and land the strongest supplied payoff.';
   }

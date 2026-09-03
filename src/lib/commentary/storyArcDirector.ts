@@ -1,5 +1,5 @@
-import type { PressureDartEvent, PressureReplayState } from '@/utils/pressureReplay';
-import { hasCheckoutRoute } from '@/utils/pressureCheckout';
+import type { DartIQDartEvent, DartIQReplayState } from '@/lib/dartiq/replay';
+import { hasCheckoutRoute } from '@/lib/dartiq/checkout';
 import type { FinishRule } from '@/utils/x01';
 
 export type CommentaryStoryArcKind =
@@ -41,11 +41,11 @@ function clamp(value: number) {
   return Math.min(1, Math.max(0, value));
 }
 
-function probability(state: PressureReplayState, playerId: string) {
+function probability(state: DartIQReplayState, playerId: string) {
   return state.projections.find((projection) => projection.id === playerId)?.matchWinProbability ?? 0;
 }
 
-function favoriteId(state: PressureReplayState) {
+function favoriteId(state: DartIQReplayState) {
   let favorite: { id: string; probability: number } | null = null;
   for (const projection of state.projections) {
     if (!favorite || projection.matchWinProbability > favorite.probability) {
@@ -64,9 +64,9 @@ function candidate(input: Omit<ArcCandidate, 'order'>): ArcCandidate {
   return { ...input, order: KIND_ORDER.indexOf(input.kind) };
 }
 
-/** Ranks the strongest factual broadcast stories from competing Pressure arcs. */
+/** Ranks the strongest factual broadcast stories from competing DartIQ arcs. */
 export function rankCommentaryStoryArcs(input: {
-  events: readonly PressureDartEvent[];
+  events: readonly DartIQDartEvent[];
   finishRule: FinishRule;
   rematch?: {
     previousWinnerId: string | null;

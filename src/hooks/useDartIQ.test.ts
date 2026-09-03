@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  normalizePlayerPressureProfile,
-  normalizePopulationPressureProfile,
-} from './usePressureProfiles';
+  normalizeDartIQPlayerProfile,
+  normalizeDartIQPopulationProfile,
+} from '@/lib/dartiq/evidence';
 
-describe('pressure profile row normalization', () => {
+describe('DartIQ evidence row normalization', () => {
   it('normalizes Postgres numeric strings for a player profile', () => {
-    expect(normalizePlayerPressureProfile({
+    expect(normalizeDartIQPlayerProfile({
       player_id: 'a', finish_rule: 'double_out', matches_played: '12', visits: '90',
       darts_thrown: '270', scoring_points: '5400', three_dart_average: '60.00',
       busts: '4', bust_rate: '0.0444', checkout_opportunities: '30', checkouts: '8',
@@ -19,7 +19,7 @@ describe('pressure profile row normalization', () => {
   });
 
   it('uses player-match samples as the population sample count', () => {
-    expect(normalizePopulationPressureProfile({
+    expect(normalizeDartIQPopulationProfile({
       finish_rule: 'single_out', player_match_samples: '44', visits: '400',
       darts_thrown: '1200', scoring_points: '22000', three_dart_average: '55',
       busts: '3', bust_rate: '0.0075', checkout_opportunities: '100', checkouts: '50',

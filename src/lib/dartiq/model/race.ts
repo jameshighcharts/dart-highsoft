@@ -1,27 +1,27 @@
-import type { PressureVisitDistribution } from './pressureVisitKernel.ts';
+import type { DartIQVisitDistribution } from './visit';
 
-export type PressureVisitKernel = Map<number, PressureVisitDistribution>;
+export type DartIQVisitKernel = Map<number, DartIQVisitDistribution>;
 
-export type PressureFirstFinishPmf = {
+export type DartIQFirstFinishPmf = {
   /** Index zero is the player's first upcoming visit. */
   probabilities: number[];
   truncatedMass: number;
 };
 
-export type PressureRaceResult = {
+export type DartIQRaceResult = {
   probabilities: number[];
   approximationMode: 'exact' | 'truncated-tail' | 'no-finish-fallback';
 };
 
-function addMass(distribution: PressureVisitDistribution, score: number, probability: number) {
+function addMass(distribution: DartIQVisitDistribution, score: number, probability: number) {
   distribution.set(score, (distribution.get(score) ?? 0) + probability);
 }
 
 function advanceVisit(
-  survivors: PressureVisitDistribution,
-  kernel: PressureVisitKernel
+  survivors: DartIQVisitDistribution,
+  kernel: DartIQVisitKernel
 ) {
-  const next: PressureVisitDistribution = new Map();
+  const next: DartIQVisitDistribution = new Map();
   let finished = 0;
   for (const [score, stateProbability] of survivors) {
     const transitions = kernel.get(score);
@@ -40,21 +40,21 @@ function advanceVisit(
 
 export function createFirstFinishPmf(input: {
   startScore: number;
-  kernel: PressureVisitKernel;
-  firstVisit?: PressureVisitDistribution;
+  kernel: DartIQVisitKernel;
+  firstVisit?: DartIQVisitDistribution;
   maximumVisits?: number;
   tailTolerance?: number;
-}): PressureFirstFinishPmf {
+}): DartIQFirstFinishPmf {
   if (input.startScore <= 0) return { probabilities: [1], truncatedMass: 0 };
   const maximumVisits = Math.max(1, input.maximumVisits ?? 120);
   const tailTolerance = Math.max(0, input.tailTolerance ?? 1e-10);
   const probabilities: number[] = [];
-  let survivors: PressureVisitDistribution = new Map([[input.startScore, 1]]);
+  let survivors: DartIQVisitDistribution = new Map([[input.startScore, 1]]);
 
   for (let visit = 0; visit < maximumVisits; visit += 1) {
     let advanced: ReturnType<typeof advanceVisit>;
     if (visit === 0 && input.firstVisit) {
-      const next: PressureVisitDistribution = new Map();
+      const next: DartIQVisitDistribution = new Map();
       let finished = 0;
       for (const [score, probability] of input.firstVisit) {
         if (score === 0) finished += probability;
@@ -87,8 +87,8 @@ function cumulative(pmf: number[], maximumVisits: number) {
 }
 
 export function combineOrderedFirstFinishPmfs(
-  pmfs: PressureFirstFinishPmf[]
-): PressureRaceResult {
+  pmfs: DartIQFirstFinishPmf[]
+): DartIQRaceResult {
   if (pmfs.length === 0) return { probabilities: [], approximationMode: 'exact' };
   if (pmfs.length === 1) return { probabilities: [1], approximationMode: 'exact' };
   const maximumVisits = Math.max(...pmfs.map((pmf) => pmf.probabilities.length));
@@ -137,7 +137,7 @@ export function combineCurrentLegWithMatch(input: {
   nextStarterIndex: number;
   futureLegProbabilitiesByStarter: number[][];
   maximumStates?: number;
-}): PressureRaceResult {
+}): DartIQRaceResult {
   const playerCount = input.legsWon.length;
   if (playerCount === 0) return { probabilities: [], approximationMode: 'exact' };
   const maximumStates = input.maximumStates ?? 10_000;

@@ -127,10 +127,10 @@ export function renderScoliaRealtimeEvent(
   state: RealtimeNarrativeWireState,
   direction?: BroadcastDirection
 ) {
-  const pressure = event.pressure;
+  const dartiq = event.dartiq;
   const result = event.matchWon
     ? 'match won'
-    : pressure?.signals.includes('leg_win')
+    : dartiq?.signals.includes('leg_win')
       ? 'leg won'
       : event.checkedOut
         ? 'checkout'
@@ -140,16 +140,16 @@ export function renderScoliaRealtimeEvent(
   const visit = event.dartIndex >= 3 || event.checkedOut || event.busted
     ? `Visit: ${event.visitDarts.map((dart) => dart.segment).join(' · ')} = ${event.turnScore}${event.busted ? ' (bust)' : ''}.`
     : null;
-  const probability = pressure
-    ? `Win chance: leg ${percent(pressure.legProbabilityBefore)} → ${percent(pressure.legProbabilityAfter)} (${points(pressure.legWpa)}); match ${percent(pressure.matchProbabilityBefore)} → ${percent(pressure.matchProbabilityAfter)} (${points(pressure.matchWpa)}).`
+  const probability = dartiq
+    ? `Win chance: leg ${percent(dartiq.legProbabilityBefore)} → ${percent(dartiq.legProbabilityAfter)} (${points(dartiq.legWpa)}); match ${percent(dartiq.matchProbabilityBefore)} → ${percent(dartiq.matchProbabilityAfter)} (${points(dartiq.matchWpa)}).`
     : null;
-  const consequence = pressure
-    ? `Full-field consequence: leg ${points(pressure.consequence.leg)}; match ${points(pressure.consequence.match)}.`
+  const consequence = dartiq
+    ? `Full-field consequence: leg ${points(dartiq.consequence.leg)}; match ${points(dartiq.consequence.match)}.`
     : null;
-  const signals = pressure?.signals.length ? `Facts: ${pressure.signals.map(words).join(', ')}.` : null;
+  const signals = dartiq?.signals.length ? `Facts: ${dartiq.signals.map(words).join(', ')}.` : null;
   return [
     `AUTHORITATIVE EVENT · epoch ${epoch}`,
-    `${event.playerName} · leg ${event.legNumber} · dart ${event.dartIndex}: ${event.segment} for ${event.scored}${pressure ? `; score ${pressure.scoreBefore} → ${pressure.scoreAfter}` : ''}${result ? `; ${result}` : ''}.`,
+    `${event.playerName} · leg ${event.legNumber} · dart ${event.dartIndex}: ${event.segment} for ${event.scored}${dartiq ? `; score ${dartiq.scoreBefore} → ${dartiq.scoreAfter}` : ''}${result ? `; ${result}` : ''}.`,
     visit,
     probability,
     consequence,
@@ -164,21 +164,21 @@ export function renderManualRealtimeEvent(
   state: RealtimeNarrativeWireState,
   direction?: BroadcastDirection
 ) {
-  const pressure = context.pressure;
+  const dartiq = context.dartiq;
   const currentScoreBefore = context.busted
     ? context.remainingScore
     : context.totalScore + context.remainingScore;
-  const probability = pressure
-    ? `Win chance: leg ${percent(pressure.legProbabilityBefore)} → ${percent(pressure.legProbabilityAfter)} (${points(pressure.legWpa)}); match ${percent(pressure.matchProbabilityBefore)} → ${percent(pressure.matchProbabilityAfter)} (${points(pressure.matchWpa)}).`
+  const probability = dartiq
+    ? `Win chance: leg ${percent(dartiq.legProbabilityBefore)} → ${percent(dartiq.legProbabilityAfter)} (${points(dartiq.legWpa)}); match ${percent(dartiq.matchProbabilityBefore)} → ${percent(dartiq.matchProbabilityAfter)} (${points(dartiq.matchWpa)}).`
     : null;
   const storyDirection = direction
     ? { ...direction, activeStoryArc: direction.activeStoryArc }
     : undefined;
   return [
     `AUTHORITATIVE EVENT · epoch ${epoch}`,
-    `${context.playerName} · leg ${context.gameContext.currentLegNumber} · visit ${context.gameContext.playerTurnNumber}: ${context.throws.map((dart) => dart.segment).join(' · ')} = ${context.totalScore}; score ${currentScoreBefore} → ${context.remainingScore}${context.busted ? '; bust' : pressure?.checkedOut ? '; checkout' : ''}.`,
+    `${context.playerName} · leg ${context.gameContext.currentLegNumber} · visit ${context.gameContext.playerTurnNumber}: ${context.throws.map((dart) => dart.segment).join(' · ')} = ${context.totalScore}; score ${currentScoreBefore} → ${context.remainingScore}${context.busted ? '; bust' : dartiq?.checkedOut ? '; checkout' : ''}.`,
     probability,
-    pressure ? `Full-field consequence: leg ${points(pressure.peakLegConsequence ?? Math.abs(pressure.legWpa))}; match ${points(pressure.peakMatchConsequence ?? Math.abs(pressure.matchWpa))}.` : null,
+    dartiq ? `Full-field consequence: leg ${points(dartiq.peakLegConsequence ?? Math.abs(dartiq.legWpa))}; match ${points(dartiq.peakMatchConsequence ?? Math.abs(dartiq.matchWpa))}.` : null,
     ...state.renderNarrativeDelta(context.narrative, storyDirection),
   ].filter(Boolean).join('\n');
 }

@@ -37,7 +37,7 @@ export interface CommentaryGameContext {
   consecutiveLowScores?: number;
 }
 
-export interface CommentaryPressureContext {
+export interface CommentaryDartIQContext {
   matchProbabilityBefore: number;
   matchProbabilityAfter: number;
   matchWpa: number;
@@ -69,7 +69,7 @@ export interface CommentaryPayload {
   is180: boolean;
   isNikitaSpecial?: boolean;
   gameContext: CommentaryGameContext;
-  pressure?: CommentaryPressureContext;
+  dartiq?: CommentaryDartIQContext;
   narrative?: CommentaryNarrativeMemory;
 }
 

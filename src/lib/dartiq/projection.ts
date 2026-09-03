@@ -1,39 +1,39 @@
-import { computeCheckoutSuggestions } from './checkoutSuggestions.ts';
+import { computeCheckoutSuggestions } from '@/utils/checkoutSuggestions';
 import {
-  createPressureSkillModel,
-  type PressureSkillModel,
-  type PressurePlayerHistoryProfile,
-  type PressurePopulationProfile,
-} from './pressureProfiles.ts';
-import type { FairEndingPhase } from './fairEnding.ts';
-import type { FinishRule } from './x01.ts';
+  createDartIQSkillModel,
+  type DartIQSkillModel,
+  type DartIQPlayerHistoryProfile,
+  type DartIQPopulationProfile,
+} from './evidence';
+import type { FairEndingPhase } from '@/utils/fairEnding';
+import type { FinishRule } from '@/utils/x01';
 import {
   createBehavioralOutcomeModel,
-  type PressureOutcomeModel,
-} from './pressureOutcomeModel.ts';
+  type DartIQOutcomeModel,
+} from './model/outcomes';
 import {
   combineCurrentLegWithMatch,
   combineOrderedFirstFinishPmfs,
   createFirstFinishPmf,
-  type PressureFirstFinishPmf,
-  type PressureVisitKernel,
-} from './pressureRace.ts';
-import { createPressureVisitKernel, solvePressureVisit } from './pressureVisitKernel.ts';
+  type DartIQFirstFinishPmf,
+  type DartIQVisitKernel,
+} from './model/race';
+import { createDartIQVisitKernel, solveDartIQVisit } from './model/visit';
 
 const PRIOR_DARTS = 12;
 
-export type PressurePlayerState = {
+export type DartIQPlayerState = {
   id: string;
   scoreRemaining: number;
   legsWon: number;
   threeDartAverage: number;
   dartsThrown: number;
-  historicalProfile?: PressurePlayerHistoryProfile;
-  outcomeModel?: PressureOutcomeModel;
+  historicalProfile?: DartIQPlayerHistoryProfile;
+  outcomeModel?: DartIQOutcomeModel;
 };
 
-export type PressureEngineInput = {
-  players: PressurePlayerState[];
+export type DartIQEngineInput = {
+  players: DartIQPlayerState[];
   playOrder: string[];
   currentPlayerId: string | null;
   currentVisitStartScore?: number;
@@ -42,11 +42,11 @@ export type PressureEngineInput = {
   legsToWin: number;
   finishRule: FinishRule;
   matchWinnerId?: string | null;
-  populationProfile?: PressurePopulationProfile;
-  fairEnding?: PressureFairEndingProjectionInput;
+  populationProfile?: DartIQPopulationProfile;
+  fairEnding?: DartIQFairEndingProjectionInput;
 };
 
-export type PressureFairEndingProjectionInput = {
+export type DartIQFairEndingProjectionInput = {
   phase: FairEndingPhase;
   checkedOutPlayerIds: string[];
   tiebreakRound: number;
@@ -57,7 +57,7 @@ export type PressureFairEndingProjectionInput = {
   tiebreakDartsThrown: Record<string, number>;
 };
 
-export type PressurePlayerProjection = PressurePlayerState & {
+export type DartIQPlayerProjection = DartIQPlayerState & {
   adjustedThreeDartAverage: number;
   expectedDartsRemaining: number;
   legWinProbability: number;
@@ -71,8 +71,8 @@ export type PressurePlayerProjection = PressurePlayerState & {
   bustRate: number;
 };
 
-export type PressureEngineProjection = {
-  players: PressurePlayerProjection[];
+export type DartIQEngineProjection = {
+  players: DartIQPlayerProjection[];
   favoritePlayerId: string | null;
   approximationMode: 'standard' | 'truncated-tail' | 'no-finish-fallback' | 'large-field-bounded' | 'fair-ending-weighted';
 };
@@ -156,20 +156,20 @@ function normalizeWeights(weights: number[]) {
   return weights.map((value) => value / total);
 }
 
-type PreparedPressurePlayer = PressurePlayerState & {
+type PreparedDartIQPlayer = DartIQPlayerState & {
   adjustedAverage: number;
-  skillModel: PressureSkillModel;
-  outcomeModel: PressureOutcomeModel;
+  skillModel: DartIQSkillModel;
+  outcomeModel: DartIQOutcomeModel;
 };
 
 const FALLBACK_OUTCOME_MODEL = createBehavioralOutcomeModel();
-const VISIT_KERNEL_CACHE = new WeakMap<PressureOutcomeModel, Map<FinishRule, PressureVisitKernel>>();
+const VISIT_KERNEL_CACHE = new WeakMap<DartIQOutcomeModel, Map<FinishRule, DartIQVisitKernel>>();
 const FINISH_PMF_CACHE = new WeakMap<
-  PressureOutcomeModel,
-  Map<string, PressureFirstFinishPmf>
+  DartIQOutcomeModel,
+  Map<string, DartIQFirstFinishPmf>
 >();
 
-function getVisitKernel(model: PressureOutcomeModel, finishRule: FinishRule) {
+function getVisitKernel(model: DartIQOutcomeModel, finishRule: FinishRule) {
   let byRule = VISIT_KERNEL_CACHE.get(model);
   if (!byRule) {
     byRule = new Map();
@@ -177,7 +177,7 @@ function getVisitKernel(model: PressureOutcomeModel, finishRule: FinishRule) {
   }
   const cached = byRule.get(finishRule);
   if (cached) return cached;
-  const kernel = createPressureVisitKernel(model, finishRule);
+  const kernel = createDartIQVisitKernel(model, finishRule);
   byRule.set(finishRule, kernel);
   return kernel;
 }
@@ -187,7 +187,7 @@ function rotateOrder(playOrder: string[], firstPlayerId: string | null | undefin
   return [...playOrder.slice(firstIndex), ...playOrder.slice(0, firstIndex)];
 }
 
-function expectedDartsFromPmf(pmf: PressureFirstFinishPmf, firstVisitDarts = 3) {
+function expectedDartsFromPmf(pmf: DartIQFirstFinishPmf, firstVisitDarts = 3) {
   let expected = 0;
   for (let index = 0; index < pmf.probabilities.length; index += 1) {
     expected += pmf.probabilities[index] * (firstVisitDarts + index * 3);
@@ -199,7 +199,7 @@ function expectedDartsFromPmf(pmf: PressureFirstFinishPmf, firstVisitDarts = 3) 
 }
 
 function createPlayerPmf(
-  player: PreparedPressurePlayer,
+  player: PreparedDartIQPlayer,
   finishRule: FinishRule,
   partial?: { visitStartScore: number; dartsLeft: number }
 ) {
@@ -222,7 +222,7 @@ function createPlayerPmf(
     return pmf;
   }
   const firstVisit = partial
-    ? solvePressureVisit(player.outcomeModel, {
+    ? solveDartIQVisit(player.outcomeModel, {
         visitStartScore: partial.visitStartScore,
         currentScore: player.scoreRemaining,
         dartsLeft: clamp(Math.floor(partial.dartsLeft), 1, 3) as 1 | 2 | 3,
@@ -237,10 +237,10 @@ function createPlayerPmf(
   });
 }
 
-function markovLegProbabilities(players: PreparedPressurePlayer[], input: PressureEngineInput) {
+function markovLegProbabilities(players: PreparedDartIQPlayer[], input: DartIQEngineInput) {
   const orderedIds = rotateOrder(input.playOrder, input.currentPlayerId ?? input.currentLegStarterId);
   const byId = new Map(players.map((player) => [player.id, player]));
-  const orderedPlayers = orderedIds.map((id) => byId.get(id)).filter(Boolean) as PreparedPressurePlayer[];
+  const orderedPlayers = orderedIds.map((id) => byId.get(id)).filter(Boolean) as PreparedDartIQPlayer[];
   const pmfs = orderedPlayers.map((player, index) => createPlayerPmf(
     player,
     input.finishRule,
@@ -263,7 +263,7 @@ function markovLegProbabilities(players: PreparedPressurePlayer[], input: Pressu
 }
 
 function futureLegProbabilitiesByStarter(
-  players: PreparedPressurePlayer[],
+  players: PreparedDartIQPlayer[],
   playOrder: string[],
   finishRule: FinishRule
 ) {
@@ -271,7 +271,7 @@ function futureLegProbabilitiesByStarter(
   return playOrder.map((starterId) => {
     const orderedPlayers = rotateOrder(playOrder, starterId)
       .map((id) => byId.get(id))
-      .filter(Boolean) as PreparedPressurePlayer[];
+      .filter(Boolean) as PreparedDartIQPlayer[];
     const race = combineOrderedFirstFinishPmfs(
       orderedPlayers.map((player) => createPlayerPmf(player, finishRule))
     );
@@ -282,19 +282,19 @@ function futureLegProbabilitiesByStarter(
   });
 }
 
-function tiebreakStrength(player: PreparedPressurePlayer) {
+function tiebreakStrength(player: PreparedDartIQPlayer) {
   return Math.pow(clamp(player.adjustedAverage, 20, 110), 1.35);
 }
 
 function checkoutChanceWithinVisit(
-  player: PreparedPressurePlayer,
+  player: PreparedDartIQPlayer,
   dartsRemaining: number,
   finishRule: FinishRule
 ) {
   const darts = clamp(Math.floor(dartsRemaining), 0, 3);
   if (player.scoreRemaining <= 0) return 1;
   if (darts === 0) return 0;
-  const distribution = solvePressureVisit(player.outcomeModel, {
+  const distribution = solveDartIQVisit(player.outcomeModel, {
     visitStartScore: player.scoreRemaining,
     currentScore: player.scoreRemaining,
     dartsLeft: darts as 1 | 2 | 3,
@@ -309,9 +309,9 @@ function checkoutChanceWithinVisit(
  * weighted tiebreak forecast as an exact analytical probability.
  */
 function fairEndingLegProbabilities(
-  players: PreparedPressurePlayer[],
-  input: PressureEngineInput,
-  fairEnding: PressureFairEndingProjectionInput
+  players: PreparedDartIQPlayer[],
+  input: DartIQEngineInput,
+  fairEnding: DartIQFairEndingProjectionInput
 ) {
   const playerIndex = new Map(players.map((player, index) => [player.id, index]));
   const result = players.map(() => 0);
@@ -407,14 +407,14 @@ function fairEndingLegProbabilities(
   return markovLegProbabilities(players, input).probabilities;
 }
 
-export function calculatePressureProjection(input: PressureEngineInput): PressureEngineProjection {
+export function calculateDartIQProjection(input: DartIQEngineInput): DartIQEngineProjection {
   const { players } = input;
   if (players.length === 0) {
     return { players: [], favoritePlayerId: null, approximationMode: 'standard' };
   }
 
   const prepared = players.map((player) => {
-    const skillModel = createPressureSkillModel(
+    const skillModel = createDartIQSkillModel(
       player.historicalProfile,
       input.populationProfile
     );
@@ -433,7 +433,7 @@ export function calculatePressureProjection(input: PressureEngineInput): Pressur
 
   let legProbabilities: number[];
   let matchProbabilities: number[];
-  let projectionApproximation: PressureEngineProjection['approximationMode'] = 'standard';
+  let projectionApproximation: DartIQEngineProjection['approximationMode'] = 'standard';
 
   const winnerIndex = input.matchWinnerId
     ? prepared.findIndex((player) => player.id === input.matchWinnerId)

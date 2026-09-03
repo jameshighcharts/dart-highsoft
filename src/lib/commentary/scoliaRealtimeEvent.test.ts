@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   classifyScoliaRealtimeDart,
   loadScoliaRealtimeDartEvent,
-  ScoliaPressureEventCache,
+  ScoliaDartIQEventCache,
   type ScoliaRealtimeDartFacts,
 } from './scoliaRealtimeEvent';
 
@@ -128,8 +128,8 @@ describe('classifyScoliaRealtimeDart', () => {
         { id: 'dart', turn_id: 'turn', dart_index: 3, segment: 'S20', scored: 20 },
       ],
       players: [{ id: 'a', display_name: 'Player A' }],
-      player_pressure_profiles: [],
-      pressure_population_profiles: [],
+      dartiq_player_profiles: [],
+      dartiq_population_profiles: [],
     });
 
     await expect(loadScoliaRealtimeDartEvent(supabase, 'match', 'dart')).resolves.toMatchObject({
@@ -149,7 +149,7 @@ describe('classifyScoliaRealtimeDart', () => {
     ).toMatchObject({ priority: 'silent', shouldSpeak: false });
   });
 
-  it('loads a fair-ending checkout as a speaking Pressure v2 worker event', async () => {
+  it('loads a fair-ending checkout as a speaking DartIQ v2 worker event', async () => {
     const supabase = supabaseWithRows({
       matches: [{
         id: 'match', winner_player_id: null, start_score: '40', finish: 'double_out',
@@ -171,8 +171,8 @@ describe('classifyScoliaRealtimeDart', () => {
         id: 'dart', turn_id: 'turn', dart_index: 1, segment: 'D20', scored: 40,
       }],
       players: [{ id: 'a', display_name: 'Player A' }],
-      player_pressure_profiles: [],
-      pressure_population_profiles: [],
+      dartiq_player_profiles: [],
+      dartiq_population_profiles: [],
     });
 
     const event = await loadScoliaRealtimeDartEvent(supabase, 'match', 'dart');
@@ -181,13 +181,13 @@ describe('classifyScoliaRealtimeDart', () => {
       checkedOut: true,
       priority: 'marquee',
       shouldSpeak: true,
-      pressure: {
+      dartiq: {
         schemaVersion: 2,
         engineVersion: 'behavioral-v1',
         fairEnding: { phase: 'completing_round', winnerId: null },
       },
     });
-    expect(event.pressure?.signals).toEqual(
+    expect(event.dartiq?.signals).toEqual(
       expect.arrayContaining(['checkout', 'fair_ending_checkout'])
     );
   });
@@ -235,8 +235,8 @@ describe('classifyScoliaRealtimeDart', () => {
         { id: 'tiebreak-b-3', turn_id: 'tiebreak-b', dart_index: 3, segment: 'S12', scored: 12 },
       ],
       players: [{ id: 'b', display_name: 'Player B' }],
-      player_pressure_profiles: [],
-      pressure_population_profiles: [],
+      dartiq_player_profiles: [],
+      dartiq_population_profiles: [],
     });
 
     const event = await loadScoliaRealtimeDartEvent(supabase, 'match', 'tiebreak-b-3');
@@ -247,17 +247,17 @@ describe('classifyScoliaRealtimeDart', () => {
       matchWon: false,
       priority: 'terminal',
       shouldSpeak: true,
-      pressure: {
+      dartiq: {
         schemaVersion: 2,
         fairEnding: { phase: 'resolved', winnerId: 'a' },
       },
     });
-    expect(event.pressure?.signals).toEqual(
+    expect(event.dartiq?.signals).toEqual(
       expect.arrayContaining(['leg_win', 'match_win'])
     );
   });
 
-  it('keeps canonical Pressure history in the worker cache between sequential darts', async () => {
+  it('keeps canonical DartIQ history in the worker cache between sequential darts', async () => {
     const tables: Record<string, Row[]> = {
       matches: [{
         id: 'match', winner_player_id: null, start_score: '301', finish: 'double_out',
@@ -276,18 +276,18 @@ describe('classifyScoliaRealtimeDart', () => {
       }],
       throws: [{ id: 'dart-1', turn_id: 'turn', dart_index: 1, segment: 'T20', scored: 60 }],
       players: [{ id: 'a', display_name: 'Player A' }],
-      player_pressure_profiles: [],
-      pressure_population_profiles: [],
+      dartiq_player_profiles: [],
+      dartiq_population_profiles: [],
     };
     const supabase = supabaseWithRows(tables);
-    const cache = new ScoliaPressureEventCache();
+    const cache = new ScoliaDartIQEventCache();
 
     await loadScoliaRealtimeDartEvent(supabase, 'match', 'dart-1', cache);
     tables.throws.push({ id: 'dart-2', turn_id: 'turn', dart_index: 2, segment: 'S20', scored: 20 });
     tables.turns[0].total_scored = 80;
     const second = await loadScoliaRealtimeDartEvent(supabase, 'match', 'dart-2', cache);
 
-    expect(second.pressure).toMatchObject({ dartId: 'dart-2', scoreBefore: 241, scoreAfter: 221 });
+    expect(second.dartiq).toMatchObject({ dartId: 'dart-2', scoreBefore: 241, scoreAfter: 221 });
     expect(second.narrative).toMatchObject({
       schemaVersion: 1,
       players: expect.arrayContaining([expect.objectContaining({ playerId: 'a' })]),

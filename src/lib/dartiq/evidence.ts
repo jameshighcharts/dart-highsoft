@@ -1,6 +1,6 @@
-import type { FinishRule } from './x01.ts';
+import type { FinishRule } from '@/utils/x01';
 
-export type PressureHistoryProfile = {
+export type DartIQHistoryProfile = {
   finishRule: FinishRule;
   matchesPlayed: number;
   visits: number;
@@ -14,13 +14,13 @@ export type PressureHistoryProfile = {
   checkoutRate: number;
 };
 
-export type PressurePlayerHistoryProfile = PressureHistoryProfile & {
+export type DartIQPlayerHistoryProfile = DartIQHistoryProfile & {
   playerId: string;
 };
 
-export type PressurePopulationProfile = PressureHistoryProfile;
+export type DartIQPopulationProfile = DartIQHistoryProfile;
 
-export type PressurePlayerProfileRow = {
+export type DartIQPlayerProfileRow = {
   player_id: string;
   finish_rule: FinishRule;
   matches_played: number | string | null;
@@ -35,12 +35,12 @@ export type PressurePlayerProfileRow = {
   checkout_rate: number | string | null;
 };
 
-export type PressurePopulationProfileRow = Omit<
-  PressurePlayerProfileRow,
+export type DartIQPopulationProfileRow = Omit<
+  DartIQPlayerProfileRow,
   'player_id' | 'matches_played'
 > & { player_match_samples: number | string | null };
 
-export type PressureSkillModel = {
+export type DartIQSkillModel = {
   threeDartAverage: number;
   checkoutRate: number;
   populationCheckoutRate: number;
@@ -71,7 +71,7 @@ function numeric(value: number | string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function normalizeBase(row: PressurePlayerProfileRow | PressurePopulationProfileRow) {
+function normalizeBase(row: DartIQPlayerProfileRow | DartIQPopulationProfileRow) {
   return {
     finishRule: row.finish_rule,
     visits: numeric(row.visits),
@@ -86,9 +86,9 @@ function normalizeBase(row: PressurePlayerProfileRow | PressurePopulationProfile
   };
 }
 
-export function normalizePlayerPressureProfile(
-  row: PressurePlayerProfileRow
-): PressurePlayerHistoryProfile {
+export function normalizeDartIQPlayerProfile(
+  row: DartIQPlayerProfileRow
+): DartIQPlayerHistoryProfile {
   return {
     playerId: row.player_id,
     matchesPlayed: numeric(row.matches_played),
@@ -96,9 +96,9 @@ export function normalizePlayerPressureProfile(
   };
 }
 
-export function normalizePopulationPressureProfile(
-  row: PressurePopulationProfileRow
-): PressurePopulationProfile {
+export function normalizeDartIQPopulationProfile(
+  row: DartIQPopulationProfileRow
+): DartIQPopulationProfile {
   return {
     matchesPlayed: numeric(row.player_match_samples),
     ...normalizeBase(row),
@@ -111,10 +111,10 @@ export function normalizePopulationPressureProfile(
  * Confidence saturates, but every historical sample remains represented in
  * each aggregate's observed rate/average.
  */
-export function createPressureSkillModel(
-  personal?: PressurePlayerHistoryProfile,
-  population?: PressurePopulationProfile
-): PressureSkillModel {
+export function createDartIQSkillModel(
+  personal?: DartIQPlayerHistoryProfile,
+  population?: DartIQPopulationProfile
+): DartIQSkillModel {
   const populationDarts = Math.max(0, population?.dartsThrown ?? 0);
   const populationVisits = Math.max(0, population?.visits ?? 0);
   const populationCheckoutOpportunities = Math.max(0, population?.checkoutOpportunities ?? 0);

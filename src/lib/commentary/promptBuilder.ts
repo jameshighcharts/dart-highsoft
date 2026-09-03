@@ -20,14 +20,14 @@ export function buildCommentaryPrompt(
   const { persona } = options;
   const rng = options.random ?? Math.random;
   const style = persona.style;
-  const significantPressure = Boolean(
-    payload.pressure
-      && (Math.abs(payload.pressure.matchWpa) >= 0.06
-        || (payload.pressure.peakMatchConsequence ?? 0) >= 0.04
-        || (payload.pressure.peakLegConsequence ?? 0) >= 0.08
-        || payload.pressure.createdBogey
-        || payload.pressure.changedMatchFavorite
-        || payload.pressure.checkedOut)
+  const significantDartIQ = Boolean(
+    payload.dartiq
+      && (Math.abs(payload.dartiq.matchWpa) >= 0.06
+        || (payload.dartiq.peakMatchConsequence ?? 0) >= 0.04
+        || (payload.dartiq.peakLegConsequence ?? 0) >= 0.08
+        || payload.dartiq.createdBogey
+        || payload.dartiq.changedMatchFavorite
+        || payload.dartiq.checkedOut)
   );
   const hasNarrativeHook = Boolean(
     payload.narrative
@@ -48,7 +48,7 @@ export function buildCommentaryPrompt(
     persona.id !== 'chad'
     &&
     !payload.isNikitaSpecial
-    && !significantPressure
+    && !significantDartIQ
     && !hasNarrativeHook
     && rng() < style.plainLineProbability
   ) {
@@ -107,32 +107,32 @@ export function buildCommentaryPrompt(
   if (iq.setupShot) iqHints.push('Visit looked like a setup shot.');
   if (iq.bust) iqHints.push(`Bust resets to ${payload.remainingScore}.`);
 
-  const pressureHints: string[] = [];
-  if (payload.pressure) {
-    const pressure = payload.pressure;
+  const dartIQHints: string[] = [];
+  if (payload.dartiq) {
+    const dartiq = payload.dartiq;
     const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
     const formatPoints = (value: number) => `${value >= 0 ? '+' : ''}${Math.round(value * 100)}pp`;
-    pressureHints.push(
-      `Match win chance ${formatPercent(pressure.matchProbabilityBefore)} → ${formatPercent(pressure.matchProbabilityAfter)} (${formatPoints(pressure.matchWpa)}).`
+    dartIQHints.push(
+      `Match win chance ${formatPercent(dartiq.matchProbabilityBefore)} → ${formatPercent(dartiq.matchProbabilityAfter)} (${formatPoints(dartiq.matchWpa)}).`
     );
-    pressureHints.push(
-      `Leg win chance ${formatPercent(pressure.legProbabilityBefore)} → ${formatPercent(pressure.legProbabilityAfter)} (${formatPoints(pressure.legWpa)}).`
+    dartIQHints.push(
+      `Leg win chance ${formatPercent(dartiq.legProbabilityBefore)} → ${formatPercent(dartiq.legProbabilityAfter)} (${formatPoints(dartiq.legWpa)}).`
     );
-    if (pressure.changedMatchFavorite) pressureHints.push('This visit changed the match favorite.');
-    if (Math.abs(pressure.biggestDartMatchWpa) >= 0.03) {
-      pressureHints.push(`Biggest single-dart match swing in the visit: ${formatPoints(pressure.biggestDartMatchWpa)}.`);
+    if (dartiq.changedMatchFavorite) dartIQHints.push('This visit changed the match favorite.');
+    if (Math.abs(dartiq.biggestDartMatchWpa) >= 0.03) {
+      dartIQHints.push(`Biggest single-dart match swing in the visit: ${formatPoints(dartiq.biggestDartMatchWpa)}.`);
     }
-    if ((pressure.peakMatchConsequence ?? 0) >= 0.03) {
-      pressureHints.push(`Largest full-field match consequence: ${formatPoints(pressure.peakMatchConsequence ?? 0)}.`);
+    if ((dartiq.peakMatchConsequence ?? 0) >= 0.03) {
+      dartIQHints.push(`Largest full-field match consequence: ${formatPoints(dartiq.peakMatchConsequence ?? 0)}.`);
     }
-    if (pressure.createdBogey) pressureHints.push('The visit created an unfinishable bogey leave.');
+    if (dartiq.createdBogey) dartIQHints.push('The visit created an unfinishable bogey leave.');
     else if (
-      pressure.setupGrade
-      && pressure.setupGrade !== 'checkout'
-      && pressure.setupGrade !== 'bust'
+      dartiq.setupGrade
+      && dartiq.setupGrade !== 'checkout'
+      && dartiq.setupGrade !== 'bust'
     ) {
-      pressureHints.push(
-        `Setup quality: ${pressure.setupGrade} (${Math.round((pressure.setupQuality ?? 0) * 100)}/100); next-visit checkout chance ${formatPercent(pressure.nextVisitCheckoutProbability ?? 0)}.`
+      dartIQHints.push(
+        `Setup quality: ${dartiq.setupGrade} (${Math.round((dartiq.setupQuality ?? 0) * 100)}/100); next-visit checkout chance ${formatPercent(dartiq.nextVisitCheckoutProbability ?? 0)}.`
       );
     }
   }
@@ -160,7 +160,7 @@ Recent: ${recentTurnsStr || 'First turn'}.${streakInfo}
 Standings: ${standingsStr || 'No standings available.'}
 
 IQ hints: ${iqHints.length ? iqHints.join(' ') : 'none'}
-Pressure Engine: ${pressureHints.length ? pressureHints.join(' ') : 'no pressure data'}
+DartIQ: ${dartIQHints.length ? dartIQHints.join(' ') : 'no DartIQ data'}
 Compact narrative memory: ${narrativeMemory}
 Special event: ${payload.isNikitaSpecial ? 'Nikita special — celebrate the exact 1, 5, 20 visit by name.' : 'none'}
 
@@ -181,7 +181,7 @@ Slang policy: ${persona.id === 'chad'
     : allowSlang ? `optional (≤${style.maxSlangPerLine} natural ${slangTermLabel}).` : 'avoid all slang this line.'}
 Stay clear of hashtags, emojis, or filler catchphrases.
 Prioritize dart intelligence (bogeys, checkout pressure, doubles, busts, setup leaves) over jokes.
-When Pressure Engine data is present, explain the consequence accurately. Pressure is the situation; call the result clutch only when the player gained probability.
+When DartIQ data is present, explain the consequence accurately. DartIQ is the situation; call the result clutch only when the player gained probability.
 Use at most one relevant narrative-memory thread. Build continuity without reciting the memory object or forcing history into every call.
 When broadcastDirection is present, follow its activeStoryArc as the committed angle, ignore backgroundStoryArcs, and honor payoff_due or closure_due callbacks. Otherwise use activeStoryArc. Never invent evidence beyond it.
 Be informative first, witty second. Output only the one-liner.`;

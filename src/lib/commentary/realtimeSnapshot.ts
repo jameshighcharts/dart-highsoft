@@ -8,19 +8,14 @@ import {
   type CommentaryRematchContext,
 } from './commentaryNarrative.ts';
 import {
-  createPressureSkillModel,
-  normalizePlayerPressureProfile,
-  normalizePopulationPressureProfile,
-  type PressurePlayerProfileRow,
-  type PressurePopulationProfileRow,
-} from '../../utils/pressureProfiles.ts';
-import { reconstructPressureTimeline } from '../../utils/pressureReplay.ts';
+  createDartIQSkillModel,
+} from '../dartiq/evidence.ts';
+import { reconstructDartIQTimeline } from '../dartiq/replay.ts';
 import type { TurnWithThrows } from '../match/types.ts';
 import {
   createBehavioralOutcomeModel,
-  normalizePressureOutcomeObservation,
-  type PressureOutcomeObservationRow,
-} from '../../utils/pressureOutcomeModel.ts';
+} from '../dartiq/model/outcomes.ts';
+import { loadFrozenDartIQEvidence } from '../server/dartiqEvidence';
 
 type SnapshotTurn = {
   id: string;
@@ -50,7 +45,7 @@ export type RealtimeCommentarySnapshot = {
     playOrder: number;
     score: number;
     legsWon: number;
-    historicalBaseline: ReturnType<typeof createPressureSkillModel>;
+    historicalBaseline: ReturnType<typeof createDartIQSkillModel>;
   }>;
   currentLeg: null | {
     id: string;
@@ -68,7 +63,7 @@ export async function loadRealtimeCommentarySnapshot(
   supabase: SupabaseClient,
   match: MatchRow
 ): Promise<RealtimeCommentarySnapshot> {
-  const [playersResult, legsResult, populationResult, populationOutcomesResult] = await Promise.all([
+  const [playersResult, legsResult, frozenEvidence] = await Promise.all([
     supabase
       .from('match_players')
       .select('player_id, play_order, players:player_id(display_name)')
@@ -79,20 +74,10 @@ export async function loadRealtimeCommentarySnapshot(
       .select('id, leg_number, starting_player_id, winner_player_id')
       .eq('match_id', match.id)
       .order('leg_number'),
-    supabase
-      .from('pressure_population_profiles')
-      .select('*')
-      .eq('finish_rule', match.finish)
-      .maybeSingle(),
-    supabase
-      .from('pressure_population_outcomes')
-      .select('*')
-      .eq('finish_rule', match.finish),
+    loadFrozenDartIQEvidence(supabase, match.id),
   ]);
   const error = playersResult.error
-    ?? legsResult.error
-    ?? populationResult.error
-    ?? populationOutcomesResult.error;
+    ?? legsResult.error;
   if (error) throw new Error(error.message);
 
   const playerRows = (playersResult.data ?? []) as unknown as Array<{
@@ -101,42 +86,20 @@ export async function loadRealtimeCommentarySnapshot(
     players: { display_name: string } | null;
   }>;
   const playerIds = playerRows.map((row) => row.player_id);
-  const [profilesResult, playerOutcomesResult] = await Promise.all([
-    supabase
-      .from('player_pressure_profiles')
-      .select('*')
-      .eq('finish_rule', match.finish)
-      .in('player_id', playerIds),
-    supabase
-      .from('player_pressure_outcomes')
-      .select('*')
-      .eq('finish_rule', match.finish)
-      .in('player_id', playerIds),
-  ]);
-  if (profilesResult.error) throw new Error(profilesResult.error.message);
-  if (playerOutcomesResult.error) throw new Error(playerOutcomesResult.error.message);
-
   const playerIdSet = new Set(playerIds);
   const profiles = new Map(
-    ((profilesResult.data ?? []) as PressurePlayerProfileRow[])
-      .filter((row) => playerIdSet.has(row.player_id))
-      .map((row) => {
-        const profile = normalizePlayerPressureProfile(row);
-        return [profile.playerId, profile] as const;
-      })
+    (frozenEvidence?.playerProfiles ?? [])
+      .filter((profile) => playerIdSet.has(profile.playerId))
+      .map((profile) => [profile.playerId, profile] as const)
   );
-  const populationProfile = populationResult.data
-    ? normalizePopulationPressureProfile(populationResult.data as PressurePopulationProfileRow)
-    : undefined;
-  const populationOutcomes = (
-    (populationOutcomesResult.data ?? []) as PressureOutcomeObservationRow[]
-  ).map(normalizePressureOutcomeObservation);
-  const personalOutcomes = new Map<string, ReturnType<typeof normalizePressureOutcomeObservation>[]>();
-  for (const row of (playerOutcomesResult.data ?? []) as PressureOutcomeObservationRow[]) {
-    if (!row.player_id || !playerIdSet.has(row.player_id)) continue;
-    const existing = personalOutcomes.get(row.player_id) ?? [];
-    existing.push(normalizePressureOutcomeObservation(row));
-    personalOutcomes.set(row.player_id, existing);
+  const populationProfile = frozenEvidence?.populationProfile;
+  const populationOutcomes = frozenEvidence?.populationOutcomes ?? [];
+  const personalOutcomes = new Map<string, typeof populationOutcomes>();
+  for (const outcome of frozenEvidence?.playerOutcomes ?? []) {
+    if (!playerIdSet.has(outcome.playerId)) continue;
+    const existing = personalOutcomes.get(outcome.playerId) ?? [];
+    existing.push(outcome);
+    personalOutcomes.set(outcome.playerId, existing);
   }
   const outcomeModels = Object.fromEntries(playerRows.map((row) => [
     row.player_id,
@@ -228,8 +191,8 @@ export async function loadRealtimeCommentarySnapshot(
   for (const turn of allTurns as unknown as TurnWithThrows[]) {
     (turnsByLeg[turn.leg_id] ??= []).push(turn);
   }
-  const pressureTimeline = playerRows.length > 0 && legs.length > 0
-    ? reconstructPressureTimeline({
+  const dartIQTimeline = playerRows.length > 0 && legs.length > 0
+    ? reconstructDartIQTimeline({
         playerIds: playerRows.map((row) => row.player_id),
         legs: legs.map((leg) => ({ ...leg, match_id: match.id })),
         turnsByLeg,
@@ -244,7 +207,7 @@ export async function loadRealtimeCommentarySnapshot(
       })
     : [];
   const narrative = buildCommentaryNarrativeMemory({
-    events: pressureTimeline,
+    events: dartIQTimeline,
     finishRule: match.finish,
     rematch,
   });
@@ -266,7 +229,7 @@ export async function loadRealtimeCommentarySnapshot(
       playOrder: row.play_order,
       score: scores[row.player_id] ?? startScore,
       legsWon: legsWon[row.player_id] ?? 0,
-      historicalBaseline: createPressureSkillModel(
+      historicalBaseline: createDartIQSkillModel(
         profiles.get(row.player_id),
         populationProfile
       ),

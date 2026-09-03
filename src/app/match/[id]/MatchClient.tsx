@@ -13,7 +13,7 @@ import { useMatchData } from '@/hooks/useMatchData';
 import { useMatchRealtime } from '@/hooks/useMatchRealtime';
 import { useMatchActions } from '@/hooks/useMatchActions';
 import { useMatchEloChanges } from '@/hooks/useMatchEloChanges';
-import { usePressureProfiles } from '@/hooks/usePressureProfiles';
+import { useDartIQ } from '@/hooks/useDartIQ';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useRealtime } from '@/hooks/useRealtime';
 import type { LegRecord, MatchRecord, Player, TurnRecord } from '@/lib/match/types';
@@ -121,8 +121,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     loadTurnsForLeg,
   } = useMatchData(matchId);
   const finishRule: FinishRule = useMemo(() => (match?.finish ?? 'double_out'), [match?.finish]);
-  const pressurePlayerIds = useMemo(() => players.map((player) => player.id), [players]);
-  const pressureProfiles = usePressureProfiles(pressurePlayerIds, finishRule);
+  const dartIQPlayerIds = useMemo(() => players.map((player) => player.id), [players]);
+  const dartIQ = useDartIQ(matchId, dartIQPlayerIds, finishRule);
 
   const ongoingTurnRef = useRef<{
     turnId: string;
@@ -244,9 +244,9 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     recordCompletedCommentary,
     ttsServiceRef,
     realtimeCommentaryRef,
-    pressureProfilesByPlayerId: pressureProfiles.profilesByPlayerId,
-    pressurePopulationProfile: pressureProfiles.populationProfile,
-    pressureOutcomeModelsByPlayerId: pressureProfiles.outcomeModelsByPlayerId,
+    dartIQEvidenceByPlayerId: dartIQ.profilesByPlayerId,
+    dartIQPopulationEvidence: dartIQ.populationProfile,
+    dartIQModelsByPlayerId: dartIQ.outcomeModelsByPlayerId,
   });
 
   // Check for spectator mode from URL params
@@ -312,7 +312,6 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     lastInvalidatedWinnerRef.current = matchWinnerId;
     queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
     queryClient.invalidateQueries({ queryKey: ['eloHistory'] });
-    queryClient.invalidateQueries({ queryKey: ['pressure-profiles'] });
   }, [matchWinnerId, queryClient]);
 
   // Fetch ELO rating changes for the completed match
@@ -574,10 +573,10 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           eloChanges={eloChanges}
           eloChangesLoading={eloChangesLoading}
           fairEndingState={fairEndingState}
-          pressureProfilesByPlayerId={pressureProfiles.profilesByPlayerId}
-          pressurePopulationProfile={pressureProfiles.populationProfile}
-          pressureOutcomeModelsByPlayerId={pressureProfiles.outcomeModelsByPlayerId}
-          hasPersonalPressureProfiles={pressureProfiles.hasPersonalProfiles}
+          dartIQEvidenceByPlayerId={dartIQ.profilesByPlayerId}
+          dartIQPopulationEvidence={dartIQ.populationProfile}
+          dartIQModelsByPlayerId={dartIQ.outcomeModelsByPlayerId}
+          hasPersonalDartIQEvidence={dartIQ.hasPersonalProfiles}
           isHistoryView={historyParam}
           onBackToGames={backToGames}
         />

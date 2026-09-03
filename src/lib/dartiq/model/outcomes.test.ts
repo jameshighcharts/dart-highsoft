@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createBehavioralOutcomeModel } from './pressureOutcomeModel';
+import { createBehavioralOutcomeModel } from './outcomes';
 
 describe('createBehavioralOutcomeModel', () => {
   it('returns a normalized physical fallback distribution', () => {
@@ -66,4 +66,3 @@ describe('createBehavioralOutcomeModel', () => {
     expect(result.outcomes.reduce((sum, outcome) => sum + outcome.probability, 0)).toBeCloseTo(1);
   });
 });
-
