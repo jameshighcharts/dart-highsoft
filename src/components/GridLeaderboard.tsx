@@ -27,17 +27,6 @@ const ELO_TIER_RANGES = [
   { max: 1449, tier: 7 },
 ] as const;
 
-const ELO_TIER_TEXT_OFFSET_Y: Record<number, number> = {
-  1: 1,
-  2: 1,
-  3: 1,
-  4: 0,
-  5: 0,
-  6: 0,
-  7: 0,
-  8: 0,
-};
-
 /**
  * For an array of nullable numbers, return a Map from row-index to medal string
  * for the top 3 values (descending). Nulls are ignored.
@@ -81,13 +70,8 @@ function renderEloBadgeHtml(value: unknown): string {
 
   const rating = Math.round(value);
   const tier = getEloTierBadgeNumber(rating);
-  const textOffsetY = ELO_TIER_TEXT_OFFSET_Y[tier] ?? 0;
 
-  return `
-    <span class="elo-badge elo-badge--tier-${tier}" style="background-image: url('/elo-badges/tier-${tier}.png');">
-      <span class="elo-badge__rating" style="transform: translateY(${textOffsetY}px);">${rating}</span>
-    </span>
-  `;
+  return `<span class="elo-badge elo-badge--tier-${tier}">${rating}</span>`;
 }
 
 function renderLocationPillHtml(value: unknown): string {
@@ -1253,28 +1237,60 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
         .grid-leaderboard .elo-badge {
           display: flex;
-          position: relative;
-          width: 132px;
-          height: 32px;
+          min-width: 68px;
+          width: fit-content;
+          height: 28px;
           margin: 0 auto;
           align-items: center;
           justify-content: center;
-          background-size: contain;
-          background-repeat: no-repeat;
-          background-position: center;
-        }
-        .grid-leaderboard .elo-badge__rating {
-          display: inline-block;
-          min-width: 58px;
-          text-align: center;
-          font-weight: 800;
-          font-size: 18px;
+          border: 1px solid transparent;
+          border-radius: 999px;
+          padding: 0 12px;
+          font-size: 15px;
+          font-weight: 700;
           line-height: 1;
-          letter-spacing: 0.02em;
-          color: #ffffff;
-          text-shadow:
-            0 1px 2px rgba(0, 0, 0, 0.85),
-            0 0 8px rgba(0, 0, 0, 0.45);
+          letter-spacing: 0;
+          font-variant-numeric: tabular-nums;
+        }
+        .grid-leaderboard .elo-badge--tier-1 {
+          color: #94a3b8;
+          background: rgba(100, 116, 139, 0.14);
+          border-color: rgba(148, 163, 184, 0.3);
+        }
+        .grid-leaderboard .elo-badge--tier-2 {
+          color: #a3b5c9;
+          background: rgba(148, 163, 184, 0.13);
+          border-color: rgba(163, 181, 201, 0.32);
+        }
+        .grid-leaderboard .elo-badge--tier-3 {
+          color: #67e8f9;
+          background: rgba(6, 182, 212, 0.13);
+          border-color: rgba(34, 211, 238, 0.34);
+        }
+        .grid-leaderboard .elo-badge--tier-4 {
+          color: #60a5fa;
+          background: rgba(59, 130, 246, 0.14);
+          border-color: rgba(96, 165, 250, 0.35);
+        }
+        .grid-leaderboard .elo-badge--tier-5 {
+          color: #a78bfa;
+          background: rgba(139, 92, 246, 0.14);
+          border-color: rgba(167, 139, 250, 0.35);
+        }
+        .grid-leaderboard .elo-badge--tier-6 {
+          color: #f0c45a;
+          background: rgba(245, 158, 11, 0.14);
+          border-color: rgba(240, 196, 90, 0.36);
+        }
+        .grid-leaderboard .elo-badge--tier-7 {
+          color: #fb923c;
+          background: rgba(249, 115, 22, 0.14);
+          border-color: rgba(251, 146, 60, 0.36);
+        }
+        .grid-leaderboard .elo-badge--tier-8 {
+          color: #fb7185;
+          background: rgba(244, 63, 94, 0.14);
+          border-color: rgba(251, 113, 133, 0.38);
         }
         .grid-leaderboard .elo-badge-empty {
           color: #94a3b8;
