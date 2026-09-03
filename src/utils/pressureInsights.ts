@@ -14,9 +14,8 @@ export type PressureSwing = {
   beforeLegProbability: number;
   afterLegProbability: number;
   legWpa: number;
-  legLeverage: number;
-  matchLeverage: number;
-  pressureIndex: number;
+  legConsequence: number;
+  matchConsequence: number;
 };
 
 export type PressureLeadChange = {
@@ -76,8 +75,10 @@ export type PressureTurnSummary = {
   legProbabilityAfter: number;
   legWpa: number;
   biggestDartMatchWpa: number;
-  peakMatchLeverage: number;
-  peakPressureIndex: number;
+  peakLegConsequence: number;
+  peakMatchConsequence: number;
+  directCheckoutOpportunity: boolean;
+  matchCheckoutOpportunity: boolean;
   changedMatchFavorite: boolean;
   checkedOut: boolean;
   busted: boolean;
@@ -118,9 +119,8 @@ function toSwing(event: PressureDartEvent): PressureSwing {
     beforeLegProbability: before?.legWinProbability ?? 0,
     afterLegProbability: (before?.legWinProbability ?? 0) + (event.legWinProbabilityAdded[event.playerId] ?? 0),
     legWpa: event.legWinProbabilityAdded[event.playerId] ?? 0,
-    legLeverage: event.leverage.leg,
-    matchLeverage: event.leverage.match,
-    pressureIndex: event.leverage.pressureIndex,
+    legConsequence: event.consequence?.leg ?? Math.abs(event.legWinProbabilityAdded[event.playerId] ?? 0),
+    matchConsequence: event.consequence?.match ?? Math.abs(event.matchWinProbabilityAdded[event.playerId] ?? 0),
   };
 }
 
@@ -139,12 +139,14 @@ export function summarizePressureForTurn(
   let first: PressureDartEvent | null = null;
   let last: PressureDartEvent | null = null;
   let biggestDartMatchWpa = 0;
-  let peakMatchLeverage = 0;
-  let peakPressureIndex = 0;
+  let peakLegConsequence = 0;
+  let peakMatchConsequence = 0;
   let cumulativeLegWpa = 0;
   let changedMatchFavorite = false;
   let checkedOut = false;
   let busted = false;
+  let directCheckoutOpportunity = false;
+  let matchCheckoutOpportunity = false;
 
   for (const event of timeline) {
     if (event.turnId !== turnId || event.playerId !== playerId) continue;
@@ -153,11 +155,13 @@ export function summarizePressureForTurn(
     const dartWpa = event.matchWinProbabilityAdded[playerId] ?? 0;
     cumulativeLegWpa += event.legWinProbabilityAdded[playerId] ?? 0;
     if (Math.abs(dartWpa) > Math.abs(biggestDartMatchWpa)) biggestDartMatchWpa = dartWpa;
-    peakMatchLeverage = Math.max(peakMatchLeverage, event.leverage.match);
-    peakPressureIndex = Math.max(peakPressureIndex, event.leverage.pressureIndex);
+    peakLegConsequence = Math.max(peakLegConsequence, event.consequence?.leg ?? 0);
+    peakMatchConsequence = Math.max(peakMatchConsequence, event.consequence?.match ?? 0);
     if (leaderId(event.before) !== leaderId(event.after)) changedMatchFavorite = true;
     checkedOut ||= event.checkedOut;
     busted ||= event.busted;
+    directCheckoutOpportunity ||= event.semanticStakes.directCheckoutOpportunity;
+    matchCheckoutOpportunity ||= event.semanticStakes.matchCheckoutOpportunity;
   }
 
   if (!first || !last) return null;
@@ -176,8 +180,10 @@ export function summarizePressureForTurn(
     legProbabilityAfter,
     legWpa: legProbabilityAfter - before.legWinProbability,
     biggestDartMatchWpa,
-    peakMatchLeverage,
-    peakPressureIndex,
+    peakLegConsequence,
+    peakMatchConsequence,
+    directCheckoutOpportunity,
+    matchCheckoutOpportunity,
     changedMatchFavorite,
     checkedOut,
     busted,
@@ -254,19 +260,19 @@ export function analyzePressureTimeline(
     }
 
     if (event.checkedOut) {
-      commentaryMoments.push({ kind: 'checkout', importance: Math.max(Math.abs(swing.matchWpa), swing.matchLeverage, 0.1), swing });
+      commentaryMoments.push({ kind: 'checkout', importance: Math.max(swing.matchConsequence, 0.1), swing });
     } else if (event.busted && swing.beforeLegProbability >= 0.35) {
-      commentaryMoments.push({ kind: 'pressure_bust', importance: Math.max(Math.abs(swing.matchWpa), swing.matchLeverage, 0.08), swing });
+      commentaryMoments.push({ kind: 'pressure_bust', importance: Math.max(swing.matchConsequence, 0.08), swing });
     }
     if (event.checkout.createdBogey) {
-      commentaryMoments.push({ kind: 'bogey_error', importance: Math.max(swing.matchLeverage, 0.08), swing });
+      commentaryMoments.push({ kind: 'bogey_error', importance: Math.max(swing.matchConsequence, 0.08), swing });
     } else if (
       event.dartIndex === 3
       && !event.checkedOut
       && (event.checkout.setupGrade === 'optimal' || event.checkout.setupGrade === 'good')
       && event.checkout.nextVisitCheckoutProbability > 0
     ) {
-      commentaryMoments.push({ kind: 'great_setup', importance: Math.max(swing.matchLeverage, 0.06), swing });
+      commentaryMoments.push({ kind: 'great_setup', importance: Math.max(swing.matchConsequence, 0.06), swing });
     }
 
     const winnerId = completedLegWinner(event);

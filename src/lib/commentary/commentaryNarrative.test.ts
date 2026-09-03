@@ -5,11 +5,16 @@ import { buildCommentaryNarrativeMemory } from './commentaryNarrative';
 
 function pressureEvent(overrides: Partial<PressureDartEvent> = {}): PressureDartEvent {
   return {
-    eventId: 'event-1', engineVersion: 'pressure-v2', matchId: 'match', sequence: 1,
+    eventId: 'event-1', engineVersion: 'behavioral-v1', matchId: 'match', sequence: 1,
     legId: 'leg', legNumber: 1, turnId: 'turn', playerId: 'a', dartId: 'dart',
     dartIndex: 3, segment: 'S5', scored: 5, turnScoreAfter: 26, busted: false,
     checkedOut: false,
-    leverage: { pressureIndex: 0.8 } as PressureDartEvent['leverage'],
+    consequence: { leg: 0.2, match: 0.1 },
+    semanticStakes: {
+      directCheckoutOpportunity: true,
+      checkoutVisitOpportunity: true,
+      matchCheckoutOpportunity: true,
+    },
     checkout: {
       checkoutProbabilityBefore: 0.2, checkoutProbabilityAfter: 0,
       nextVisitCheckoutProbability: 0, bestAvailableLeaveValue: 1, actualLeaveValue: 0.5,

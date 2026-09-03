@@ -5,8 +5,9 @@ Traditional averages are too blunt. Even the PDC’s own analysis discusses “r
 Build native advanced metrics:
 
 - Win probability after every dart
-- Dart leverage: how consequential was this dart?
-- Clutch score relative to personal baseline
+- Dart consequence: how much did the probability vector move?
+- Pre-dart opportunity: how much could the next dart move it on average?
+- Performance relative to personal baseline
 - Stolen and thrown-away legs
 - Expected checkout percentage
 - Setup quality
@@ -38,7 +39,7 @@ Ship a post-match “Pressure Report” containing:
 - Highest-pressure checkout
 - Stolen leg: won after falling below 20%
 - Thrown-away leg: lost after exceeding 80%
-- Clutch rating: performance in high-leverage situations
+- Pressure performance relative to the player's baseline
 - Setup quality: whether a dart improved the next checkout opportunity
 - Bogey mistakes
 - Performance versus expectation
@@ -64,14 +65,9 @@ Player strength
 
 Then estimate the chance of each player winning from that state.
 
-Initially, use simulation based on:
-
-- Player three-dart average
-- Score distribution
-- Double accuracy
-- Checkout conversion
-- Bust rate
-- Historical performance from each score range
+Use a hierarchical empirical transition model based on the player's score outcome, whether the dart
+hit a double, current score, darts remaining, finish rule, and state bucket. Back off through
+coarser state classes and the frozen installation population when player evidence is sparse.
 
 When player-specific data is sparse, blend it with league-wide data. As players accumulate darts, their personal model gradually takes over.
 
@@ -92,24 +88,26 @@ This requires no new hardware. Existing match history is enough for V1.
 I’d define the metrics carefully:
 
 - Win probability: probability of winning the leg or match from the current state.
-- Leverage: how much the next dart could realistically change that probability.
+- Consequence: total variation in the full probability vector caused by the dart.
+- Opportunity: expected absolute probability movement before the dart is thrown.
 - WPA: actual probability gained or lost by the dart.
-- Pressure index: leverage combined with opponent threat and match importance.
-- Clutch rating: WPA achieved on high-pressure darts compared with the player’s normal expectation.
-- Setup quality: resulting checkout probability minus the best realistically available checkout probability.
+- Outcome rarity: probability or tail position of the realized outcome under the transition model.
+- Semantic stakes: checkout, match dart, repeated miss, bust, or story resolution.
+- Setup value: change in checkout/leg probability without claiming an inferred optimal target.
 - Opponent pressure created: increase in the opponent’s required performance after your visit.
 - Expected darts remaining: estimated darts needed to finish from the current score.
 - Performance above expectation: actual result minus the player model’s expected result.
 
 ### One important distinction
 
-Pressure and clutch must remain separate.
+Opportunity, consequence, and performance must remain separate.
 
-A match dart at D16 is high pressure whether it hits or misses. Hitting it is clutch; missing it is not. Otherwise the system merely labels successful darts “high pressure” after the fact.
+A match dart at D16 carries semantic pressure whether it hits or misses. The result determines
+consequence and outcome rarity; neither retroactively determines whether the opportunity mattered.
 
 ### What requires extra inference
 
-Last-dart-at-double accuracy needs intended target information. The app can infer most attempts from:
+Last-dart-at-double accuracy needs intended target information. The app may later infer attempts from:
 
 - Remaining score
 - Checkout route
@@ -117,7 +115,8 @@ Last-dart-at-double accuracy needs intended target information. The app can infe
 - Previous darts
 - Finish rule
 
-Scolia geometry makes that inference much stronger. Ambiguous cases could be marked with a confidence score rather than pretending certainty.
+Scolia geometry strengthens the likelihood but does not reveal intent by itself. Ambiguous cases
+must retain an aim posterior and confidence rather than pretending certainty.
 
 ### The killer presentation
 
@@ -145,86 +144,22 @@ Clicking a swing reveals:
 The first foundations are in place:
 
 1. A deterministic multiplayer live probability model and compact spectator strip, including the circular player rail for large fields.
-2. Deterministic per-dart replay with WPA, leverage, checkout probability, expected darts, setup quality, bogey classification, turning points, and stolen/thrown-away legs.
-3. Versioned pressure-event packets with stable IDs, normalized prospective leverage, classified signals, and commentary priorities.
-4. Pressure v2 fair-ending phases: provisional checkout waiting, deterministic bounded tiebreak projections, fair-ending signals, and direct worker-triggered Scolia commentary.
+2. Deterministic per-dart replay with the current heuristic WPA/leverage vocabulary, checkout/setup analysis, bogey classification, turning points, and stolen/thrown-away legs.
+3. Versioned pressure-event packets with stable IDs, classified signals, and commentary priorities.
+4. Fair-ending phases: provisional checkout waiting, deterministic bounded tiebreak projections, fair-ending signals, and direct worker-triggered Scolia commentary.
 
 Historical skill inputs are also live. A player's completed X01 history is blended into an installation-wide finish-rule baseline, with conservative fallbacks and sample-size confidence. The browser fetches compact aggregates rather than raw historical matches.
 
 ### Forward plan
 
-#### Phase 1 — Make the live engine authoritative
+Everything described here is unreleased and lands as one coherent PR. There is no product-generation
+migration: the heuristic probability engine is replaced in place, its branch-only migrations
+are consolidated, and the user-facing surfaces cut over together. Intrinsic schema and envelope
+versions remain where independently deployed processes or frozen evidence require them.
 
-This is the immediate next engineering milestone.
-
-- Replace whole-leg replay on each commentary event with an incremental pressure state machine that advances exactly once per accepted dart.
-- Make the live state machine and the post-match replay use the same transition function so they cannot disagree.
-- Add deterministic correction handling for edited and deleted darts. A correction must invalidate superseded events and rebuild from the nearest safe checkpoint.
-- Model fair endings explicitly: a player who has checked out but is waiting for the rest of the round, multiple players checking out in the same round, and the resulting tiebreak rounds. Implemented in Pressure v2.
-- Preserve full multiplayer support. Probabilities must remain normalized for arbitrary player counts and the bounded large-field path must stay fast enough for the spectator screen.
-- Expose model version, input confidence, history sample size, and approximation mode alongside every projection for diagnostics, without cluttering the TV UI.
-
-Acceptance criteria:
-
-- The live engine and a clean replay produce the same packet for every dart.
-- Undo/edit followed by replay produces the same result as if the corrected match had been recorded that way originally.
-- Probabilities sum to 100% through normal play, checkout waiting states, tiebreaks, and match completion.
-- A live dart does not trigger a database history scan or a replay of the entire leg.
-- Large multiplayer matches remain within the spectator rendering budget.
-
-#### Phase 2 — Ship the post-match Pressure Report
-
-Turn recent games into the main doorway for exploring finished matches. A game row/card should open a dedicated match report containing:
-
-- A match-level probability timeline with leg boundaries and one point per dart.
-- A scrubber or clickable swing list that selects the exact before/after board state.
-- Biggest gain, biggest miss, turning point, lead changes, stolen legs, and thrown-away legs.
-- Per-player pressure summaries: WPA, high-leverage performance, checkout expectation, setup quality, bogey avoidance, and expected versus actual finishing.
-- Existing Scolia heatmaps, with the selected player and moment synchronized with the report where geometry exists.
-- Honest labels for inferred targets and low-confidence conclusions.
-- A compact shareable match story generated from deterministic facts; model-written prose may explain the facts but must never replace them.
-
-This should be the first full expression of **DartIQ: Pressure Report** and the next major user-visible milestone after the live probability strip.
-
-#### Phase 3 — Start collecting calibration evidence
-
-Do not claim the model is calibrated yet, and do not spend time on a historical backtest while the useful dataset is still small. Add the plumbing now so every new match improves the evidence base:
-
-- Record or reproducibly derive the model version, pre-dart projection, actual outcome, finish rule, player count, state bucket, and confidence tier.
-- Build diagnostics for calibration buckets, Brier score, log loss, sample counts, and prediction drift.
-- Split diagnostics by single/double out, field size, score range, checkout state, and personal-history confidence.
-- Keep model versions comparable. A newer model must be evaluated against the same frozen match inputs rather than silently rewriting what the old model predicted.
-- Establish minimum sample thresholds before showing calibration claims or automatically tuning coefficients.
-
-Once enough real matches exist, run walk-forward validation: train only on matches that occurred before the match being evaluated. Never let future player history leak into an old prediction.
-
-#### Phase 4 — Complete the advanced metric language
-
-Build the remaining metrics from the shared replay rather than inventing separate formulas in each screen:
-
-- **Clutch score:** pressure-weighted performance relative to that player's own baseline, with a visible confidence band.
-- **Performance above expectation:** actual scoring and finishing value minus the state-aware expectation.
-- **Opponent pressure created:** how much a visit worsened the opponents' combined winning position or forced a higher-quality reply.
-- **Last-dart-at-double accuracy:** inferred only when the intended target is defensible, with stronger confidence for Scolia geometry.
-- **Route quality:** compare the played route with credible alternatives, not merely the mathematically highest immediate score.
-- **Pressure profile:** show whether a player improves, holds, or declines across leverage bands without overreacting to tiny samples.
-
-Avoid collapsing everything into one unexplained magic number. Each headline rating should be inspectable down to the darts that produced it.
-
-#### Phase 5 — Let the Pressure Engine drive the experience
-
-After the authoritative engine and Pressure Report are trustworthy:
-
-- Feed its event stream into persistent Realtime commentary.
-- Generate automatic highlight reels from the highest-value pressure moments.
-- Add live records and context such as “highest-pressure checkout this season,” once formal seasons exist.
-- Add player tendencies and matchup notes based on stable, adequately sampled patterns.
-- Support formal club/league/season baselines between the player and installation-wide population when those entities are introduced.
-- Explore simulation-based or learned state models only when they demonstrably beat the deterministic model on held-out matches while meeting the live latency budget.
-
-### Recommended next slice
-
-Build Phase 1 in this order: shared state transition, incremental tracker, edit/undo reconciliation, then fair-ending and tiebreak states. After that, move directly into the recent-game Pressure Report while calibration events accumulate in the background. The persistent commentator stays compatible with the same event contract, but it no longer blocks progress on the core analytics.
+The canonical modelling, persistence, delivery order, and acceptance gates are defined in
+[Pressure Engine — decided design and one-PR delivery](#pressure-engine--decided-design-and-one-pr-delivery).
+The realtime architecture below remains the transport and product contract for commentary.
 
 ### Future realtime commentary architecture
 
@@ -232,14 +167,14 @@ The current request-per-turn commentary endpoint and separate text-to-speech cal
 
 - The server uses the standard OpenAI API key with the unified WebRTC interface: it forwards the browser SDP offer, supplies trusted session configuration, returns the SDP answer, and retains the returned OpenAI call ID for worker sideband control. The standard key and call ID must never be shipped to the browser.
 - The browser establishes the persistent WebRTC connection and receives audio directly from the model.
-- Every accepted dart produces a compact, structured event containing the dart result, updated game state, and deterministic Pressure Engine metrics such as match/leg win probability, WPA, leverage, and classified moments.
+- Every accepted dart produces a compact event containing the dart result, updated game state, and deterministic Pressure Engine metrics such as match/leg win probability, per-player WPA, total-variation consequence, opportunity, and classified moments.
 - The model narrates those facts; it does not calculate or invent the authoritative metrics.
 - Feed every dart into the session, but only request speech when the commentary policy calls for it. Ordinary darts preserve context silently while checkouts, lead changes, large swings, pressure misses, and other significant moments can trigger a response.
 - Start a session with a compact match/player snapshot, then send event deltas rather than repeatedly sending the entire throw history. Add periodic summaries or checkpoints to keep long multiplayer matches within a predictable context and cost envelope.
 - On reconnect, create or restore the session from the current match snapshot plus recent significant moments instead of replaying the full match dart by dart.
 - Keep transport-specific Realtime code separate from pressure calculation so the same event stream can later drive text commentary, audio commentary, highlights, notifications, and post-match stories.
 
-A useful eventual event contract is `PressureDartEvent`: stable IDs for deduplication, match/leg/turn/dart position, player and score state, engine version, probability before/after, WPA, leverage, and zero or more classified commentary moments. Edits and undos should emit explicit correction events so the commentator's persistent view does not drift from the authoritative match state.
+A useful event contract is `PressureDartEvent`: stable IDs for deduplication, match/leg/turn/dart position, player and score state, model/config identity, full probability vectors before/after, per-player WPA, consequence, opportunity, semantic stakes, and classified commentary moments. Edits and undos emit explicit correction events so the commentator's persistent view cannot drift from authoritative match state.
 
 #### Latency path
 
@@ -296,6 +231,11 @@ Instrument a correlated timestamp trail from persisted/detected throw through ev
 
 #### Delivery sequence
 
+> **Superseded as delivery sequencing.** These stages record how the realtime transport was
+> originally reasoned about. Delivery is defined by
+> [One-PR execution order](#one-pr-execution-order) and [Merge gates](#merge-gates); the per-stage
+> gates below do not apply.
+
 1. Freeze and version the existing `PressureDartPacket`, then add provider-neutral commentary envelopes and policy contracts independently of any transport.
 2. Prewarm a persistent output-only WebRTC session when commentary is enabled.
 3. Send compact deterministic dart events and consume native streamed audio plus transcript deltas.
@@ -333,7 +273,7 @@ Keep these responsibilities explicit:
 | Layer | Owns | Must not own |
 |---|---|---|
 | Match engine | Accepted throws, turns, scores, busts, checkouts, legs, winner | Commentary timing or prose |
-| Pressure Engine | Probability, WPA, prospective leverage, checkout/setup analysis, classified signals | Persona, voice, jokes, or audio |
+| Pressure Engine | Probability vectors, per-player WPA, consequence, opportunity, checkout/setup facts, classified signals | Persona, voice, jokes, or audio |
 | Commentary policy | Whether to speak, priority, interruption, cooldown, local sting selection | Recalculating match or pressure facts |
 | Realtime transport | Session/auth lifecycle, event delivery, audio, transcript, cancellation | Event significance or analytics |
 | Realtime model | Narrative continuity, concise wording, vocal performance | Correcting supplied facts or inventing missing metrics |
@@ -359,14 +299,15 @@ Do not wait for Supabase Realtime when the scoring browser already has the accep
 
 - `POST /api/commentary/realtime/session` forwards browser SDP through OpenAI's unified WebRTC interface using the configurable Realtime model (`gpt-realtime-2.1` by default), registers the server-only call ID, and returns the SDP answer. `PUT` advances an idempotent correction epoch and returns a replacement snapshot, `PATCH` heartbeats the listener, and `DELETE` closes its registry entry.
 - `RealtimeCommentaryService` owns an output-only `RTCPeerConnection`, remote audio track, streamed transcripts, cancellation, and a user-gesture-resumed `AudioContext`. No microphone or complete audio blob is involved.
-- Migration `0057_realtime_commentary_sessions.sql` adds server-only active-session and idempotent per-throw delivery tables.
+- The consolidated `0056_realtime_commentary_sessions.sql` adds server-only active-session,
+  correction-epoch, and idempotent per-throw delivery tables.
 - `ScoliaRealtimeCommentaryPublisher` attaches an authenticated worker WebSocket to each active browser call, feeds every accepted dart, retries pending sends, and applies latest-wins interruption before `response.create`.
 - `CommentaryPolicy` is shared by browser and worker for category cooldowns, repeat memory, visit timing, rapid-sequence silence, ordinary sampling, guaranteed calls, and latest-wins interruption.
 - `CommentaryVisitTiming` runs after policy selection in both paths. It holds ordinary completed-visit calls for an 850 ms natural gap, suppresses them if another dart arrives, clears routine audio that runs into the next visit, tightens notable calls when play is moving, and never delays marquee or terminal speech.
 - The exact order-independent 1 + 5 + 20 “Nikita special” is an explicit guaranteed marquee signal. The old global two-second commentary debouncer has been removed; policy now owns pacing without delaying accepted completed visits.
 - `commentaryNarrative` now turns the full deterministic Pressure replay into bounded story memory: recurring tendencies, recent exact-double non-conversions, checkout results under high pressure, the largest match-WPA swing, rematch/revenge stakes, and current average versus the shrunk historical baseline. Snapshots carry the same memory across reconnects and corrections. The model is instructed to use at most one relevant thread per call and deliver it playfully with light sass.
 - `storyArcDirector` ranks comeback, collapse, underdog, seesaw, punished-miss, checkout-duel, pressure-resilience, revenge, and dominance candidates. Listener-local `BroadcastDirector` commits to one primary angle, retains two reserves, requires a material challenger plus a minimum commitment window before switching, prevents phase regression, budgets story introductions, creates future callback obligations, and forces factual payoff or closure at resolution. Only a started, switched, or resolving arc promotes routine context to notable speech.
-- `loadScoliaRealtimeDartEvent()` reconstructs the accepted dart's personalized Pressure v2 packet directly from canonical rows and profile aggregates, including fair-ending checkout-waiting and tiebreak darts.
+- `loadScoliaRealtimeDartEvent()` reconstructs the accepted dart's personalized Pressure packet directly from canonical rows and profile aggregates, including fair-ending checkout-waiting and tiebreak darts.
 - Manual matches use the browser Realtime data channel at completed-turn granularity. Scolia matches use the worker sideband for both ordinary and fair-ending play. The old text plus buffered-TTS waterfall remains available whenever the persistent session is unavailable.
 - `npm run commentary:demo` provides a local-only end-to-end broadcast harness. It provisions test players plus a synthetic Scolia board/match, refuses non-loopback Supabase hosts, persists realistic `THROW_DETECTED` payloads, runs canonical ingestion, and calls the production worker-side publisher only after a browser Realtime listener is active. Its valid 301 script exercises the Nikita special, opposing/comeback 180s, a missed double leave, and a bull-checkout story payoff.
 
@@ -376,7 +317,7 @@ Still required: local marquee stings and per-stage latency telemetry.
 
 #### Pressure Engine handoff — fair-ending direct commentary implemented
 
-Pressure v2 now supplies fair-ending and tiebreak packets to the Realtime commentator. The remaining work in this section is incremental-state performance and deeper calibration, not removal of the speech bypass.
+The branch foundation supplies fair-ending and tiebreak packets to the Realtime commentator. The remaining work in this section is incremental-state performance and deeper calibration, not removal of the speech bypass.
 
 **Outcome**
 
@@ -386,11 +327,11 @@ Do not build OpenAI, WebRTC, speech policy, or prompt logic in the Pressure Engi
 
 **Previous blocker**
 
-The earlier `src/lib/commentary/scoliaRealtimeEvent.ts` path skipped `loadPressurePacket()` when `matches.fair_ending` was true and forced worker speech to `silent`, because Pressure v1 assumed reaching zero immediately locked the leg winner. Pressure v2 removes that assumption and the bypass: reaching zero can remain provisional, multiple checkout players can enter a high-round tiebreak, and a non-checkout tiebreak dart can authoritatively resolve the leg or match.
+The earlier `src/lib/commentary/scoliaRealtimeEvent.ts` path skipped `loadPressurePacket()` when `matches.fair_ending` was true and forced worker speech to `silent`, because the original engine assumed reaching zero immediately locked the leg winner. The current branch removes that assumption and the bypass: reaching zero can remain provisional, multiple checkout players can enter a high-round tiebreak, and a non-checkout tiebreak dart can authoritatively resolve the leg or match.
 
 **Previous fair-ending fallback path**
 
-Before Pressure v2, fair-ending commentary still used the persistent Realtime session when that session was healthy. It did **not** fall back to the old generated-text plus buffered-MP3 path merely because fair ending was enabled. What changed was where and when speech was triggered:
+Before that fair-ending work, commentary still used the persistent Realtime session when it was healthy. It did **not** fall back to the old generated-text plus buffered-MP3 path merely because fair ending was enabled. What changed was where and when speech was triggered:
 
 Normal Scolia X01 takes the fast worker path:
 
@@ -400,7 +341,7 @@ Fair-ending Scolia currently takes a conservative split path:
 
 `Scolia worker accepts dart → sends the dart silently for model context → Supabase Realtime reaches the browser → browser recognizes the completed turn → browser requests speech through its existing WebRTC data channel`
 
-The browser therefore waited for the completed-turn Supabase event and spoke at visit granularity instead of letting the worker trigger significant darts immediately. This added a small latency penalty and prevented per-dart pressure commentary, but preserved correct facts while Pressure v1 lacked checkout-waiting and tiebreak states. Only an unhealthy or unavailable WebRTC session continued onward to the legacy commentary/TTS fallback.
+The browser therefore waited for the completed-turn Supabase event and spoke at visit granularity instead of letting the worker trigger significant darts immediately. This added a small latency penalty and prevented per-dart pressure commentary, but preserved correct facts while the original engine lacked checkout-waiting and tiebreak states. Only an unhealthy or unavailable WebRTC session continued onward to the legacy commentary/TTS fallback.
 
 That exception is now removed. The worker uses the same direct per-dart sideband path for fair-ending matches, while the browser-side completed-turn route remains useful for manual scoring and transport recovery.
 
@@ -490,7 +431,7 @@ Add deterministic unit fixtures for at least these cases, each asserting live/re
 
 Completed:
 
-- Pressure v2 emits fair-ending context and deterministic packets during checkout waiting and every tiebreak dart.
+- The Pressure Engine emits fair-ending context and deterministic packets during checkout waiting and every tiebreak dart.
 - A checkout remains provisional until the equal-turn round resolves; tiebreak resolution can emit `leg_win`/`match_win` without pretending the final dart was a checkout.
 - Projection normalization is covered for checkout waiting, partial tiebreak visits, tied next rounds, large fields, busts, and match resolution.
 - The worker-side fair-ending bypass is removed without moving rules or probability calculation into the commentary layer.
@@ -503,7 +444,7 @@ Still required for the broader Phase 1 definition of done:
 - Extend fixture coverage across every checkout dart position and more multiplayer elimination permutations.
 - Measure the fair-ending worker path against the existing live latency budget under realistic match history sizes.
 
-`loadScoliaRealtimeDartEvent()` now enables the packet for fair ending, Pressure v2 maps the new signals into speech priority, and a ready Scolia browser suppresses the slower completed-turn duplicate. No Realtime transport redesign was required. The worker still reconstructs the current leg for each accepted dart; replacing that query/replay with checkpointed incremental state remains a performance optimization.
+`loadScoliaRealtimeDartEvent()` now enables the packet for fair ending, the Pressure Engine maps the new signals into speech priority, and a ready Scolia browser suppresses the slower completed-turn duplicate. No Realtime transport redesign was required. The worker still reconstructs the current leg for each accepted dart; replacing that query/replay with checkpointed incremental state remains a performance optimization.
 
 #### Provider-neutral commentary envelopes
 
@@ -623,7 +564,7 @@ The session instruction should establish durable rules once:
 - You are a live darts commentator using the selected persona.
 - Treat supplied match and Pressure Engine facts as authoritative.
 - Never calculate, revise, or contradict probabilities.
-- Never call a successful result “high pressure” merely because it succeeded; pressure is pre-dart leverage, while clutch describes performance under it.
+- Keep pre-dart opportunity, realized consequence, outcome rarity, and semantic stakes distinct; never infer pressure merely from success.
 - Mention percentages only when the change is meaningful and speak them naturally.
 - Prefer what changed and why it matters over repeating the raw score.
 - Speak one short line and stop. Do not greet, ask questions, or describe the JSON.
@@ -647,8 +588,8 @@ The deterministic policy is testable and runs before the provider call:
 |---|---|---|
 | `silent` | Feed context only | Dart one/two with no significant signal |
 | `ordinary` | Speak only if idle and cooldown allows | Completed routine visit |
-| `notable` | Speak unless a marquee/terminal response is active | Favorite change, large WPA, high leverage, great/poor setup, bogey creation |
-| `marquee` | Speak immediately; interrupt ordinary/notable | 180, bust, checkout |
+| `notable` | Speak unless a marquee/terminal response is active | Favorite change, material consequence, meaningful setup/bogey event, ordinary bust |
+| `marquee` | Speak immediately; interrupt ordinary/notable | 180, checkout, directly squandered checkout, multi-dart match opportunity |
 | `terminal` | Speak immediately; interrupt everything | Match win |
 
 Policy refinements:
@@ -656,7 +597,7 @@ Policy refinements:
 - A priority alone does not guarantee a good call. Deduplicate overlapping signals into one moment—for example, a checkout that is also a favorite change remains one marquee response.
 - Add per-category cooldowns, not one global debounce. Routine visits may be spaced out while marquee moments always pass.
 - Suppress numerical probability narration for tiny movements even if the score itself is worth mentioning.
-- Prefer the most consequential fact in a crowded packet using a stable ordering: match win, checkout, 180, bust, favorite change, large match WPA, high leverage outcome, setup/bogey, routine visit.
+- Prefer the most consequential fact in a crowded packet using a stable ordering: match win, authoritative leg resolution, checkout, 180, semantic bust/missed-match-dart sequence, material match/leg consequence, setup/bogey, routine visit.
 - Avoid repeated phrasing by sending a bounded list of recent committed transcript summaries in checkpoints, not by letting unlimited raw conversation accumulate.
 - If a new dart arrives while ordinary speech is nearly finished, it may complete; if the speech has become factually stale or blocks a higher priority, cancel it.
 
@@ -842,6 +783,11 @@ Initial dashboards should answer:
 
 #### Rollout sequence and gates
 
+> **Superseded as delivery sequencing.** These stages record how the realtime transport was
+> originally reasoned about. Delivery is defined by
+> [One-PR execution order](#one-pr-execution-order) and [Merge gates](#merge-gates); the per-stage
+> gates below do not apply.
+
 **Stage 0 — Instrument the transitional path**
 
 - Add the same accepted-dart-to-first-audible timing vocabulary to the existing commentary/TTS path.
@@ -905,3 +851,505 @@ Validate event names and request schemas against current official OpenAI documen
 The original recommendation was to begin with post-match analysis, but the delivery order was intentionally changed: the compact live spectator probability strip is the first milestone. The deterministic replay and insight-classification foundations still support later post-match reports and model validation when enough historical data exists.
 
 I’d call the feature DartIQ: Pressure Report. It could become the app’s signature feature.
+
+---
+
+## Pressure Engine — decided design and one-PR delivery
+
+**Central product rule**
+
+> DartIQ may approximate, but every approximation is named, versioned where reproduction requires
+> it, measurable, and incapable of masquerading as a calibrated fact.
+
+### Why the current engine is being replaced
+
+The current user-facing win probability is a heuristic ranking and must not be treated as a
+calibrated probability. Its finish-time buckets create a 170/171 cliff and flat checkout regions;
+the temperature softmax gives the same throw advantage at 501, 100, and 40; the invented leverage
+index does not measure the expected change in win probability; future legs ignore starter rotation;
+and the ideal-route maximum can produce bad user-facing target advice.
+
+Because none of this code is in production, the replacement lands as the Pressure Engine, not as a
+new product generation. Old names may appear in historical discussion, but new code, tables, and
+UI must not expose artificial product-generation lineage.
+
+### Production outcome model: `behavioral-v1`
+
+The production-first transition contract is observable and action-free:
+
+```
+P((scoreDelta, isDouble) | currentScore, dartsLeft, finishRule, contextBucket)
+```
+
+It is a hierarchical categorical model with two independent backoff axes:
+
+1. State evidence backs off from exact state to checkout/score class, then from player to the frozen
+   installation population.
+2. Sparse outcome cells coarsen score outcomes while retaining exact double outcomes needed for
+   legal double-out finishing and bust semantics.
+
+The realized backoff level is persisted as a confidence dimension. The context bucket and raw
+sufficient statistics are frozen at match creation, so replay cannot learn from the match it is
+evaluating or from future history.
+
+This model predicts how players actually throw from observed states. It deliberately does **not**
+infer latent aim, maximize over candidate targets, or offer normative route advice. Visit-start
+score, route intent, opponent state, and tactical match situation enter only through the observed
+conditioning variables and are otherwise marginalized. `bestSegment` is removed from user-facing
+output until an aim-aware model can defend it.
+
+The separation is intentional:
+
+- **Forecasting now:** behavioral transitions learned from actual darts.
+- **Normative analysis later:** action-conditioned transitions plus a defensible aim policy.
+- **Geometry later:** latent-aim inference from Scolia impact data, evaluated against this behavioral
+  baseline before it can replace it.
+
+### Kernel and race architecture
+
+```
+full-visit kernel        score → end-of-visit score distribution
+partial-visit entry      (visitStartScore, currentScore, dartsLeft) → finish / next-visit distribution
+ordered race combiner    player first-finish PMFs + round order → leg probability
+match solver             leg probabilities + alternating starters → match probability
+```
+
+For a full visit, a three-dart dynamic program produces a sparse score-to-score kernel. A legal
+finish is absorbing at zero; an overscore, a leave of one under double-out, or reaching zero without
+the required double is a bust self-loop to the visit-start score. Single-out uses its own kernel.
+
+The live entry state is irreducibly
+`(visitStartScore, currentScore, dartsLeft)`: a player on 40 with one dart left after opening the
+visit on 100 returns to 100 on a bust. Because `behavioral-v1` performs no action maximization, the
+partial-visit entry emits a plain distribution rather than an optimized value: busting mass routes
+to `visitStartScore` in the end-of-visit distribution, so the outer score dimension never enters a
+maximization and the solver stays compact. A dense reachable-state implementation is still built
+first as the correctness oracle; optimization is accepted only after benchmarks prove equivalence
+within explicit tolerances.
+
+Repeated sparse matrix-vector multiplication yields each player's visit-indexed first-finish PMF
+`g_i(v)` and CDF `G_i(v)`. For ordinary play, independence makes the ordered multiplayer race
+exact:
+
+```
+P(i wins) = Σ_v g_i(v)
+  · Π[j before i] (1 − G_j(v))
+  · Π[j after i]  (1 − G_j(v−1))
+```
+
+The current player's first visit may be partial. Later visits use the full-visit kernel. Future-leg
+probabilities use the same model with the actual alternating starter order, and the match solver
+combines those leg probabilities rather than applying an average-power heuristic.
+
+Fair ending is not first-past-the-post. Already-finished players remain known tiebreak participants;
+pending players have identity-specific probabilities of joining within the round. Enumerate joiner
+sets exactly for normal field sizes, and use a deterministic bounded identity-aware approximation
+for large fields. The tiebreak solver remains a declared approximation where necessary. Every
+bounded path is exposed through `approximationMode`. A count-only Poisson-binomial DP over *how
+many* players join is insufficient: it discards *which* players joined, and the tiebreak outcome
+depends on their identities whenever tiebreak strengths differ.
+
+Real finish boundaries remain real: 170 can finish in a visit and 171 cannot. The replacement must
+remove artificial flat regions and exaggerated cliffs, not smooth away the rules of darts.
+
+### Runtime and ownership
+
+No timing is claimed until benchmarked. Kernels are constructed outside React and cached by frozen
+evidence hash, finish rule, outcome-model version, and relevant policy configuration. Cold starts,
+partial visits, fair ending, and large fields all receive p50/p95 measurements.
+
+One incremental tracker owns authoritative projection state. It advances exactly once per accepted
+dart and rebuilds from the nearest valid checkpoint after correction. Live UI, clean replay,
+commentary, and report consume its snapshots; `PressureWinProbability.tsx` must not independently
+reconstruct a projection.
+
+The replay prefix fingerprint includes
+`(id, turn_id, dart_index, segment, scored)`, not only the immutable throw ID.
+
+### Significance model — four concepts, no ratio
+
+`WPA / leverage` is removed from product semantics **entirely**, including as a phrasing hint.
+Since `E[ |ΔP| / E|ΔP| ] = 1` in every state, the ratio cannot identify which states matter, and
+its variance is largest where the denominator is smallest — so `argmax` selects trivia. It is not
+an outcome probability, a percentile, a residual standard deviation, or a calibrated rarity
+measure. It is a normalized magnitude, and naming it "unexpectedness" would misrepresent it.
+
+The engine emits four separate concepts:
+
+- **Consequence** — total variation `C = ½ Σ_i |P_after,i − P_before,i|`, used universally and
+  measured separately for leg and match. For two players this equals acting-player `|WPA|` exactly
+  because the probabilities sum to one. For larger fields it also captures probability moving
+  among non-actors. The full per-player vector remains attached so the subject is never lost;
+  absolute TV floors are bucketed by player count.
+- **Opportunity** — `E[|Δ|]` computed pre-dart. The honest name for what the heuristic engine called leverage.
+- **Outcome rarity** — probability, percentile, or tail probability of the realized `Δ` under the
+  supplied outcome distribution. Never inferred from leverage.
+- **Semantic stakes** — match dart, missed double, checkout, bust, repeated failure, story resolution.
+
+Diagnostics also emitted, never used as gates: `μ = Σ q_o Δ_o`, `swingVariance`, and
+`z = (Δ_actual − μ) / max(√Var(Δ_o), ε)`.
+
+Note: before/after probabilities are calibratable against outcomes. Their *difference* is
+interpretable and testable, but is not independently calibrated the way a 70% prediction is.
+
+#### Gating
+
+Four inputs, none sufficient alone:
+
+1. **Semantic guarantees** — match win, authoritative leg resolution, 180, Nikita special,
+   squandered multi-dart match opportunity.
+2. **Absolute consequence floors** — separate leg and match thresholds, because early legs of a
+   first-to-seven naturally produce small match WPA.
+3. **Historical conditional percentiles** — compared against completed darts from similar states:
+   race length, current leg score, checkout state, player count, fair-ending phase, confidence tier.
+4. **Broadcast cadence** — cooldowns, visit timing, repetition, active story, speech budget.
+
+The gate has a declared cold-start path. Semantic guarantees and absolute leg/match floors work
+from day one. Historical conditional percentiles and outcome rarity activate per bucket only after
+that bucket reaches the minimum sample count selected by the versioned policy. Missing evidence
+degrades to the simpler gate; it never blocks commentary or borrows a threshold from an
+incomparable bucket silently.
+
+The **current match's realized WPA quantile must not be the gate.** It is unstable early,
+guaranteed to promote something in an uneventful match, capable of suppressing objectively huge
+events in a chaotic one, dependent on match duration and path taken, and not comparable between
+live and replay unless the policy carefully freezes its prefix state. It may modulate relative
+*energy* or select end-of-match highlights; it may not decide whether a meaningful event exists.
+
+#### Visit-level semantics
+
+Three missed match darts is **one marquee completed-visit call**, even when no individual dart is
+statistically surprising — the visit carries three match-dart opportunities, a failed visit,
+probability surrendered across the visit, an opponent reprieve, and a repeated-miss narrative.
+"Expected" is not "uninteresting."
+
+Busts become context-sensitive: a match-losing bull bust is marquee; a bust from 3 after repeated
+misses may be ordinary, notable, or deliberately silent. This retires the unconditional promotion
+at `src/utils/pressureEvents.ts:176` and the unconditional guarantee at
+`src/lib/commentary/commentaryPolicy.ts:214`.
+
+### Evidence shrinkage and confidence dimensions
+
+Retire the fixed shrinkage denominators and the scalar `profileConfidence = max(...)` at
+`src/utils/pressureProfiles.ts:171`. `behavioral-v1` uses hierarchical categorical/Dirichlet
+shrinkage from exact player state through coarser state classes and the frozen installation
+population. Checkout and bust aggregates remain validation and cold-start evidence, not separate
+inputs that double-count behavior already expressed by the transition model.
+
+Expose independent evidence dimensions instead of one magic number: player sample size, state
+specificity, outcome coarsening level, population eligibility version, and observed calibration
+status. Aim and route-choice confidence do not exist until the geometry model exists.
+
+**Do not ship probability uncertainty bands in this PR.** Ship point predictions and collect
+calibration evidence first. Keep outcome randomness (already integrated into the probability),
+parameter uncertainty, and model misspecification distinct.
+
+### Geometry — the moat, but intention is latent
+
+Scolia impact coordinates do **not** reveal the intended target. A dart three millimetres inside
+S20 might be a missed T20, a deliberate S20, a missed D20, or a setup dart aimed away from the wire.
+The model needs `P(aim | impact, score, darts left, opponent state, route tendencies)`:
+
+- Use the normative route policy as an aim prior.
+- Use match context to eliminate implausible targets.
+- Use geometry as likelihood evidence.
+- Retain uncertainty when several aims are credible.
+- Learn player bias and covariance relative to *inferred* aim points, with strong population shrinkage.
+- Separate target families initially: scoring triples, setup singles, doubles, bull.
+- Model systematic bias, radial/angular spread, and possible multimodality — not one global 2D Gaussian.
+
+This is the future `geometry-v1` workstream, not part of the production outcome kernel in this PR.
+A normative policy without a physically grounded aim model optimizes against fiction. When the
+evidence exists, live forecasting can use a learned route-choice distribution and post-dart grading
+can compare an inferred intended-aim posterior with a normative target. It must beat
+`behavioral-v1` in walk-forward validation before replacing it.
+
+### Commentary transport
+
+"Speech models are bad JSON readers" is too broad — structured input is valuable. The real defects
+are payload size, irrelevant precision, opaque identifiers, and repeated state. Measured today:
+**3,788 bytes per dart**, of which **2,232 bytes is narrative memory re-sent in full every dart**,
+with 16-significant-digit floats and UUIDs in place of names.
+
+Introduce three presentation functions:
+
+```
+renderCommentarySnapshot(...)
+renderCommentaryDelta(...)
+renderBroadcastDirection(...)
+```
+
+A silent dart delta:
+
+```
+D84 | Ken | leg 2, visit 9, dart 1
+Hit DB for 50: 50 → 0, checkout
+Leg 52% → 100%; match 52% → 74% (+22pp)
+```
+
+Only changed story memory is appended:
+
+```
+STORY STARTED | punished miss
+Ken converted after Nikita missed D16 twice last leg.
+```
+
+Rules: names only, never UUIDs (retires `src/lib/commentary/broadcastDirector.ts:62`); whole
+percentage points, or one decimal only where genuinely useful; provider event IDs stay outside the
+spoken context; full snapshot only on connection, correction, rotation, and deliberate checkpoint;
+leg summaries replace accumulated dart detail; narrative memory is diffed; and **actual token usage
+is measured — byte ratios are not presented as token ratios.** Keep envelope schema/version fields:
+the Railway worker, Vercel server, and browser can run adjacent deployments during a rollout even
+though the product itself has no public model-generation labels.
+
+### Persistence
+
+Goal: authoritative, replayable, and calibratable. Two findings drive the schema.
+
+#### The delete contradiction
+
+`throws` rows are physically deleted on edit-out in
+`src/app/api/matches/[matchId]/throws/[throwId]/route.ts`. A cascading `throw_id` foreign key would
+destroy exactly the superseded evidence the schema exists to preserve. Use three columns:
+
+| Column | Kind | Behaviour |
+|---|---|---|
+| `match_id` | FK | `ON DELETE CASCADE` — whole-match deletion removes its telemetry |
+| `throw_id` | nullable FK | `ON DELETE SET NULL` — supports joins while the throw exists |
+| `source_throw_id` | copied uuid, no FK | immutable event identity, survives correction |
+
+Both FK columns get indexes. Match → leg → turn → throw already cascades
+(`supabase/migrations/0001_init.sql`), and throws carry a direct match FK
+(`supabase/migrations/0029_add_match_id_to_turns_and_throws.sql`), so whole-match deletion stays
+clean while individual throw correction can no longer erase history.
+
+#### Evidence is not parameters
+
+A model-derived parameter snapshot cannot evaluate a future model if its shrinkage method changes —
+the replacement needs the raw evidence the original saw. Conversely a per-dart skill snapshot
+barely deduplicates, because current-match form updates parameters after every dart. The
+load-bearing frozen artifact is the
+**raw historical evidence available before the match influenced it.**
+
+**Leakage confirmed.** `player_pressure_profiles` and `pressure_population_profiles` (defined
+pre-consolidation in `0055_pressure_player_profiles.sql`, then superseded by
+`0055_pressure_profiles.sql`) filter on `m.winner_player_id is not null`
+with **no time cutoff**, and on `p.is_active = true`. So a completed match becomes part of its own
+history, every later match leaks backwards into an earlier prediction, and deactivating a player
+retroactively rewrites the population. Replay against the live views is not reproducible. The clean
+cutoff is **match creation**. The population may intentionally include only active players, but its
+eligibility rule, eligible-player count, and content hash are frozen with the snapshot so later
+deactivation cannot rewrite prior evidence.
+
+#### Tables
+
+**`pressure_model_versions`** — immutable algorithm identity. Implementation/build hash,
+configuration JSON and hash, outcome-model version, evidence-schema version, and created timestamp.
+These are intrinsic reproducibility fields, not user-facing product generations.
+
+**`pressure_population_evidence`** — one small content-hashed snapshot per match and finish rule:
+raw population sufficient statistics at the creation cutoff, population eligibility rule/version,
+eligible-player count, and historical cutoff timestamp.
+
+**`pressure_player_evidence`** — one raw sufficient-statistics snapshot per match/player/finish rule,
+referencing the population evidence. Keep raw evidence separate from parameters so later models can
+be evaluated against exactly what production knew at the time.
+
+**`pressure_skill_snapshots`** *(optional, diagnostic)* — evidence snapshot id, model version id,
+derived posterior/configuration, parameter hash. Useful for diagnosing what production used; the
+evidence snapshot is the artifact that matters for evaluating a new model.
+
+**`pressure_projection_events`** — one row per dart projection generation. Match, leg,
+`source_throw_id`, nullable `throw_id`, model version, evidence set, epoch/revision, sequence,
+pre-state hash, frozen minimal input snapshot, acting player, finish rule, field size, score band,
+checkout phase, confidence dimensions, approximation modes, provenance (`live` or
+`reconstructed`), live-capture status (`complete`, `partial`, or `not_supported`) plus nullable
+cause, `superseded_at`, created and computed timestamps. Absence of manual live capture must not be
+mislabelled as complete before the shared tracker write path exists.
+
+```sql
+-- partial uniqueness: one live projection per dart per model
+create unique index pressure_projection_events_active_key
+  on public.pressure_projection_events
+    (match_id, source_throw_id, model_version_id, provenance)
+  where superseded_at is null;
+```
+
+**`pressure_player_projections`** — one child row per projected player: projection event id, player
+id, leg probability before/after, match probability before/after, expected finish distribution
+summary, player-specific confidence and state buckets. This is better than storing only the acting
+player and better than burying the vector in JSONB — it supports normalization checks, multiplayer
+calibration, per-player Brier and log-loss, total-variation consequence, and indexable analytical
+queries. The full vector may *additionally* be stored as canonical JSON for forensic reproduction,
+but never as the only representation.
+
+**`pressure_projection_resolutions`** — append-only outcomes attach separately to immutable
+predictions. Each row has `kind in ('leg', 'match')`, authoritative winner, resolution epoch and
+timestamp, and early-ending status where applicable. Corrections supersede predictions and
+resolutions; they never mutate frozen probability output.
+
+#### Types, indexes, and policies
+
+- `bigint generated always as identity` primary keys; `timestamptz`; `text` with check constraints.
+- `double precision` for computed probabilities — **not** `numeric`. The "use numeric, not float"
+  rule targets decimal quantities like money; these values *are* computed IEEE doubles, and a
+  numeric conversion would make reproduction harder rather than easier.
+- Heavily filtered calibration dimensions as **real columns**, not JSONB — a `->>` filter has no
+  usable index.
+- **No partitioning.** A few hundred darts × thousands of matches is low single-digit millions of
+  rows; the threshold for partitioning is >100M.
+- RLS enabled with **no** `anon`/`authenticated` policy — server-written telemetry only.
+- Any exposed view sets `security_invoker = true`, re-applied in the same migration on every
+  `create or replace view`.
+- Consolidate the branch-only migrations before merge: delete old `0055`–`0058`; recreate
+  `0055_pressure_profiles.sql` with final views only; recreate
+  `0056_realtime_commentary_sessions.sql` with epoch columns inline; rename the unchanged rematch
+  lineage migration from `0059` to `0057`; and add `0058_pressure_telemetry.sql`. Released `0054`
+  remains untouched. This is a one-time authorization for this unreleased PR and does not weaken
+  the repository's standing rule against rewriting existing migrations. Consolidation invalidates
+  any applied local or test database state: run `npm run supabase:test:reset` and reset the local
+  development instance as part of this commit. The rematch migration is renamed rather than folded
+  in because `matches.rematch_of_match_id` is general match lineage—written by the rematch route,
+  selected in `matchGuards.loadMatch()`, and typed in `match/types.ts`—with commentary as only one
+  consumer.
+- **Bitwise replay is not the product contract.** Code revisions, ordering, math-library behaviour,
+  and serialization paths all produce harmless last-bit differences. Use exact hashes for canonical
+  inputs and configuration, numerical tolerances for projected outputs, and golden fixtures with
+  explicit accepted tolerances.
+- **Start indexes minimal**: every FK indexed, the active-projection partial unique index,
+  model/time lookup, match/sequence lookup, and child → parent lookup. Then run real calibration
+  queries through `EXPLAIN (ANALYZE, BUFFERS)` before adding a wide covering index — at append-heavy
+  low millions, unnecessary `INCLUDE` columns cost storage and write amplification.
+
+#### Write path
+
+Shared by manual and Scolia scoring — not a Scolia-only worker path:
+
+```
+leg completion
+  → canonical replay/finalization service
+  → one transaction/batch
+  → projection events + player vectors + leg resolution
+```
+
+`src/lib/server/completeLeg.ts` is the natural orchestration point; it already centrally rotates
+starters and resolves the match. The **evidence snapshot must be captured earlier** — at match
+creation, before the first accepted dart, while the current match is still excluded from
+completed-history aggregates. Latency telemetry is separate: first-audible measurements must be
+emitted live from the browser and cannot wait for leg completion.
+
+### One-PR execution order
+
+The work lands as one PR but remains reviewable through ordered commits. Later commits depend on the
+contracts and proofs established earlier.
+
+#### A. Foundation
+
+1. **Database consolidation** — collapse branch-only migrations `0055`–`0059` into the final
+   `0055`–`0058` sequence documented above.
+2. **Replay integrity** — replace the ID-only cached-prefix check with the full dart fingerprint and
+   prove edit/delete correction equivalence.
+
+#### B. Engine replacement
+
+3. **Outcome contract** — implement `behavioral-v1`, frozen evidence loading, hierarchical backoff,
+   and explicit confidence dimensions.
+4. **Visit kernels** — implement double-out and single-out full-visit kernels, partial-visit entry,
+   and a dense correctness oracle. Validate the oracle against hand-authored categorical outcome
+   fixtures with closed-form expected values, not against `behavioral-v1`; agreement between two
+   implementations alone does not prove either one correct.
+5. **Race and match solver** — produce first-finish PMFs, exact ordered multiplayer race
+   probabilities, alternating-starter future legs, and match probabilities.
+6. **Fair ending** — add identity-preserving joiners and the declared bounded tiebreak/large-field
+   path.
+7. **Authoritative tracker** — make one incremental tracker feed live UI, replay, commentary, and
+   report; remove the independent React projection.
+8. **Metric cleanup** — add total-variation consequence, opportunity, outcome rarity, and semantic
+   stakes; remove the invented leverage index, every WPA/leverage ratio, and user-facing
+   `bestSegment`.
+
+#### C. Commentary transport and policy
+
+9. **Compact model boundary** — add `renderCommentarySnapshot`,
+   `renderCommentaryDelta`, and `renderBroadcastDirection`; use display names, rounded values,
+   and narrative diffs. Retain envelope schema/version fields because Railway worker and Vercel
+   browser deployments can overlap.
+10. **Bust and visit semantics** — change priority assignment, guaranteed-event policy, and
+    observation deduplication together. Default busts to notable; promote to marquee only for
+    semantic stakes such as a directly squandered checkout or authoritative match-dart sequence.
+    Do not tune this policy against old heuristic WPA.
+
+#### D. Frozen evidence and telemetry
+
+11. **Telemetry schema** — add immutable model/config identity, frozen population/player evidence,
+    projection events, full per-player vectors, append-only resolutions, provenance, capture status,
+    and real calibration columns.
+12. **Capture path** — freeze evidence at match creation; batch completed-leg projection writes for
+    both manual and Scolia play through the shared finalization path. Live per-dart capture follows
+    the shared tracker; until then its status is explicitly partial or not supported.
+13. **Baseline instrumentation** — persist payload bytes, actual input tokens where available,
+    detection → response request → first transcript delta → first audible sample timings, and
+    deterministic speak/skip decisions with policy version.
+
+#### E. Product surface
+
+14. **Report-lite** — expose the deterministic swing and narrative facts on the existing finished
+    match surface first, so the new engine can be inspected immediately.
+15. **Full Pressure Report** — add `/match/[id]/report`, link it from recent games, server-load the
+    canonical compact replay, and dynamically load Highcharts in a small client island.
+16. **Report interaction** — add the probability timeline with leg boundaries, scrubber/clickable
+    swing list, synchronized Scolia heatmaps, per-player summaries, and a compact shareable story
+    whose claims always resolve to deterministic facts.
+
+`analyzePressureTimeline()` is a substantial head start, not a finished report. Loading, routing,
+charting, interaction, heatmap synchronization, summaries, and sharing are all included in this PR.
+
+#### F. Proof and documentation
+
+17. **Tests and benchmarks** — golden fixtures, property tests, replay/tracker parity, correction
+    equivalence, fair-ending normalization, runtime distributions, and commentary renderer/policy
+    tests.
+18. **Documentation** — update this roadmap, the repository file map/key flows, schema notes, and
+    local verification instructions to describe the final implementation only.
+
+### Merge gates
+
+The PR is mergeable only when:
+
+- Every leg and match probability is finite, lies in `[0,1]`, and full vectors sum to one through
+  normal play, fair-ending waiting, tiebreaks, and authoritative resolution.
+- The incremental tracker, clean replay, live UI, commentary packet, and report agree at every dart
+  within an explicit numerical tolerance.
+- Recording a corrected match directly produces the same result as recording, then editing or
+  deleting, then rebuilding.
+- An injected live/reconstructed divergence is detected and recorded rather than silently
+  overwritten.
+- A match's frozen evidence provably excludes that match and every match created after it, and
+  replaying a completed match reproduces the projection production emitted.
+- Golden cases cover 501–501, 100–100, 40–40, 40–170, 170–171, partial visits with a different
+  visit-start score, ordinary multiplayer order, fair-ending joiners, and tiebreak rounds.
+- Cold and warm p50/p95 runtime stay inside the measured live rendering/commentary budget for common
+  and deliberately large fields.
+- Commentary never receives a player UUID as prose, routine deltas do not resend full narrative
+  memory, and corrections cannot leave stale speech or story state alive.
+- The full test suite, lint, and production build pass.
+
+### Evidence and claim gates
+
+Merging the machinery does not authorize calibration marketing or automatic tuning:
+
+- Do not call predictions calibrated, publish uncertainty bands, or auto-tune thresholds until the
+  frozen evidence reaches predeclared sample requirements and Brier/log-loss calibration results
+  support the claim.
+- Significance thresholds are versioned policy configuration, never schema, and are evaluated on
+  held-out or walk-forward data before tuning.
+- A future `geometry-v1` model must beat `behavioral-v1` under walk-forward validation across
+  finish rule, field size, score/checkout state, confidence, and Scolia/manual cohorts.
+- Model misspecification is reported separately from parameter uncertainty.
+
+This is the one-PR definition of done. Geometry-based aim inference and the normative layer that
+depends on it are the deliberately deferred modelling capabilities. That layer is one rung:
+latent-aim inference, action-conditioned transitions, target optimization, deadline-aware policy,
+and route/setup advice. Probability uncertainty bands are deferred separately, on evidence rather
+than modelling. Their interfaces and evidence/version axes land now so they can be added without
+corrupting historical evaluation.

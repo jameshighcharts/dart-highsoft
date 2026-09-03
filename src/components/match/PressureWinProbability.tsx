@@ -9,13 +9,14 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import type { LegRecord, Player, TurnRecord, TurnWithThrows } from '@/lib/match/types';
 import { getSpectatorScore } from '@/utils/matchStats';
 import { estimateCheckoutProbability } from '@/utils/pressureCheckout';
-import { calculateDartLeverage, calculatePressureProjection } from '@/utils/pressureEngine';
+import { calculatePressureProjection } from '@/utils/pressureEngine';
 import { getPendingFairEndingPlayerIds, type FairEndingState } from '@/utils/fairEnding';
 import type {
   PressurePlayerHistoryProfile,
   PressurePopulationProfile,
 } from '@/utils/pressureProfiles';
 import type { FinishRule } from '@/utils/x01';
+import type { PressureOutcomeModel } from '@/utils/pressureOutcomeModel';
 
 type Props = {
   orderPlayers: Player[];
@@ -31,6 +32,7 @@ type Props = {
   matchWinnerId: string | null;
   profilesByPlayerId: ReadonlyMap<string, PressurePlayerHistoryProfile>;
   populationProfile?: PressurePopulationProfile;
+  outcomeModelsByPlayerId: ReadonlyMap<string, PressureOutcomeModel>;
   hasPersonalProfiles: boolean;
   fairEnding: boolean;
   fairEndingState?: FairEndingState;
@@ -56,6 +58,7 @@ export function PressureWinProbability({
   matchWinnerId,
   profilesByPlayerId,
   populationProfile,
+  outcomeModelsByPlayerId,
   hasPersonalProfiles,
   fairEnding,
   fairEndingState,
@@ -71,6 +74,7 @@ export function PressureWinProbability({
     }
 
     let dartsRemainingInTurn = currentPlayerId ? 3 : 0;
+    let currentVisitScored = 0;
     if (currentPlayerId) {
       const currentPlayerTurns = turns.filter(
         (turn) => turn.leg_id === currentLegId && turn.player_id === currentPlayerId
@@ -78,7 +82,11 @@ export function PressureWinProbability({
       const latestTurn = currentPlayerTurns[currentPlayerTurns.length - 1];
       if (latestTurn && !latestTurn.busted) {
         const throwCount = turnThrowCounts[latestTurn.id] ?? 0;
-        if (throwCount > 0 && throwCount < 3) dartsRemainingInTurn = 3 - throwCount;
+        if (throwCount > 0 && throwCount < 3) {
+          dartsRemainingInTurn = 3 - throwCount;
+          currentVisitScored = (latestTurn as TurnWithThrows).throws
+            ?.reduce((sum, dart) => sum + dart.scored, 0) ?? latestTurn.total_scored;
+        }
       }
     }
 
@@ -99,6 +107,7 @@ export function PressureWinProbability({
         threeDartAverage: getAvgForPlayer(player.id),
         dartsThrown,
         historicalProfile: profilesByPlayerId.get(player.id),
+        outcomeModel: outcomeModelsByPlayerId.get(player.id),
       };
     });
 
@@ -148,6 +157,11 @@ export function PressureWinProbability({
       players: playerStates,
       playOrder: orderPlayers.map((player) => player.id),
       currentPlayerId,
+      currentVisitStartScore: currentPlayerId
+        ? (playerStates.find((player) => player.id === currentPlayerId)?.scoreRemaining ?? 0)
+          + currentVisitScored
+        : undefined,
+      currentLegStarterId: legs.find((leg) => leg.id === currentLegId)?.starting_player_id,
       dartsRemainingInTurn,
       legsToWin,
       finishRule,
@@ -173,9 +187,6 @@ export function PressureWinProbability({
             }
           )
         : 0,
-      currentLeverage: currentPlayerId
-        ? calculateDartLeverage(nextProjection.players, currentPlayerId, legsToWin)
-        : { leg: 0, match: 0, pressureIndex: 0 },
     };
   }, [
     currentLegId,
@@ -188,6 +199,7 @@ export function PressureWinProbability({
     legsToWin,
     matchWinnerId,
     orderPlayers,
+    outcomeModelsByPlayerId,
     populationProfile,
     profilesByPlayerId,
     startScore,
@@ -195,7 +207,7 @@ export function PressureWinProbability({
     turns,
   ]);
 
-  const { projection, currentCheckoutProbability, currentLeverage } = pressureSnapshot;
+  const { projection, currentCheckoutProbability } = pressureSnapshot;
 
   const projectionById = new Map(projection.players.map((player) => [player.id, player]));
   const favorite = orderPlayers.find((player) => player.id === projection.favoritePlayerId);
@@ -291,10 +303,8 @@ export function PressureWinProbability({
             <div className="flex shrink-0 items-center gap-4 text-right">
               {currentPlayerId ? (
                 <div className="hidden border-r border-white/10 pr-4 sm:block">
-                  <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-muted-foreground">On-throw pressure</div>
+                  <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-muted-foreground">On-throw checkout</div>
                   <div className="text-sm font-bold tabular-nums">
-                    <span className="text-fuchsia-300">{Math.round(currentLeverage.pressureIndex * 100)}</span>
-                    <span className="text-muted-foreground">/100 · CO </span>
                     <span className="text-amber-300">{formatProbability(currentCheckoutProbability)}</span>
                   </div>
                 </div>

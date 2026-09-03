@@ -245,6 +245,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     realtimeCommentaryRef,
     pressureProfilesByPlayerId: pressureProfiles.profilesByPlayerId,
     pressurePopulationProfile: pressureProfiles.populationProfile,
+    pressureOutcomeModelsByPlayerId: pressureProfiles.outcomeModelsByPlayerId,
   });
 
   // Check for spectator mode from URL params
@@ -570,6 +571,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           fairEndingState={fairEndingState}
           pressureProfilesByPlayerId={pressureProfiles.profilesByPlayerId}
           pressurePopulationProfile={pressureProfiles.populationProfile}
+          pressureOutcomeModelsByPlayerId={pressureProfiles.outcomeModelsByPlayerId}
           hasPersonalPressureProfiles={pressureProfiles.hasPersonalProfiles}
         />
         <RealtimeDebugPanel

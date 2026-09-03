@@ -30,11 +30,16 @@ function event(input: {
     ? input.before
     : { ...input.before, scores: { ...input.before.scores, [playerId]: input.scoreBefore } };
   return {
-    eventId: `event-${input.sequence}`, engineVersion: 'pressure-v2', matchId: 'match',
+    eventId: `event-${input.sequence}`, engineVersion: 'behavioral-v1', matchId: 'match',
     sequence: input.sequence, legId: 'leg', legNumber: 1, turnId: `turn-${input.sequence}`,
     playerId, dartId: `dart-${input.sequence}`, dartIndex: 3, segment: 'S5', scored: 5,
     turnScoreAfter: 60, busted: false, checkedOut: input.checkedOut ?? false,
-    leverage: { pressureIndex: 0.8 } as PressureDartEvent['leverage'],
+    consequence: { leg: Math.abs(afterProbability - beforeProbability), match: Math.abs(afterProbability - beforeProbability) },
+    semanticStakes: {
+      directCheckoutOpportunity: input.scoreBefore !== undefined,
+      checkoutVisitOpportunity: input.scoreBefore !== undefined,
+      matchCheckoutOpportunity: false,
+    },
     checkout: {
       checkoutProbabilityBefore: input.scoreBefore ? 0.3 : 0,
       checkoutProbabilityAfter: 0, nextVisitCheckoutProbability: 0,

@@ -38,6 +38,33 @@ function leg(id: string, number: number, starter: string, winner: string | null)
 }
 
 describe('reconstructPressureTimeline', () => {
+  it.each([
+    { finishRule: 'double_out' as const, startScore: 40, segment: 'S20', scored: 20 },
+    { finishRule: 'single_out' as const, startScore: 60, segment: 'S20', scored: 20 },
+  ])('derives checkout and match opportunities under $finishRule rules', ({
+    finishRule,
+    startScore,
+    segment,
+    scored,
+  }) => {
+    const timeline = reconstructPressureTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'a', 1, [dart('dart-1', 'turn-1', 1, segment, scored)])],
+      },
+      startScore,
+      finishRule,
+      legsToWin: 1,
+    });
+
+    expect(timeline[0].semanticStakes).toEqual({
+      directCheckoutOpportunity: true,
+      checkoutVisitOpportunity: true,
+      matchCheckoutOpportunity: true,
+    });
+  });
+
   it('emits before/after state and WPA for every dart in chronological order', () => {
     const firstTurn = turn('turn-1', 'leg-1', 'a', 1, [
       dart('dart-2', 'turn-1', 2, 'S20', 20),
@@ -58,10 +85,11 @@ describe('reconstructPressureTimeline', () => {
     expect(timeline[1].after.scores.a).toBe(221);
     expect(timeline[0].matchWinProbabilityAdded.a).toBeGreaterThan(0);
     expect(timeline[0]).toMatchObject({
-      eventId: 'pressure-v2:match-1:dart-1',
-      engineVersion: 'pressure-v2',
+      eventId: 'behavioral-v1:match-1:dart-1',
+      engineVersion: 'behavioral-v1',
     });
-    expect(timeline[0].leverage.pressureIndex).toBeGreaterThan(0);
+    expect(timeline[0].consequence.leg).toBeGreaterThan(0);
+    expect(timeline[0].consequence.match).toBeGreaterThan(0);
     expect(firstTurn.throws.map((entry) => entry.id)).toEqual(['dart-2', 'dart-1']);
   });
 
@@ -97,6 +125,39 @@ describe('reconstructPressureTimeline', () => {
     expect(incremental).toEqual(clean);
     expect(incremental[0]).toBe(prefix[0]);
     expect(incremental[1]).toBe(prefix[1]);
+  });
+
+  it('invalidates a cached prefix when an edited dart keeps the same id', () => {
+    const base = {
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      startScore: 301,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const original = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-1', 'turn-1', 1, 'S20', 20),
+    ]);
+    const prefix = reconstructPressureTimeline({
+      ...base,
+      turnsByLeg: { 'leg-1': [original] },
+    });
+    const corrected = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-1', 'turn-1', 1, 'T20', 60),
+    ]);
+
+    const incremental = reconstructPressureTimeline({
+      ...base,
+      turnsByLeg: { 'leg-1': [corrected] },
+    }, { cachedPrefix: prefix });
+    const clean = reconstructPressureTimeline({
+      ...base,
+      turnsByLeg: { 'leg-1': [corrected] },
+    });
+
+    expect(incremental).toEqual(clean);
+    expect(incremental[0]).not.toBe(prefix[0]);
+    expect(incremental[0]).toMatchObject({ segment: 'T20', scored: 60 });
   });
 
   it('restores score and removes the visit from live form after a bust', () => {

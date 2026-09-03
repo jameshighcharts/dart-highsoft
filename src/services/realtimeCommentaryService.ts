@@ -5,7 +5,6 @@ import {
 } from '@/lib/commentary/commentaryPolicy';
 import { buildRealtimeResponseInstructions } from '@/lib/commentary/realtimePrompt';
 import {
-  createRealtimeCommentaryCorrectionEnvelope,
   isSuccessfulRealtimeResponse,
   type RealtimeCommentaryCorrectionReason,
   type RealtimeCommentaryCorrectionResponse,
@@ -18,6 +17,12 @@ import {
 import type { CommentaryContext } from '@/services/commentaryService';
 import type { VoiceOption } from '@/services/ttsService';
 import { BroadcastDirector } from '@/lib/commentary/broadcastDirector';
+import { isMaterialPressureConsequence } from '@/utils/pressurePolicy';
+import {
+  RealtimeNarrativeWireState,
+  renderManualRealtimeEvent,
+  renderRealtimeSnapshot,
+} from '@/lib/commentary/realtimeWireFormat';
 
 export type RealtimeCommentaryStatus = 'idle' | 'connecting' | 'ready' | 'failed';
 
@@ -85,6 +90,7 @@ export class RealtimeCommentaryService {
   private readonly policy = new CommentaryPolicy();
   private readonly visitTiming = new CommentaryVisitTiming();
   private readonly broadcastDirector = new BroadcastDirector();
+  private readonly wireState = new RealtimeNarrativeWireState();
   private correctionQueue: Promise<void> = Promise.resolve();
 
   constructor(callbacks: RealtimeCommentaryCallbacks = {}) {
@@ -235,7 +241,12 @@ export class RealtimeCommentaryService {
         role: 'user',
         content: [{
           type: 'input_text',
-          text: `AUTHORITATIVE_MATCH_EVENT\n${JSON.stringify({ epoch: this.epoch, event: directedContext })}`,
+          text: renderManualRealtimeEvent(
+            this.epoch,
+            directedContext,
+            this.wireState,
+            direction ?? undefined
+          ),
         }],
       },
     })) return false;
@@ -336,14 +347,7 @@ export class RealtimeCommentaryService {
           role: 'user',
           content: [{
             type: 'input_text',
-            text: `AUTHORITATIVE_MATCH_CORRECTION\n${JSON.stringify(
-              createRealtimeCommentaryCorrectionEnvelope({
-                correctionId,
-                epoch: payload.epoch,
-                reason,
-                snapshot: payload.snapshot,
-              })
-            )}`,
+            text: `AUTHORITATIVE CORRECTION · ${reason.replaceAll('_', ' ')}\n${renderRealtimeSnapshot(payload.epoch, payload.snapshot, this.wireState)}`,
           }],
         },
       })) throw new Error('Realtime correction data channel was not ready');
@@ -363,7 +367,7 @@ export class RealtimeCommentaryService {
         role: 'user',
         content: [{
           type: 'input_text',
-          text: `AUTHORITATIVE_MATCH_SNAPSHOT\n${JSON.stringify({ epoch: this.epoch, snapshot })}`,
+          text: renderRealtimeSnapshot(this.epoch, snapshot, this.wireState),
         }],
       },
     })) {
@@ -560,6 +564,16 @@ export class RealtimeCommentaryService {
 
   private manualPolicyEvent(eventId: string, context: CommentaryContext): CommentaryPolicyEvent {
     const checkedOut = Boolean(context.pressure?.checkedOut) || (!context.busted && context.remainingScore === 0);
+    const matchWon = checkedOut
+      && context.gameContext.playerLegsWon + 1 >= context.gameContext.legsToWin;
+    const consequence = {
+      leg: context.pressure?.peakLegConsequence ?? Math.abs(context.pressure?.legWpa ?? 0),
+      match: context.pressure?.peakMatchConsequence ?? Math.abs(context.pressure?.matchWpa ?? 0),
+    };
+    const materialConsequence = isMaterialPressureConsequence(
+      consequence,
+      context.gameContext.allPlayers.length
+    );
     const direction = context.narrative?.broadcastDirection;
     const story = direction?.activeStoryArc ?? context.narrative?.activeStoryArc;
     const signals: CommentaryPolicyEvent['signals'] = context.isNikitaSpecial
@@ -572,13 +586,19 @@ export class RealtimeCommentaryService {
           ? ['bust']
           : context.pressure?.changedMatchFavorite
             ? ['favorite_change']
-            : Math.abs(context.pressure?.matchWpa ?? 0) >= 0.08
+            : materialConsequence
               ? ['large_swing']
               : direction?.shouldPromote
                 ? ['story_arc']
                 : [];
-    const priority = context.isNikitaSpecial || context.is180 || checkedOut || context.busted
-      ? 'marquee'
+    const semanticBust = context.busted && Boolean(
+      context.pressure?.directCheckoutOpportunity
+      || context.pressure?.matchCheckoutOpportunity
+    );
+    const priority = matchWon
+      ? 'terminal'
+      : context.isNikitaSpecial || context.is180 || checkedOut || semanticBust
+        ? 'marquee'
       : signals.length > 0
         ? 'notable'
         : direction?.shouldPromote
@@ -594,7 +614,7 @@ export class RealtimeCommentaryService {
       scoreBefore: checkedOut ? context.totalScore : context.remainingScore + context.totalScore,
       checkedOut,
       busted: context.busted,
-      matchWon: false,
+      matchWon,
       priority,
       signals,
       storyKey: story ? `${story.kind}:${story.subjectPlayerId ?? 'match'}` : undefined,

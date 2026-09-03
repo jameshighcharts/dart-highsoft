@@ -55,6 +55,15 @@ describe('CommentaryPolicy', () => {
     expect(policy.evaluate({ ...first, eventId: 'dart-2' }, 3_000).reason).toBe('duplicate-observation');
   });
 
+  it('deduplicates ordinary busts by player rather than unique dart id', () => {
+    const policy = new CommentaryPolicy({ cooldownMs: { notable: 0 } });
+    const bust = event({ priority: 'notable', busted: true, signals: ['bust'] });
+    expect(policy.evaluate(bust, 1_000).shouldSpeak).toBe(true);
+    policy.responseFinished();
+    expect(policy.evaluate({ ...bust, eventId: 'dart-2' }, 3_000).reason)
+      .toBe('duplicate-observation');
+  });
+
   it('does not prime the commentator to repeat a generic turning-point label', () => {
     expect(priorityInstruction('notable').toLowerCase()).not.toContain('turning point');
     expect(priorityInstruction('notable')).toContain('Call what changed');

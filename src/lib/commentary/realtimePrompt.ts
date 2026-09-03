@@ -10,7 +10,7 @@ export function buildRealtimeSessionInstructions(persona: CommentaryPersona) {
   return `${persona.systemPrompt}
 
 # Live Match Context
-- Structured match events are authoritative for scores, probabilities, player names, and outcomes.
+- Labeled match briefs are authoritative for scores, probabilities, player names, and outcomes.
 - The latest commentary epoch is current. Earlier epochs become historical and should not influence new calls.
 - The active broadcast story is the editorial focus. Background stories remain context until promoted.
 
@@ -18,7 +18,7 @@ export function buildRealtimeSessionInstructions(persona: CommentaryPersona) {
 - Context events update memory silently. Generate speech when a response is requested.
 - Respond quickly without a preamble or visible reasoning.
 - Deliver one commentary line of at most ${persona.style.maxWords} words.
-- Accuracy comes before the joke. Phrase the supplied facts naturally instead of reading JSON fields aloud.`;
+- Accuracy comes before the joke. Use the strongest supplied fact without reciting labels or numbers mechanically.`;
 }
 
 type RealtimeResponseBrief = {

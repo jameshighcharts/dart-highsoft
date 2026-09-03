@@ -183,7 +183,7 @@ describe('classifyScoliaRealtimeDart', () => {
       shouldSpeak: true,
       pressure: {
         schemaVersion: 2,
-        engineVersion: 'pressure-v2',
+        engineVersion: 'behavioral-v1',
         fairEnding: { phase: 'completing_round', winnerId: null },
       },
     });

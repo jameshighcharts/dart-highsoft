@@ -37,10 +37,16 @@ function event(overrides: Partial<PressureDartEvent> = {}): PressureDartEvent {
   const before = state(0.45, 0.55);
   const after = state(0.54, 0.7);
   return {
-    eventId: 'pressure-v2:match-1:dart-1', engineVersion: 'pressure-v2', matchId: 'match-1',
+    eventId: 'behavioral-v1:match-1:dart-1', engineVersion: 'behavioral-v1', matchId: 'match-1',
     sequence: 1, legId: 'leg-1', legNumber: 1, turnId: 'turn-1', playerId: 'a',
     dartId: 'dart-1', dartIndex: 1, segment: 'T20', scored: 60, turnScoreAfter: 60,
-    busted: false, checkedOut: false, leverage: { leg: 0.8, match: 0.7, pressureIndex: 0.72 },
+    busted: false, checkedOut: false,
+    consequence: { leg: 0.15, match: 0.09 },
+    semanticStakes: {
+      directCheckoutOpportunity: false,
+      checkoutVisitOpportunity: false,
+      matchCheckoutOpportunity: false,
+    },
     fairEndingBefore: null, fairEndingAfter: null,
     checkout: {
       checkoutProbabilityBefore: 0.2, checkoutProbabilityAfter: 0.1,
@@ -61,7 +67,7 @@ describe('createPressureDartPacket', () => {
 
     expect(packet).toMatchObject({
       schemaVersion: 2,
-      eventId: 'pressure-v2:match-1:dart-1',
+      eventId: 'behavioral-v1:match-1:dart-1',
       priority: 'notable',
       shouldSpeak: true,
       scoreBefore: 40,
@@ -73,7 +79,7 @@ describe('createPressureDartPacket', () => {
 
   it('keeps uneventful first and second darts silent while preserving the event', () => {
     const quiet = event({
-      leverage: { leg: 0.2, match: 0.1, pressureIndex: 0.15 },
+      consequence: { leg: 0.02, match: 0.01 },
       matchWinProbabilityAdded: { a: 0.01, b: -0.01 },
       legWinProbabilityAdded: { a: 0.02, b: -0.02 },
       after: state(0.46, 0.57),
@@ -107,7 +113,7 @@ describe('createPressureDartPacket', () => {
       turnScoreAfter: 180,
       matchWinProbabilityAdded: { a: 0.02, b: -0.02 },
       legWinProbabilityAdded: { a: 0.03, b: -0.03 },
-      leverage: { leg: 0.3, match: 0.2, pressureIndex: 0.25 },
+      consequence: { leg: 0.03, match: 0.02 },
       after: state(0.47, 0.58),
     }));
 
@@ -120,7 +126,7 @@ describe('createPressureDartPacket', () => {
     source.checkout = { ...source.checkout, createdBogey: true, setupGrade: 'poor' };
     source.matchWinProbabilityAdded = { a: 0, b: 0 };
     source.legWinProbabilityAdded = { a: 0, b: 0 };
-    source.leverage = { leg: 0.3, match: 0.2, pressureIndex: 0.25 };
+    source.consequence = { leg: 0, match: 0 };
     source.after = state(0.45, 0.55);
 
     const packet = createPressureDartPacket(source);

@@ -1,4 +1,6 @@
 import type { PressureDartEvent } from '@/utils/pressureReplay';
+import { hasCheckoutRoute } from '@/utils/pressureCheckout';
+import { isMaterialPressureConsequence } from '@/utils/pressurePolicy';
 import type { FinishRule } from '@/utils/x01';
 import {
   rankCommentaryStoryArcs,
@@ -122,10 +124,16 @@ export function buildCommentaryNarrativeMemory(input: {
     }
 
     const checkoutOpportunity = event.checkout.checkoutProbabilityBefore > 0;
+    const opponentThreat = Object.entries(event.before.scores).some(
+      ([playerId, score]) => playerId !== event.playerId
+        && hasCheckoutRoute(score, 3, input.finishRule)
+    );
+    const highOpportunity = checkoutOpportunity
+      && (event.semanticStakes?.matchCheckoutOpportunity || opponentThreat);
     if (checkoutOpportunity) {
       memory.opportunities += 1;
       if (event.checkedOut) memory.conversions += 1;
-      if (event.leverage.pressureIndex >= 0.65) {
+      if (highOpportunity) {
         memory.highPressureOpportunities += 1;
         if (event.checkedOut) memory.highPressureConversions += 1;
       }
@@ -140,7 +148,7 @@ export function buildCommentaryNarrativeMemory(input: {
       memory.missedDoubles = memory.missedDoubles.slice(-3);
     }
 
-    if (event.leverage.pressureIndex >= 0.5) {
+    if (isMaterialPressureConsequence(event.consequence, event.before.projections.length)) {
       if (matchWpa >= 0.02) memory.positivePressureDarts += 1;
       if (matchWpa <= -0.02) memory.negativePressureDarts += 1;
     }

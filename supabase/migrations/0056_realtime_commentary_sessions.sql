@@ -8,6 +8,10 @@ create table public.commentary_realtime_sessions (
   openai_call_id text not null unique,
   persona_id text not null,
   voice text not null,
+  epoch bigint not null default 0 check (epoch >= 0),
+  last_correction_id text,
+  last_correction_reason text
+    check (last_correction_reason in ('throw_updated', 'throw_deleted')),
   status text not null default 'active'
     check (status in ('active', 'closed')),
   created_at timestamptz not null default now(),
@@ -28,6 +32,12 @@ grant all on public.commentary_realtime_sessions to service_role;
 
 comment on table public.commentary_realtime_sessions is
   'Server-only map from match listeners to OpenAI Realtime WebRTC calls for Scolia sideband control.';
+
+comment on column public.commentary_realtime_sessions.epoch is
+  'Monotonic narrative generation; edit/undo snapshots invalidate all earlier commentary.';
+
+comment on column public.commentary_realtime_sessions.last_correction_id is
+  'Idempotency key for the most recently applied correction envelope.';
 
 create table public.commentary_realtime_deliveries (
   session_id uuid not null references public.commentary_realtime_sessions(id) on delete cascade,

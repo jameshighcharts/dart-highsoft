@@ -36,6 +36,7 @@ import type {
   PressurePlayerHistoryProfile,
   PressurePopulationProfile,
 } from '@/utils/pressureProfiles';
+import type { PressureOutcomeModel } from '@/utils/pressureOutcomeModel';
 import { isNikitaSpecial } from '@/utils/nikitaSpecial';
 import { buildCommentaryNarrativeMemory } from '@/lib/commentary/commentaryNarrative';
 
@@ -164,6 +165,7 @@ type UseMatchRealtimeArgs = {
   realtimeCommentaryRef: React.MutableRefObject<RealtimeCommentaryService | null>;
   pressureProfilesByPlayerId: ReadonlyMap<string, PressurePlayerHistoryProfile>;
   pressurePopulationProfile?: PressurePopulationProfile;
+  pressureOutcomeModelsByPlayerId: ReadonlyMap<string, PressureOutcomeModel>;
 };
 
 export function useMatchRealtime({
@@ -197,6 +199,7 @@ export function useMatchRealtime({
   realtimeCommentaryRef,
   pressureProfilesByPlayerId,
   pressurePopulationProfile,
+  pressureOutcomeModelsByPlayerId,
 }: UseMatchRealtimeArgs) {
   const spectatorTurnsFetchRef = useRef<Promise<void> | null>(null);
   const spectatorTurnsFetchQueuedRef = useRef(false);
@@ -430,6 +433,7 @@ export function useMatchRealtime({
             initialLegsWon,
             playerProfiles: Object.fromEntries(pressureProfilesByPlayerId),
             populationProfile: pressurePopulationProfile,
+            outcomeModels: Object.fromEntries(pressureOutcomeModelsByPlayerId),
             fairEnding: Boolean(matchSnapshot.fair_ending),
           });
           pressure = summarizePressureForTurn(pressureTimeline, turn.id, turn.player_id) ?? undefined;
@@ -1253,5 +1257,6 @@ export function useMatchRealtime({
     realtimeCommentaryRef,
     pressureProfilesByPlayerId,
     pressurePopulationProfile,
+    pressureOutcomeModelsByPlayerId,
   ]);
 }

@@ -47,12 +47,20 @@ function event(
   const beforeA = before.projections[0];
   const afterA = after.projections[0];
   return {
-    eventId: `pressure-v2:match-1:dart-${sequence}`, engineVersion: 'pressure-v2', matchId: 'match-1',
+    eventId: `behavioral-v1:match-1:dart-${sequence}`, engineVersion: 'behavioral-v1', matchId: 'match-1',
     sequence, legId: 'leg-1', legNumber: 1, turnId: 'turn-1', playerId: 'a',
     dartId: `dart-${sequence}`, dartIndex: sequence, segment: 'D20', scored: 40, turnScoreAfter: 40 * sequence,
     busted: options.busted ?? false, checkedOut: options.checkedOut ?? false,
     fairEndingBefore: null, fairEndingAfter: null,
-    leverage: { leg: 0.7, match: 0.6, pressureIndex: 0.65 },
+    consequence: {
+      leg: Math.abs(afterA.legWinProbability - beforeA.legWinProbability),
+      match: Math.abs(afterA.matchWinProbability - beforeA.matchWinProbability),
+    },
+    semanticStakes: {
+      directCheckoutOpportunity: false,
+      checkoutVisitOpportunity: false,
+      matchCheckoutOpportunity: false,
+    },
     checkout: {
       checkoutProbabilityBefore: 0.2, checkoutProbabilityAfter: 0.1,
       nextVisitCheckoutProbability: 0.4, bestAvailableLeaveValue: 0.6,
@@ -123,13 +131,13 @@ describe('analyzePressureTimeline', () => {
       legProbabilityBefore: 0.3,
       legProbabilityAfter: 0.7,
       changedMatchFavorite: true,
-      peakMatchLeverage: 0.6,
-      peakPressureIndex: 0.65,
       setupQuality: 0.92,
       setupGrade: 'good',
       nextVisitCheckoutProbability: 0.4,
       createdBogey: false,
     });
+    expect(summary?.peakLegConsequence).toBeCloseTo(0.25);
+    expect(summary?.peakMatchConsequence).toBeCloseTo(0.17);
     expect(summary?.biggestDartMatchWpa).toBeCloseTo(0.17);
   });
 });

@@ -23,7 +23,8 @@ export function buildCommentaryPrompt(
   const significantPressure = Boolean(
     payload.pressure
       && (Math.abs(payload.pressure.matchWpa) >= 0.06
-        || (payload.pressure.peakPressureIndex ?? 0) >= 0.65
+        || (payload.pressure.peakMatchConsequence ?? 0) >= 0.04
+        || (payload.pressure.peakLegConsequence ?? 0) >= 0.08
         || payload.pressure.createdBogey
         || payload.pressure.changedMatchFavorite
         || payload.pressure.checkedOut)
@@ -121,8 +122,8 @@ export function buildCommentaryPrompt(
     if (Math.abs(pressure.biggestDartMatchWpa) >= 0.03) {
       pressureHints.push(`Biggest single-dart match swing in the visit: ${formatPoints(pressure.biggestDartMatchWpa)}.`);
     }
-    if ((pressure.peakPressureIndex ?? 0) >= 0.5) {
-      pressureHints.push(`Peak pre-dart pressure index: ${Math.round((pressure.peakPressureIndex ?? 0) * 100)}/100.`);
+    if ((pressure.peakMatchConsequence ?? 0) >= 0.03) {
+      pressureHints.push(`Largest full-field match consequence: ${formatPoints(pressure.peakMatchConsequence ?? 0)}.`);
     }
     if (pressure.createdBogey) pressureHints.push('The visit created an unfinishable bogey leave.');
     else if (

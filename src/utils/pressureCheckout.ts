@@ -148,7 +148,7 @@ export function isBogeyLeave(scoreRemaining: number, finishRule: FinishRule) {
 
 const checkoutRouteMemo = new Map<string, boolean>();
 
-function hasCheckoutRoute(
+export function hasCheckoutRoute(
   scoreRemaining: number,
   dartsRemaining: number,
   finishRule: FinishRule

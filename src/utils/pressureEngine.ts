@@ -7,6 +7,18 @@ import {
 } from './pressureProfiles.ts';
 import type { FairEndingPhase } from './fairEnding.ts';
 import type { FinishRule } from './x01.ts';
+import {
+  createBehavioralOutcomeModel,
+  type PressureOutcomeModel,
+} from './pressureOutcomeModel.ts';
+import {
+  combineCurrentLegWithMatch,
+  combineOrderedFirstFinishPmfs,
+  createFirstFinishPmf,
+  type PressureFirstFinishPmf,
+  type PressureVisitKernel,
+} from './pressureRace.ts';
+import { createPressureVisitKernel, solvePressureVisit } from './pressureVisitKernel.ts';
 
 const PRIOR_DARTS = 12;
 
@@ -17,12 +29,15 @@ export type PressurePlayerState = {
   threeDartAverage: number;
   dartsThrown: number;
   historicalProfile?: PressurePlayerHistoryProfile;
+  outcomeModel?: PressureOutcomeModel;
 };
 
 export type PressureEngineInput = {
   players: PressurePlayerState[];
   playOrder: string[];
   currentPlayerId: string | null;
+  currentVisitStartScore?: number;
+  currentLegStarterId?: string;
   dartsRemainingInTurn: number;
   legsToWin: number;
   finishRule: FinishRule;
@@ -59,22 +74,13 @@ export type PressurePlayerProjection = PressurePlayerState & {
 export type PressureEngineProjection = {
   players: PressurePlayerProjection[];
   favoritePlayerId: string | null;
-  approximationMode: 'standard' | 'fair-ending-weighted';
+  approximationMode: 'standard' | 'truncated-tail' | 'no-finish-fallback' | 'large-field-bounded' | 'fair-ending-weighted';
 };
 
 export type ExpectedDartsSkill = {
   checkoutRate?: number;
   populationCheckoutRate?: number;
   bustRate?: number;
-};
-
-export type PressureDartLeverage = {
-  /** Pre-dart opportunity to swing the current leg, normalized to 0–1. */
-  leg: number;
-  /** Leg leverage weighted by how decisive this leg is for the match. */
-  match: number;
-  /** Broadcast-friendly pressure index including imminent opponent threat. */
-  pressureIndex: number;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -150,98 +156,131 @@ function normalizeWeights(weights: number[]) {
   return weights.map((value) => value / total);
 }
 
-/**
- * Estimates how consequential the next dart is before its outcome is known.
- * This is deliberately distinct from WPA: two darts thrown from the same
- * state have equal leverage even if one hits and the other misses.
- *
- * The first model is a transparent, normalized index rather than a claimed
- * probability-point range. Checkout proximity supplies urgency, probability
- * uncertainty supplies volatility, and the match score supplies importance.
- */
-export function calculateDartLeverage(
-  projections: PressurePlayerProjection[],
-  playerId: string,
-  legsToWin: number
-): PressureDartLeverage {
-  const player = projections.find((entry) => entry.id === playerId);
-  if (!player || projections.length === 0) {
-    return { leg: 0, match: 0, pressureIndex: 0 };
-  }
-
-  const readiness = (expectedDarts: number) => clamp(3 / Math.max(3, expectedDarts), 0, 1);
-  const playerReadiness = readiness(player.expectedDartsRemaining);
-  let opponentReadiness = 0;
-  let furthestMatchProgress = player.legsWon;
-  for (const projection of projections) {
-    furthestMatchProgress = Math.max(furthestMatchProgress, projection.legsWon);
-    if (projection.id !== playerId) {
-      opponentReadiness = Math.max(opponentReadiness, readiness(projection.expectedDartsRemaining));
-    }
-  }
-
-  const urgency = Math.max(playerReadiness, opponentReadiness * 0.9);
-  const uncertainty = 1 - Math.abs(player.legWinProbability * 2 - 1);
-  // Retain meaningful leverage at lopsided probabilities: a match dart remains
-  // consequential even when the favorite is already very likely to win.
-  const volatility = 0.6 + uncertainty * 0.4;
-  const leg = clamp(urgency * volatility, 0, 1);
-  const progress = legsToWin <= 1
-    ? 1
-    : clamp(furthestMatchProgress / (legsToWin - 1), 0, 1);
-  const matchImportance = 0.45 + progress * 0.55;
-  const match = clamp(leg * matchImportance, 0, 1);
-  const pressureIndex = clamp(
-    Math.max(match, leg * 0.7) * (0.85 + opponentReadiness * 0.15),
-    0,
-    1
-  );
-
-  return { leg, match, pressureIndex };
-}
-
-function liveLegProbabilities(
-  players: Array<PressurePlayerState & { expectedDarts: number }>,
-  playOrder: string[],
-  currentPlayerId: string | null,
-  dartsRemainingInTurn: number
-) {
-  if (players.length === 1) return [1];
-
-  const currentOrderIndex = Math.max(0, playOrder.indexOf(currentPlayerId ?? ''));
-  const rotatedOrder = [
-    ...playOrder.slice(currentOrderIndex),
-    ...playOrder.slice(0, currentOrderIndex),
-  ];
-  const currentDarts = clamp(dartsRemainingInTurn, 0, 3);
-
-  const finishTimes = players.map((player) => {
-    if (player.scoreRemaining <= 0) return 0;
-    const offset = Math.max(0, rotatedOrder.indexOf(player.id));
-    const firstVisitDarts = offset === 0 ? currentDarts : 3;
-    const waitBeforeFirstVisit = offset === 0 ? 0 : currentDarts + 3 * (offset - 1);
-    const dartsAfterFirstVisit = Math.max(0, player.expectedDarts - firstVisitDarts);
-    const interveningVisits = (dartsAfterFirstVisit / 3) * 3 * (players.length - 1);
-    return waitBeforeFirstVisit + player.expectedDarts + interveningVisits;
-  });
-
-  const bestTime = Math.min(...finishTimes);
-  const temperature = 13 + Math.max(0, players.length - 2) * 3;
-  const weights = finishTimes.map((time) => Math.exp(-(time - bestTime) / temperature));
-  return normalizeWeights(weights);
-}
-
-function futureLegProbabilities(
-  players: Array<PressurePlayerState & { adjustedAverage: number }>
-) {
-  return normalizeWeights(players.map((player) => Math.pow(player.adjustedAverage, 1.65)));
-}
-
 type PreparedPressurePlayer = PressurePlayerState & {
   adjustedAverage: number;
-  expectedDarts: number;
   skillModel: PressureSkillModel;
+  outcomeModel: PressureOutcomeModel;
 };
+
+const FALLBACK_OUTCOME_MODEL = createBehavioralOutcomeModel();
+const VISIT_KERNEL_CACHE = new WeakMap<PressureOutcomeModel, Map<FinishRule, PressureVisitKernel>>();
+const FINISH_PMF_CACHE = new WeakMap<
+  PressureOutcomeModel,
+  Map<string, PressureFirstFinishPmf>
+>();
+
+function getVisitKernel(model: PressureOutcomeModel, finishRule: FinishRule) {
+  let byRule = VISIT_KERNEL_CACHE.get(model);
+  if (!byRule) {
+    byRule = new Map();
+    VISIT_KERNEL_CACHE.set(model, byRule);
+  }
+  const cached = byRule.get(finishRule);
+  if (cached) return cached;
+  const kernel = createPressureVisitKernel(model, finishRule);
+  byRule.set(finishRule, kernel);
+  return kernel;
+}
+
+function rotateOrder(playOrder: string[], firstPlayerId: string | null | undefined) {
+  const firstIndex = Math.max(0, playOrder.indexOf(firstPlayerId ?? ''));
+  return [...playOrder.slice(firstIndex), ...playOrder.slice(0, firstIndex)];
+}
+
+function expectedDartsFromPmf(pmf: PressureFirstFinishPmf, firstVisitDarts = 3) {
+  let expected = 0;
+  for (let index = 0; index < pmf.probabilities.length; index += 1) {
+    expected += pmf.probabilities[index] * (firstVisitDarts + index * 3);
+  }
+  if (pmf.truncatedMass > 0) {
+    expected += pmf.truncatedMass * (firstVisitDarts + pmf.probabilities.length * 3);
+  }
+  return expected;
+}
+
+function createPlayerPmf(
+  player: PreparedPressurePlayer,
+  finishRule: FinishRule,
+  partial?: { visitStartScore: number; dartsLeft: number }
+) {
+  const kernel = getVisitKernel(player.outcomeModel, finishRule);
+  if (!partial) {
+    let byState = FINISH_PMF_CACHE.get(player.outcomeModel);
+    if (!byState) {
+      byState = new Map();
+      FINISH_PMF_CACHE.set(player.outcomeModel, byState);
+    }
+    const key = `${finishRule}:${player.scoreRemaining}`;
+    const cached = byState.get(key);
+    if (cached) return cached;
+    const pmf = createFirstFinishPmf({
+      startScore: player.scoreRemaining,
+      kernel,
+      maximumVisits: 40,
+    });
+    byState.set(key, pmf);
+    return pmf;
+  }
+  const firstVisit = partial
+    ? solvePressureVisit(player.outcomeModel, {
+        visitStartScore: partial.visitStartScore,
+        currentScore: player.scoreRemaining,
+        dartsLeft: clamp(Math.floor(partial.dartsLeft), 1, 3) as 1 | 2 | 3,
+        finishRule,
+      })
+    : undefined;
+  return createFirstFinishPmf({
+    startScore: player.scoreRemaining,
+    kernel,
+    firstVisit,
+    maximumVisits: 40,
+  });
+}
+
+function markovLegProbabilities(players: PreparedPressurePlayer[], input: PressureEngineInput) {
+  const orderedIds = rotateOrder(input.playOrder, input.currentPlayerId ?? input.currentLegStarterId);
+  const byId = new Map(players.map((player) => [player.id, player]));
+  const orderedPlayers = orderedIds.map((id) => byId.get(id)).filter(Boolean) as PreparedPressurePlayer[];
+  const pmfs = orderedPlayers.map((player, index) => createPlayerPmf(
+    player,
+    input.finishRule,
+    index === 0 && player.id === input.currentPlayerId
+      ? {
+          visitStartScore: input.currentVisitStartScore ?? player.scoreRemaining,
+          dartsLeft: input.dartsRemainingInTurn,
+        }
+      : undefined
+  ));
+  const race = combineOrderedFirstFinishPmfs(pmfs);
+  const probabilityById = new Map(
+    orderedPlayers.map((player, index) => [player.id, race.probabilities[index] ?? 0])
+  );
+  return {
+    probabilities: players.map((player) => probabilityById.get(player.id) ?? 0),
+    pmfById: new Map(orderedPlayers.map((player, index) => [player.id, pmfs[index]])),
+    approximationMode: race.approximationMode,
+  };
+}
+
+function futureLegProbabilitiesByStarter(
+  players: PreparedPressurePlayer[],
+  playOrder: string[],
+  finishRule: FinishRule
+) {
+  const byId = new Map(players.map((player) => [player.id, player]));
+  return playOrder.map((starterId) => {
+    const orderedPlayers = rotateOrder(playOrder, starterId)
+      .map((id) => byId.get(id))
+      .filter(Boolean) as PreparedPressurePlayer[];
+    const race = combineOrderedFirstFinishPmfs(
+      orderedPlayers.map((player) => createPlayerPmf(player, finishRule))
+    );
+    const probabilityById = new Map(
+      orderedPlayers.map((player, index) => [player.id, race.probabilities[index] ?? 0])
+    );
+    return players.map((player) => probabilityById.get(player.id) ?? 0);
+  });
+}
 
 function tiebreakStrength(player: PreparedPressurePlayer) {
   return Math.pow(clamp(player.adjustedAverage, 20, 110), 1.35);
@@ -255,13 +294,13 @@ function checkoutChanceWithinVisit(
   const darts = clamp(Math.floor(dartsRemaining), 0, 3);
   if (player.scoreRemaining <= 0) return 1;
   if (darts === 0) return 0;
-  const routes = computeCheckoutSuggestions(player.scoreRemaining, darts, finishRule);
-  if (routes.length === 0) return 0;
-
-  const shortestRoute = routes[0]?.length ?? darts;
-  const routeFactor = shortestRoute === 1 ? 1.35 : shortestRoute === 2 ? 1 : 0.72;
-  const scoringFactor = clamp(player.adjustedAverage / 55, 0.55, 1.65);
-  return clamp(player.skillModel.checkoutRate * routeFactor * scoringFactor, 0.015, 0.72);
+  const distribution = solvePressureVisit(player.outcomeModel, {
+    visitStartScore: player.scoreRemaining,
+    currentScore: player.scoreRemaining,
+    dartsLeft: darts as 1 | 2 | 3,
+    finishRule,
+  });
+  return distribution.get(0) ?? 0;
 }
 
 /**
@@ -287,16 +326,50 @@ function fairEndingLegProbabilities(
     const checkedOut = new Set(fairEnding.checkedOutPlayerIds);
     const pending = new Set(fairEnding.pendingPlayerIds);
     const joinChances = new Map<string, number>();
-    let nobodyElseChecksOut = 1;
 
     for (const player of players) {
       if (!pending.has(player.id)) continue;
       const darts = player.id === input.currentPlayerId ? input.dartsRemainingInTurn : 3;
       const chance = checkoutChanceWithinVisit(player, darts, input.finishRule);
       joinChances.set(player.id, chance);
-      nobodyElseChecksOut *= 1 - chance;
     }
 
+    const pendingPlayers = players.filter((player) => pending.has(player.id));
+    if (pendingPlayers.length <= 10) {
+      const checkedOutPlayers = players.filter((player) => checkedOut.has(player.id));
+      const subsetCount = 2 ** pendingPlayers.length;
+      for (let mask = 0; mask < subsetCount; mask += 1) {
+        let subsetProbability = 1;
+        const participants = checkedOutPlayers.slice();
+        for (let index = 0; index < pendingPlayers.length; index += 1) {
+          const player = pendingPlayers[index];
+          const joins = (mask & (1 << index)) !== 0;
+          const chance = joinChances.get(player.id) ?? 0;
+          subsetProbability *= joins ? chance : 1 - chance;
+          if (joins) participants.push(player);
+        }
+        if (!(subsetProbability > 0) || participants.length === 0) continue;
+        if (participants.length === 1) {
+          result[playerIndex.get(participants[0].id)!] += subsetProbability;
+          continue;
+        }
+        const strengthTotal = participants.reduce(
+          (sum, player) => sum + tiebreakStrength(player),
+          0
+        );
+        for (const participant of participants) {
+          result[playerIndex.get(participant.id)!] += subsetProbability
+            * tiebreakStrength(participant)
+            / strengthTotal;
+        }
+      }
+      return normalizeWeights(result);
+    }
+
+    // Large-field bounded path: preserve each player's identity and join
+    // probability without enumerating an exponential number of subsets.
+    let nobodyElseChecksOut = 1;
+    for (const chance of joinChances.values()) nobodyElseChecksOut *= 1 - chance;
     const conditionalWeights = players.map((player) => {
       if (checkedOut.has(player.id)) return tiebreakStrength(player);
       const joinChance = joinChances.get(player.id) ?? 0;
@@ -331,58 +404,7 @@ function fairEndingLegProbabilities(
     ));
   }
 
-  return liveLegProbabilities(
-    players,
-    input.playOrder,
-    input.currentPlayerId,
-    input.dartsRemainingInTurn
-  );
-}
-
-function createMatchProbabilitySolver(
-  legsToWin: number,
-  nextLegProbabilities: number[]
-) {
-  // Exact dynamic programming is small for normal 2–4 player matches. For a
-  // very large field/race, use a bounded approximation so a live dart can
-  // never trigger an exponential amount of work on the spectator screen.
-  if (Math.pow(legsToWin, nextLegProbabilities.length) > 5_000) {
-    return (legsWon: number[]) =>
-      normalizeWeights(
-        legsWon.map((wins, index) => {
-          const legsNeeded = Math.max(1, legsToWin - wins);
-          return Math.pow(nextLegProbabilities[index], legsNeeded);
-        })
-      );
-  }
-
-  const memo = new Map<string, number[]>();
-
-  function solve(state: number[]): number[] {
-    const existingWinner = state.findIndex((wins) => wins >= legsToWin);
-    if (existingWinner >= 0) {
-      return state.map((_, index) => (index === existingWinner ? 1 : 0));
-    }
-
-    const key = state.join(':');
-    const cached = memo.get(key);
-    if (cached) return cached;
-
-    const result = state.map(() => 0);
-    for (let legWinner = 0; legWinner < state.length; legWinner += 1) {
-      const nextState = state.slice();
-      nextState[legWinner] += 1;
-      const outcome = solve(nextState);
-      for (let playerIndex = 0; playerIndex < result.length; playerIndex += 1) {
-        result[playerIndex] += nextLegProbabilities[legWinner] * outcome[playerIndex];
-      }
-    }
-
-    memo.set(key, result);
-    return result;
-  }
-
-  return solve;
+  return markovLegProbabilities(players, input).probabilities;
 }
 
 export function calculatePressureProjection(input: PressureEngineInput): PressureEngineProjection {
@@ -404,18 +426,14 @@ export function calculatePressureProjection(input: PressureEngineInput): Pressur
     return {
       ...player,
       adjustedAverage: average,
-      expectedDarts: estimateExpectedDartsRemaining(
-        player.scoreRemaining,
-        average,
-        input.finishRule,
-        skillModel
-      ),
       skillModel,
+      outcomeModel: player.outcomeModel ?? FALLBACK_OUTCOME_MODEL,
     };
   });
 
   let legProbabilities: number[];
   let matchProbabilities: number[];
+  let projectionApproximation: PressureEngineProjection['approximationMode'] = 'standard';
 
   const winnerIndex = input.matchWinnerId
     ? prepared.findIndex((player) => player.id === input.matchWinnerId)
@@ -424,26 +442,39 @@ export function calculatePressureProjection(input: PressureEngineInput): Pressur
     legProbabilities = prepared.map((_, index) => (index === winnerIndex ? 1 : 0));
     matchProbabilities = legProbabilities;
   } else {
+    const liveLeg = input.fairEnding && input.fairEnding.phase !== 'normal'
+      ? null
+      : markovLegProbabilities(prepared, input);
     legProbabilities = input.fairEnding && input.fairEnding.phase !== 'normal'
       ? fairEndingLegProbabilities(prepared, input, input.fairEnding)
-      : liveLegProbabilities(
-          prepared,
-          input.playOrder,
-          input.currentPlayerId,
-          input.dartsRemainingInTurn
-        );
-    const nextLegProbabilities = futureLegProbabilities(prepared);
+      : liveLeg!.probabilities;
+    if (input.fairEnding && input.fairEnding.phase !== 'normal') {
+      projectionApproximation = 'fair-ending-weighted';
+    } else if (
+      liveLeg?.approximationMode === 'truncated-tail'
+      || liveLeg?.approximationMode === 'no-finish-fallback'
+    ) {
+      projectionApproximation = liveLeg.approximationMode;
+    }
     const legsWon = prepared.map((player) => player.legsWon);
-    const solveMatchRace = createMatchProbabilitySolver(input.legsToWin, nextLegProbabilities);
-
-    matchProbabilities = prepared.map(() => 0);
-    for (let currentLegWinner = 0; currentLegWinner < prepared.length; currentLegWinner += 1) {
-      const stateAfterLeg = legsWon.slice();
-      stateAfterLeg[currentLegWinner] += 1;
-      const outcome = solveMatchRace(stateAfterLeg);
-      for (let playerIndex = 0; playerIndex < prepared.length; playerIndex += 1) {
-        matchProbabilities[playerIndex] += legProbabilities[currentLegWinner] * outcome[playerIndex];
-      }
+    const currentStarterIndex = Math.max(
+      0,
+      input.playOrder.indexOf(input.currentLegStarterId ?? input.playOrder[0])
+    );
+    const matchRace = combineCurrentLegWithMatch({
+      currentLegProbabilities: legProbabilities,
+      legsWon,
+      legsToWin: input.legsToWin,
+      nextStarterIndex: (currentStarterIndex + 1) % prepared.length,
+      futureLegProbabilitiesByStarter: futureLegProbabilitiesByStarter(
+        prepared,
+        input.playOrder,
+        input.finishRule
+      ),
+    });
+    matchProbabilities = matchRace.probabilities;
+    if (matchRace.approximationMode !== 'exact') {
+      projectionApproximation = 'large-field-bounded';
     }
   }
 
@@ -454,7 +485,19 @@ export function calculatePressureProjection(input: PressureEngineInput): Pressur
     threeDartAverage: player.threeDartAverage,
     dartsThrown: player.dartsThrown,
     adjustedThreeDartAverage: player.adjustedAverage,
-    expectedDartsRemaining: player.expectedDarts,
+    expectedDartsRemaining: expectedDartsFromPmf(
+      createPlayerPmf(
+        player,
+        input.finishRule,
+        player.id === input.currentPlayerId
+          ? {
+              visitStartScore: input.currentVisitStartScore ?? player.scoreRemaining,
+              dartsLeft: input.dartsRemainingInTurn,
+            }
+          : undefined
+      ),
+      player.id === input.currentPlayerId ? input.dartsRemainingInTurn : 3
+    ),
     legWinProbability: legProbabilities[index],
     matchWinProbability: matchProbabilities[index],
     baselineThreeDartAverage: player.skillModel.threeDartAverage,
@@ -475,8 +518,6 @@ export function calculatePressureProjection(input: PressureEngineInput): Pressur
   return {
     players: projections,
     favoritePlayerId: projections[favoriteIndex]?.id ?? null,
-    approximationMode: input.fairEnding && input.fairEnding.phase !== 'normal'
-      ? 'fair-ending-weighted'
-      : 'standard',
+    approximationMode: projectionApproximation,
   };
 }

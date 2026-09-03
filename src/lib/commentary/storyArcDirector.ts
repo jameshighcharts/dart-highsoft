@@ -1,4 +1,5 @@
 import type { PressureDartEvent, PressureReplayState } from '@/utils/pressureReplay';
+import { hasCheckoutRoute } from '@/utils/pressureCheckout';
 import type { FinishRule } from '@/utils/x01';
 
 export type CommentaryStoryArcKind =
@@ -101,7 +102,14 @@ export function rankCommentaryStoryArcs(input: {
     if (isOneDartDoubleLeave(scoreBefore, input.finishRule) && !event.checkedOut) {
       lastDoubleMiss.set(event.playerId, { sequence: event.sequence, score: scoreBefore });
     }
-    if (event.checkout.checkoutProbabilityBefore > 0 && event.leverage.pressureIndex >= 0.65) {
+    const opponentThreat = Object.entries(event.before.scores).some(
+      ([playerId, score]) => playerId !== event.playerId
+        && hasCheckoutRoute(score, 3, input.finishRule)
+    );
+    if (
+      event.checkout.checkoutProbabilityBefore > 0
+      && (event.semanticStakes?.matchCheckoutOpportunity || opponentThreat)
+    ) {
       const history = highPressure.get(event.playerId) ?? { chances: 0, conversions: 0 };
       history.chances += 1;
       if (event.checkedOut) history.conversions += 1;

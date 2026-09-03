@@ -45,8 +45,10 @@ export interface CommentaryPressureContext {
   legProbabilityAfter: number;
   legWpa: number;
   biggestDartMatchWpa: number;
-  peakMatchLeverage?: number;
-  peakPressureIndex?: number;
+  peakLegConsequence?: number;
+  peakMatchConsequence?: number;
+  directCheckoutOpportunity?: boolean;
+  matchCheckoutOpportunity?: boolean;
   changedMatchFavorite: boolean;
   checkedOut: boolean;
   busted: boolean;

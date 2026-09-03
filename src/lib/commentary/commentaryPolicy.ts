@@ -76,7 +76,6 @@ const SIGNAL_ORDER: readonly PressureEventSignal[] = [
   'tiebreak_lead_change',
   'favorite_change',
   'large_swing',
-  'high_pressure',
   'great_setup',
   'bogey_created',
   'fair_ending_checkout',
@@ -218,7 +217,7 @@ export class CommentaryPolicy {
       || signals.has('leg_win')
       || signals.has('one_eighty')
       || signals.has('nikita_special')
-      || signals.has('bust')
+      || (signals.has('bust') && event.priority === 'marquee')
       || (event.checkedOut && (event.scoreBefore ?? 0) >= this.majorCheckoutMinimum);
   }
 
@@ -229,7 +228,6 @@ export class CommentaryPolicy {
       || signal === 'leg_win'
       || signal === 'checkout'
       || signal === 'one_eighty'
-      || signal === 'bust'
       || signal === 'bogey_created'
     ) {
       return `${signal}:${event.eventId}`;

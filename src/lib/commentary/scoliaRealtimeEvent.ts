@@ -14,6 +14,11 @@ import { reconstructPressureTimeline } from '../../utils/pressureReplay.ts';
 import type { FinishRule } from '../../utils/x01.ts';
 import { isNikitaSpecial } from '../../utils/nikitaSpecial.ts';
 import {
+  createBehavioralOutcomeModel,
+  normalizePressureOutcomeObservation,
+  type PressureOutcomeObservationRow,
+} from '../../utils/pressureOutcomeModel.ts';
+import {
   buildCommentaryNarrativeMemory,
   type CommentaryNarrativeMemory,
 } from './commentaryNarrative.ts';
@@ -76,10 +81,11 @@ export function classifyScoliaRealtimeDart(
   else if (facts.pressure) priority = facts.pressure.priority;
   else if (
     facts.checkedOut
-    || facts.busted
     || (facts.dartIndex === 3 && facts.turnScore === 180)
   ) {
     priority = 'marquee';
+  } else if (facts.busted) {
+    priority = 'notable';
   } else if (facts.dartIndex === 3) {
     priority = 'ordinary';
   }
@@ -274,7 +280,7 @@ async function loadPressurePacket(
     pressureCache?.delete(matchId);
   }
 
-  const [playersResult, legsResult, playerProfilesResult, populationResult] = await Promise.all([
+  const [playersResult, legsResult, populationResult, populationOutcomesResult] = await Promise.all([
     supabase
       .from('match_players')
       .select('player_id, play_order')
@@ -286,22 +292,37 @@ async function loadPressurePacket(
       .eq('match_id', matchId)
       .order('leg_number'),
     supabase
-      .from('player_pressure_profiles')
-      .select('*')
-      .eq('finish_rule', config.finishRule),
-    supabase
       .from('pressure_population_profiles')
       .select('*')
       .eq('finish_rule', config.finishRule)
       .maybeSingle(),
+    supabase
+      .from('pressure_population_outcomes')
+      .select('*')
+      .eq('finish_rule', config.finishRule),
   ]);
   const error = playersResult.error
     ?? legsResult.error
-    ?? playerProfilesResult.error
-    ?? populationResult.error;
+    ?? populationResult.error
+    ?? populationOutcomesResult.error;
   if (error) throw new Error(error.message);
 
   const playerIds = (playersResult.data ?? []).map((row) => row.player_id as string);
+  const [playerProfilesResult, playerOutcomesResult] = await Promise.all([
+    supabase
+      .from('player_pressure_profiles')
+      .select('*')
+      .eq('finish_rule', config.finishRule)
+      .in('player_id', playerIds),
+    supabase
+      .from('player_pressure_outcomes')
+      .select('*')
+      .eq('finish_rule', config.finishRule)
+      .in('player_id', playerIds),
+  ]);
+  if (playerProfilesResult.error) throw new Error(playerProfilesResult.error.message);
+  if (playerOutcomesResult.error) throw new Error(playerOutcomesResult.error.message);
+
   const playerIdSet = new Set(playerIds);
   const allLegs = (legsResult.data ?? []) as Array<{
     id: string;
@@ -344,6 +365,23 @@ async function loadPressurePacket(
         ...normalizeProfileBase(populationResult.data as Record<string, unknown>),
       } satisfies PressurePopulationProfile
     : undefined;
+  const populationOutcomes = (
+    (populationOutcomesResult.data ?? []) as PressureOutcomeObservationRow[]
+  ).map(normalizePressureOutcomeObservation);
+  const personalOutcomes = new Map<string, ReturnType<typeof normalizePressureOutcomeObservation>[]>();
+  for (const row of (playerOutcomesResult.data ?? []) as PressureOutcomeObservationRow[]) {
+    if (!row.player_id || !playerIdSet.has(row.player_id)) continue;
+    const existing = personalOutcomes.get(row.player_id) ?? [];
+    existing.push(normalizePressureOutcomeObservation(row));
+    personalOutcomes.set(row.player_id, existing);
+  }
+  const outcomeModels = Object.fromEntries(playerIds.map((playerId) => [
+    playerId,
+    createBehavioralOutcomeModel({
+      personal: personalOutcomes.get(playerId),
+      population: populationOutcomes,
+    }),
+  ]));
 
   const input: Parameters<typeof reconstructPressureTimeline>[0] = {
     playerIds,
@@ -355,6 +393,7 @@ async function loadPressurePacket(
     initialLegsWon: {},
     playerProfiles,
     populationProfile,
+    outcomeModels,
     fairEnding: config.fairEnding,
   };
   const timeline = reconstructPressureTimeline(input);

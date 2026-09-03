@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  calculateDartLeverage,
   calculatePressureProjection,
   estimateExpectedDartsRemaining,
 } from './pressureEngine';
@@ -131,7 +130,7 @@ describe('pressureEngine', () => {
     expect(doubleOut).toBeGreaterThan(straightOut);
   });
 
-  it('rates a match-point checkout state as more consequential than the opening visit', () => {
+  it('makes throw advantage state-sensitive instead of scale-free', () => {
     const opening = calculatePressureProjection({
       players: [player('a'), player('b')],
       playOrder: ['a', 'b'],
@@ -140,23 +139,20 @@ describe('pressureEngine', () => {
       legsToWin: 3,
       finishRule: 'double_out',
     });
-    const matchPoint = calculatePressureProjection({
-      players: [player('a', 40, 2, 55, 30), player('b', 32, 1, 55, 30)],
+    const atTheDouble = calculatePressureProjection({
+      players: [player('a', 40, 2, 55, 30), player('b', 40, 1, 55, 30)],
       playOrder: ['a', 'b'],
       currentPlayerId: 'a',
-      dartsRemainingInTurn: 1,
+      dartsRemainingInTurn: 3,
       legsToWin: 3,
       finishRule: 'double_out',
     });
 
-    const openingLeverage = calculateDartLeverage(opening.players, 'a', 3);
-    const matchPointLeverage = calculateDartLeverage(matchPoint.players, 'a', 3);
-
-    expect(matchPointLeverage.match).toBeGreaterThan(openingLeverage.match);
-    expect(matchPointLeverage.pressureIndex).toBeGreaterThan(0.5);
+    expect(atTheDouble.players[0].legWinProbability)
+      .toBeGreaterThan(opening.players[0].legWinProbability + 0.05);
   });
 
-  it('keeps leverage normalized for large multiplayer fields', () => {
+  it('keeps Markov probabilities normalized for large multiplayer fields', () => {
     const players = Array.from({ length: 20 }, (_, index) =>
       player(String(index), index === 19 ? 40 : 501 - index * 10, 0, 45 + index, 24)
     );
@@ -169,13 +165,10 @@ describe('pressureEngine', () => {
       finishRule: 'double_out',
     });
 
-    const leverage = calculateDartLeverage(projection.players, '0', 5);
-    expect(leverage.leg).toBeGreaterThanOrEqual(0);
-    expect(leverage.leg).toBeLessThanOrEqual(1);
-    expect(leverage.match).toBeGreaterThanOrEqual(0);
-    expect(leverage.match).toBeLessThanOrEqual(1);
-    expect(leverage.pressureIndex).toBeGreaterThanOrEqual(0);
-    expect(leverage.pressureIndex).toBeLessThanOrEqual(1);
+    expect(projection.players.reduce((sum, entry) => sum + entry.legWinProbability, 0))
+      .toBeCloseTo(1);
+    expect(projection.players.reduce((sum, entry) => sum + entry.matchWinProbability, 0))
+      .toBeCloseTo(1);
   });
 
   it('uses shrunk personal history as the baseline before live form exists', () => {
@@ -200,7 +193,7 @@ describe('pressureEngine', () => {
     expect(result.players[0].profileSource).toBe('personal');
     expect(result.players[0].historicalDarts).toBe(2_700);
     expect(result.players[0].adjustedThreeDartAverage).toBeGreaterThan(68);
-    expect(result.players[0].legWinProbability).toBeGreaterThan(result.players[1].legWinProbability);
+    expect(result.players[0].baselineThreeDartAverage).toBeGreaterThan(68);
   });
 
   it('keeps fair-ending checkout-waiting probabilities provisional and normalized', () => {

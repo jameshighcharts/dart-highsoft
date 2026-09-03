@@ -1,6 +1,6 @@
-import type { PressureDartLeverage } from '@/utils/pressureEngine';
 import type { PressureCheckoutAssessment } from '@/utils/pressureCheckout';
 import type { PressureDartEvent, PressureReplayState } from '@/utils/pressureReplay';
+import { isMaterialPressureConsequence } from '@/utils/pressurePolicy';
 
 export type PressureEventPriority = 'silent' | 'ordinary' | 'notable' | 'marquee' | 'terminal';
 
@@ -19,7 +19,6 @@ export type PressureEventSignal =
   | 'bust'
   | 'favorite_change'
   | 'large_swing'
-  | 'high_pressure'
   | 'great_setup'
   | 'bogey_created';
 
@@ -59,7 +58,8 @@ export type PressureDartPacket = {
   matchProbabilityAfter: number;
   legWpa: number;
   matchWpa: number;
-  leverage: PressureDartLeverage;
+  consequence: PressureDartEvent['consequence'];
+  semanticStakes: PressureDartEvent['semanticStakes'];
   checkout: PressureCheckoutAssessment;
   signals: PressureEventSignal[];
   priority: PressureEventPriority;
@@ -126,6 +126,7 @@ export function createPressureDartPacket(event: PressureDartEvent): PressureDart
   const matchProbabilityBefore = probability(event.before, event.playerId, 'match');
   const legWpa = event.legWinProbabilityAdded[event.playerId] ?? 0;
   const matchWpa = event.matchWinProbabilityAdded[event.playerId] ?? 0;
+  const consequence = event.consequence ?? { leg: Math.abs(legWpa), match: Math.abs(matchWpa) };
   const matchWinnerId = lockedMatchWinnerId(event);
   const matchWin = matchWinnerId !== null;
   const fairBefore = event.fairEndingBefore;
@@ -133,6 +134,7 @@ export function createPressureDartPacket(event: PressureDartEvent): PressureDart
   const fairLegResolved = fairAfter?.phase === 'resolved' && fairBefore?.phase !== 'resolved';
   const favoriteChanged = favoriteId(event.before) !== favoriteId(event.after);
   const signals: PressureEventSignal[] = [];
+  const playerCount = event.before.projections.length;
 
   if (matchWin) signals.push('match_win');
   if (fairLegResolved || (!fairAfter && event.checkedOut)) signals.push('leg_win');
@@ -161,8 +163,7 @@ export function createPressureDartPacket(event: PressureDartEvent): PressureDart
   if (event.dartIndex === 3 && event.turnScoreAfter === 180) signals.push('one_eighty');
   if (event.busted) signals.push('bust');
   if (favoriteChanged) signals.push('favorite_change');
-  if (Math.abs(matchWpa) >= 0.08) signals.push('large_swing');
-  if (event.leverage.pressureIndex >= 0.65) signals.push('high_pressure');
+  if (isMaterialPressureConsequence(consequence, playerCount)) signals.push('large_swing');
   if (event.checkout.createdBogey) signals.push('bogey_created');
   if (
     event.dartIndex === 3
@@ -177,15 +178,21 @@ export function createPressureDartPacket(event: PressureDartEvent): PressureDart
   if (matchWin) priority = 'terminal';
   else if (
     event.checkedOut
-    || event.busted
     || fairLegResolved
     || signals.includes('one_eighty')
     || signals.includes('tiebreak_tied')
+    || (
+      event.busted
+      && (
+        event.semanticStakes?.directCheckoutOpportunity
+        || event.semanticStakes?.matchCheckoutOpportunity
+      )
+    )
   ) priority = 'marquee';
   else if (
-    favoriteChanged
+    event.busted
+    || favoriteChanged
     || signals.includes('large_swing')
-    || signals.includes('high_pressure')
     || signals.includes('great_setup')
     || signals.includes('bogey_created')
   ) {
@@ -230,7 +237,12 @@ export function createPressureDartPacket(event: PressureDartEvent): PressureDart
     matchProbabilityAfter: matchProbabilityBefore + matchWpa,
     legWpa,
     matchWpa,
-    leverage: event.leverage,
+    consequence,
+    semanticStakes: event.semanticStakes ?? {
+      directCheckoutOpportunity: false,
+      checkoutVisitOpportunity: false,
+      matchCheckoutOpportunity: false,
+    },
     checkout: event.checkout,
     signals,
     priority,

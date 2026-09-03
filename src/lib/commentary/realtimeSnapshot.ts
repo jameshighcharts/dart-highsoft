@@ -16,6 +16,11 @@ import {
 } from '../../utils/pressureProfiles.ts';
 import { reconstructPressureTimeline } from '../../utils/pressureReplay.ts';
 import type { TurnWithThrows } from '../match/types.ts';
+import {
+  createBehavioralOutcomeModel,
+  normalizePressureOutcomeObservation,
+  type PressureOutcomeObservationRow,
+} from '../../utils/pressureOutcomeModel.ts';
 
 type SnapshotTurn = {
   id: string;
@@ -63,7 +68,7 @@ export async function loadRealtimeCommentarySnapshot(
   supabase: SupabaseClient,
   match: MatchRow
 ): Promise<RealtimeCommentarySnapshot> {
-  const [playersResult, legsResult, profilesResult, populationResult] = await Promise.all([
+  const [playersResult, legsResult, populationResult, populationOutcomesResult] = await Promise.all([
     supabase
       .from('match_players')
       .select('player_id, play_order, players:player_id(display_name)')
@@ -75,16 +80,19 @@ export async function loadRealtimeCommentarySnapshot(
       .eq('match_id', match.id)
       .order('leg_number'),
     supabase
-      .from('player_pressure_profiles')
-      .select('*')
-      .eq('finish_rule', match.finish),
-    supabase
       .from('pressure_population_profiles')
       .select('*')
       .eq('finish_rule', match.finish)
       .maybeSingle(),
+    supabase
+      .from('pressure_population_outcomes')
+      .select('*')
+      .eq('finish_rule', match.finish),
   ]);
-  const error = playersResult.error ?? legsResult.error ?? profilesResult.error ?? populationResult.error;
+  const error = playersResult.error
+    ?? legsResult.error
+    ?? populationResult.error
+    ?? populationOutcomesResult.error;
   if (error) throw new Error(error.message);
 
   const playerRows = (playersResult.data ?? []) as unknown as Array<{
@@ -92,7 +100,23 @@ export async function loadRealtimeCommentarySnapshot(
     play_order: number;
     players: { display_name: string } | null;
   }>;
-  const playerIdSet = new Set(playerRows.map((row) => row.player_id));
+  const playerIds = playerRows.map((row) => row.player_id);
+  const [profilesResult, playerOutcomesResult] = await Promise.all([
+    supabase
+      .from('player_pressure_profiles')
+      .select('*')
+      .eq('finish_rule', match.finish)
+      .in('player_id', playerIds),
+    supabase
+      .from('player_pressure_outcomes')
+      .select('*')
+      .eq('finish_rule', match.finish)
+      .in('player_id', playerIds),
+  ]);
+  if (profilesResult.error) throw new Error(profilesResult.error.message);
+  if (playerOutcomesResult.error) throw new Error(playerOutcomesResult.error.message);
+
+  const playerIdSet = new Set(playerIds);
   const profiles = new Map(
     ((profilesResult.data ?? []) as PressurePlayerProfileRow[])
       .filter((row) => playerIdSet.has(row.player_id))
@@ -104,6 +128,23 @@ export async function loadRealtimeCommentarySnapshot(
   const populationProfile = populationResult.data
     ? normalizePopulationPressureProfile(populationResult.data as PressurePopulationProfileRow)
     : undefined;
+  const populationOutcomes = (
+    (populationOutcomesResult.data ?? []) as PressureOutcomeObservationRow[]
+  ).map(normalizePressureOutcomeObservation);
+  const personalOutcomes = new Map<string, ReturnType<typeof normalizePressureOutcomeObservation>[]>();
+  for (const row of (playerOutcomesResult.data ?? []) as PressureOutcomeObservationRow[]) {
+    if (!row.player_id || !playerIdSet.has(row.player_id)) continue;
+    const existing = personalOutcomes.get(row.player_id) ?? [];
+    existing.push(normalizePressureOutcomeObservation(row));
+    personalOutcomes.set(row.player_id, existing);
+  }
+  const outcomeModels = Object.fromEntries(playerRows.map((row) => [
+    row.player_id,
+    createBehavioralOutcomeModel({
+      personal: personalOutcomes.get(row.player_id),
+      population: populationOutcomes,
+    }),
+  ]));
   const legs = (legsResult.data ?? []) as Array<{
     id: string;
     leg_number: number;
@@ -198,6 +239,7 @@ export async function loadRealtimeCommentarySnapshot(
         initialLegsWon: {},
         playerProfiles: Object.fromEntries(profiles),
         populationProfile,
+        outcomeModels,
         fairEnding: match.fair_ending,
       })
     : [];

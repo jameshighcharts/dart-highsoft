@@ -222,10 +222,10 @@ export class BroadcastDirector {
 export function broadcastDirectionInstruction(direction: BroadcastDirection | null | undefined) {
   if (!direction?.activeStoryArc) return '';
   if (direction.transition === 'payoff_due' || direction.transition === 'closure_due') {
-    return `Story: resolve the active ${direction.activeStoryArc.kind} arc now.`;
+    return 'Story: resolve the named active story in the latest match brief now.';
   }
   if (!direction.shouldPromote) {
-    return 'Story: keep the active arc in memory for this call.';
+    return 'Story: keep the named active story in memory for this call.';
   }
-  return `Story: connect this moment to the active ${direction.activeStoryArc.kind} arc.`;
+  return 'Story: connect this moment to the named active story in the latest match brief.';
 }

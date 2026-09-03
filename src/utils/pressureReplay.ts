@@ -2,12 +2,11 @@ import type { LegRecord, ThrowRecord, TurnWithThrows } from '../lib/match/types.
 import { parseSegmentLabel } from './legScoreCalculator.ts';
 import {
   evaluateDartSetup,
+  hasCheckoutRoute,
   type PressureCheckoutAssessment,
 } from './pressureCheckout.ts';
 import {
-  calculateDartLeverage,
   calculatePressureProjection,
-  type PressureDartLeverage,
   type PressureFairEndingProjectionInput,
   type PressurePlayerProjection,
 } from './pressureEngine.ts';
@@ -22,7 +21,15 @@ import type {
   PressurePlayerHistoryProfile,
   PressurePopulationProfile,
 } from './pressureProfiles.ts';
+import {
+  PRESSURE_OUTCOME_MODEL_VERSION,
+  type PressureOutcomeModel,
+} from './pressureOutcomeModel.ts';
 import { applyThrow, type FinishRule } from './x01.ts';
+import {
+  calculateProbabilityVectorConsequence,
+  type PressureConsequence,
+} from './pressureSignificance.ts';
 
 type ReplayLeg = Pick<LegRecord, 'id' | 'match_id' | 'leg_number' | 'starting_player_id' | 'winner_player_id'>;
 
@@ -36,6 +43,7 @@ export type PressureReplayInput = {
   initialLegsWon?: Record<string, number>;
   playerProfiles?: Record<string, PressurePlayerHistoryProfile>;
   populationProfile?: PressurePopulationProfile;
+  outcomeModels?: Record<string, PressureOutcomeModel>;
   fairEnding?: boolean;
 };
 
@@ -61,7 +69,7 @@ export type PressureReplayState = {
 
 export type PressureDartEvent = {
   eventId: string;
-  engineVersion: 'pressure-v2';
+  engineVersion: typeof PRESSURE_OUTCOME_MODEL_VERSION;
   matchId: string;
   sequence: number;
   legId: string;
@@ -75,7 +83,12 @@ export type PressureDartEvent = {
   turnScoreAfter: number;
   busted: boolean;
   checkedOut: boolean;
-  leverage: PressureDartLeverage;
+  semanticStakes: {
+    directCheckoutOpportunity: boolean;
+    checkoutVisitOpportunity: boolean;
+    matchCheckoutOpportunity: boolean;
+  };
+  consequence: PressureConsequence;
   checkout: PressureCheckoutAssessment;
   fairEndingBefore: PressureFairEndingReplayState | null;
   fairEndingAfter: PressureFairEndingReplayState | null;
@@ -141,6 +154,14 @@ function flattenDarts(input: PressureReplayInput): FlatDart[] {
   return events;
 }
 
+function matchesCachedDart(flat: FlatDart | undefined, cached: PressureDartEvent) {
+  return flat?.dart.id === cached.dartId
+    && flat.turn.id === cached.turnId
+    && flat.dart.dart_index === cached.dartIndex
+    && flat.dart.segment === cached.segment
+    && flat.dart.scored === cached.scored;
+}
+
 /**
  * Reconstructs the full pressure timeline in a single chronological pass.
  * Score and form accumulators are mutated internally, while every returned
@@ -195,7 +216,8 @@ export function reconstructPressureTimeline(
     leg: ReplayLeg,
     currentPlayerId: string | null,
     dartsRemainingInTurn: number,
-    fairEnding: PressureFairEndingProjectionInput | undefined
+    fairEnding: PressureFairEndingProjectionInput | undefined,
+    currentVisitStartScore?: number
   ): PressureReplayState {
     const playOrder = rotatePlayerOrder(input.playerIds, leg.starting_player_id);
     const projections = calculatePressureProjection({
@@ -208,9 +230,12 @@ export function reconstructPressureTimeline(
           : 0,
         dartsThrown: dartsThrown[playerId],
         historicalProfile: input.playerProfiles?.[playerId],
+        outcomeModel: input.outcomeModels?.[playerId],
       })),
       playOrder,
       currentPlayerId,
+      currentVisitStartScore,
+      currentLegStarterId: leg.starting_player_id,
       dartsRemainingInTurn,
       legsToWin: input.legsToWin,
       finishRule: input.finishRule,
@@ -234,7 +259,7 @@ export function reconstructPressureTimeline(
   }
 
   const reusablePrefix = (options.cachedPrefix ?? []).every(
-    (cached, index) => darts[index]?.dart.id === cached.dartId
+    (cached, index) => matchesCachedDart(darts[index], cached)
   ) ? (options.cachedPrefix ?? []) : [];
   if (reusablePrefix.length === darts.length) return reusablePrefix;
 
@@ -286,7 +311,8 @@ export function reconstructPressureTimeline(
       darts[0].leg,
       darts[0].turn.player_id,
       Math.max(1, 4 - darts[0].dart.dart_index),
-      currentFairEnding
+      currentFairEnding,
+      scores[darts[0].turn.player_id]
     );
   }
 
@@ -302,12 +328,6 @@ export function reconstructPressureTimeline(
     }
 
     const fairEndingBefore = before.fairEnding;
-    const leverage = calculateDartLeverage(
-      before.projections,
-      event.turn.player_id,
-      input.legsToWin
-    );
-
     if (turnId !== event.turn.id) {
       turnId = event.turn.id;
       turnStartScore = scores[event.turn.player_id];
@@ -423,7 +443,15 @@ export function reconstructPressureTimeline(
     const stateFairEnding = stateLeg.id === event.leg.id
       ? currentFairEnding
       : buildFairEndingContext(stateLeg, []);
-    const after = createState(stateLeg, nextPlayerId, nextDartsRemaining, stateFairEnding);
+    const after = createState(
+      stateLeg,
+      nextPlayerId,
+      nextDartsRemaining,
+      stateFairEnding,
+      nextPlayerId === playerId && stateLeg.id === event.leg.id
+        ? turnStartScore
+        : nextPlayerId ? scores[nextPlayerId] : undefined
+    );
     const matchWinProbabilityAdded: Record<string, number> = {};
     const legWinProbabilityAdded: Record<string, number> = {};
     const beforeByPlayer = new Map(before.projections.map((projection) => [projection.id, projection]));
@@ -435,10 +463,20 @@ export function reconstructPressureTimeline(
         : projection.legWinProbability;
       legWinProbabilityAdded[projection.id] = afterLegProbability - (previous?.legWinProbability ?? 0);
     }
+    const consequenceAfter = after.projections.map((projection) => ({
+      ...projection,
+      legWinProbability: resolvedLegWinnerId
+        ? (projection.id === resolvedLegWinnerId ? 1 : 0)
+        : projection.legWinProbability,
+    }));
+    const consequence = calculateProbabilityVectorConsequence(
+      before.projections,
+      consequenceAfter
+    );
 
     timeline.push({
-      eventId: `pressure-v2:${event.leg.match_id}:${event.dart.id}`,
-      engineVersion: 'pressure-v2',
+      eventId: `${PRESSURE_OUTCOME_MODEL_VERSION}:${event.leg.match_id}:${event.dart.id}`,
+      engineVersion: PRESSURE_OUTCOME_MODEL_VERSION,
       matchId: event.leg.match_id,
       sequence: index + 1,
       legId: event.leg.id,
@@ -452,7 +490,20 @@ export function reconstructPressureTimeline(
       turnScoreAfter,
       busted: outcome.busted,
       checkedOut: outcome.finished,
-      leverage,
+      semanticStakes: (() => {
+        const scoreBefore = before.scores[playerId] ?? 0;
+        const directCheckoutOpportunity = !isTiebreak
+          && hasCheckoutRoute(scoreBefore, 1, input.finishRule);
+        const checkoutVisitOpportunity = !isTiebreak
+          && hasCheckoutRoute(scoreBefore, before.dartsRemainingInTurn, input.finishRule);
+        return {
+          directCheckoutOpportunity,
+          checkoutVisitOpportunity,
+          matchCheckoutOpportunity: checkoutVisitOpportunity
+            && (before.legsWon[playerId] ?? 0) === input.legsToWin - 1,
+        };
+      })(),
+      consequence,
       checkout,
       fairEndingBefore,
       fairEndingAfter: currentFairEnding

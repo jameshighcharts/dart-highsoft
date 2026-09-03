@@ -27,6 +27,7 @@ import type {
   PressurePlayerHistoryProfile,
   PressurePopulationProfile,
 } from '@/utils/pressureProfiles';
+import type { PressureOutcomeModel } from '@/utils/pressureOutcomeModel';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 
@@ -86,6 +87,7 @@ type Props = {
   fairEndingState?: FairEndingState;
   pressureProfilesByPlayerId: ReadonlyMap<string, PressurePlayerHistoryProfile>;
   pressurePopulationProfile?: PressurePopulationProfile;
+  pressureOutcomeModelsByPlayerId: ReadonlyMap<string, PressureOutcomeModel>;
   hasPersonalPressureProfiles: boolean;
 };
 
@@ -189,6 +191,7 @@ export function MatchSpectatorView({
   fairEndingState,
   pressureProfilesByPlayerId,
   pressurePopulationProfile,
+  pressureOutcomeModelsByPlayerId,
   hasPersonalPressureProfiles,
 }: Props) {
   const [winnerModalOpen, setWinnerModalOpen] = useState(false);
@@ -433,6 +436,7 @@ export function MatchSpectatorView({
           matchWinnerId={matchWinnerId}
           profilesByPlayerId={pressureProfilesByPlayerId}
           populationProfile={pressurePopulationProfile}
+          outcomeModelsByPlayerId={pressureOutcomeModelsByPlayerId}
           hasPersonalProfiles={hasPersonalPressureProfiles}
           fairEnding={Boolean(match.fair_ending)}
           fairEndingState={fairEndingState}

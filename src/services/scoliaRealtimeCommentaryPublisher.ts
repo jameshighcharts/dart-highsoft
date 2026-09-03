@@ -7,7 +7,6 @@ import {
   type ScoliaRealtimeDartEvent,
 } from '../lib/commentary/scoliaRealtimeEvent.ts';
 import {
-  createRealtimeCommentaryCorrectionEnvelope,
   isSuccessfulRealtimeResponse,
   type ActiveRealtimeCommentarySession,
 } from '../lib/commentary/realtimeTypes.ts';
@@ -22,6 +21,11 @@ import {
 } from '../lib/commentary/commentaryVisitTiming.ts';
 import { loadMatch } from '../lib/server/matchGuards.ts';
 import { BroadcastDirector } from '../lib/commentary/broadcastDirector.ts';
+import {
+  RealtimeNarrativeWireState,
+  renderRealtimeSnapshot,
+  renderScoliaRealtimeEvent,
+} from '../lib/commentary/realtimeWireFormat.ts';
 
 type DeliveryRow = {
   session_id: string;
@@ -37,6 +41,7 @@ type SidebandConnection = {
   policy: CommentaryPolicy;
   visitTiming: CommentaryVisitTiming;
   broadcastDirector: BroadcastDirector;
+  wireState: RealtimeNarrativeWireState;
   activeResponseId: string | null;
   responseInFlight: boolean;
 };
@@ -242,7 +247,12 @@ export class ScoliaRealtimeCommentaryPublisher {
           role: 'user',
           content: [{
             type: 'input_text',
-            text: `AUTHORITATIVE_SCOLIA_EVENT\n${JSON.stringify({ epoch: session.epoch, event: directedEvent })}`,
+            text: renderScoliaRealtimeEvent(
+              session.epoch,
+              directedEvent,
+              connection.wireState,
+              direction ?? undefined
+            ),
           }],
         },
       });
@@ -388,6 +398,7 @@ export class ScoliaRealtimeCommentaryPublisher {
       policy: new CommentaryPolicy(),
       visitTiming: new CommentaryVisitTiming(),
       broadcastDirector: new BroadcastDirector(),
+      wireState: new RealtimeNarrativeWireState(),
       activeResponseId: null,
       responseInFlight: false,
     };
@@ -474,7 +485,7 @@ export class ScoliaRealtimeCommentaryPublisher {
         role: 'user',
         content: [{
           type: 'input_text',
-          text: `AUTHORITATIVE_MATCH_SNAPSHOT\n${JSON.stringify({ epoch: connection.session.epoch, snapshot })}`,
+          text: renderRealtimeSnapshot(connection.session.epoch, snapshot, connection.wireState),
         }],
       },
     });
@@ -504,14 +515,7 @@ export class ScoliaRealtimeCommentaryPublisher {
         role: 'user',
         content: [{
           type: 'input_text',
-          text: `AUTHORITATIVE_MATCH_CORRECTION\n${JSON.stringify(
-            createRealtimeCommentaryCorrectionEnvelope({
-              correctionId: session.last_correction_id ?? `worker:${session.id}:${session.epoch}`,
-              reason: session.last_correction_reason ?? 'throw_updated',
-              epoch: session.epoch,
-              snapshot,
-            })
-          )}`,
+          text: `AUTHORITATIVE CORRECTION · ${session.last_correction_reason ?? 'throw updated'}\n${renderRealtimeSnapshot(session.epoch, snapshot, connection.wireState)}`,
         }],
       },
     });

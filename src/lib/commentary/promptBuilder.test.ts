@@ -57,8 +57,8 @@ describe('buildCommentaryPrompt pressure context', () => {
       legProbabilityAfter: 0.7,
       legWpa: 0.28,
       biggestDartMatchWpa: 0.12,
-      peakMatchLeverage: 0.72,
-      peakPressureIndex: 0.78,
+      peakLegConsequence: 0.28,
+      peakMatchConsequence: 0.17,
       changedMatchFavorite: true,
       checkedOut: false,
       busted: false,
@@ -72,7 +72,7 @@ describe('buildCommentaryPrompt pressure context', () => {
     expect(result.plainLine).toBeUndefined();
     expect(result.prompt).toContain('Match win chance 34% → 51% (+17pp)');
     expect(result.prompt).toContain('This visit changed the match favorite');
-    expect(result.prompt).toContain('Peak pre-dart pressure index: 78/100');
+    expect(result.prompt).toContain('Largest full-field match consequence: +17pp');
     expect(result.prompt).toContain('Setup quality: good (94/100)');
     expect(result.prompt).toContain('call the result clutch only when the player gained probability');
   });
