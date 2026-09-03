@@ -1152,61 +1152,68 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           margin: 0 auto;
         }
-        /* Podium chips: lit 3D glass bodies, one brand hue each. Rank 1 is the
-           mint "hit" colour, 2 electric cyan, 3 violet-magenta.
+        /* Podium chips: the New match icon's own glass, sampled from
+           public/game-icons/newmatch.png. That icon is a single left-to-right
+           sweep -- electric cyan #35E6F8 into an emissive mint core #77FCAB
+           into violet-magenta #C57AE1 -- so rank 1 carries the whole sweep and
+           is literally the New match gradient. Rank 2 takes its cyan half,
+           rank 3 its violet half, so the podium reads as three views of one
+           identity rather than three unrelated colours.
 
-           There is deliberately no border -- a 1px rim reads as a drawn white
+           There is deliberately no border: a 1px rim reads as a drawn white
            outline and flattens the chip. Volume comes from stacked background
-           layers instead, in paint order: a specular hotspot high and left, a
-           dark contact shadow pooling at the base, then the hue body. Because
-           these are background layers they sit behind the digit, so the
-           highlight can be strong without washing it out.
+           layers, listed top-most first: a specular hotspot high and left, a
+           dark scrim seated under the digit, a contact shadow pooling at the
+           base, then the hue body.
 
-           All three digits are glass white. That constrains the bodies: white
-           on a bright mint sits near 1.4:1 and is unreadable, so each hue is
-           taken to jewel depth at its middle stop -- where the digit sits --
-           to clear roughly 4.5:1. Brightness hierarchy is therefore carried by
-           the outer glow rather than by the fill, with rank 1 glowing hardest. */
+           The scrim is what lets the fill stay as bright as the icon while the
+           numeral stays glass white. White over the bare mint core is only
+           3.9:1; at 0.6 alpha the scrim takes the digit's seat to 5.0:1 or
+           better on every hue, without darkening the rim where the glass
+           reads. */
         .grid-leaderboard .row-rank--top {
           border: 0;
           color: var(--glass-white);
-          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
         }
+        .grid-leaderboard .row-rank--1,
+        .grid-leaderboard .row-rank--2,
+        .grid-leaderboard .row-rank--3 {
+          background-image:
+            radial-gradient(70% 50% at 30% 8%, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.15) 42%, rgba(255, 255, 255, 0) 72%),
+            radial-gradient(closest-side at 50% 56%, rgba(4, 26, 20, 0.6) 0%, rgba(4, 26, 20, 0.4) 62%, rgba(4, 26, 20, 0) 88%),
+            radial-gradient(120% 95% at 50% 118%, rgba(0, 12, 18, 0.45) 0%, rgba(0, 12, 18, 0) 60%),
+            var(--podium-body);
+        }
+        /* Rank 1: the full New match sweep. */
         .grid-leaderboard .row-rank--1 {
-          background:
-            radial-gradient(70% 50% at 30% 10%, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.16) 42%, rgba(255, 255, 255, 0) 72%),
-            radial-gradient(120% 95% at 50% 118%, rgba(0, 20, 12, 0.55) 0%, rgba(0, 20, 12, 0) 60%),
-            linear-gradient(180deg, #4fe0ae 0%, #0d7a54 52%, #05512f 100%);
+          --podium-body: linear-gradient(135deg, #35e6f8 0%, #77fcab 48%, #c57ae1 100%);
           box-shadow:
-            inset 0 1.5px 1px rgba(255, 255, 255, 0.45),
-            inset 0 -3px 4px rgba(0, 40, 25, 0.45),
+            inset 0 1.5px 1px rgba(255, 255, 255, 0.5),
+            inset 0 -3px 4px rgba(0, 30, 22, 0.4),
             0 1px 2px rgba(0, 0, 0, 0.5),
-            0 0 12px rgba(92, 240, 184, 0.6),
-            0 0 30px rgba(92, 240, 184, 0.32);
+            0 0 12px rgba(119, 252, 171, 0.6),
+            0 0 30px rgba(119, 252, 171, 0.32);
         }
+        /* Rank 2: the cyan half of the sweep. */
         .grid-leaderboard .row-rank--2 {
-          background:
-            radial-gradient(70% 50% at 30% 10%, rgba(255, 255, 255, 0.58) 0%, rgba(255, 255, 255, 0.15) 42%, rgba(255, 255, 255, 0) 72%),
-            radial-gradient(120% 95% at 50% 118%, rgba(0, 18, 26, 0.55) 0%, rgba(0, 18, 26, 0) 60%),
-            linear-gradient(180deg, #5fd8e8 0%, #0d7a90 52%, #064f5f 100%);
+          --podium-body: linear-gradient(135deg, #35e6f8 0%, #5ff0d0 55%, #77fcab 100%);
+          box-shadow:
+            inset 0 1.5px 1px rgba(255, 255, 255, 0.46),
+            inset 0 -3px 4px rgba(0, 28, 34, 0.4),
+            0 1px 2px rgba(0, 0, 0, 0.5),
+            0 0 11px rgba(53, 230, 248, 0.52),
+            0 0 26px rgba(53, 230, 248, 0.26);
+        }
+        /* Rank 3: the violet half of the sweep. */
+        .grid-leaderboard .row-rank--3 {
+          --podium-body: linear-gradient(135deg, #77fcab 0%, #b083e8 55%, #c57ae1 100%);
           box-shadow:
             inset 0 1.5px 1px rgba(255, 255, 255, 0.42),
-            inset 0 -3px 4px rgba(0, 30, 40, 0.45),
+            inset 0 -3px 4px rgba(22, 0, 34, 0.42),
             0 1px 2px rgba(0, 0, 0, 0.5),
-            0 0 11px rgba(79, 227, 245, 0.52),
-            0 0 26px rgba(79, 227, 245, 0.27);
-        }
-        .grid-leaderboard .row-rank--3 {
-          background:
-            radial-gradient(70% 50% at 30% 10%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.14) 42%, rgba(255, 255, 255, 0) 72%),
-            radial-gradient(120% 95% at 50% 118%, rgba(24, 0, 40, 0.6) 0%, rgba(24, 0, 40, 0) 60%),
-            linear-gradient(180deg, #c99bff 0%, #7a2cc4 52%, #4e1580 100%);
-          box-shadow:
-            inset 0 1.5px 1px rgba(255, 255, 255, 0.4),
-            inset 0 -3px 4px rgba(20, 0, 35, 0.5),
-            0 1px 2px rgba(0, 0, 0, 0.5),
-            0 0 11px rgba(195, 107, 255, 0.52),
-            0 0 26px rgba(195, 107, 255, 0.27);
+            0 0 11px rgba(197, 122, 225, 0.52),
+            0 0 26px rgba(197, 122, 225, 0.26);
         }
         .grid-leaderboard .elo-badge {
           display: flex;
