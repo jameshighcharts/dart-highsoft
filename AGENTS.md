@@ -211,7 +211,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `npm run lint`: Lint with Next.js + ESLint config.
 - `npm test`: Run tests in watch mode (interactive).
 - `npm run test:run`: Run all tests once (for CI/CD).
-- `npm run test:performance`: Run three Lighthouse audits against the production build and enforce the committed performance budgets.
+- `npm run test:performance`: Run five Lighthouse audits against the production build and enforce the committed median performance budgets.
 - `npm run test:ui`: Open visual test interface.
 - `npm run test:coverage`: Generate and display coverage report.
 - `npm run test:e2e`: Run Playwright E2E tests (requires test Supabase instance).
