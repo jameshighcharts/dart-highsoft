@@ -58,9 +58,20 @@ function getEloTierBadgeNumber(rating: number): number {
   return 8;
 }
 
+const PODIUM_LABELS: Record<number, string> = {
+  1: '1st place',
+  2: '2nd place',
+  3: '3rd place',
+};
+
 function renderRowRankHtml(rank: number): string {
-  const podium = rank <= 3 ? ` row-rank--${rank}` : '';
-  return `<span class="row-rank${podium}">${rank}</span>`;
+  const label = PODIUM_LABELS[rank];
+  if (!label) {
+    return `<span class="row-rank">${rank}</span>`;
+  }
+  // row-rank--top is kept alongside the per-position class so any existing
+  // selectors that target the podium as a group keep working.
+  return `<span class="row-rank row-rank--top row-rank--${rank}" aria-label="${label}">${rank}</span>`;
 }
 
 function renderEloBadgeHtml(value: unknown): string {
@@ -817,6 +828,10 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
       </div>
       <style>{`
         .grid-leaderboard {
+          --brand-cyan: #4fe3f5;
+          --brand-mint: #5cf0b8;
+          --brand-violet: #c36bff;
+          --glass-white: #e8fbff;
           display: flex;
           flex-direction: column;
           gap: 14px;
@@ -1137,43 +1152,43 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           margin: 0 auto;
         }
-        /* Podium ranks: struck metal medals. Each badge is a bright metallic
-           gradient carrying a dark numeral, so it reads as a medal against the
-           dark rows rather than as tinted text. Hues are kept far apart --
-           gold yellow, silver cool blue-steel, bronze red-copper -- so no two
-           can be confused at 28px. */
+        /* Podium chips: glossy frosted glass, one brand hue each. Rank 1 is the
+           mint "hit" colour and the brightest of the three; 2 is electric cyan;
+           3 is violet-magenta. Each carries a top bevel highlight, a bottom
+           shade and an outer glow in its own hue, so the chip reads as a lit
+           piece of glass rather than a flat swatch. */
         .grid-leaderboard .row-rank--1,
-        .grid-leaderboard .row-rank--2,
-        .grid-leaderboard .row-rank--3 {
-          font-weight: 900;
+        .grid-leaderboard .row-rank--2 {
           text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
         }
         .grid-leaderboard .row-rank--1 {
-          color: #40270a;
-          background: linear-gradient(155deg, #fff1b8 0%, #ffcf3f 42%, #e59505 100%);
+          color: #062a1c;
+          background: linear-gradient(180deg, #8dffd1 0%, var(--brand-mint) 55%, #2fbf8a 100%);
+          border: 1px solid rgba(232, 251, 255, 0.55);
           box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.75),
-            inset 0 -1px 0 rgba(120, 70, 0, 0.35),
-            0 0 0 1px rgba(255, 207, 63, 0.5),
-            0 0 12px rgba(255, 190, 40, 0.45);
+            inset 0 1px 0 rgba(255, 255, 255, 0.65),
+            inset 0 -2px 0 rgba(0, 0, 0, 0.25),
+            0 0 10px rgba(92, 240, 184, 0.55),
+            0 0 22px rgba(92, 240, 184, 0.25);
         }
         .grid-leaderboard .row-rank--2 {
-          color: #1c2836;
-          background: linear-gradient(155deg, #ffffff 0%, #d4e6f7 42%, #93aec9 100%);
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.9),
-            inset 0 -1px 0 rgba(60, 85, 110, 0.3),
-            0 0 0 1px rgba(212, 230, 247, 0.55),
-            0 0 12px rgba(175, 205, 235, 0.4);
-        }
-        .grid-leaderboard .row-rank--3 {
-          color: #3d1a05;
-          background: linear-gradient(155deg, #ffcda3 0%, #f08340 42%, #b4501a 100%);
+          color: #052833;
+          background: linear-gradient(180deg, #a9f1fa 0%, var(--brand-cyan) 55%, #25b4c9 100%);
+          border: 1px solid rgba(232, 251, 255, 0.5);
           box-shadow:
             inset 0 1px 0 rgba(255, 255, 255, 0.6),
-            inset 0 -1px 0 rgba(90, 40, 5, 0.35),
-            0 0 0 1px rgba(240, 131, 64, 0.5),
-            0 0 12px rgba(230, 115, 45, 0.42);
+            inset 0 -2px 0 rgba(0, 0, 0, 0.25),
+            0 0 8px rgba(79, 227, 245, 0.45);
+        }
+        .grid-leaderboard .row-rank--3 {
+          color: #f6eeff;
+          background: linear-gradient(180deg, #dda9ff 0%, var(--brand-violet) 55%, #8f3fd6 100%);
+          border: 1px solid rgba(232, 251, 255, 0.45);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.5),
+            inset 0 -2px 0 rgba(0, 0, 0, 0.3),
+            0 0 8px rgba(195, 107, 255, 0.45);
+          text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
         }
         .grid-leaderboard .elo-badge {
           display: flex;
