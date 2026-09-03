@@ -1137,18 +1137,18 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           margin: 0 auto;
         }
-        /* Podium ranks: 1 hit green, 2 hot magenta, 3 electric cyan. */
+        /* Podium ranks: 1 gold, 2 silver, 3 bronze. */
         .grid-leaderboard .row-rank--1 {
-          color: #3dff9e;
-          background: rgba(61, 255, 158, 0.16);
+          color: #f4c84a;
+          background: rgba(244, 200, 74, 0.17);
         }
         .grid-leaderboard .row-rank--2 {
-          color: #e066ff;
-          background: rgba(224, 102, 255, 0.16);
+          color: #e3eaf2;
+          background: rgba(227, 234, 242, 0.19);
         }
         .grid-leaderboard .row-rank--3 {
-          color: #4fe3f5;
-          background: rgba(79, 227, 245, 0.16);
+          color: #da8c3e;
+          background: rgba(218, 140, 62, 0.19);
         }
         .grid-leaderboard .elo-badge {
           display: flex;
