@@ -32,10 +32,10 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `page.tsx` | Home — leaderboard grid, nav to new match/practice/players |
 | `new/page.tsx` | New X01 or party-game form with optional ready Scolia board selection |
 | `match/[id]/page.tsx` | Match page (server component) |
-| `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator view |
+| `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator/history stats view |
 | `game/[id]/page.tsx` | Party-game page (server component) |
 | `game/[id]/GameClient.tsx` | Party-game scoring and spectator client |
-| `games/page.tsx` | Live and recent X01 and party-game listing |
+| `games/page.tsx` | Live and recent X01 and party-game listing; completed X01 games link to read-only stats |
 | `players/page.tsx` | Player management (list, create, toggle active) |
 | `boards/page.tsx` | Scolia board management (connectivity, availability, active match/game links, connect/disconnect) |
 | `stats/page.tsx` | Stats and leaderboards |
@@ -151,6 +151,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `match/MatchPlayersCard.tsx` | Player list with scores, averages, legs won |
 | `match/LiveScoliaBoard.tsx` | Read-only spectator dartboard with live Scolia impact positions and detected dart orientation |
 | `match/ScoliaMatchHeatmaps.tsx` | Whole-match per-player Scolia impact density boards for spectator mode |
+| `match/HistoricalMatchOverview.tsx` | Completed-match hero, whole-match KPIs, player performance, top visits, and Elo summary |
 | `match/EditThrowsModal.tsx` | Edit recorded throws in current leg |
 | `match/EditPlayersModal.tsx` | Add/remove/reorder players |
 | `match/EloChangesDisplay.tsx` | Elo rating changes after match |
@@ -272,6 +273,9 @@ New Game and Boards load one API snapshot → `scolia_board_public_status` Postg
 Scolia matches replace the manual keypad/dartboard with a hardware-scoring notice, and manual throw POSTs are rejected server-side. Rematch revalidates and carries the same ready board; database enforcement rejects a concurrent claim.
 
 Scolia spectator loads include throw geometry across every leg for per-player whole-match heatmaps. The current leg's realtime turns override that initial all-leg snapshot so new, edited, and deleted impacts update live without another subscription.
+
+**Completed match history:**
+Recent Games card → `/match/:id?spectator=true&history=true` → spectator data load includes every leg and Scolia throw geometry → read-only result hero, whole-match KPIs/player performance/top visits, final-leg score progression, Elo changes, and whole-match heatmaps. Live-only board status, QR code, current-player state, commentary, and winner popup are suppressed.
 
 Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. A missing acknowledgement resets a stale command for retry; after three attempts it becomes `failed`. Deploy `Dockerfile.scolia-worker` as exactly one always-on worker replica outside Vercel.
 

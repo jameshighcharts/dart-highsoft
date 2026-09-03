@@ -24,6 +24,7 @@ type Props = {
   getAvgForPlayer: (playerId: string) => number;
   fairEndingState?: FairEndingState;
   currentPlayerPresentedElsewhere?: boolean;
+  title?: string;
 };
 
 export function SpectatorLiveMatchCard({
@@ -38,6 +39,7 @@ export function SpectatorLiveMatchCard({
   getAvgForPlayer,
   fairEndingState,
   currentPlayerPresentedElsewhere = false,
+  title = 'Live Match',
 }: Props) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -64,7 +66,7 @@ export function SpectatorLiveMatchCard({
   return (
     <Card className="xl:col-span-2 xl:row-span-2">
       <CardHeader>
-        <CardTitle>Live Match</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <CardDescription>
           {match.start_score} • {match.finish.replace('_', ' ')} • Legs to win {match.legs_to_win}
         </CardDescription>
