@@ -33,8 +33,8 @@ export default function NewTournamentPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [name, setName] = useState('');
   const [newPlayerName, setNewPlayerName] = useState('');
-  const [startScore, setStartScore] = useState<StartScore>('501');
-  const [finish, setFinish] = useState<FinishRule>('double_out');
+  const [startScore, setStartScore] = useState<StartScore>('301');
+  const [finish, setFinish] = useState<FinishRule>('single_out');
   const [legsToWin, setLegsToWin] = useState(1);
   const [fairEnding, setFairEnding] = useState(false);
   const [enabledLocations, setEnabledLocations] = useState<LocationValue[]>(loadEnabledLocations);

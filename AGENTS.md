@@ -190,6 +190,12 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 |------|---------|
 | `scoliaWorker.ts` | Persistent Scolia worker: maintains board WebSockets, persists events/status, and queues throw ingestion/recovery |
 
+### Static Assets (`public`)
+
+| Path | Purpose |
+|------|---------|
+| `game-icons/*.png` | Glossy 3D artwork for game-mode pickers and the home-page play menu |
+
 ### Test Utilities (`src/test-utils`)
 | File | Purpose |
 |------|---------|

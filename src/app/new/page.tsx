@@ -96,8 +96,8 @@ export default function NewMatchPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [newName, setNewName] = useState("");
-  const [startScore, setStartScore] = useState<StartScore>("501");
-  const [finish, setFinish] = useState<FinishRule>("double_out");
+  const [startScore, setStartScore] = useState<StartScore>("301");
+  const [finish, setFinish] = useState<FinishRule>("single_out");
   const [legsToWin, setLegsToWin] = useState(1);
   const [fairEnding, setFairEnding] = useState(false);
   // Start on X01 for SSR and pick up the stored choice after hydration.

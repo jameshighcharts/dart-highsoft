@@ -27,17 +27,6 @@ const ELO_TIER_RANGES = [
   { max: 1449, tier: 7 },
 ] as const;
 
-const ELO_TIER_TEXT_OFFSET_Y: Record<number, number> = {
-  1: 1,
-  2: 1,
-  3: 1,
-  4: 0,
-  5: 0,
-  6: 0,
-  7: 0,
-  8: 0,
-};
-
 /**
  * For an array of nullable numbers, return a Map from row-index to medal string
  * for the top 3 values (descending). Nulls are ignored.
@@ -81,13 +70,8 @@ function renderEloBadgeHtml(value: unknown): string {
 
   const rating = Math.round(value);
   const tier = getEloTierBadgeNumber(rating);
-  const textOffsetY = ELO_TIER_TEXT_OFFSET_Y[tier] ?? 0;
 
-  return `
-    <span class="elo-badge elo-badge--tier-${tier}" style="background-image: url('/elo-badges/tier-${tier}.png');">
-      <span class="elo-badge__rating" style="transform: translateY(${textOffsetY}px);">${rating}</span>
-    </span>
-  `;
+  return `<span class="elo-badge elo-badge--tier-${tier}">${rating}</span>`;
 }
 
 function renderLocationPillHtml(value: unknown): string {
@@ -805,99 +789,6 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
     <div className="grid-leaderboard highcharts-dark">
       <div className="leaderboard-header">
         <div className="leaderboard-heading">{headerContent}</div>
-        <div className="leaderboard-kpis" aria-label="Leaderboard overview">
-          <div className="leaderboard-kpi">
-            <div className="leaderboard-kpi__topline">
-              <span className="leaderboard-kpi__label">Hot streak</span>
-              {hotStreak && <span className="leaderboard-kpi__badge leaderboard-kpi__badge--hot">🔥 On fire</span>}
-            </div>
-            <div className="leaderboard-kpi__headline">
-              {hotStreak ? `${hotStreak.player} · ${hotStreak.streak}W` : '–'}
-            </div>
-            <svg className="leaderboard-kpi__chart" viewBox="0 0 150 42" aria-hidden="true">
-              <defs>
-                <linearGradient id="hot-streak-fill-compact" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#ff7a18" stopOpacity="0.26" />
-                  <stop offset="100%" stopColor="#ff7a18" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              {hotStreakAreaPoints && <polygon points={hotStreakAreaPoints} fill="url(#hot-streak-fill-compact)" />}
-              {hotStreakLinePoints && <polyline points={hotStreakLinePoints} fill="none" stroke="#ff7a18" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
-              {hotStreakLinePoints && <circle cx={hotStreakLinePoints.split(' ').at(-1)?.split(',')[0]} cy={hotStreakLinePoints.split(' ').at(-1)?.split(',')[1]} r="2.2" fill="#ff7a18" />}
-            </svg>
-            <div className="leaderboard-kpi__axis">
-              <span>Oldest</span>
-              <span>Latest</span>
-            </div>
-          </div>
-          <div className="leaderboard-kpi leaderboard-kpi--wide">
-            <div className="leaderboard-kpi__topline">
-              <span className="leaderboard-kpi__label">
-                {matchActivityRange === '7d' ? 'Matches last 7 days' : 'Matches last 30 days'}
-              </span>
-              <span className="leaderboard-kpi__toggle" aria-label="Select match activity range" role="group">
-                <button
-                  type="button"
-                  className={matchActivityRange === '7d' ? 'leaderboard-kpi__toggle-option leaderboard-kpi__toggle-option--active' : 'leaderboard-kpi__toggle-option'}
-                  onClick={() => setMatchActivityRange('7d')}
-                >
-                  7d
-                </button>
-                <button
-                  type="button"
-                  className={matchActivityRange === '30d' ? 'leaderboard-kpi__toggle-option leaderboard-kpi__toggle-option--active' : 'leaderboard-kpi__toggle-option'}
-                  onClick={() => setMatchActivityRange('30d')}
-                >
-                  30d
-                </button>
-              </span>
-            </div>
-            <div className="leaderboard-kpi__metric">
-              <span>{selectedMatchTotal}</span>
-              {selectedMatchDelta !== 0 && (
-                <span className={selectedMatchDelta > 0 ? 'leaderboard-kpi__delta' : 'leaderboard-kpi__delta leaderboard-kpi__delta--down'}>
-                  {selectedMatchDelta > 0 ? '+' : ''}{selectedMatchDelta} vs prev
-                </span>
-              )}
-            </div>
-            <div className={matchActivityRange === '30d' ? 'leaderboard-kpi__bars leaderboard-kpi__bars--dense' : 'leaderboard-kpi__bars'} aria-hidden="true">
-              {safeMatchCounts.map((count, index) => (
-                <span
-                  key={`${matchActivityRange}-${index}`}
-                  className={matchActivityRange === '7d' && index >= 5 ? 'leaderboard-kpi__bar leaderboard-kpi__bar--weekend' : 'leaderboard-kpi__bar'}
-                  style={{ height: `${Math.max(8, (count / maxMatchCount) * 32)}px` }}
-                />
-              ))}
-            </div>
-          </div>
-          <div className="leaderboard-kpi">
-            <div className="leaderboard-kpi__topline">
-              <span className="leaderboard-kpi__label">Biggest climber</span>
-              {weeklyEloClimber && <span className="leaderboard-kpi__badge leaderboard-kpi__badge--climber">▲</span>}
-            </div>
-            <div className="leaderboard-kpi__headline">
-              {weeklyEloClimber ? weeklyEloClimber.display_name : '–'}
-            </div>
-            <div className="leaderboard-kpi__subvalue leaderboard-kpi__subvalue--positive">
-              {weeklyEloClimber ? `+${weeklyEloClimber.rating_change} Elo` : 'No gain yet'}
-            </div>
-            <svg className="leaderboard-kpi__chart" viewBox="0 0 150 42" aria-hidden="true">
-              <defs>
-                <linearGradient id="climber-fill-compact" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#35f58c" stopOpacity="0.24" />
-                  <stop offset="100%" stopColor="#35f58c" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              {climberAreaPoints && <polygon points={climberAreaPoints} fill="url(#climber-fill-compact)" />}
-              {climberLinePoints && <polyline points={climberLinePoints} fill="none" stroke="#35f58c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
-              {climberLinePoints && <circle cx={climberLinePoints.split(' ').at(-1)?.split(',')[0]} cy={climberLinePoints.split(' ').at(-1)?.split(',')[1]} r="2.2" fill="#35f58c" />}
-            </svg>
-            <div className="leaderboard-kpi__axis">
-              <span>7d ago</span>
-              <span>Now</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div className="leaderboard-toolbar">
@@ -932,16 +823,15 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
         .leaderboard-header {
           display: grid;
-          grid-template-columns: minmax(300px, 1fr) minmax(620px, 720px);
-          gap: 28px;
-          align-items: end;
+          grid-template-columns: 1fr;
+          gap: 14px;
         }
         .leaderboard-kpis {
           display: grid;
           grid-template-columns: 1fr 1.18fr 1fr;
           gap: 8px;
-          justify-self: end;
           width: min(100%, 720px);
+          margin-inline: auto;
         }
         .leaderboard-kpi {
           position: relative;
@@ -1169,7 +1059,6 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
             grid-template-columns: 1fr;
           }
           .leaderboard-kpis {
-            justify-self: stretch;
             width: 100%;
           }
         }
@@ -1254,28 +1143,60 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
         .grid-leaderboard .elo-badge {
           display: flex;
-          position: relative;
-          width: 132px;
-          height: 32px;
+          min-width: 68px;
+          width: fit-content;
+          height: 28px;
           margin: 0 auto;
           align-items: center;
           justify-content: center;
-          background-size: contain;
-          background-repeat: no-repeat;
-          background-position: center;
-        }
-        .grid-leaderboard .elo-badge__rating {
-          display: inline-block;
-          min-width: 58px;
-          text-align: center;
-          font-weight: 800;
-          font-size: 18px;
+          border: 1px solid transparent;
+          border-radius: 999px;
+          padding: 0 12px;
+          font-size: 15px;
+          font-weight: 700;
           line-height: 1;
-          letter-spacing: 0.02em;
-          color: #ffffff;
-          text-shadow:
-            0 1px 2px rgba(0, 0, 0, 0.85),
-            0 0 8px rgba(0, 0, 0, 0.45);
+          letter-spacing: 0;
+          font-variant-numeric: tabular-nums;
+        }
+        .grid-leaderboard .elo-badge--tier-1 {
+          color: #94a3b8;
+          background: rgba(100, 116, 139, 0.14);
+          border-color: rgba(148, 163, 184, 0.3);
+        }
+        .grid-leaderboard .elo-badge--tier-2 {
+          color: #a3b5c9;
+          background: rgba(148, 163, 184, 0.13);
+          border-color: rgba(163, 181, 201, 0.32);
+        }
+        .grid-leaderboard .elo-badge--tier-3 {
+          color: #67e8f9;
+          background: rgba(6, 182, 212, 0.13);
+          border-color: rgba(34, 211, 238, 0.34);
+        }
+        .grid-leaderboard .elo-badge--tier-4 {
+          color: #60a5fa;
+          background: rgba(59, 130, 246, 0.14);
+          border-color: rgba(96, 165, 250, 0.35);
+        }
+        .grid-leaderboard .elo-badge--tier-5 {
+          color: #a78bfa;
+          background: rgba(139, 92, 246, 0.14);
+          border-color: rgba(167, 139, 250, 0.35);
+        }
+        .grid-leaderboard .elo-badge--tier-6 {
+          color: #f0c45a;
+          background: rgba(245, 158, 11, 0.14);
+          border-color: rgba(240, 196, 90, 0.36);
+        }
+        .grid-leaderboard .elo-badge--tier-7 {
+          color: #fb923c;
+          background: rgba(249, 115, 22, 0.14);
+          border-color: rgba(251, 146, 60, 0.36);
+        }
+        .grid-leaderboard .elo-badge--tier-8 {
+          color: #fb7185;
+          background: rgba(244, 63, 94, 0.14);
+          border-color: rgba(251, 113, 133, 0.38);
         }
         .grid-leaderboard .elo-badge-empty {
           color: #94a3b8;
@@ -1425,6 +1346,100 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
       `}</style>
       <Grid options={options} />
+
+      <div className="leaderboard-kpis" aria-label="Leaderboard overview">
+        <div className="leaderboard-kpi">
+          <div className="leaderboard-kpi__topline">
+            <span className="leaderboard-kpi__label">Hot streak</span>
+            {hotStreak && <span className="leaderboard-kpi__badge leaderboard-kpi__badge--hot">🔥 On fire</span>}
+          </div>
+          <div className="leaderboard-kpi__headline">
+            {hotStreak ? `${hotStreak.player} · ${hotStreak.streak}W` : '–'}
+          </div>
+          <svg className="leaderboard-kpi__chart" viewBox="0 0 150 42" aria-hidden="true">
+            <defs>
+              <linearGradient id="hot-streak-fill-compact" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#ff7a18" stopOpacity="0.26" />
+                <stop offset="100%" stopColor="#ff7a18" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {hotStreakAreaPoints && <polygon points={hotStreakAreaPoints} fill="url(#hot-streak-fill-compact)" />}
+            {hotStreakLinePoints && <polyline points={hotStreakLinePoints} fill="none" stroke="#ff7a18" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
+            {hotStreakLinePoints && <circle cx={hotStreakLinePoints.split(' ').at(-1)?.split(',')[0]} cy={hotStreakLinePoints.split(' ').at(-1)?.split(',')[1]} r="2.2" fill="#ff7a18" />}
+          </svg>
+          <div className="leaderboard-kpi__axis">
+            <span>Oldest</span>
+            <span>Latest</span>
+          </div>
+        </div>
+        <div className="leaderboard-kpi leaderboard-kpi--wide">
+          <div className="leaderboard-kpi__topline">
+            <span className="leaderboard-kpi__label">
+              {matchActivityRange === '7d' ? 'Matches last 7 days' : 'Matches last 30 days'}
+            </span>
+            <span className="leaderboard-kpi__toggle" aria-label="Select match activity range" role="group">
+              <button
+                type="button"
+                className={matchActivityRange === '7d' ? 'leaderboard-kpi__toggle-option leaderboard-kpi__toggle-option--active' : 'leaderboard-kpi__toggle-option'}
+                onClick={() => setMatchActivityRange('7d')}
+              >
+                7d
+              </button>
+              <button
+                type="button"
+                className={matchActivityRange === '30d' ? 'leaderboard-kpi__toggle-option leaderboard-kpi__toggle-option--active' : 'leaderboard-kpi__toggle-option'}
+                onClick={() => setMatchActivityRange('30d')}
+              >
+                30d
+              </button>
+            </span>
+          </div>
+          <div className="leaderboard-kpi__metric">
+            <span>{selectedMatchTotal}</span>
+            {selectedMatchDelta !== 0 && (
+              <span className={selectedMatchDelta > 0 ? 'leaderboard-kpi__delta' : 'leaderboard-kpi__delta leaderboard-kpi__delta--down'}>
+                {selectedMatchDelta > 0 ? '+' : ''}{selectedMatchDelta} vs prev
+              </span>
+            )}
+          </div>
+          <div className={matchActivityRange === '30d' ? 'leaderboard-kpi__bars leaderboard-kpi__bars--dense' : 'leaderboard-kpi__bars'} aria-hidden="true">
+            {safeMatchCounts.map((count, index) => (
+              <span
+                key={`${matchActivityRange}-${index}`}
+                className={matchActivityRange === '7d' && index >= 5 ? 'leaderboard-kpi__bar leaderboard-kpi__bar--weekend' : 'leaderboard-kpi__bar'}
+                style={{ height: `${Math.max(8, (count / maxMatchCount) * 32)}px` }}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="leaderboard-kpi">
+          <div className="leaderboard-kpi__topline">
+            <span className="leaderboard-kpi__label">Biggest climber</span>
+            {weeklyEloClimber && <span className="leaderboard-kpi__badge leaderboard-kpi__badge--climber">▲</span>}
+          </div>
+          <div className="leaderboard-kpi__headline">
+            {weeklyEloClimber ? weeklyEloClimber.display_name : '–'}
+          </div>
+          <div className="leaderboard-kpi__subvalue leaderboard-kpi__subvalue--positive">
+            {weeklyEloClimber ? `+${weeklyEloClimber.rating_change} Elo` : 'No gain yet'}
+          </div>
+          <svg className="leaderboard-kpi__chart" viewBox="0 0 150 42" aria-hidden="true">
+            <defs>
+              <linearGradient id="climber-fill-compact" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#35f58c" stopOpacity="0.24" />
+                <stop offset="100%" stopColor="#35f58c" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {climberAreaPoints && <polygon points={climberAreaPoints} fill="url(#climber-fill-compact)" />}
+            {climberLinePoints && <polyline points={climberLinePoints} fill="none" stroke="#35f58c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
+            {climberLinePoints && <circle cx={climberLinePoints.split(' ').at(-1)?.split(',')[0]} cy={climberLinePoints.split(' ').at(-1)?.split(',')[1]} r="2.2" fill="#35f58c" />}
+          </svg>
+          <div className="leaderboard-kpi__axis">
+            <span>7d ago</span>
+            <span>Now</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

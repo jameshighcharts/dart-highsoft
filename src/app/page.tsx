@@ -1,17 +1,8 @@
 "use client";
 import dynamic from 'next/dynamic';
+import Image from 'next/image';
 import Link from 'next/link';
-import { BarChart3, ChevronDown, Radio, Target, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
-
-import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
 const QRCode = dynamic(() => import('react-qr-code'), { ssr: false });
 
@@ -31,53 +22,30 @@ export default function Home() {
     <main className="w-[90%] mx-auto p-4 md:p-6 space-y-6">
       <GridLeaderboard
         headerContent={
-          <div className="space-y-6">
-            <h1 className="text-2xl font-semibold md:text-3xl">Leaderboard</h1>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button asChild size="lg">
-                <Link href="/new">New Match</Link>
-              </Button>
-              <Button asChild variant="outline" size="lg">
-                <Link href="/tournament/new">New Tournament</Link>
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="lg" className="group">
-                    More
-                    <ChevronDown className="transition-transform duration-200 group-data-[state=open]:rotate-180" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" sideOffset={8} className="w-56 rounded-xl p-1.5 shadow-xl">
-                  <DropdownMenuItem asChild className="cursor-pointer rounded-lg py-2.5">
-                    <Link href="/practice">
-                      <Target />
-                      Practice
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild className="cursor-pointer rounded-lg py-2.5">
-                    <Link href="/players">
-                      <Users />
-                      Players
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild className="cursor-pointer rounded-lg py-2.5">
-                    <Link href="/boards">
-                      <Radio />
-                      Scolia Boards
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild className="cursor-pointer rounded-lg py-2.5">
-                    <Link href="/elo-multi">
-                      <BarChart3 />
-                      Multiplayer Elo
-                    </Link>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
+          <nav className="mx-auto grid w-full max-w-2xl grid-cols-3 gap-2" aria-label="Start playing">
+            {[
+              { href: '/new', label: 'New match', icon: '/game-icons/new-match.png' },
+              { href: '/tournament/new', label: 'New tournament', icon: '/game-icons/new-tournament.png' },
+              { href: '/practice', label: 'Practice', icon: '/game-icons/practice.png' },
+            ].map(({ href, label, icon }) => (
+              <Link
+                key={href}
+                href={href}
+                className="flex min-h-[8rem] flex-col items-center gap-1 rounded-lg border border-border p-3 text-center transition-colors hover:border-accent/60 hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="flex size-20 items-center justify-center sm:size-24">
+                  <Image
+                    src={icon}
+                    alt=""
+                    width={192}
+                    height={192}
+                    className="size-20 shrink-0 object-contain sm:size-24"
+                  />
+                </span>
+                <span className="text-sm font-bold leading-tight">{label}</span>
+              </Link>
+            ))}
+          </nav>
         }
       />
 
