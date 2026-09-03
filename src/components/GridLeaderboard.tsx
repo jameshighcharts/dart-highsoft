@@ -59,8 +59,8 @@ function getEloTierBadgeNumber(rating: number): number {
 }
 
 function renderRowRankHtml(rank: number): string {
-  const top = rank <= 3 ? ' row-rank--top' : '';
-  return `<span class="row-rank${top}">${rank}</span>`;
+  const podium = rank <= 3 ? ` row-rank--${rank}` : '';
+  return `<span class="row-rank${podium}">${rank}</span>`;
 }
 
 function renderEloBadgeHtml(value: unknown): string {
@@ -1137,9 +1137,18 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           margin: 0 auto;
         }
-        .grid-leaderboard .row-rank--top {
-          color: #f4c84a;
-          background: rgba(245, 158, 11, 0.17);
+        /* Podium ranks: 1 hit green, 2 hot magenta, 3 electric cyan. */
+        .grid-leaderboard .row-rank--1 {
+          color: #3dff9e;
+          background: rgba(61, 255, 158, 0.16);
+        }
+        .grid-leaderboard .row-rank--2 {
+          color: #e066ff;
+          background: rgba(224, 102, 255, 0.16);
+        }
+        .grid-leaderboard .row-rank--3 {
+          color: #4fe3f5;
+          background: rgba(79, 227, 245, 0.16);
         }
         .grid-leaderboard .elo-badge {
           display: flex;
