@@ -231,6 +231,11 @@ export function MatchSpectatorView({
   return (
     <div className="fixed inset-0 overflow-y-auto bg-background">
       <div className="w-full space-y-3 md:space-y-6 px-4 md:px-6 xl:px-8 py-6 pb-24 md:pb-6 relative">
+        {match.paused_at && (
+          <div className="rounded-md border border-amber-400/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/70 dark:bg-amber-950/30 dark:text-amber-100">
+            Game paused
+          </div>
+        )}
         {/* Round Score Modal */}
         <Dialog open={!!celebration} onOpenChange={() => {}}>
           <DialogContent className="sm:max-w-md [&>button]:hidden">

@@ -57,6 +57,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `matches/[matchId]/turns/[turnId]/` | PATCH, DELETE | Finish a turn (score, bust); auto-resolves leg on fair ending |
 | `matches/[matchId]/legs/[legId]/complete/` | POST | Complete a leg (set winner, create next leg or finalize match + Elo) |
 | `matches/[matchId]/end/` | PATCH | End match early |
+| `matches/[matchId]/pause/` | PATCH | Pause or resume an active match |
 | `matches/[matchId]/rematch/` | POST | Create a rematch |
 | `matches/[matchId]/players/` | POST | Add player to match |
 | `matches/[matchId]/players/new/` | POST | Create new player and add to match |
@@ -65,6 +66,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `elo/update/` | POST | Update 1v1 Elo ratings |
 | `elo-multi/update/` | POST | Update multiplayer Elo ratings |
 | `players/` | GET, POST | List or create players |
+| `players/[playerId]/` | PATCH | Update a player's location |
 | `games/` | POST | Create a Cricket, Killer, Shanghai, or Around the Clock session |
 | `games/[id]/` | GET | Load a party-game session, players, throws, and derived state |
 | `games/[id]/throws/` | POST, DELETE | Record or undo a party-game dart |
@@ -262,6 +264,9 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 
 **Throw recording:**
 `handleBoardClick` (useMatchActions) → optimistic local state → `POST /api/matches/:id/throws` → `resolveOrCreateTurnForPlayer` (turnLifecycle.ts) → insert throw → on 3rd dart: `PATCH /api/matches/:id/turns/:id` → if fair ending: `computeFairEndingState` → if resolved: `completeLeg` → Elo RPC.
+
+**Match pause:**
+`Pause game` (MatchScoringView) → `PATCH /api/matches/:id/pause` → `matches.paused_at` → existing matches realtime refreshes scoring and spectator clients; throw/turn/leg-completion APIs reject new scoring while paused.
 
 **Spectator realtime:**
 `useRealtime` subscribes to Supabase channel → dispatches DOM custom events → `useMatchRealtime` listens → `applyThrowChange/applyTurnChange` (spectatorRealtimeReducer) updates state incrementally → on `needsReconcile`: `loadAll()` full refresh.

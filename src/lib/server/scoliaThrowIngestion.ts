@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { detectedThrowFromMessage, type ScoliaMessage } from '../scolia/protocol.ts';
 import { completeLeg } from './completeLeg.ts';
-import { isMatchActive, loadMatch, type MatchRow } from './matchGuards.ts';
+import { isMatchScoringActive, loadMatch, type MatchRow } from './matchGuards.ts';
 import { resolveOrCreateTurnForPlayer } from './turnLifecycle.ts';
 import { replayTurn, type ThrowData } from '../../utils/legScoreCalculator.ts';
 import { computeFairEndingState, getNextFairEndingPlayer, type FairEndingState } from '../../utils/fairEnding.ts';
@@ -283,7 +283,7 @@ export async function ingestScoliaThrowEvent(
       const linked = await matchAndLegForTurn(supabase, existingThrow.turn_id);
       if (linked) {
         const match = await loadMatch(supabase, linked.matchId);
-        if (match && isMatchActive(match)) {
+        if (match && isMatchScoringActive(match)) {
           await finishThrowLifecycle(
             supabase,
             linked.matchId,
@@ -315,7 +315,7 @@ export async function ingestScoliaThrowEvent(
 
     const matchId = target.id;
     const snapshot = await loadSnapshot(supabase, matchId);
-    if (!snapshot || !isMatchActive(snapshot.match)) {
+    if (!snapshot || !isMatchScoringActive(snapshot.match)) {
       const reason = 'The assigned match has no active leg';
       await updateEvent(supabase, event.id, 'ignored', reason);
       return { status: 'ignored', reason };
