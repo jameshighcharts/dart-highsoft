@@ -1137,18 +1137,43 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           margin: 0 auto;
         }
-        /* Podium ranks: 1 gold, 2 silver, 3 bronze. */
+        /* Podium ranks: struck metal medals. Each badge is a bright metallic
+           gradient carrying a dark numeral, so it reads as a medal against the
+           dark rows rather than as tinted text. Hues are kept far apart --
+           gold yellow, silver cool blue-steel, bronze red-copper -- so no two
+           can be confused at 28px. */
+        .grid-leaderboard .row-rank--1,
+        .grid-leaderboard .row-rank--2,
+        .grid-leaderboard .row-rank--3 {
+          font-weight: 900;
+          text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+        }
         .grid-leaderboard .row-rank--1 {
-          color: #f4c84a;
-          background: rgba(244, 200, 74, 0.17);
+          color: #40270a;
+          background: linear-gradient(155deg, #fff1b8 0%, #ffcf3f 42%, #e59505 100%);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.75),
+            inset 0 -1px 0 rgba(120, 70, 0, 0.35),
+            0 0 0 1px rgba(255, 207, 63, 0.5),
+            0 0 12px rgba(255, 190, 40, 0.45);
         }
         .grid-leaderboard .row-rank--2 {
-          color: #e3eaf2;
-          background: rgba(227, 234, 242, 0.19);
+          color: #1c2836;
+          background: linear-gradient(155deg, #ffffff 0%, #d4e6f7 42%, #93aec9 100%);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.9),
+            inset 0 -1px 0 rgba(60, 85, 110, 0.3),
+            0 0 0 1px rgba(212, 230, 247, 0.55),
+            0 0 12px rgba(175, 205, 235, 0.4);
         }
         .grid-leaderboard .row-rank--3 {
-          color: #da8c3e;
-          background: rgba(218, 140, 62, 0.19);
+          color: #3d1a05;
+          background: linear-gradient(155deg, #ffcda3 0%, #f08340 42%, #b4501a 100%);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.6),
+            inset 0 -1px 0 rgba(90, 40, 5, 0.35),
+            0 0 0 1px rgba(240, 131, 64, 0.5),
+            0 0 12px rgba(230, 115, 45, 0.42);
         }
         .grid-leaderboard .elo-badge {
           display: flex;
