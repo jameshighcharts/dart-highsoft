@@ -81,6 +81,7 @@ type UseMatchActionsResult = {
   endGameDialogOpen: boolean;
   setEndGameDialogOpen: (open: boolean) => void;
   endGameLoading: boolean;
+  pauseLoading: boolean;
   rematchLoading: boolean;
   handleBoardClick: (_x: number, _y: number, result: SegmentResult) => Promise<void>;
   undoLastThrow: () => Promise<void>;
@@ -94,6 +95,7 @@ type UseMatchActionsResult = {
   movePlayerDown: (index: number) => Promise<void>;
   startRematch: () => Promise<void>;
   endGameEarly: () => Promise<void>;
+  togglePause: () => Promise<void>;
   endLegAndMaybeMatch: (winnerPlayerId: string) => Promise<void>;
 };
 
@@ -136,6 +138,7 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
   const [newPlayerName, setNewPlayerName] = useState('');
   const [endGameDialogOpen, setEndGameDialogOpen] = useState(false);
   const [endGameLoading, setEndGameLoading] = useState(false);
+  const [pauseLoading, setPauseLoading] = useState(false);
   const [rematchLoading, setRematchLoading] = useState(false);
   const scoringQueueRef = useRef<Promise<void>>(Promise.resolve());
   const completedTurnPlayerIdRef = useRef<string | null>(null);
@@ -400,6 +403,7 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
   const processBoardClick = useCallback(
     async (_x: number, _y: number, result: SegmentResult) => {
       if (matchWinnerId) return; // match over
+      if (match?.paused_at) return; // match paused
       if (!currentLeg || !currentPlayer) return;
       if (completedTurnPlayerIdRef.current === currentPlayer.id && !ongoingTurnRef.current) return;
       if (completedTurnPlayerIdRef.current !== currentPlayer.id) {
@@ -529,6 +533,7 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
     },
     [
       matchWinnerId,
+      match?.paused_at,
       currentLeg,
       currentPlayer,
       syncTurnFromStateIfNeeded,
@@ -923,6 +928,23 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
     }
   }, [match, matchId, loadAll, routerPush]);
 
+  const togglePause = useCallback(async () => {
+    if (!match || matchWinnerId) return;
+    try {
+      setPauseLoading(true);
+      await apiRequest(`/api/matches/${matchId}/pause`, {
+        method: 'PATCH',
+        body: { paused: !match.paused_at },
+      });
+      await loadAll();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update pause state';
+      alert(message);
+    } finally {
+      setPauseLoading(false);
+    }
+  }, [match, matchId, matchWinnerId, loadAll]);
+
   return {
     editOpen,
     setEditOpen,
@@ -937,6 +959,7 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
     endGameDialogOpen,
     setEndGameDialogOpen,
     endGameLoading,
+    pauseLoading,
     rematchLoading,
     handleBoardClick,
     undoLastThrow,
@@ -950,6 +973,7 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
     movePlayerDown,
     startRematch,
     endGameEarly,
+    togglePause,
     endLegAndMaybeMatch,
   };
 }
