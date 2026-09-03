@@ -1,0 +1,157 @@
+<title>How the Dart App Works</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700&display=swap">
+<style>
+:root{
+  --bg:#F3F5F4; --card:#FFFFFF; --ink:#1E2724; --muted:#5F6F68; --line:#D3DBD6;
+  --green:#22795A; --green-soft:#DCEFE5; --red:#C3403A; --red-soft:#F7E0DD; --gold:#C89B2A; --gold-soft:#F6ECD2; --blue:#3C6E9E; --blue-soft:#E0EAF3;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141A17; --card:#1D2521; --ink:#EAF0EC; --muted:#9DAAA3; --line:#33403A;
+    --green:#5CB88F; --green-soft:#1E332A; --red:#E36B63; --red-soft:#3C2422; --gold:#E0B551; --gold-soft:#3A311C; --blue:#7FA9D6; --blue-soft:#1F2B38;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141A17; --card:#1D2521; --ink:#EAF0EC; --muted:#9DAAA3; --line:#33403A;
+  --green:#5CB88F; --green-soft:#1E332A; --red:#E36B63; --red-soft:#3C2422; --gold:#E0B551; --gold-soft:#3A311C; --blue:#7FA9D6; --blue-soft:#1F2B38;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Nunito",system-ui,sans-serif;font-size:18px;line-height:1.6}
+.wrap{max-width:760px;margin:0 auto;padding:48px 24px 96px}
+h1,h2{font-family:"Fredoka","Nunito",sans-serif;text-wrap:balance;margin:0}
+h1{font-size:2.6rem;font-weight:700;line-height:1.1}
+h2{font-size:1.5rem;font-weight:600}
+.lede{font-size:1.15rem;color:var(--muted);max-width:60ch;margin:14px 0 0}
+p{max-width:62ch;margin:0}
+.chapters{display:grid;gap:22px;margin-top:40px}
+.chapter{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 26px 24px;display:grid;gap:14px}
+.chapter header{display:flex;align-items:center;gap:14px}
+.badge{flex:none;width:52px;height:52px;border-radius:50%;display:grid;place-items:center;font-family:"Fredoka",sans-serif;font-weight:700;font-size:1.05rem;color:var(--card)}
+.b-green{background:var(--green)} .b-red{background:var(--red)} .b-gold{background:var(--gold)} .b-blue{background:var(--blue)} .b-ink{background:var(--ink)}
+.role{font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.so{border-left:4px solid var(--green);background:var(--green-soft);padding:10px 16px;border-radius:0 10px 10px 0;font-weight:600}
+.so.red{border-color:var(--red);background:var(--red-soft)}
+.so.gold{border-color:var(--gold);background:var(--gold-soft)}
+.so.blue{border-color:var(--blue);background:var(--blue-soft)}
+figure{margin:32px 0 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;overflow-x:auto}
+figure svg{display:block;width:100%;height:auto;min-width:560px;color:var(--ink)}
+figcaption{margin-top:12px;color:var(--muted);font-size:.95rem}
+.steps{display:grid;gap:10px;margin:0;padding:0;list-style:none;counter-reset:s}
+.steps li{display:flex;gap:12px;align-items:baseline}
+.steps li::before{counter-increment:s;content:counter(s);flex:none;width:28px;height:28px;border-radius:50%;background:var(--ink);color:var(--card);display:grid;place-items:center;font-family:"Fredoka",sans-serif;font-weight:700;font-size:.9rem;transform:translateY(4px)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.mini{border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:.98rem}
+.mini b{display:block;font-family:"Fredoka",sans-serif;font-weight:600;margin-bottom:4px}
+.footer{margin-top:44px;color:var(--muted);font-size:.95rem}
+.footer a{color:var(--ink)}
+</style>
+
+<div class="wrap">
+  <h1>How the Dart App Works</h1>
+  <p class="lede">The five-minute version, for anyone who has ever kept score on a chalkboard and wondered what the app is doing instead.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 420" role="img" aria-label="Phones send darts to the Brain, the Brain writes them in the Notebook, and the Notebook shouts the new score back to every phone. A camera board sends darts to a Helper that also writes into the Notebook.">
+      <defs>
+        <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+      </defs>
+      <g font-family="Nunito, sans-serif" font-size="15" fill="currentColor" text-anchor="middle">
+        <!-- phones -->
+        <rect x="40" y="120" width="150" height="120" rx="14" fill="var(--blue-soft)" stroke="var(--blue)" stroke-width="2"/>
+        <text x="115" y="165" font-family="Fredoka, sans-serif" font-size="20" font-weight="600" fill="var(--blue)">Your phones</text>
+        <text x="115" y="192" font-size="13" fill="var(--muted)">tap a dart, watch the score</text>
+        <text x="115" y="212" font-size="13" fill="var(--muted)">any number of screens</text>
+
+        <!-- brain -->
+        <rect x="290" y="120" width="170" height="120" rx="14" fill="var(--green-soft)" stroke="var(--green)" stroke-width="2"/>
+        <text x="375" y="165" font-family="Fredoka, sans-serif" font-size="20" font-weight="600" fill="var(--green)">The Brain</text>
+        <text x="375" y="192" font-size="13" fill="var(--muted)">checks the rules</text>
+        <text x="375" y="212" font-size="13" fill="var(--muted)">lives on Vercel</text>
+
+        <!-- notebook -->
+        <rect x="560" y="120" width="170" height="120" rx="14" fill="var(--gold-soft)" stroke="var(--gold)" stroke-width="2"/>
+        <text x="645" y="165" font-family="Fredoka, sans-serif" font-size="20" font-weight="600" fill="var(--gold)">The Notebook</text>
+        <text x="645" y="192" font-size="13" fill="var(--muted)">remembers every dart</text>
+        <text x="645" y="212" font-size="13" fill="var(--muted)">lives at Supabase</text>
+
+        <!-- camera board -->
+        <rect x="290" y="300" width="170" height="90" rx="14" fill="var(--red-soft)" stroke="var(--red)" stroke-width="2"/>
+        <text x="375" y="336" font-family="Fredoka, sans-serif" font-size="20" font-weight="600" fill="var(--red)">Camera board</text>
+        <text x="375" y="362" font-size="13" fill="var(--muted)">Scolia sees the dart land</text>
+
+        <!-- helper -->
+        <rect x="560" y="300" width="170" height="90" rx="14" fill="none" stroke="var(--red)" stroke-width="2"/>
+        <text x="645" y="336" font-family="Fredoka, sans-serif" font-size="20" font-weight="600" fill="var(--red)">The Helper</text>
+        <text x="645" y="362" font-size="13" fill="var(--muted)">listens all day, never sleeps</text>
+
+        <!-- arrows -->
+        <line x1="190" y1="165" x2="290" y2="165" stroke="currentColor" stroke-width="2" marker-end="url(#a)"/>
+        <text x="240" y="155" font-size="12">"I hit T20"</text>
+        <line x1="460" y1="165" x2="560" y2="165" stroke="currentColor" stroke-width="2" marker-end="url(#a)"/>
+        <text x="510" y="155" font-size="12">"write it down"</text>
+        <path d="M645,120 L645,60 L115,60 L115,120" fill="none" stroke="var(--gold)" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#a)"/>
+        <text x="380" y="50" font-size="12" fill="var(--gold)">Notebook shouts: "new score!" to every phone</text>
+        <line x1="460" y1="345" x2="560" y2="345" stroke="var(--red)" stroke-width="2" marker-end="url(#a)"/>
+        <text x="510" y="335" font-size="12" fill="var(--red)">"dart landed"</text>
+        <line x1="645" y1="300" x2="645" y2="240" stroke="var(--red)" stroke-width="2" marker-end="url(#a)"/>
+        <text x="700" y="275" font-size="12" fill="var(--red)">writes it in</text>
+      </g>
+    </svg>
+    <figcaption>That is the whole app in one picture. Everything below just explains each box.</figcaption>
+  </figure>
+
+  <div class="chapters">
+    <section class="chapter">
+      <header><div class="badge b-blue">1</div><div><div class="role">Your phones</div><h2>The app is a scoreboard that lives in your browser</h2></div></header>
+      <p>Nobody installs anything. You open a web page, tick who is playing, and tap the numbers you hit. A TV on the wall can open the same page as a spectator and it shows the same scores, at the same time.</p>
+      <div class="so blue">So: the phone is just a window. It does not decide anything important on its own.</div>
+    </section>
+
+    <section class="chapter">
+      <header><div class="badge b-green">2</div><div><div class="role">The Brain</div><h2>A small program on the internet checks the rules</h2></div></header>
+      <p>When you tap "Triple 20", your phone sends a tiny message to the Brain. The Brain asks: is it really your turn? Is that a real dart? Does it win the game? Only then does it accept the dart.</p>
+      <p>The Brain has no memory of its own. It looks everything up in the Notebook, decides, and forgets.</p>
+      <div class="so">So: cheating or a glitchy phone cannot corrupt a game, because the Brain double-checks every dart.</div>
+    </section>
+
+    <section class="chapter">
+      <header><div class="badge b-gold">3</div><div><div class="role">The Notebook</div><h2>Every dart ever thrown is written in one big notebook</h2></div></header>
+      <p>The Notebook is a database. It has pages for players, for matches, and one line per dart: who threw it, which dart of the turn it was, and what it hit. Leaderboards and statistics are just ways of reading back through the pages.</p>
+      <p>The Notebook has a special trick: whenever someone writes a new line, it shouts "new line!" to every phone that is looking at that game. That is how the TV updates a second after you tap.</p>
+      <div class="so gold">So: undo is easy. Erase the last line, and the score is whatever the remaining lines add up to.</div>
+    </section>
+
+    <section class="chapter">
+      <header><div class="badge b-red">4</div><div><div class="role">Camera board and Helper</div><h2>The Scolia board sees darts so you don't have to tap</h2></div></header>
+      <p>The office board has three cameras. When a dart lands, the board tells Scolia's own servers, and they tell anyone who is listening. Phones can't listen all day, so we run a Helper: one small program that stays connected to each board around the clock.</p>
+      <ol class="steps">
+        <li>Dart lands. Scolia says "T20 at these coordinates".</li>
+        <li>The Helper writes the raw message in the Notebook first, so nothing is ever lost, even if it crashes a second later.</li>
+        <li>The Helper checks which game is running on that board and adds the dart to it, using the same rules the Brain would.</li>
+        <li>The Notebook shouts, and every phone shows the dart.</li>
+      </ol>
+      <p>If you undo a camera dart on your phone, the Helper also tells the board "forget that one", but only while the darts are still in the board. Once you pull them out, the round is over and it is left alone.</p>
+      <div class="so red">So: a board can only run one game at a time, and the Notebook itself refuses to start a second one on it.</div>
+    </section>
+
+    <section class="chapter">
+      <header><div class="badge b-ink">5</div><div><div class="role">Party games</div><h2>Cricket, Killer, Shanghai and Around the Clock share one clever idea</h2></div></header>
+      <p>For these games the Notebook stores only the list of darts. Nothing else. Whenever anyone wants to see the scoreboard, a small rule book replays the list from the first dart to the last and works out who has closed 20, who is a killer, who owns the round.</p>
+      <div class="grid2">
+        <div class="mini"><b>Cricket</b>Hit 15 to 20 and Bull three times each. Extra hits score while others are still open.</div>
+        <div class="mini"><b>Killer</b>Everyone owns a number. Hit your double to become a killer, then hit others' doubles to take lives.</div>
+        <div class="mini"><b>Shanghai</b>One target number per round. Single, double and treble in one turn wins instantly.</div>
+        <div class="mini"><b>Around the Clock</b>Hit 1, 2, 3 … 20, then Bull. First one there wins.</div>
+      </div>
+      <p>The same rule book runs on your phone and in the Brain, so the phone can show the result the instant you tap while the Brain confirms it a moment later.</p>
+      <div class="so">So: adding a new game means writing one new rule book, not rebuilding the app.</div>
+    </section>
+
+    <section class="chapter">
+      <header><div class="badge b-blue">6</div><div><div class="role">The Announcer</div><h2>Optional commentary comes from an AI voice</h2></div></header>
+      <p>After a good turn, the Brain can ask OpenAI for a one-line remark in a chosen persona and turn it into speech. If the key is missing, the app just stays quiet. Nothing else depends on it.</p>
+    </section>
+  </div>
+
+  <p class="footer">Want the version with table names and arrows for engineers? See <a href="https://github.com/jameshighcharts/dart-highsoft/blob/main/docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a> in the repo.</p>
+</div>
