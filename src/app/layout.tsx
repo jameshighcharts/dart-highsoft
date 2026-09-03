@@ -47,7 +47,7 @@ export default function RootLayout({
           <nav className="hidden md:flex items-center justify-between px-6 py-3 border-b bg-card">
             <Link href="/" className="flex items-center gap-3 font-semibold">
               <Image src="/icon-192x192.png" alt="" width={40} height={40} className="size-10 object-contain" priority />
-              Dart Scoreboard
+              Highsoft Dart Scoreboard
             </Link>
             <div className="flex items-center gap-4 text-sm">
               <Link href="/" className="flex items-center gap-2">
