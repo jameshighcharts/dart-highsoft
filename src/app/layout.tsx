@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import "./globals.css";
 import Link from "next/link";
-import { Home, Gamepad2, BarChart3, Radio, Trophy } from "lucide-react";
+import { Home, Gamepad2, BarChart3, Plus, Radio, Trophy } from "lucide-react";
 import { Analytics } from "@vercel/analytics/react";
 import { MatchSpectatorHotkey } from "@/components/MatchSpectatorHotkey";
 import { QueryProvider } from "@/components/QueryProvider";
@@ -50,9 +50,13 @@ export default function RootLayout({
               Highsoft Dart Scoreboard
             </Link>
             <div className="flex items-center gap-4 text-sm">
+              <Link href="/new" className="flex items-center gap-2">
+                <Plus className="size-4" />
+                New match
+              </Link>
               <Link href="/" className="flex items-center gap-2">
                 <Home className="size-4" />
-                Home
+                The Grid
               </Link>
               <Link href="/games" className="flex items-center gap-2">
                 <Gamepad2 className="size-4" />
@@ -77,7 +81,7 @@ export default function RootLayout({
             <div className="grid grid-cols-4">
               <Link href="/" className="flex flex-col items-center justify-center py-2 gap-1">
                 <Home className="size-5" />
-                <span className="text-xs">Home</span>
+                <span className="text-xs">The Grid</span>
               </Link>
               <Link href="/games" className="flex flex-col items-center justify-center py-2 gap-1">
                 <Gamepad2 className="size-5" />
