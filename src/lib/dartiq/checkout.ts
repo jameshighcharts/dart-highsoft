@@ -1,40 +1,36 @@
+import type { DartIQOutcomeModel } from './model/outcomes';
+import { createBehavioralOutcomeModel } from './model/outcomes';
+import { solveDartIQVisit } from './model/visit';
 import type { SegmentResult } from '@/utils/dartboard';
-import { estimateExpectedDartsRemaining } from './projection';
 import { applyThrow, type FinishRule } from '@/utils/x01';
-
-export type SetupQualityGrade = 'checkout' | 'optimal' | 'good' | 'neutral' | 'poor' | 'bust';
 
 export type DartIQCheckoutAssessment = {
   checkoutProbabilityBefore: number;
   checkoutProbabilityAfter: number;
   nextVisitCheckoutProbability: number;
-  bestAvailableLeaveValue: number;
-  actualLeaveValue: number;
-  setupQuality: number;
-  setupGrade: SetupQualityGrade;
-  bestSegment: string | null;
+  leaveProbabilityChange: number;
   createdBogey: boolean;
   avoidedBogey: boolean;
 };
 
 export type DartSetupInput = {
+  visitStartScore: number;
   scoreBefore: number;
   scoreAfter: number;
   dartsRemainingBefore: number;
-  segment: string;
-  threeDartAverage: number;
   finishRule: FinishRule;
   busted: boolean;
   checkedOut: boolean;
-  checkoutRate?: number;
-  populationCheckoutRate?: number;
-  bustRate?: number;
+  outcomeModel?: DartIQOutcomeModel;
 };
 
-export type DartIQCheckoutSkill = Pick<
-  DartSetupInput,
-  'checkoutRate' | 'populationCheckoutRate'
->;
+export type CheckoutProbabilityInput = {
+  visitStartScore: number;
+  scoreRemaining: number;
+  dartsRemaining: number;
+  finishRule: FinishRule;
+  outcomeModel?: DartIQOutcomeModel;
+};
 
 const BOARD_SEGMENTS: SegmentResult[] = [
   ...Array.from({ length: 20 }, (_, index) => ({
@@ -59,86 +55,23 @@ const BOARD_SEGMENTS: SegmentResult[] = [
   { kind: 'InnerBull', scored: 50, label: 'DB' },
 ];
 
-function clamp(value: number, min = 0, max = 1) {
-  return Math.min(max, Math.max(min, value));
-}
+const fallbackOutcomeModel = createBehavioralOutcomeModel();
 
-function targetHitProbability(
-  segment: SegmentResult,
-  threeDartAverage: number,
-  checkoutSkill?: DartIQCheckoutSkill
-) {
-  const skill = clamp((threeDartAverage - 25) / 75);
-  // Checkout conversion is a visit-level signal, not direct double accuracy,
-  // so use only a conservative relative modifier around the population rate.
-  const checkoutModifier = clamp(
-    (checkoutSkill?.checkoutRate ?? 0.12)
-      - (checkoutSkill?.populationCheckoutRate ?? 0.12),
-    -0.15,
-    0.15
-  );
-  switch (segment.kind) {
-    case 'Single':
-      return 0.58 + skill * 0.3;
-    case 'Double':
-      return clamp(0.09 + skill * 0.33 + checkoutModifier * 0.5);
-    case 'Triple':
-      return 0.07 + skill * 0.31;
-    case 'OuterBull':
-      return 0.24 + skill * 0.3;
-    case 'InnerBull':
-      return clamp(0.04 + skill * 0.18 + checkoutModifier * 0.25);
-    case 'Miss':
-      return 0;
-  }
-}
-
-function createCheckoutProbabilityCalculator(
-  threeDartAverage: number,
-  finishRule: FinishRule,
-  checkoutSkill?: DartIQCheckoutSkill
-) {
-  const memo = new Map<string, number>();
-
-  function solve(scoreRemaining: number, dartsRemaining: number): number {
-    if (scoreRemaining === 0) return 1;
-    if (scoreRemaining < 0 || dartsRemaining <= 0) return 0;
-    if (scoreRemaining > dartsRemaining * 60) return 0;
-    if (finishRule === 'double_out' && scoreRemaining === 1) return 0;
-    const key = `${scoreRemaining}:${dartsRemaining}`;
-    const cached = memo.get(key);
-    if (cached !== undefined) return cached;
-
-    let best = 0;
-    for (const segment of BOARD_SEGMENTS) {
-      const outcome = applyThrow(scoreRemaining, segment, finishRule);
-      if (outcome.busted) continue;
-      const hitProbability = targetHitProbability(segment, threeDartAverage, checkoutSkill);
-      const routeProbability = outcome.finished
-        ? hitProbability
-        : hitProbability * solve(outcome.newScore, dartsRemaining - 1);
-      best = Math.max(best, routeProbability);
-    }
-
-    memo.set(key, best);
-    return best;
-  }
-
-  return solve;
-}
-
-/** Estimated chance of completing an exact planned route in the available darts. */
-export function estimateCheckoutProbability(
-  scoreRemaining: number,
-  dartsRemaining: number,
-  threeDartAverage: number,
-  finishRule: FinishRule,
-  checkoutSkill?: DartIQCheckoutSkill
-) {
-  return createCheckoutProbabilityCalculator(threeDartAverage, finishRule, checkoutSkill)(
-    scoreRemaining,
-    Math.max(0, Math.min(3, dartsRemaining))
-  );
+/**
+ * Behavioral chance of finishing from the live visit state. This sums every
+ * observed outcome path, including misses and recoverable leaves; it does not
+ * infer an intended target or choose an ideal route for the player.
+ */
+export function estimateCheckoutProbability(input: CheckoutProbabilityInput) {
+  if (input.scoreRemaining <= 0) return 1;
+  const dartsLeft = Math.max(0, Math.min(3, input.dartsRemaining));
+  if (dartsLeft === 0) return 0;
+  return solveDartIQVisit(input.outcomeModel ?? fallbackOutcomeModel, {
+    visitStartScore: input.visitStartScore,
+    currentScore: input.scoreRemaining,
+    dartsLeft: dartsLeft as 1 | 2 | 3,
+    finishRule: input.finishRule,
+  }).get(0) ?? 0;
 }
 
 export function isBogeyLeave(scoreRemaining: number, finishRule: FinishRule) {
@@ -174,105 +107,52 @@ export function hasCheckoutRoute(
   return false;
 }
 
-function leaveValue(
-  scoreRemaining: number,
-  dartsThisVisit: number,
-  threeDartAverage: number,
-  finishRule: FinishRule,
-  checkoutProbability: ReturnType<typeof createCheckoutProbabilityCalculator>,
-  skill?: DartIQCheckoutSkill & { bustRate?: number }
-) {
-  if (scoreRemaining === 0) return 1;
-  const currentVisitChance = checkoutProbability(scoreRemaining, dartsThisVisit);
-  const nextVisitChance = checkoutProbability(scoreRemaining, 3);
-  const expectedDarts = estimateExpectedDartsRemaining(
-    scoreRemaining,
-    threeDartAverage,
-    finishRule,
-    skill
-  );
-  const travelReadiness = clamp(3 / Math.max(3, expectedDarts));
-  const bogeyPenalty = isBogeyLeave(scoreRemaining, finishRule) ? 0.82 : 1;
-  return clamp(
-    (currentVisitChance + (1 - currentVisitChance) * nextVisitChance * 0.45 + travelReadiness * 0.12)
-      * bogeyPenalty
-  );
-}
-
-/**
- * Grades the actual dart against every legal non-busting segment from the same
- * pre-dart state. This rewards route quality rather than raw points scored.
- */
+/** Describes what the dart changed without claiming which target was intended. */
 export function evaluateDartSetup(input: DartSetupInput): DartIQCheckoutAssessment {
   const dartsBefore = Math.max(1, Math.min(3, input.dartsRemainingBefore));
   const dartsAfter = input.busted || input.checkedOut ? 0 : dartsBefore - 1;
-  const checkoutProbability = createCheckoutProbabilityCalculator(
-    input.threeDartAverage,
-    input.finishRule,
-    input
-  );
-  const checkoutProbabilityBefore = checkoutProbability(input.scoreBefore, dartsBefore);
-  const checkoutProbabilityAfter = checkoutProbability(input.scoreAfter, dartsAfter);
-  const nextVisitCheckoutProbability = checkoutProbability(input.scoreAfter, 3);
+  const effectiveScoreAfter = input.busted ? input.visitStartScore : input.scoreAfter;
+  const checkoutProbabilityBefore = estimateCheckoutProbability({
+    visitStartScore: input.visitStartScore,
+    scoreRemaining: input.scoreBefore,
+    dartsRemaining: dartsBefore,
+    finishRule: input.finishRule,
+    outcomeModel: input.outcomeModel,
+  });
+  const checkoutProbabilityAfter = input.checkedOut
+    ? 1
+    : estimateCheckoutProbability({
+        visitStartScore: input.visitStartScore,
+        scoreRemaining: effectiveScoreAfter,
+        dartsRemaining: dartsAfter,
+        finishRule: input.finishRule,
+        outcomeModel: input.outcomeModel,
+      });
+  const nextVisitCheckoutProbability = input.checkedOut
+    ? 1
+    : estimateCheckoutProbability({
+        visitStartScore: effectiveScoreAfter,
+        scoreRemaining: effectiveScoreAfter,
+        dartsRemaining: 3,
+        finishRule: input.finishRule,
+        outcomeModel: input.outcomeModel,
+      });
+  const previousFreshVisitProbability = estimateCheckoutProbability({
+    visitStartScore: input.scoreBefore,
+    scoreRemaining: input.scoreBefore,
+    dartsRemaining: 3,
+    finishRule: input.finishRule,
+    outcomeModel: input.outcomeModel,
+  });
   const beforeBogey = isBogeyLeave(input.scoreBefore, input.finishRule);
-  const afterBogey = !input.busted && !input.checkedOut
-    && isBogeyLeave(input.scoreAfter, input.finishRule);
-
-  let bestAvailableLeaveValue = 0;
-  let bestSegment: string | null = null;
-  let aBogeyWasAvailable = false;
-  for (const segment of BOARD_SEGMENTS) {
-    const outcome = applyThrow(input.scoreBefore, segment, input.finishRule);
-    if (outcome.busted) continue;
-    aBogeyWasAvailable ||= isBogeyLeave(outcome.newScore, input.finishRule);
-    const value = leaveValue(
-      outcome.newScore,
-      outcome.finished ? 0 : dartsBefore - 1,
-      input.threeDartAverage,
-      input.finishRule,
-      checkoutProbability,
-      input
-    );
-    if (value > bestAvailableLeaveValue) {
-      bestAvailableLeaveValue = value;
-      bestSegment = segment.label;
-    }
-  }
-
-  const actualLeaveValue = input.busted
-    ? 0
-    : leaveValue(
-        input.scoreAfter,
-        dartsAfter,
-        input.threeDartAverage,
-        input.finishRule,
-        checkoutProbability,
-        input
-      );
-  const setupQuality = input.busted
-    ? 0
-    : bestAvailableLeaveValue > 0
-      ? clamp(actualLeaveValue / bestAvailableLeaveValue)
-      : 1;
-
-  let setupGrade: SetupQualityGrade;
-  if (input.busted) setupGrade = 'bust';
-  else if (input.checkedOut) setupGrade = 'checkout';
-  else if (setupQuality >= 0.95) setupGrade = 'optimal';
-  else if (setupQuality >= 0.8) setupGrade = 'good';
-  else if (setupQuality >= 0.55) setupGrade = 'neutral';
-  else setupGrade = 'poor';
+  const afterBogey = !input.checkedOut && isBogeyLeave(effectiveScoreAfter, input.finishRule);
 
   return {
     checkoutProbabilityBefore,
     checkoutProbabilityAfter,
     nextVisitCheckoutProbability,
-    bestAvailableLeaveValue,
-    actualLeaveValue,
-    setupQuality,
-    setupGrade,
-    bestSegment,
-    createdBogey: !beforeBogey && afterBogey,
-    avoidedBogey: !afterBogey && aBogeyWasAvailable,
+    leaveProbabilityChange: nextVisitCheckoutProbability - previousFreshVisitProbability,
+    createdBogey: !input.busted && !beforeBogey && afterBogey,
+    avoidedBogey: !input.busted && beforeBogey && !afterBogey,
   };
 }

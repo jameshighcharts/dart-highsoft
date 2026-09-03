@@ -47,13 +47,12 @@ export interface CommentaryDartIQContext {
   biggestDartMatchWpa: number;
   peakLegConsequence?: number;
   peakMatchConsequence?: number;
-  directCheckoutOpportunity?: boolean;
-  matchCheckoutOpportunity?: boolean;
+  oneDartFinishAvailable?: boolean;
+  matchWinAvailableThisVisit?: boolean;
   changedMatchFavorite: boolean;
   checkedOut: boolean;
   busted: boolean;
-  setupQuality?: number;
-  setupGrade?: 'checkout' | 'optimal' | 'good' | 'neutral' | 'poor' | 'bust';
+  leaveProbabilityChange?: number;
   nextVisitCheckoutProbability?: number;
   createdBogey?: boolean;
 }

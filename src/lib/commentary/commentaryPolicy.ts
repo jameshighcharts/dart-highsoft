@@ -76,7 +76,6 @@ const SIGNAL_ORDER: readonly DartIQEventSignal[] = [
   'tiebreak_lead_change',
   'favorite_change',
   'large_swing',
-  'great_setup',
   'bogey_created',
   'fair_ending_checkout',
   'fair_ending_round_complete',

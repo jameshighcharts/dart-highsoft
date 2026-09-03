@@ -26,8 +26,7 @@ function advanceVisit(
   for (const [score, stateProbability] of survivors) {
     const transitions = kernel.get(score);
     if (!transitions) {
-      addMass(next, score, stateProbability);
-      continue;
+      throw new Error(`Missing DartIQ visit-kernel state for score ${score}`);
     }
     for (const [nextScore, transitionProbability] of transitions) {
       const probability = stateProbability * transitionProbability;

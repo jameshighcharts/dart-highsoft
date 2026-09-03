@@ -17,9 +17,9 @@ function addProbability(distribution: DartIQVisitDistribution, score: number, pr
   distribution.set(score, (distribution.get(score) ?? 0) + probability);
 }
 
-function normalize(distribution: DartIQVisitDistribution) {
+function normalize(distribution: DartIQVisitDistribution, fallbackScore: number) {
   const total = [...distribution.values()].reduce((sum, probability) => sum + probability, 0);
-  if (!(total > 0)) return new Map([[0, 1]]);
+  if (!(total > 0)) return new Map([[fallbackScore, 1]]);
   return new Map(
     [...distribution.entries()]
       .filter(([, probability]) => probability > 0)
@@ -63,7 +63,7 @@ export function solveDartIQVisit(
     if (active.size === 0) break;
   }
 
-  return normalize(result);
+  return normalize(result, state.visitStartScore);
 }
 
 export function createDartIQVisitKernel(

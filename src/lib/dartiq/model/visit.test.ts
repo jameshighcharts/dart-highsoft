@@ -76,4 +76,16 @@ describe('solveDartIQVisit', () => {
 
     expect(Object.fromEntries(result)).toEqual({ '0': 1 });
   });
+
+  it('treats an invalid empty outcome distribution as no progress, never a finish', () => {
+    const result = solveDartIQVisit(fixedModel([]), {
+      visitStartScore: 100,
+      currentScore: 40,
+      dartsLeft: 1,
+      finishRule: 'double_out',
+    });
+
+    expect(Object.fromEntries(result)).toEqual({ '100': 1 });
+    expect(result.get(0)).toBeUndefined();
+  });
 });

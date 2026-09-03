@@ -1,4 +1,3 @@
-import { computeCheckoutSuggestions } from '@/utils/checkoutSuggestions';
 import {
   createDartIQSkillModel,
   type DartIQSkillModel,
@@ -80,12 +79,6 @@ export type DartIQEngineProjection = {
   approximationMode: 'standard' | 'truncated-tail' | 'no-finish-fallback' | 'large-field-bounded' | 'fair-ending-weighted';
 };
 
-export type ExpectedDartsSkill = {
-  checkoutRate?: number;
-  populationCheckoutRate?: number;
-  bustRate?: number;
-};
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -105,55 +98,6 @@ function adjustedAverage(average: number, dartsThrown: number, historicalBaselin
   );
 }
 
-/**
- * A transparent first-pass checkout model. It estimates scoring travel at the
- * player's adjusted points-per-dart, then adds the cost of finding the winning
- * double. It is deliberately deterministic so the same match state always
- * produces the same broadcast number.
- */
-export function estimateExpectedDartsRemaining(
-  scoreRemaining: number,
-  threeDartAverage: number,
-  finishRule: FinishRule,
-  skill?: ExpectedDartsSkill
-) {
-  if (scoreRemaining <= 0) return 0;
-
-  const pointsPerDart = clamp(threeDartAverage / 3, 6, 36.67);
-  if (finishRule === 'single_out') {
-    return Math.max(1, scoreRemaining / pointsPerDart);
-  }
-
-  const checkoutModifier = clamp(
-    (skill?.checkoutRate ?? 0.12) - (skill?.populationCheckoutRate ?? 0.12),
-    -0.15,
-    0.15
-  );
-  const doubleAccuracy = clamp(
-    0.1 + (threeDartAverage - 30) * 0.0045 + checkoutModifier * 0.5,
-    0.08,
-    0.48
-  );
-  const checkoutPaths = scoreRemaining <= 170
-    ? computeCheckoutSuggestions(scoreRemaining, 3, finishRule)
-    : [];
-
-  if (checkoutPaths.length > 0) {
-    const routeDarts = checkoutPaths[0].length;
-    const missedDoubleCost = (1 / doubleAccuracy - 1) * 0.75;
-    return routeDarts + missedDoubleCost;
-  }
-
-  // Travel to a representative two-dart checkout. Bogey numbers receive an
-  // extra setup dart because they cannot be finished in a normal three-dart visit.
-  const checkoutEntry = 60;
-  const bustDrag = 1 + clamp(skill?.bustRate ?? 0.04, 0, 0.3) * 0.35;
-  const travel = (Math.max(0, scoreRemaining - checkoutEntry) / pointsPerDart) * bustDrag;
-  const bogeyPenalty = scoreRemaining <= 170 ? 1 : 0;
-  const finish = 2 + (1 / doubleAccuracy - 1) * 0.75;
-  return travel + bogeyPenalty + finish;
-}
-
 function normalizeWeights(weights: number[]) {
   const total = weights.reduce((sum, value) => sum + value, 0);
   if (total <= 0) return weights.map(() => 1 / Math.max(1, weights.length));
@@ -167,22 +111,28 @@ type PreparedDartIQPlayer = DartIQPlayerState & {
 };
 
 const FALLBACK_OUTCOME_MODEL = createBehavioralOutcomeModel();
-const VISIT_KERNEL_CACHE = new WeakMap<DartIQOutcomeModel, Map<FinishRule, DartIQVisitKernel>>();
+type CachedVisitKernel = { maximumScore: number; kernel: DartIQVisitKernel };
+const VISIT_KERNEL_CACHE = new WeakMap<DartIQOutcomeModel, Map<FinishRule, CachedVisitKernel>>();
 const FINISH_PMF_CACHE = new WeakMap<
   DartIQOutcomeModel,
   Map<string, DartIQFirstFinishPmf>
 >();
 
-function getVisitKernel(model: DartIQOutcomeModel, finishRule: FinishRule) {
+function getVisitKernel(
+  model: DartIQOutcomeModel,
+  finishRule: FinishRule,
+  maximumScore: number
+) {
   let byRule = VISIT_KERNEL_CACHE.get(model);
   if (!byRule) {
     byRule = new Map();
     VISIT_KERNEL_CACHE.set(model, byRule);
   }
+  const requiredMaximum = Math.max(1, Math.ceil(maximumScore));
   const cached = byRule.get(finishRule);
-  if (cached) return cached;
-  const kernel = createDartIQVisitKernel(model, finishRule);
-  byRule.set(finishRule, kernel);
+  if (cached && cached.maximumScore >= requiredMaximum) return cached.kernel;
+  const kernel = createDartIQVisitKernel(model, finishRule, requiredMaximum);
+  byRule.set(finishRule, { maximumScore: requiredMaximum, kernel });
   return kernel;
 }
 
@@ -207,7 +157,11 @@ function createPlayerPmf(
   finishRule: FinishRule,
   partial?: { visitStartScore: number; dartsLeft: number }
 ) {
-  const kernel = getVisitKernel(player.outcomeModel, finishRule);
+  const kernel = getVisitKernel(
+    player.outcomeModel,
+    finishRule,
+    Math.max(player.scoreRemaining, partial?.visitStartScore ?? 0)
+  );
   if (!partial) {
     let byState = FINISH_PMF_CACHE.get(player.outcomeModel);
     if (!byState) {

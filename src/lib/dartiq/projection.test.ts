@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   calculateDartIQProjection,
-  estimateExpectedDartsRemaining,
 } from './projection';
 
 const player = (id: string, scoreRemaining = 501, legsWon = 0, average = 45, dartsThrown = 0) => ({
@@ -121,13 +120,6 @@ describe('DartIQ projection', () => {
     });
 
     expect(result.players.map((entry) => entry.matchWinProbability)).toEqual([1, 0]);
-  });
-
-  it('prices double-out finishes as harder than straight-out finishes', () => {
-    const straightOut = estimateExpectedDartsRemaining(40, 45, 'single_out');
-    const doubleOut = estimateExpectedDartsRemaining(40, 45, 'double_out');
-
-    expect(doubleOut).toBeGreaterThan(straightOut);
   });
 
   it('makes throw advantage state-sensitive instead of scale-free', () => {

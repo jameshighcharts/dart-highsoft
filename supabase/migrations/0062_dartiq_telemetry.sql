@@ -69,8 +69,8 @@ create table public.dartiq_projection_events (
   live_capture_status text not null
     check (live_capture_status in ('complete', 'partial', 'not_supported')),
   live_capture_cause text,
-  epoch bigint not null default 0 check (epoch >= 0),
   revision integer not null default 0 check (revision >= 0),
+  revision_hash text not null,
   sequence integer not null check (sequence > 0),
   pre_state_hash text not null,
   input_snapshot jsonb not null,
@@ -86,6 +86,7 @@ create table public.dartiq_projection_events (
   confidence_tier text not null check (
     confidence_tier in ('fallback', 'population', 'player_sparse', 'player_established')
   ),
+  outcome_model_applicable boolean not null default true,
   approximation_modes text[] not null default '{}',
   actual_score_delta smallint not null,
   actual_is_double boolean not null,
@@ -167,7 +168,6 @@ create table public.dartiq_projection_resolutions (
   leg_id uuid references public.legs(id) on delete cascade,
   kind text not null check (kind in ('leg', 'match')),
   winner_player_id uuid references public.players(id),
-  resolution_epoch bigint not null default 0 check (resolution_epoch >= 0),
   ended_early boolean not null default false,
   resolved_at timestamptz not null,
   superseded_at timestamptz,

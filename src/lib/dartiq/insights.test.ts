@@ -57,15 +57,14 @@ function event(
       match: Math.abs(afterA.matchWinProbability - beforeA.matchWinProbability),
     },
     semanticStakes: {
-      directCheckoutOpportunity: false,
-      checkoutVisitOpportunity: false,
-      matchCheckoutOpportunity: false,
+      oneDartFinishAvailable: false,
+      finishAvailableThisVisit: false,
+      matchWinAvailableThisVisit: false,
     },
     checkout: {
       checkoutProbabilityBefore: 0.2, checkoutProbabilityAfter: 0.1,
-      nextVisitCheckoutProbability: 0.4, bestAvailableLeaveValue: 0.6,
-      actualLeaveValue: 0.55, setupQuality: 0.92, setupGrade: 'good',
-      bestSegment: 'D20', createdBogey: false, avoidedBogey: false,
+      nextVisitCheckoutProbability: 0.4, leaveProbabilityChange: 0.12,
+      createdBogey: false, avoidedBogey: false,
     },
     before, after,
     matchWinProbabilityAdded: {
@@ -131,8 +130,7 @@ describe('analyzeDartIQTimeline', () => {
       legProbabilityBefore: 0.3,
       legProbabilityAfter: 0.7,
       changedMatchFavorite: true,
-      setupQuality: 0.92,
-      setupGrade: 'good',
+      leaveProbabilityChange: 0.12,
       nextVisitCheckoutProbability: 0.4,
       createdBogey: false,
     });

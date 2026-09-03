@@ -70,20 +70,16 @@ function event(): DartIQDartEvent {
     busted: false,
     checkedOut: true,
     semanticStakes: {
-      directCheckoutOpportunity: true,
-      checkoutVisitOpportunity: true,
-      matchCheckoutOpportunity: false,
+      oneDartFinishAvailable: true,
+      finishAvailableThisVisit: true,
+      matchWinAvailableThisVisit: false,
     },
     consequence: { leg: 0.35, match: 0.2 },
     checkout: {
       checkoutProbabilityBefore: 0.3,
       checkoutProbabilityAfter: 1,
       nextVisitCheckoutProbability: 0,
-      bestAvailableLeaveValue: 1,
-      actualLeaveValue: 1,
-      setupQuality: 1,
-      setupGrade: 'checkout',
-      bestSegment: null,
+      leaveProbabilityChange: 1,
       createdBogey: false,
       avoidedBogey: false,
     },
@@ -96,12 +92,12 @@ function event(): DartIQDartEvent {
   };
 }
 
-type Write = { table: string; operation: 'insert' | 'upsert' | 'update'; payload: unknown };
+type Write = { table: string; operation: 'insert' | 'upsert' | 'update' | 'rpc'; payload: unknown };
 
-function fakeSupabase(existingEvents: ExistingEvent[] = []) {
+function fakeSupabase() {
   const writes: Write[] = [];
   const from = (table: string) => {
-    let operation: Write['operation'] | 'select' = 'select';
+    let operation: Exclude<Write['operation'], 'rpc'> | 'select' = 'select';
     let payload: unknown;
     const builder = {
       select: () => builder,
@@ -144,9 +140,6 @@ function fakeSupabase(existingEvents: ExistingEvent[] = []) {
             error: null,
           }).then(resolve);
         }
-        if (table === 'dartiq_projection_events' && operation === 'select') {
-          return Promise.resolve({ data: existingEvents, error: null }).then(resolve);
-        }
         if (table === 'dartiq_projection_events' && operation === 'insert') {
           return Promise.resolve({ data: [{ id: 31, source_throw_id: 'dart-1' }], error: null }).then(resolve);
         }
@@ -155,18 +148,12 @@ function fakeSupabase(existingEvents: ExistingEvent[] = []) {
     };
     return builder;
   };
-  return { client: { from }, writes };
+  const rpc = async (name: string, payload: unknown) => {
+    writes.push({ table: name, operation: 'rpc', payload });
+    return { data: [{ source_throw_id: 'dart-1', projection_event_id: 31 }], error: null };
+  };
+  return { client: { from, rpc }, writes };
 }
-
-type ExistingEvent = {
-  id: number;
-  source_throw_id: string;
-  revision: number;
-  pre_state_hash: string;
-  actual_score_delta: number;
-  actual_is_double: boolean;
-  actual_outcome: { segment: string; busted: boolean; checkedOut: boolean };
-};
 
 describe('persistDartIQCompletedLeg', () => {
   beforeEach(() => {
@@ -198,24 +185,27 @@ describe('persistDartIQCompletedLeg', () => {
       persistDartIQCompletedLeg(client as never, 'match-1', 'leg-1')
     ).resolves.toEqual({ persisted: 1, skipped: null });
 
-    const eventWrite = writes.find((write) => write.table === 'dartiq_projection_events');
-    expect(eventWrite?.operation).toBe('insert');
-    expect(eventWrite?.payload).toEqual([
+    const replacement = writes.find(
+      (write) => write.table === 'replace_dartiq_leg_projection_events'
+    );
+    expect(replacement?.operation).toBe('rpc');
+    expect(replacement?.payload).toEqual(expect.objectContaining({
+      p_events: [
       expect.objectContaining({
         source_throw_id: 'dart-1',
-        live_capture_status: 'partial',
+        live_capture_status: 'not_supported',
         live_capture_cause: 'completed_leg_reconstruction',
+        outcome_model_applicable: true,
         confidence_tier: expect.any(String),
         pre_state_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
       }),
-    ]);
-
-    const playerWrite = writes.find((write) => write.table === 'dartiq_player_projections');
-    expect(playerWrite?.operation).toBe('upsert');
-    expect(playerWrite?.payload).toEqual([
-      expect.objectContaining({ player_id: 'a', match_probability_before: 0.55, match_probability_after: 0.75 }),
-      expect.objectContaining({ player_id: 'b', match_probability_before: 0.45, match_probability_after: 0.25 }),
-    ]);
+      ],
+      p_player_projections: [
+        expect.objectContaining({ player_id: 'a', match_probability_before: 0.55, match_probability_after: 0.75 }),
+        expect.objectContaining({ player_id: 'b', match_probability_before: 0.45, match_probability_after: 0.25 }),
+      ],
+      p_revision_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }));
     expect(writes).toContainEqual(expect.objectContaining({
       table: 'dartiq_projection_resolutions',
       operation: 'insert',
@@ -223,52 +213,47 @@ describe('persistDartIQCompletedLeg', () => {
     }));
   });
 
-  it('reuses an identical active revision while repairing child rows idempotently', async () => {
+  it('sends a stable content hash so the locked RPC can reuse an identical revision', async () => {
     const first = fakeSupabase();
     await persistDartIQCompletedLeg(first.client as never, 'match-1', 'leg-1');
-    const persisted = (first.writes.find(
-      (write) => write.table === 'dartiq_projection_events'
-    )?.payload as Array<Record<string, unknown>>)[0];
-    const { client, writes } = fakeSupabase([{
-      id: 44,
-      source_throw_id: 'dart-1',
-      revision: 2,
-      pre_state_hash: persisted.pre_state_hash as string,
-      actual_score_delta: 40,
-      actual_is_double: true,
-      actual_outcome: { segment: 'D20', busted: false, checkedOut: true },
-    }]);
+    const firstPayload = first.writes.find(
+      (write) => write.table === 'replace_dartiq_leg_projection_events'
+    )?.payload as { p_revision_hash: string };
+    const { client, writes } = fakeSupabase();
 
     await persistDartIQCompletedLeg(client as never, 'match-1', 'leg-1');
 
     expect(writes.some((write) => write.table === 'dartiq_projection_events')).toBe(false);
-    expect(writes).toContainEqual(expect.objectContaining({
-      table: 'dartiq_player_projections',
-      operation: 'upsert',
-    }));
+    const secondPayload = writes.find(
+      (write) => write.table === 'replace_dartiq_leg_projection_events'
+    )?.payload as { p_revision_hash: string };
+    expect(secondPayload.p_revision_hash).toBe(firstPayload.p_revision_hash);
   });
 
-  it('supersedes a same-ID dart whose realized outcome changed', async () => {
-    const { client, writes } = fakeSupabase([{
-      id: 44,
-      source_throw_id: 'dart-1',
-      revision: 2,
-      pre_state_hash: 'stale',
-      actual_score_delta: 20,
-      actual_is_double: false,
-      actual_outcome: { segment: 'S20', busted: false, checkedOut: false },
+  it('changes the revision hash when a same-ID dart outcome changes', async () => {
+    const original = fakeSupabase();
+    await persistDartIQCompletedLeg(original.client as never, 'match-1', 'leg-1');
+    const originalHash = (original.writes.find(
+      (write) => write.table === 'replace_dartiq_leg_projection_events'
+    )?.payload as { p_revision_hash: string }).p_revision_hash;
+    reconstructDartIQTimeline.mockReturnValueOnce([{
+      ...event(),
+      segment: 'S20',
+      scored: 20,
+      checkedOut: false,
     }]);
+    const { client, writes } = fakeSupabase();
 
     await persistDartIQCompletedLeg(client as never, 'match-1', 'leg-1');
 
-    expect(writes).toContainEqual(expect.objectContaining({
-      table: 'dartiq_projection_events',
-      operation: 'update',
-      payload: expect.objectContaining({ superseded_at: expect.any(String) }),
+    const replacement = writes.find((write) =>
+      write.table === 'replace_dartiq_leg_projection_events'
+    );
+    expect(replacement).toEqual(expect.objectContaining({
+      table: 'replace_dartiq_leg_projection_events',
+      operation: 'rpc',
     }));
-    expect(writes).toContainEqual(expect.objectContaining({
-      table: 'dartiq_projection_events',
-      operation: 'insert',
-    }));
+    expect((replacement?.payload as { p_revision_hash: string }).p_revision_hash)
+      .not.toBe(originalHash);
   });
 });

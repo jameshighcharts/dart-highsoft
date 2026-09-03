@@ -126,13 +126,9 @@ export function buildCommentaryPrompt(
       dartIQHints.push(`Largest full-field match consequence: ${formatPoints(dartiq.peakMatchConsequence ?? 0)}.`);
     }
     if (dartiq.createdBogey) dartIQHints.push('The visit created an unfinishable bogey leave.');
-    else if (
-      dartiq.setupGrade
-      && dartiq.setupGrade !== 'checkout'
-      && dartiq.setupGrade !== 'bust'
-    ) {
+    else if (Math.abs(dartiq.leaveProbabilityChange ?? 0) >= 0.03) {
       dartIQHints.push(
-        `Setup quality: ${dartiq.setupGrade} (${Math.round((dartiq.setupQuality ?? 0) * 100)}/100); next-visit checkout chance ${formatPercent(dartiq.nextVisitCheckoutProbability ?? 0)}.`
+        `The resulting leave changed the next-visit checkout chance by ${formatPoints(dartiq.leaveProbabilityChange ?? 0)}, to ${formatPercent(dartiq.nextVisitCheckoutProbability ?? 0)}.`
       );
     }
   }

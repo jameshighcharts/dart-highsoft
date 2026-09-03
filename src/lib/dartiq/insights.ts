@@ -43,7 +43,6 @@ export type DartIQCommentaryMoment = {
     | 'collapse'
     | 'checkout'
     | 'pressure_bust'
-    | 'great_setup'
     | 'bogey_error';
   importance: number;
   swing: DartIQSwing;
@@ -77,13 +76,12 @@ export type DartIQTurnSummary = {
   biggestDartMatchWpa: number;
   peakLegConsequence: number;
   peakMatchConsequence: number;
-  directCheckoutOpportunity: boolean;
-  matchCheckoutOpportunity: boolean;
+  oneDartFinishAvailable: boolean;
+  matchWinAvailableThisVisit: boolean;
   changedMatchFavorite: boolean;
   checkedOut: boolean;
   busted: boolean;
-  setupQuality: number;
-  setupGrade: DartIQDartEvent['checkout']['setupGrade'];
+  leaveProbabilityChange: number;
   nextVisitCheckoutProbability: number;
   createdBogey: boolean;
 };
@@ -145,8 +143,8 @@ export function summarizeDartIQForTurn(
   let changedMatchFavorite = false;
   let checkedOut = false;
   let busted = false;
-  let directCheckoutOpportunity = false;
-  let matchCheckoutOpportunity = false;
+  let oneDartFinishAvailable = false;
+  let matchWinAvailableThisVisit = false;
 
   for (const event of timeline) {
     if (event.turnId !== turnId || event.playerId !== playerId) continue;
@@ -160,8 +158,8 @@ export function summarizeDartIQForTurn(
     if (leaderId(event.before) !== leaderId(event.after)) changedMatchFavorite = true;
     checkedOut ||= event.checkedOut;
     busted ||= event.busted;
-    directCheckoutOpportunity ||= event.semanticStakes.directCheckoutOpportunity;
-    matchCheckoutOpportunity ||= event.semanticStakes.matchCheckoutOpportunity;
+    oneDartFinishAvailable ||= event.semanticStakes.oneDartFinishAvailable;
+    matchWinAvailableThisVisit ||= event.semanticStakes.matchWinAvailableThisVisit;
   }
 
   if (!first || !last) return null;
@@ -182,13 +180,12 @@ export function summarizeDartIQForTurn(
     biggestDartMatchWpa,
     peakLegConsequence,
     peakMatchConsequence,
-    directCheckoutOpportunity,
-    matchCheckoutOpportunity,
+    oneDartFinishAvailable,
+    matchWinAvailableThisVisit,
     changedMatchFavorite,
     checkedOut,
     busted,
-    setupQuality: last.checkout.setupQuality,
-    setupGrade: last.checkout.setupGrade,
+    leaveProbabilityChange: last.checkout.leaveProbabilityChange,
     nextVisitCheckoutProbability: last.checkout.nextVisitCheckoutProbability,
     createdBogey: last.checkout.createdBogey,
   };
@@ -266,13 +263,6 @@ export function analyzeDartIQTimeline(
     }
     if (event.checkout.createdBogey) {
       commentaryMoments.push({ kind: 'bogey_error', importance: Math.max(swing.matchConsequence, 0.08), swing });
-    } else if (
-      event.dartIndex === 3
-      && !event.checkedOut
-      && (event.checkout.setupGrade === 'optimal' || event.checkout.setupGrade === 'good')
-      && event.checkout.nextVisitCheckoutProbability > 0
-    ) {
-      commentaryMoments.push({ kind: 'great_setup', importance: Math.max(swing.matchConsequence, 0.06), swing });
     }
 
     const winnerId = completedLegWinner(event);

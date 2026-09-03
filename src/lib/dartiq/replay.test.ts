@@ -59,9 +59,9 @@ describe('reconstructDartIQTimeline', () => {
     });
 
     expect(timeline[0].semanticStakes).toEqual({
-      directCheckoutOpportunity: true,
-      checkoutVisitOpportunity: true,
-      matchCheckoutOpportunity: true,
+      oneDartFinishAvailable: true,
+      finishAvailableThisVisit: true,
+      matchWinAvailableThisVisit: true,
     });
   });
 

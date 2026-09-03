@@ -30,16 +30,6 @@ const MODEL_CONFIGURATION = Object.freeze({
   projection: DARTIQ_PROJECTION_CONFIGURATION,
 });
 
-type ExistingProjectionEvent = {
-  id: number;
-  source_throw_id: string;
-  revision: number;
-  pre_state_hash: string;
-  actual_score_delta: number;
-  actual_is_double: boolean;
-  actual_outcome: { segment?: string; busted?: boolean; checkedOut?: boolean };
-};
-
 type EvidenceRow = { id: number; player_id?: string; content_hash: string };
 
 function hash(value: unknown) {
@@ -161,7 +151,6 @@ async function persistResolutions(
       leg_id: resolution.leg_id,
       kind: resolution.kind,
       winner_player_id: resolution.winner_player_id,
-      resolution_epoch: 0,
       ended_early: input.endedEarly,
       resolved_at: input.resolvedAt,
     });
@@ -171,8 +160,8 @@ async function persistResolutions(
 
 /**
  * Reconstruct and persist one completed leg as a small number of batch writes.
- * This is intentionally labelled partial because it is reconstructed at leg
- * completion rather than captured by the authoritative live tracker.
+ * Live capture is explicitly labelled unsupported because this evidence is
+ * reconstructed at leg completion rather than captured by a live tracker.
  */
 export async function persistDartIQCompletedLeg(
   supabase: SupabaseClient,
@@ -245,119 +234,102 @@ export async function persistDartIQCompletedLeg(
     ),
   });
 
-  const existingResult = await supabase
-    .from('dartiq_projection_events')
-    .select('id, source_throw_id, revision, pre_state_hash, actual_score_delta, actual_is_double, actual_outcome')
-    .eq('match_id', matchId)
-    .eq('leg_id', legId)
-    .eq('model_version_id', modelVersionId)
-    .eq('provenance', 'reconstructed')
-    .is('superseded_at', null);
-  if (existingResult.error) throw new Error(existingResult.error.message);
-  const existing = (existingResult.data ?? []) as ExistingProjectionEvent[];
-  const existingBySource = new Map(existing.map((row) => [row.source_throw_id, row]));
-  const sameRevision = existing.length === events.length
-    && events.every((event) => {
-      const row = existingBySource.get(event.dartId);
-      const isDouble = event.segment === 'DB' || event.segment.startsWith('D');
-      return row?.pre_state_hash === hash(inputSnapshotFor(event))
-        && row.actual_score_delta === event.scored
-        && row.actual_is_double === isDouble
-        && row.actual_outcome.segment === event.segment
-        && row.actual_outcome.busted === event.busted
-        && row.actual_outcome.checkedOut === event.checkedOut;
-    });
-  const revision = existing.reduce((maximum, row) => Math.max(maximum, row.revision), -1) + 1;
+  const revisionHash = hash(events.map((event) => ({
+    dartId: event.dartId,
+    preStateHash: hash(inputSnapshotFor(event)),
+    segment: event.segment,
+    scored: event.scored,
+    busted: event.busted,
+    checkedOut: event.checkedOut,
+  })));
   const computedAt = new Date().toISOString();
 
-  let projectionIdsByThrow = new Map(existing.map((row) => [row.source_throw_id, row.id]));
-  if (!sameRevision) {
-    if (existing.length > 0) {
-      const superseded = await supabase
-        .from('dartiq_projection_events')
-        .update({ superseded_at: computedAt })
-        .in('id', existing.map((row) => row.id));
-      if (superseded.error) throw new Error(superseded.error.message);
-    }
-    const eventRows = events.map((event) => {
-      const actorModel = models[event.playerId];
-      const actorDistribution = outcomeDistribution(actorModel, event, event.playerId, data.match!.finish);
-      const tiebreak = event.fairEndingBefore?.phase === 'tiebreak';
-      const inputSnapshot = inputSnapshotFor(event);
-      return {
-        schema_version: 1,
-        match_id: matchId,
-        leg_id: legId,
-        throw_id: event.dartId,
-        source_throw_id: event.dartId,
-        model_version_id: modelVersionId,
-        population_evidence_id: (populationEvidenceResult.data as EvidenceRow).id,
-        acting_player_id: event.playerId,
-        provenance: 'reconstructed',
-        live_capture_status: 'partial',
-        live_capture_cause: 'completed_leg_reconstruction',
-        epoch: 0,
-        revision,
-        sequence: event.sequence,
-        pre_state_hash: hash(inputSnapshot),
-        input_snapshot: inputSnapshot,
-        finish_rule: data.match!.finish,
-        player_count: playerIds.length,
-        score_before: event.before.scores[event.playerId] ?? 0,
-        score_band: scoreBand(event.before.scores[event.playerId] ?? 0, Boolean(tiebreak)),
-        checkout_state: checkoutState(event, data.match!.finish),
-        confidence_tier: actorDistribution.confidenceTier,
-        approximation_modes: event.fairEndingBefore?.approximationMode === 'fair-ending-weighted'
-          ? ['fair-ending-weighted']
-          : [],
-        actual_score_delta: event.scored,
-        actual_is_double: event.segment === 'DB' || event.segment.startsWith('D'),
+  const eventRows = events.map((event) => {
+    const actorModel = models[event.playerId];
+    const tiebreak = event.fairEndingBefore?.phase === 'tiebreak';
+    const actorDistribution = tiebreak
+      ? null
+      : outcomeDistribution(actorModel, event, event.playerId, data.match!.finish);
+    const inputSnapshot = inputSnapshotFor(event);
+    return {
+      schema_version: 1,
+      match_id: matchId,
+      leg_id: legId,
+      throw_id: event.dartId,
+      source_throw_id: event.dartId,
+      model_version_id: modelVersionId,
+      population_evidence_id: (populationEvidenceResult.data as EvidenceRow).id,
+      acting_player_id: event.playerId,
+      provenance: 'reconstructed',
+      live_capture_status: 'not_supported',
+      live_capture_cause: 'completed_leg_reconstruction',
+      sequence: event.sequence,
+      pre_state_hash: hash(inputSnapshot),
+      input_snapshot: inputSnapshot,
+      finish_rule: data.match!.finish,
+      player_count: playerIds.length,
+      score_before: event.before.scores[event.playerId] ?? 0,
+      score_band: scoreBand(event.before.scores[event.playerId] ?? 0, Boolean(tiebreak)),
+      checkout_state: checkoutState(event, data.match!.finish),
+      confidence_tier: actorDistribution?.confidenceTier ?? 'fallback',
+      outcome_model_applicable: !tiebreak,
+      approximation_modes: event.fairEndingBefore?.approximationMode === 'fair-ending-weighted'
+        ? ['fair-ending-weighted']
+        : [],
+      actual_score_delta: event.scored,
+      actual_is_double: event.segment === 'DB' || event.segment.startsWith('D'),
+      busted: event.busted,
+      actual_outcome: {
+        segment: event.segment,
+        scored: event.scored,
+        turnScoreAfter: event.turnScoreAfter,
         busted: event.busted,
-        actual_outcome: {
-          segment: event.segment,
-          scored: event.scored,
-          turnScoreAfter: event.turnScoreAfter,
-          busted: event.busted,
-          checkedOut: event.checkedOut,
-        },
-        computed_at: computedAt,
-      };
-    });
-    const inserted = await supabase
-      .from('dartiq_projection_events')
-      .insert(eventRows)
-      .select('id, source_throw_id');
-    if (inserted.error || !inserted.data) throw new Error(inserted.error?.message ?? 'DartIQ events were not returned');
-    projectionIdsByThrow = new Map(
-      (inserted.data as Array<{ id: number; source_throw_id: string }>).map((row) => [row.source_throw_id, row.id])
-    );
-  }
-
-  const playerRows = events.flatMap((event) => playerIds.map((playerId) => {
+        checkedOut: event.checkedOut,
+      },
+      computed_at: computedAt,
+    };
+  });
+  const playerValues = events.flatMap((event) => playerIds.map((playerId) => {
     const before = event.before.projections.find((projection) => projection.id === playerId)!;
     const after = event.after.projections.find((projection) => projection.id === playerId)!;
-    const distribution = outcomeDistribution(models[playerId], event, playerId, data.match!.finish);
+    const tiebreak = event.fairEndingBefore?.phase === 'tiebreak';
+    const distribution = tiebreak
+      ? null
+      : outcomeDistribution(models[playerId], event, playerId, data.match!.finish);
     return {
-      projection_event_id: projectionIdsByThrow.get(event.dartId)!,
+      source_throw_id: event.dartId,
       player_id: playerId,
       player_evidence_id: evidenceByPlayer.get(playerId)!.id,
       leg_probability_before: before.legWinProbability,
       leg_probability_after: after.legWinProbability,
       match_probability_before: before.matchWinProbability,
       match_probability_after: after.matchWinProbability,
-      expected_finish_summary: {
-        expectedDartsBefore: before.expectedDartsRemaining,
-        expectedDartsAfter: after.expectedDartsRemaining,
-      },
+      expected_finish_summary: tiebreak
+        ? { applicable: false }
+        : {
+            applicable: true,
+            expectedDartsBefore: before.expectedDartsRemaining,
+            expectedDartsAfter: after.expectedDartsRemaining,
+          },
       state_bucket: `${scoreBand(event.before.scores[playerId] ?? 0, event.fairEndingBefore?.phase === 'tiebreak')}:${event.before.dartsRemainingInTurn}`,
-      confidence_tier: distribution.confidenceTier,
-      backoff_level: `${distribution.stateBackoffLevel}:${distribution.outcomeBackoffLevel}`,
+      confidence_tier: distribution?.confidenceTier ?? 'fallback',
+      backoff_level: distribution
+        ? `${distribution.stateBackoffLevel}:${distribution.outcomeBackoffLevel}`
+        : 'not_applicable',
     };
   }));
-  const playerInsert = await supabase
-    .from('dartiq_player_projections')
-    .upsert(playerRows, { onConflict: 'projection_event_id,player_id' });
-  if (playerInsert.error) throw new Error(playerInsert.error.message);
+
+  const replaced = await supabase.rpc('replace_dartiq_leg_projection_events', {
+    p_match_id: matchId,
+    p_leg_id: legId,
+    p_model_version_id: modelVersionId,
+    p_provenance: 'reconstructed',
+    p_revision_hash: revisionHash,
+    p_replaced_at: computedAt,
+    p_events: eventRows,
+    p_player_projections: playerValues,
+  });
+  if (replaced.error) throw new Error(replaced.error.message);
 
   const leg = data.legs.find((candidate) => candidate.id === legId);
   await persistResolutions(supabase, {

@@ -62,8 +62,7 @@ describe('buildCommentaryPrompt DartIQ context', () => {
       changedMatchFavorite: true,
       checkedOut: false,
       busted: false,
-      setupQuality: 0.94,
-      setupGrade: 'good',
+      leaveProbabilityChange: 0.12,
       nextVisitCheckoutProbability: 0.31,
       createdBogey: false,
     };
@@ -73,7 +72,7 @@ describe('buildCommentaryPrompt DartIQ context', () => {
     expect(result.prompt).toContain('Match win chance 34% → 51% (+17pp)');
     expect(result.prompt).toContain('This visit changed the match favorite');
     expect(result.prompt).toContain('Largest full-field match consequence: +17pp');
-    expect(result.prompt).toContain('Setup quality: good (94/100)');
+    expect(result.prompt).toContain('changed the next-visit checkout chance by +12pp');
     expect(result.prompt).toContain('call the result clutch only when the player gained probability');
   });
 

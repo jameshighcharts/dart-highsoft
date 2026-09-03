@@ -38,7 +38,6 @@ export type DartIQEventSignal =
   | 'bust'
   | 'favorite_change'
   | 'large_swing'
-  | 'great_setup'
   | 'bogey_created';
 
 export type DartIQDartPacket = {
@@ -184,15 +183,6 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
   if (favoriteChanged) signals.push('favorite_change');
   if (isMaterialDartIQConsequence(consequence, playerCount)) signals.push('large_swing');
   if (event.checkout.createdBogey) signals.push('bogey_created');
-  if (
-    event.dartIndex === 3
-    && !event.checkedOut
-    && (event.checkout.setupGrade === 'optimal' || event.checkout.setupGrade === 'good')
-    && event.checkout.nextVisitCheckoutProbability > 0
-  ) {
-    signals.push('great_setup');
-  }
-
   let priority: DartIQEventPriority = 'silent';
   if (matchWin) priority = 'terminal';
   else if (
@@ -203,8 +193,8 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     || (
       event.busted
       && (
-        event.semanticStakes?.directCheckoutOpportunity
-        || event.semanticStakes?.matchCheckoutOpportunity
+        event.semanticStakes?.oneDartFinishAvailable
+        || event.semanticStakes?.matchWinAvailableThisVisit
       )
     )
   ) priority = 'marquee';
@@ -212,7 +202,6 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     event.busted
     || favoriteChanged
     || signals.includes('large_swing')
-    || signals.includes('great_setup')
     || signals.includes('bogey_created')
   ) {
     priority = 'notable';
@@ -258,9 +247,9 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     matchWpa,
     consequence,
     semanticStakes: event.semanticStakes ?? {
-      directCheckoutOpportunity: false,
-      checkoutVisitOpportunity: false,
-      matchCheckoutOpportunity: false,
+      oneDartFinishAvailable: false,
+      finishAvailableThisVisit: false,
+      matchWinAvailableThisVisit: false,
     },
     checkout: event.checkout,
     signals,

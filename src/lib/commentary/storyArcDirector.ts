@@ -108,7 +108,7 @@ export function rankCommentaryStoryArcs(input: {
     );
     if (
       event.checkout.checkoutProbabilityBefore > 0
-      && (event.semanticStakes?.matchCheckoutOpportunity || opponentThreat)
+      && (event.semanticStakes?.matchWinAvailableThisVisit || opponentThreat)
     ) {
       const history = highPressure.get(event.playerId) ?? { chances: 0, conversions: 0 };
       history.chances += 1;

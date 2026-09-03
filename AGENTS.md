@@ -121,7 +121,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | Path | Purpose |
 |------|---------|
 | `dartiq/projection.ts` | Live leg/match probability projection, expected darts, fair-ending, tiebreak, and future-leg race semantics |
-| `dartiq/checkout.ts` | Checkout probability, counterfactual setup quality, and bogey-leave evaluation |
+| `dartiq/checkout.ts` | Behavioral live-visit checkout probability, descriptive leave impact, and bogey-leave evaluation |
 | `dartiq/evidence.ts` | Typed historical evidence normalization and hierarchical player skill models |
 | `dartiq/replay.ts` | Single-pass canonical dart replay with before/after projections, WPA, and full-field consequence |
 | `dartiq/insights.ts` | Turning points, lead changes, stolen/thrown-away legs, and ranked commentary moments |
@@ -307,10 +307,13 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 
 Each incremental spectator throw also re-derives the current DartIQ snapshot in `DartIQLive` → `calculateDartIQProjection()` combines current-match form with frozen pre-match evidence and estimates leg/match win probability plus expected darts remaining without additional network requests. Fair-ending checkout-waiting and high-round tiebreak states use the same bounded deterministic projection as replay. The compact header also shows the on-throw player's checkout probability without increasing the player rail height.
 
-DartIQ replay evaluates each dart through `evaluateDartSetup()` → estimates checkout probability before/after, compares the resulting leave against every legal non-busting segment, grades setup quality, and flags bogey creation/avoidance. These facts flow into compact `DartIQDartPacket` signals and deterministic commentary moments.
+DartIQ replay evaluates each dart through `evaluateDartSetup()` → uses the same player-specific behavioral visit kernel to estimate checkout probability before/after and the resulting next-visit chance, while tracking bogey creation/avoidance without inferring aim or grading an imaginary optimal route. These facts flow into compact `DartIQDartPacket` signals and deterministic commentary moments.
 
 **DartIQ personalization:**
 Migration `0059_dartiq_evidence_views.sql` derives finish-rule-specific player/population profiles and behavioral outcome counts from completed, non-test, non-ended X01 history, excluding tiebreak turns. Match creation calls `capture_dartiq_match_evidence()` in the same transaction, freezing those inputs before the first dart. `useDartIQ()` loads that immutable evidence once → `createDartIQSkillModel()` and `createBehavioralOutcomeModel()` build the live projection inputs. This prevents future matches from leaking backward into replay or calibration; raw historical throws never enter the spectator per-dart path.
+
+**DartIQ calibration evidence:**
+Shared `completeLeg()` reconstructs the finished leg from canonical rows and calls `persistDartIQCompletedLeg()` for both manual and Scolia matches. Reconstructed rows are explicitly labelled `not_supported/completed_leg_reconstruction` for live-capture status. `replace_dartiq_leg_projection_events()` takes a transaction-scoped advisory lock, compares the revision content hash, chooses the next monotone revision inside the lock, and atomically writes every dart plus its full per-player probability vector; incomplete or failed replacements roll back without superseding the prior active revision. Tiebreak projections remain calibratable but set `outcome_model_applicable = false` because their darts do not belong to the X01 score-transition outcome model. Commentary latency telemetry is intentionally outside this PR.
 
 For manual commentary, `useMatchRealtime` replays the current leg locally → `summarizeDartIQForTurn()` adds exact before/after leg and match probability context to the commentary prompt, including fair-ending and tiebreak visits. Scolia browsers with a healthy Realtime session suppress this completed-turn duplicate because the worker already delivered each accepted dart directly.
 

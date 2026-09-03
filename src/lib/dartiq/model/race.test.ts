@@ -50,6 +50,13 @@ describe('createFirstFinishPmf', () => {
     expect(pmf.probabilities).toEqual([0.5, 0.5]);
     expect(pmf.truncatedMass).toBe(0);
   });
+
+  it('fails loudly when a kernel does not cover the requested score', () => {
+    expect(() => createFirstFinishPmf({
+      startScore: 701,
+      kernel: new Map([[501, new Map([[0, 1]])]]),
+    })).toThrow('Missing DartIQ visit-kernel state for score 701');
+  });
 });
 
 describe('combineCurrentLegWithMatch', () => {

@@ -11,14 +11,13 @@ function dartIQEvent(overrides: Partial<DartIQDartEvent> = {}): DartIQDartEvent 
     checkedOut: false,
     consequence: { leg: 0.2, match: 0.1 },
     semanticStakes: {
-      directCheckoutOpportunity: true,
-      checkoutVisitOpportunity: true,
-      matchCheckoutOpportunity: true,
+      oneDartFinishAvailable: true,
+      finishAvailableThisVisit: true,
+      matchWinAvailableThisVisit: true,
     },
     checkout: {
       checkoutProbabilityBefore: 0.2, checkoutProbabilityAfter: 0,
-      nextVisitCheckoutProbability: 0, bestAvailableLeaveValue: 1, actualLeaveValue: 0.5,
-      setupQuality: 0.5, setupGrade: 'neutral', bestSegment: 'D20',
+      nextVisitCheckoutProbability: 0, leaveProbabilityChange: 0,
       createdBogey: false, avoidedBogey: false,
     },
     fairEndingBefore: null, fairEndingAfter: null,

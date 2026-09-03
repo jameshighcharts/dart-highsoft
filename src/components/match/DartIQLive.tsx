@@ -176,16 +176,15 @@ export function DartIQLive({
     return {
       projection: nextProjection,
       currentCheckoutProbability: currentProjection && fairEndingState?.phase !== 'tiebreak'
-        ? estimateCheckoutProbability(
-            currentProjection.scoreRemaining,
-            dartsRemainingInTurn,
-            currentProjection.adjustedThreeDartAverage,
+        ? estimateCheckoutProbability({
+            visitStartScore: currentProjection.scoreRemaining + currentVisitScored,
+            scoreRemaining: currentProjection.scoreRemaining,
+            dartsRemaining: dartsRemainingInTurn,
             finishRule,
-            {
-              checkoutRate: currentProjection.checkoutRate,
-              populationCheckoutRate: currentProjection.populationCheckoutRate,
-            }
-          )
+            outcomeModel: currentPlayerId
+              ? outcomeModelsByPlayerId.get(currentPlayerId)
+              : undefined,
+          })
         : 0,
     };
   }, [

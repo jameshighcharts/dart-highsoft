@@ -592,8 +592,8 @@ export class RealtimeCommentaryService {
                 ? ['story_arc']
                 : [];
     const semanticBust = context.busted && Boolean(
-      context.dartiq?.directCheckoutOpportunity
-      || context.dartiq?.matchCheckoutOpportunity
+      context.dartiq?.oneDartFinishAvailable
+      || context.dartiq?.matchWinAvailableThisVisit
     );
     const priority = matchWon
       ? 'terminal'

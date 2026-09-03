@@ -58,7 +58,6 @@ type MutablePlayerMemory = {
   highVisits: number;
   lowVisits: number;
   busts: number;
-  strongSetups: number;
   bogeys: number;
   positiveImpactDarts: number;
   negativeImpactDarts: number;
@@ -78,7 +77,6 @@ function emptyPlayer(): MutablePlayerMemory {
     highVisits: 0,
     lowVisits: 0,
     busts: 0,
-    strongSetups: 0,
     bogeys: 0,
     positiveImpactDarts: 0,
     negativeImpactDarts: 0,
@@ -129,7 +127,7 @@ export function buildCommentaryNarrativeMemory(input: {
         && hasCheckoutRoute(score, 3, input.finishRule)
     );
     const highOpportunity = checkoutOpportunity
-      && (event.semanticStakes?.matchCheckoutOpportunity || opponentThreat);
+      && (event.semanticStakes?.matchWinAvailableThisVisit || opponentThreat);
     if (checkoutOpportunity) {
       memory.opportunities += 1;
       if (event.checkedOut) memory.conversions += 1;
@@ -160,9 +158,6 @@ export function buildCommentaryNarrativeMemory(input: {
       if (event.turnScoreAfter >= 100) memory.highVisits += 1;
       if (event.turnScoreAfter <= 30) memory.lowVisits += 1;
       if (event.busted) memory.busts += 1;
-      if (event.checkout.setupGrade === 'optimal' || event.checkout.setupGrade === 'good') {
-        memory.strongSetups += 1;
-      }
     }
 
     for (const projection of event.after.projections) {
@@ -193,7 +188,6 @@ export function buildCommentaryNarrativeMemory(input: {
       if (memory.highVisits >= 2) tendencies.push('repeated 100-plus scoring');
       if (memory.lowVisits >= 3) tendencies.push('recurring low-scoring visits');
       if (memory.busts >= 2) tendencies.push('repeat bust trouble');
-      if (memory.strongSetups >= 2) tendencies.push('consistently strong setup choices');
       if (memory.bogeys >= 2) tendencies.push('repeated bogey creation');
       if (memory.positiveImpactDarts >= 2) tendencies.push('repeated gains in win probability');
       if (memory.negativeImpactDarts >= 2) tendencies.push('repeated losses in win probability');

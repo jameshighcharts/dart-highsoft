@@ -10,7 +10,7 @@ Build native advanced metrics:
 - Performance relative to personal baseline
 - Stolen and thrown-away legs
 - Expected checkout percentage
-- Setup quality
+- Descriptive leave impact
 - Bogey avoidance
 - Last-dart-at-double accuracy
 - Opponent pressure created
@@ -40,7 +40,7 @@ Ship a post-match “DartIQ Report” containing:
 - Stolen leg: won after falling below 20%
 - Thrown-away leg: lost after exceeding 80%
 - DartIQ performance relative to the player's baseline
-- Setup quality: whether a dart improved the next checkout opportunity
+- Leave impact: how the resulting score changed the next-visit checkout opportunity
 - Bogey mistakes
 - Performance versus expectation
 
@@ -229,7 +229,7 @@ Treat these as engineering targets to benchmark, not platform promises:
 | First streamed model audio | p95 under 1 second |
 | Stale commentary after the next dart | zero |
 
-Instrument a correlated timestamp trail from persisted/detected throw through event dispatch, `response.create`, first transcript delta, first received audio packet, and first audible browser sample. Track p50/p95 by device, browser, network, model, event type, and warm/cold session state. Perceived speed is the product metric; server response time alone is insufficient.
+Commentary latency instrumentation is deliberately deferred. This PR treats the existing delivery speed as sufficient and instruments model correctness, replayability, and calibration only.
 
 #### Delivery sequence
 
@@ -244,7 +244,7 @@ Instrument a correlated timestamp trail from persisted/detected throw through ev
 4. Add local stingers for marquee events.
 5. Implement priority cancellation/truncation and strict stale-response suppression.
 6. Retain the existing commentary and TTS endpoints temporarily as a fallback behind the same commentary interface.
-7. Add end-to-end latency telemetry and tune model, reasoning effort, response length, and trigger thresholds from real measurements.
+7. Deferred: tune commentary delivery only if real usage demonstrates a speed problem.
 
 #### Product contract
 
@@ -279,7 +279,7 @@ Keep these responsibilities explicit:
 | Commentary policy | Whether to speak, priority, interruption, cooldown, local sting selection | Recalculating match or pressure facts |
 | Realtime transport | Session/auth lifecycle, event delivery, audio, transcript, cancellation | Event significance or analytics |
 | Realtime model | Narrative continuity, concise wording, vocal performance | Correcting supplied facts or inventing missing metrics |
-| UI | User controls, connection state, transcript, mute/skip, latency diagnostics | Hidden match-state reconstruction |
+| UI | User controls, connection state, transcript, mute/skip | Hidden match-state reconstruction |
 
 The provider-neutral boundary is the existing `DartIQDartPacket` in `src/lib/dartiq/events.ts`. Realtime-specific code consumes that packet but does not import or invoke the probability model directly.
 
@@ -293,7 +293,7 @@ For every accepted dart:
 4. For Scolia, the worker sends the event as an `input_text` conversation item over an authenticated OpenAI sideband WebSocket attached to the browser's WebRTC call. Manual scoring uses the browser data channel. Silent events still enter context.
 5. If the policy chooses speech, it first applies the latest-wins interruption rules and then emits `response.create` with moment-specific brevity and delivery instructions.
 6. WebRTC delivers generated audio as a remote media stream. Transcript delta events update `CommentaryDisplay` while the call is being spoken.
-7. `response.done`, cancellation, timeout, or transport failure closes the local response lifecycle and records latency/outcome telemetry.
+7. `response.done`, cancellation, timeout, or transport failure closes the local response lifecycle.
 
 Do not wait for Supabase Realtime when the scoring browser already has the accepted API result and authoritative packet. Spectator browsers use the existing ordered Supabase path, deduplicate by event ID, and produce the same packet after applying the realtime event. This preserves the fastest path for the scorer without weakening spectator correctness.
 
@@ -315,7 +315,7 @@ Do not wait for Supabase Realtime when the scoring browser already has the accep
 
 Implemented next: new/reconnected sessions receive a compact canonical match snapshot; Scolia snapshots are injected by the worker before sideband deltas and manual snapshots use the browser channel. The browser reconnects with bounded backoff and proactively rotates healthy calls at 50 minutes. The worker cold-loads DartIQ history/profiles once, then appends ordered darts to an in-memory canonical cache and reuses the verified projection prefix; restart, leg transition, correction epoch, or ordering drift falls back to a clean canonical reconstruction. Throw edits/deletes cancel speech immediately, idempotently advance a server-owned listener epoch, clear the browser policy/transcript, and send a versioned authoritative correction envelope with the replacement snapshot. The worker observes epoch changes before the next accepted dart and resynchronizes its sideband plus DartIQ cache.
 
-Still required: local marquee stings and per-stage latency telemetry.
+Still optional: local marquee stings. Per-stage commentary latency telemetry is outside this PR.
 
 #### DartIQ handoff — fair-ending direct commentary implemented
 
@@ -1203,17 +1203,11 @@ resolutions; they never mutate frozen probability output.
 - RLS enabled with **no** `anon`/`authenticated` policy — server-written telemetry only.
 - Any exposed view sets `security_invoker = true`, re-applied in the same migration on every
   `create or replace view`.
-- Consolidate the branch-only migrations before merge: delete old `0055`–`0058`; recreate
-  `0055_dartiq_profiles.sql` with final views only; recreate
-  `0056_realtime_commentary_sessions.sql` with epoch columns inline; rename the unchanged rematch
-  lineage migration from `0059` to `0057`; and add `0058_dartiq_telemetry.sql`. Released `0054`
-  remains untouched. This is a one-time authorization for this unreleased PR and does not weaken
-  the repository's standing rule against rewriting existing migrations. Consolidation invalidates
-  any applied local or test database state: run `npm run supabase:test:reset` and reset the local
-  development instance as part of this commit. The rematch migration is renamed rather than folded
-  in because `matches.rematch_of_match_id` is general match lineage—written by the rematch route,
-  selected in `matchGuards.loadMatch()`, and typed in `match/types.ts`—with commentary as only one
-  consumer.
+- The final unreleased migration sequence is `0059_dartiq_evidence_views.sql`,
+  `0060_realtime_commentary_sessions.sql`, `0061_match_rematch_lineage.sql`,
+  `0062_dartiq_telemetry.sql`, `0063_dartiq_evidence_capture.sql`, and
+  `0064_atomic_dartiq_projection_replace.sql`. Earlier numbers are occupied by the merged game,
+  Slack, and background-job work from `master`; no artificial DartIQ v2/v3 layer is introduced.
 - **Bitwise replay is not the product contract.** Code revisions, ordering, math-library behaviour,
   and serialization paths all produce harmless last-bit differences. Use exact hashes for canonical
   inputs and configuration, numerical tolerances for projected outputs, and golden fixtures with
@@ -1290,7 +1284,10 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
 12. **Capture path — completed-leg path shipped** — evidence freezes at match creation and the shared
     `completeLeg()` path batch-persists projection events, full player vectors, realized outcomes,
     and leg/match resolutions for both manual and Scolia play. These rows are explicitly marked
-    `partial/completed_leg_reconstruction` until the shared live tracker exists.
+    `not_supported/completed_leg_reconstruction`: no live capture is claimed. Revision replacement
+    is serialized and atomic; the database compares a content hash and assigns the monotone revision
+    under the same advisory lock, so concurrent or failed corrections cannot create duplicate
+    generations, incomplete player vectors, or supersede the prior evidence alone.
 13. **Calibration instrumentation** — persist deterministic speak/skip decisions with policy version
     alongside model projections and outcomes. Provider/audio latency instrumentation is out of scope.
 

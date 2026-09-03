@@ -109,9 +109,9 @@ export type DartIQDartEvent = {
   busted: boolean;
   checkedOut: boolean;
   semanticStakes: {
-    directCheckoutOpportunity: boolean;
-    checkoutVisitOpportunity: boolean;
-    matchCheckoutOpportunity: boolean;
+    oneDartFinishAvailable: boolean;
+    finishAvailableThisVisit: boolean;
+    matchWinAvailableThisVisit: boolean;
   };
   consequence: DartIQConsequence;
   checkout: DartIQCheckoutAssessment;
@@ -150,11 +150,7 @@ function tiebreakCheckoutAssessment(): DartIQCheckoutAssessment {
     checkoutProbabilityBefore: 0,
     checkoutProbabilityAfter: 0,
     nextVisitCheckoutProbability: 0,
-    bestAvailableLeaveValue: 0,
-    actualLeaveValue: 0,
-    setupQuality: 1,
-    setupGrade: 'neutral',
-    bestSegment: null,
+    leaveProbabilityChange: 0,
     createdBogey: false,
     avoidedBogey: false,
   };
@@ -371,8 +367,6 @@ export function reconstructDartIQTimeline(
     const outcome = isTiebreak
       ? { newScore: scores[playerId], busted: false, finished: false }
       : applyThrow(scores[playerId], segment, input.finishRule);
-    const playerProjectionBefore = before.projections.find((projection) => projection.id === playerId);
-
     if (isTiebreak) {
       // High-round darts do not modify the already-completed X01 score or the
       // X01 form sample used by the probability model.
@@ -406,17 +400,14 @@ export function reconstructDartIQTimeline(
     const checkout = isTiebreak
       ? tiebreakCheckoutAssessment()
       : evaluateDartSetup({
+          visitStartScore: turnStartScore,
           scoreBefore: before.scores[playerId] ?? turnStartScore,
           scoreAfter: outcome.busted ? turnStartScore : outcome.newScore,
           dartsRemainingBefore: before.dartsRemainingInTurn,
-          segment: event.dart.segment,
-          threeDartAverage: playerProjectionBefore?.adjustedThreeDartAverage ?? 45,
           finishRule: input.finishRule,
           busted: outcome.busted,
           checkedOut: outcome.finished,
-          checkoutRate: playerProjectionBefore?.checkoutRate,
-          populationCheckoutRate: playerProjectionBefore?.populationCheckoutRate,
-          bustRate: playerProjectionBefore?.bustRate,
+          outcomeModel: input.outcomeModels?.[playerId],
         });
 
     let stateLeg = event.leg;
@@ -522,14 +513,14 @@ export function reconstructDartIQTimeline(
       checkedOut: outcome.finished,
       semanticStakes: (() => {
         const scoreBefore = before.scores[playerId] ?? 0;
-        const directCheckoutOpportunity = !isTiebreak
+        const oneDartFinishAvailable = !isTiebreak
           && hasCheckoutRoute(scoreBefore, 1, input.finishRule);
-        const checkoutVisitOpportunity = !isTiebreak
+        const finishAvailableThisVisit = !isTiebreak
           && hasCheckoutRoute(scoreBefore, before.dartsRemainingInTurn, input.finishRule);
         return {
-          directCheckoutOpportunity,
-          checkoutVisitOpportunity,
-          matchCheckoutOpportunity: checkoutVisitOpportunity
+          oneDartFinishAvailable,
+          finishAvailableThisVisit,
+          matchWinAvailableThisVisit: finishAvailableThisVisit
             && (before.legsWon[playerId] ?? 0) === input.legsToWin - 1,
         };
       })(),

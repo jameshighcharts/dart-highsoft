@@ -90,14 +90,13 @@ function event(narrative = snapshot().narrative): ScoliaRealtimeDartEvent {
       legWpa: 0.22, matchWpa: 0.13,
       consequence: { leg: 0.22, match: 0.13 },
       semanticStakes: {
-        directCheckoutOpportunity: true,
-        checkoutVisitOpportunity: true,
-        matchCheckoutOpportunity: false,
+        oneDartFinishAvailable: true,
+        finishAvailableThisVisit: true,
+        matchWinAvailableThisVisit: false,
       },
       checkout: {
         checkoutProbabilityBefore: 0.35, checkoutProbabilityAfter: 1,
-        nextVisitCheckoutProbability: 1, bestAvailableLeaveValue: 1,
-        actualLeaveValue: 1, setupQuality: 1, setupGrade: 'checkout', bestSegment: 'D20',
+        nextVisitCheckoutProbability: 1, leaveProbabilityChange: 0.65,
         createdBogey: false, avoidedBogey: false,
       },
       signals: ['checkout', 'leg_win', 'large_swing'], priority: 'marquee', shouldSpeak: true,

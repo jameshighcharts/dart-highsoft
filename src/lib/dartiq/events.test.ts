@@ -43,16 +43,15 @@ function event(overrides: Partial<DartIQDartEvent> = {}): DartIQDartEvent {
     busted: false, checkedOut: false,
     consequence: { leg: 0.15, match: 0.09 },
     semanticStakes: {
-      directCheckoutOpportunity: false,
-      checkoutVisitOpportunity: false,
-      matchCheckoutOpportunity: false,
+      oneDartFinishAvailable: false,
+      finishAvailableThisVisit: false,
+      matchWinAvailableThisVisit: false,
     },
     fairEndingBefore: null, fairEndingAfter: null,
     checkout: {
       checkoutProbabilityBefore: 0.2, checkoutProbabilityAfter: 0.1,
-      nextVisitCheckoutProbability: 0.4, bestAvailableLeaveValue: 0.6,
-      actualLeaveValue: 0.55, setupQuality: 0.92, setupGrade: 'good',
-      bestSegment: 'D20', createdBogey: false, avoidedBogey: false,
+      nextVisitCheckoutProbability: 0.4, leaveProbabilityChange: 0.12,
+      createdBogey: false, avoidedBogey: false,
     },
     before, after,
     matchWinProbabilityAdded: { a: 0.09, b: -0.09 },
@@ -123,7 +122,7 @@ describe('createDartIQDartPacket', () => {
 
   it('promotes bogey mistakes to notable events', () => {
     const source = event();
-    source.checkout = { ...source.checkout, createdBogey: true, setupGrade: 'poor' };
+    source.checkout = { ...source.checkout, createdBogey: true };
     source.matchWinProbabilityAdded = { a: 0, b: 0 };
     source.legWinProbabilityAdded = { a: 0, b: 0 };
     source.consequence = { leg: 0, match: 0 };
