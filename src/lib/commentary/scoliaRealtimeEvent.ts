@@ -6,7 +6,8 @@ import {
   type DartIQDartPacket,
   type DartIQEventPriority,
 } from '../dartiq/events.ts';
-import { reconstructDartIQTimeline } from '../dartiq/replay.ts';
+import type { DartIQReplayInput } from '../dartiq/replay.ts';
+import { DartIQTracker } from '../dartiq/tracker.ts';
 import type { FinishRule } from '../../utils/x01.ts';
 import { isNikitaSpecial } from '../../utils/nikitaSpecial.ts';
 import {
@@ -19,8 +20,9 @@ import {
 } from './commentaryNarrative.ts';
 
 type CachedDartIQContext = {
-  input: Parameters<typeof reconstructDartIQTimeline>[0];
-  timeline: ReturnType<typeof reconstructDartIQTimeline>;
+  input: DartIQReplayInput;
+  tracker: DartIQTracker;
+  timeline: ReturnType<DartIQTracker['events']>;
   legId: string;
   lastTurnNumber: number;
   lastDartIndex: number;
@@ -226,7 +228,7 @@ async function loadDartIQPacket(
 ): Promise<DartIQDartPacket | undefined> {
   const cached = dartIQCache?.get(matchId);
   if (cached) {
-    const existing = cached.timeline.find((event) => event.dartId === throwId);
+    const existing = cached.tracker.events().find((event) => event.dartId === throwId);
     if (existing) return createDartIQDartPacket(existing);
     const followsCache = cached.legId === accepted.leg.id && (
       (accepted.turn.turn_number === cached.lastTurnNumber + 1 && accepted.dart.dart_index === 1)
@@ -246,10 +248,11 @@ async function loadDartIQPacket(
       turn.total_scored = accepted.turn.total_scored;
       turn.busted = accepted.turn.busted;
       if (!turn.throws.some((dart) => dart.id === accepted.dart.id)) turn.throws.push(accepted.dart);
-      cached.timeline = reconstructDartIQTimeline(cached.input, { cachedPrefix: cached.timeline });
+      cached.tracker.update(cached.input);
+      cached.timeline = cached.tracker.events();
       cached.lastTurnNumber = accepted.turn.turn_number;
       cached.lastDartIndex = accepted.dart.dart_index;
-      const event = cached.timeline.find((entry) => entry.dartId === throwId);
+      const event = cached.tracker.events().find((entry) => entry.dartId === throwId);
       return event ? createDartIQDartPacket(event) : undefined;
     }
     dartIQCache?.delete(matchId);
@@ -319,7 +322,7 @@ async function loadDartIQPacket(
     }),
   ]));
 
-  const input: Parameters<typeof reconstructDartIQTimeline>[0] = {
+  const input: DartIQReplayInput = {
     playerIds,
     legs: allLegs,
     turnsByLeg,
@@ -332,13 +335,16 @@ async function loadDartIQPacket(
     outcomeModels,
     fairEnding: config.fairEnding,
   };
-  const timeline = reconstructDartIQTimeline(input);
+  const tracker = new DartIQTracker();
+  tracker.update(input);
+  const timeline = tracker.events();
   const latestEvent = timeline.at(-1);
   const latestTurn = latestEvent
     ? (input.turnsByLeg[accepted.leg.id] ?? []).find((turn) => turn.id === latestEvent.turnId)
     : undefined;
   dartIQCache?.set(matchId, {
     input,
+    tracker,
     timeline,
     legId: accepted.leg.id,
     lastTurnNumber: latestTurn?.turn_number ?? accepted.turn.turn_number,

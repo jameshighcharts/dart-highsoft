@@ -7,6 +7,7 @@ import {
   REALTIME_COMMENTARY_MODEL,
   resolveRealtimeVoice,
   type RealtimeCommentaryCorrectionRequest,
+  type RealtimeCommentaryPolicyDecisionRequest,
   type RealtimeCommentarySessionControl,
   type RealtimeCommentarySessionRequest,
 } from '@/lib/commentary/realtimeTypes';
@@ -190,6 +191,79 @@ async function updateSession(request: NextRequest, close: boolean) {
 }
 
 export async function PATCH(request: NextRequest) {
+  let candidate: Partial<RealtimeCommentaryPolicyDecisionRequest> | null = null;
+  try {
+    candidate = await request.clone().json() as Partial<RealtimeCommentaryPolicyDecisionRequest>;
+  } catch {
+    // The heartbeat handler below owns the ordinary invalid-body response.
+  }
+  if (candidate?.action === 'policy_decision') {
+    if (!hasTrustedOrigin(request)) return noStoreJson({ error: 'Invalid request origin' }, 403);
+    const priorities = new Set(['silent', 'ordinary', 'notable', 'marquee', 'terminal']);
+    const reasons = new Set([
+      'guaranteed', 'silent-priority', 'visit-in-progress', 'rapid-sequence',
+      'duplicate-observation', 'cooldown', 'ordinary-sampling',
+      'active-higher-priority', 'speak',
+    ]);
+    if (
+      !candidate.matchId || !isUuid(candidate.matchId)
+      || !candidate.sessionId || !isUuid(candidate.sessionId)
+      || (candidate.turnId !== undefined && !isUuid(candidate.turnId))
+      || typeof candidate.sourceEventId !== 'string'
+      || candidate.sourceEventId.length === 0
+      || candidate.sourceEventId.length > 200
+      || !Number.isSafeInteger(candidate.epoch) || Number(candidate.epoch) < 0
+      || typeof candidate.policyVersion !== 'string'
+      || candidate.policyVersion.length === 0
+      || candidate.policyVersion.length > 100
+      || !candidate.priority || !priorities.has(candidate.priority)
+      || !Array.isArray(candidate.signals)
+      || candidate.signals.length > 20
+      || candidate.signals.some((signal) => typeof signal !== 'string' || signal.length > 100)
+      || typeof candidate.shouldSpeak !== 'boolean'
+      || typeof candidate.guaranteed !== 'boolean'
+      || typeof candidate.interrupt !== 'boolean'
+      || !candidate.reason || !reasons.has(candidate.reason)
+      || typeof candidate.evaluatedAt !== 'string'
+      || !Number.isFinite(Date.parse(candidate.evaluatedAt))
+    ) return noStoreJson({ error: 'Invalid commentary policy decision' }, 400);
+
+    const supabase = getSupabaseServerClient();
+    const activeSession = await supabase
+      .from('commentary_realtime_sessions')
+      .select('id')
+      .eq('id', candidate.sessionId)
+      .eq('match_id', candidate.matchId)
+      .eq('epoch', candidate.epoch)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (activeSession.error) return noStoreJson({ error: 'Could not verify realtime session' }, 500);
+    if (!activeSession.data) return noStoreJson({ error: 'Realtime session is not active' }, 409);
+
+    const inserted = await supabase
+      .from('dartiq_commentary_policy_decisions')
+      .upsert({
+        session_id: candidate.sessionId,
+        match_id: candidate.matchId,
+        turn_id: candidate.turnId ?? null,
+        source_event_id: candidate.sourceEventId,
+        epoch: candidate.epoch,
+        channel: 'browser',
+        policy_version: candidate.policyVersion,
+        priority: candidate.priority,
+        signals: candidate.signals,
+        should_speak: candidate.shouldSpeak,
+        guaranteed: candidate.guaranteed,
+        interrupt: candidate.interrupt,
+        reason: candidate.reason,
+        evaluated_at: candidate.evaluatedAt,
+      }, {
+        onConflict: 'session_id,epoch,source_event_id,policy_version',
+        ignoreDuplicates: true,
+      });
+    if (inserted.error) return noStoreJson({ error: 'Could not record policy decision' }, 500);
+    return noStoreJson({ ok: true });
+  }
   return updateSession(request, false);
 }
 

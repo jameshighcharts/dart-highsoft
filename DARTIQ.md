@@ -410,7 +410,10 @@ The engine may classify analytical signals and a base significance. Final `shoul
 4. `src/utils/fairEnding.ts`: retain one canonical rules implementation; avoid a second subtly different phase machine.
 5. `src/lib/commentary/scoliaRealtimeEvent.ts`: the `match.fair_ending` DartIQ bypass and `allowSpeech: !match.fair_ending` kill switch have been removed; every accepted Scolia dart now uses the DartIQ packet path.
 
-The incremental tracker requested in Phase 1 should be the normal live entry point. The current worker-side whole-leg reconstruction can consume the same transition temporarily, but it is not the desired steady state.
+`DartIQTracker` is the normal live entry point in both the spectator UI and worker. It retains a
+plain-data immutable checkpoint containing exact form totals, active-visit rollback state,
+current-leg fair-ending progress, and the last projection. A verified append resumes from that
+checkpoint; corrections or model/leg metadata changes rebuild from canonical history.
 
 **Acceptance fixtures**
 
@@ -441,12 +444,17 @@ Completed:
 
 Still required for the broader Phase 1 definition of done:
 
-- Replace worker-side whole-leg reconstruction with the shared incremental one-dart tracker and safe checkpoints.
+- Extract the checkpointed suffix transition into an independently callable pure one-dart primitive;
+  the shared tracker already advances verified appends from immutable checkpoints.
 - Add correction/undo envelopes and prove corrected incremental state equals a clean replay.
 - Extend fixture coverage across every checkout dart position and more multiplayer elimination permutations.
 - Measure the fair-ending worker path against the existing live latency budget under realistic match history sizes.
 
-`loadScoliaRealtimeDartEvent()` now enables the packet for fair ending, the DartIQ maps the new signals into speech priority, and a ready Scolia browser suppresses the slower completed-turn duplicate. No Realtime transport redesign was required. The worker still reconstructs the current leg for each accepted dart; replacing that query/replay with checkpointed incremental state remains a performance optimization.
+`loadScoliaRealtimeDartEvent()` now enables the packet for fair ending, the DartIQ maps the new
+signals into speech priority, and a ready Scolia browser suppresses the slower completed-turn
+duplicate. No Realtime transport redesign was required. The worker still verifies the canonical
+source prefix, but accepted suffixes resume from the shared immutable replay checkpoint instead of
+rehydrating historical accumulators.
 
 #### Provider-neutral commentary envelopes
 
@@ -1020,10 +1028,11 @@ live and replay unless the policy carefully freezes its prefix state. It may mod
 
 #### Visit-level semantics
 
-Three missed match darts is **one marquee completed-visit call**, even when no individual dart is
-statistically surprising — the visit carries three match-dart opportunities, a failed visit,
-probability surrendered across the visit, an opponent reprieve, and a repeated-miss narrative.
-"Expected" is not "uninteresting."
+DartIQ may count one-dart match finishes that remained available but unconverted during a visit.
+That is not proof that the player aimed at the finishing target, so commentary must describe it as
+a neutral unconverted chance rather than a missed match dart. The completed visit may become one
+notable call, subject to normal pacing; only observed impact geometry or another explicit aim signal
+can justify stronger target-intent language.
 
 Busts become context-sensitive: a match-losing bull bust is marquee; a bust from 3 after repeated
 misses may be ordinary, notable, or deliberately silent. This retires the unconditional promotion
@@ -1190,6 +1199,12 @@ predictions. Each row has `kind in ('leg', 'match')`, authoritative winner, reso
 timestamp, and early-ending status where applicable. Corrections supersede predictions and
 resolutions; they never mutate frozen probability output.
 
+**`dartiq_commentary_policy_decisions`** — one immutable decision per listener session, correction
+epoch, source event, and policy version. It stores the browser/worker channel, optional canonical
+throw or turn, input signals, priority, speak/skip result, guarantee/interruption flags, exact
+decision reason, and evaluation timestamp. This calibrates editorial policy separately from model
+probability calibration and deliberately contains no provider/audio timing fields.
+
 #### Types, indexes, and policies
 
 - `bigint generated always as identity` primary keys; `timestamptz`; `text` with check constraints.
@@ -1250,7 +1265,8 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
 #### B. Engine replacement
 
 3. **Outcome contract** — implement `behavioral-v1`, frozen evidence loading, hierarchical backoff,
-   and explicit confidence dimensions.
+   and explicit confidence dimensions. Current-match average is shrunk across 90 prior darts so one
+   early maximum cannot rewrite a player's baseline; the categorical outcome model remains primary.
 4. **Visit kernels** — implement double-out and single-out full-visit kernels, partial-visit entry,
    and a dense correctness oracle. Validate the oracle against hand-authored categorical outcome
    fixtures with closed-form expected values, not against `behavioral-v1`; agreement between two
@@ -1259,8 +1275,13 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
    probabilities, alternating-starter future legs, and match probabilities.
 6. **Fair ending** — add identity-preserving joiners and the declared bounded tiebreak/large-field
    path.
-7. **Authoritative tracker** — make one incremental tracker feed live UI, replay, commentary, and
-   report; remove the independent React projection.
+7. **Authoritative tracker — checkpointed foundation shipped** — `DartIQTracker` now owns the
+   correction-safe verified replay prefix for both the live spectator UI and Scolia commentary.
+   `DartIQLive` only renders the tracker's latest replay state, including the true partial-visit
+   start score. Replay returns a structured-cloneable immutable accumulator checkpoint with exact
+   scoring totals, visit rollback state, current-leg fair-ending progress, and projection state;
+   verified appends resume from it without rehydrating prefix accumulators. Corrections and context
+   changes deliberately rebuild from canonical inputs.
 8. **Metric cleanup** — add total-variation consequence, opportunity, outcome rarity, and semantic
    stakes; remove the invented leverage index, every WPA/leverage ratio, and user-facing
    `bestSegment`.
@@ -1271,10 +1292,11 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
    `renderCommentaryDelta`, and `renderBroadcastDirection`; use display names, rounded values,
    and narrative diffs. Retain envelope schema/version fields because Railway worker and Vercel
    browser deployments can overlap.
-10. **Bust and visit semantics** — change priority assignment, guaranteed-event policy, and
-    observation deduplication together. Default busts to notable; promote to marquee only for
-    semantic stakes such as a directly squandered checkout or authoritative match-dart sequence.
-    Do not tune this policy against old heuristic WPA.
+10. **Bust and visit semantics — shipped** — ordinary busts default to notable; direct checkout or
+    match-stake busts become marquee. Repeated one-dart match finishes left unconverted accumulate
+    on the visit and emit one neutral notable fact only when that visit completes. They are not
+    labelled attempted or missed match darts without observed aim evidence. Observation
+    deduplication remains player/semantic scoped rather than unique-dart scoped.
 
 #### D. Frozen evidence and telemetry
 
@@ -1288,8 +1310,11 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
     is serialized and atomic; the database compares a content hash and assigns the monotone revision
     under the same advisory lock, so concurrent or failed corrections cannot create duplicate
     generations, incomplete player vectors, or supersede the prior evidence alone.
-13. **Calibration instrumentation** — persist deterministic speak/skip decisions with policy version
-    alongside model projections and outcomes. Provider/audio latency instrumentation is out of scope.
+13. **Calibration instrumentation — shipped** — browser and Scolia-worker policy evaluations persist
+    listener/epoch-scoped speak/skip decisions with policy version, input signals, priority,
+    guarantee/interruption flags, and exact decision reason alongside model evidence. Inserts are
+    idempotent per session, correction epoch, source event, and policy version. Provider/audio
+    latency instrumentation is out of scope.
 
 #### E. Product surface
 
@@ -1298,13 +1323,14 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
 15. **Full DartIQ Report — shipped foundation** — `/match/[id]/report` is linked from recent games
     and server-loads the canonical replay. Its responsive SVG is server-rendered rather than adding
     a Highcharts client island, keeping the route free of chart hydration and bundle cost.
-16. **Report interaction** — add the probability timeline with leg boundaries, scrubber/clickable
-    swing list, synchronized Scolia heatmaps, per-player summaries, and a compact shareable story
-    whose claims always resolve to deterministic facts.
+16. **Report interaction — in progress** — the probability timeline, leg boundaries, clickable
+    swing list, URL-stable dart selection synchronized with Scolia impact heatmaps, detailed
+    per-player baseline/WPA summaries, and compact deterministic match story are present. A
+    continuous keyboard/touch scrubber remains.
 
-`analyzeDartIQTimeline()` now drives the report's loading, routing, chart, summary counts, and ranked
-dart navigation. Heatmap synchronization, deeper per-player summaries, and sharing remain in the
-report-interaction slice of this PR.
+`analyzeDartIQTimeline()` now drives the report's loading, routing, chart, summary counts, ranked
+dart navigation, player breakdowns, shareable factual paragraph, and selected-impact highlighting.
+A continuous keyboard/touch scrubber remains in the report-interaction slice of this PR.
 
 #### F. Proof and documentation
 

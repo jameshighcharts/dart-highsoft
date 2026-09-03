@@ -18,6 +18,7 @@ import {
   PendingThrowBuffer,
   getRealtimePayloadLegId,
   getRealtimePayloadTurnId,
+  replaceRealtimeLegTurns,
   shouldClearLocalOngoingTurn,
   shouldIgnoreRealtimePayload,
   type RealtimePayload,
@@ -129,6 +130,7 @@ type UseMatchRealtimeArgs = {
     playerById: Record<string, Player>;
     turnThrowCounts: Record<string, number>;
     turns: TurnRecord[];
+    turnsByLeg: Record<string, TurnRecord[]>;
     legs: LegRecord[];
     players: Player[];
     match: MatchRecord | null;
@@ -138,6 +140,9 @@ type UseMatchRealtimeArgs = {
   pendingThrowBufferRef: React.MutableRefObject<PendingThrowBuffer>;
   pendingTurnReconcileRef: React.MutableRefObject<Set<string>>;
   setTurns: (value: TurnRecord[] | ((prev: TurnRecord[]) => TurnRecord[])) => void;
+  setTurnsByLeg: (
+    value: Record<string, TurnRecord[]> | ((prev: Record<string, TurnRecord[]>) => Record<string, TurnRecord[]>)
+  ) => void;
   setTurnThrowCounts: (value: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => void;
   setMatch: (value: MatchRecord | null) => void;
   ongoingTurnRef: React.MutableRefObject<{
@@ -183,6 +188,7 @@ export function useMatchRealtime({
   pendingThrowBufferRef,
   pendingTurnReconcileRef,
   setTurns,
+  setTurnsByLeg,
   setTurnThrowCounts,
   setMatch,
   ongoingTurnRef,
@@ -231,6 +237,21 @@ export function useMatchRealtime({
     // turn insert. We filter throw events by known turn IDs to avoid cross-match noise, so we
     // buffer unknown turn_ids and flush once the corresponding turn becomes known.
     const pendingThrowBuffer = pendingThrowBufferRef.current;
+
+    const publishTurnsForLeg = (legId: string, nextTurns: TurnRecord[]) => {
+      setTurns((prev) => (areTurnsEqual(prev, nextTurns) ? prev : nextTurns));
+      setTurnsByLeg((prev) => {
+        const previousLegTurns = prev[legId] ?? [];
+        return areTurnsEqual(previousLegTurns, nextTurns)
+          ? prev
+          : replaceRealtimeLegTurns(prev, legId, nextTurns);
+      });
+      latestStateRef.current = {
+        ...latestStateRef.current,
+        turns: nextTurns,
+        turnsByLeg: replaceRealtimeLegTurns(latestStateRef.current.turnsByLeg, legId, nextTurns),
+      };
+    };
 
     const handleThrowChange = async (event: CustomEvent) => {
       const payload = event.detail as RealtimePayload & {
@@ -446,6 +467,7 @@ export function useMatchRealtime({
         const context: CommentaryContext = {
           playerName,
           playerId: turn.player_id,
+          turnId: turn.id,
           totalScore: turnTotal,
           remainingScore,
           throws: throws.map((t) => ({
@@ -562,10 +584,8 @@ export function useMatchRealtime({
 
         if (!updatedTurns) return;
 
-        setTurns((prev) => {
-          const next = updatedTurns as unknown as TurnRecord[];
-          return areTurnsEqual(prev, next) ? prev : next;
-        });
+        const nextTurns = updatedTurns as unknown as TurnRecord[];
+        publishTurnsForLeg(currentLeg.id, nextTurns);
 
         const throwCounts: Record<string, number> = {};
         for (const turn of updatedTurns as TurnWithThrows[]) {
@@ -577,7 +597,6 @@ export function useMatchRealtime({
         });
         latestStateRef.current = {
           ...latestStateRef.current,
-          turns: updatedTurns as unknown as TurnRecord[],
           turnThrowCounts: throwCounts,
         };
       };
@@ -642,16 +661,13 @@ export function useMatchRealtime({
           nextCounts = result.turnThrowCounts;
         }
 
-        setTurns((prev) => {
-          return areTurnsEqual(prev, nextTurns as unknown as TurnRecord[]) ? prev : (nextTurns as unknown as TurnRecord[]);
-        });
+        publishTurnsForLeg(turn.leg_id, nextTurns as unknown as TurnRecord[]);
 
         setTurnThrowCounts((prev) => {
           return areThrowCountsEqual(prev, nextCounts) ? prev : nextCounts;
         });
         latestStateRef.current = {
           ...latestStateRef.current,
-          turns: nextTurns as unknown as TurnRecord[],
           turnThrowCounts: nextCounts,
         };
       } catch {
@@ -728,16 +744,14 @@ export function useMatchRealtime({
         const turnsChanged = !areTurnsEqual(prevTurns, result.turns as unknown as TurnRecord[]);
         const countsChanged = !areThrowCountsEqual(prevCounts, result.turnThrowCounts);
 
-        setTurns((prev) => {
-          const next = result.turns as unknown as TurnRecord[];
-          return areTurnsEqual(prev, next) ? prev : next;
-        });
+        if (currentLegId) {
+          publishTurnsForLeg(currentLegId, result.turns as unknown as TurnRecord[]);
+        }
         setTurnThrowCounts((prev) => {
           return areThrowCountsEqual(prev, result.turnThrowCounts) ? prev : result.turnThrowCounts;
         });
         latestStateRef.current = {
           ...latestStateRef.current,
-          turns: result.turns as unknown as TurnRecord[],
           turnThrowCounts: result.turnThrowCounts,
         };
         if (!turnsChanged && !countsChanged && payloadTurnId && latestStateRef.current.knownTurnIds.has(payloadTurnId)) {
@@ -922,10 +936,7 @@ export function useMatchRealtime({
             }
 
             // Update state with functional updates
-            setTurns((prev) => {
-              const newTurns = updatedTurns as unknown as TurnRecord[];
-              return areTurnsEqual(prev, newTurns) ? prev : newTurns;
-            });
+            publishTurnsForLeg(currentLeg.id, updatedTurns as unknown as TurnRecord[]);
 
             // Update throw counts
             const throwCounts: Record<string, number> = {};
@@ -1054,16 +1065,14 @@ export function useMatchRealtime({
           return;
         }
 
-        setTurns((prev) => {
-          const next = result.turns as unknown as TurnRecord[];
-          return areTurnsEqual(prev, next) ? prev : next;
-        });
+        if (currentLegId) {
+          publishTurnsForLeg(currentLegId, result.turns as unknown as TurnRecord[]);
+        }
         setTurnThrowCounts((prev) => {
           return areThrowCountsEqual(prev, result.turnThrowCounts) ? prev : result.turnThrowCounts;
         });
         latestStateRef.current = {
           ...latestStateRef.current,
-          turns: result.turns as unknown as TurnRecord[],
           turnThrowCounts: result.turnThrowCounts,
         };
 
@@ -1157,13 +1166,27 @@ export function useMatchRealtime({
     };
 
     // Handle leg changes - requires full reload for leg transitions
-    const handleLegChange = async () => {
+    const handleLegChange = async (event: CustomEvent) => {
       try {
+        const payload = event.detail as {
+          new?: Partial<LegRecord>;
+          old?: Partial<LegRecord>;
+        };
+        const changedLegId = payload.new?.id ?? payload.old?.id;
+        const previousLeg = latestStateRef.current.legs.find((leg) => leg.id === changedLegId)
+          ?? latestStateRef.current.legs.find((leg) => !leg.winner_player_id)
+          ?? latestStateRef.current.legs[latestStateRef.current.legs.length - 1];
+        if (previousLeg?.id) {
+          // A leg event can overtake the final throw event. Freeze a canonical DB
+          // snapshot before switching the current-leg view so DartIQ never loses
+          // the completed leg from its verified replay prefix.
+          await loadTurnsForLeg(previousLeg.id);
+        }
         const nextLegs = await loadLegsOnly();
         const currentLeg = nextLegs.find((l) => !l.winner_player_id) ?? nextLegs[nextLegs.length - 1];
-        if (currentLeg?.id) {
+        if (currentLeg?.id && currentLeg.id !== previousLeg?.id) {
           await loadTurnsForLeg(currentLeg.id);
-        } else {
+        } else if (!currentLeg?.id) {
           throw new Error('No current leg after legs reload');
         }
       } catch {
@@ -1241,6 +1264,7 @@ export function useMatchRealtime({
     pendingThrowBufferRef,
     pendingTurnReconcileRef,
     setTurns,
+    setTurnsByLeg,
     setTurnThrowCounts,
     setMatch,
     ongoingTurnRef,

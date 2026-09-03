@@ -78,6 +78,7 @@ export type DartIQTurnSummary = {
   peakMatchConsequence: number;
   oneDartFinishAvailable: boolean;
   matchWinAvailableThisVisit: boolean;
+  unconvertedMatchFinishChancesInVisit: number;
   changedMatchFavorite: boolean;
   checkedOut: boolean;
   busted: boolean;
@@ -145,6 +146,7 @@ export function summarizeDartIQForTurn(
   let busted = false;
   let oneDartFinishAvailable = false;
   let matchWinAvailableThisVisit = false;
+  let unconvertedMatchFinishChancesInVisit = 0;
 
   for (const event of timeline) {
     if (event.turnId !== turnId || event.playerId !== playerId) continue;
@@ -160,6 +162,10 @@ export function summarizeDartIQForTurn(
     busted ||= event.busted;
     oneDartFinishAvailable ||= event.semanticStakes.oneDartFinishAvailable;
     matchWinAvailableThisVisit ||= event.semanticStakes.matchWinAvailableThisVisit;
+    unconvertedMatchFinishChancesInVisit = Math.max(
+      unconvertedMatchFinishChancesInVisit,
+      event.semanticStakes.unconvertedMatchFinishChancesInVisit ?? 0
+    );
   }
 
   if (!first || !last) return null;
@@ -182,6 +188,7 @@ export function summarizeDartIQForTurn(
     peakMatchConsequence,
     oneDartFinishAvailable,
     matchWinAvailableThisVisit,
+    unconvertedMatchFinishChancesInVisit,
     changedMatchFavorite,
     checkedOut,
     busted,

@@ -16,7 +16,8 @@ create table public.commentary_realtime_sessions (
     check (status in ('active', 'closed')),
   created_at timestamptz not null default now(),
   last_seen_at timestamptz not null default now(),
-  closed_at timestamptz
+  closed_at timestamptz,
+  unique (id, match_id)
 );
 
 create index commentary_realtime_sessions_active_match_idx

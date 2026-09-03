@@ -20,7 +20,7 @@ import {
 import { createDartIQVisitKernel, solveDartIQVisit } from './model/visit';
 
 export const DARTIQ_PROJECTION_CONFIGURATION = Object.freeze({
-  currentFormPriorDarts: 12,
+  currentFormPriorDarts: 90,
   maximumVisits: 40,
 });
 

@@ -48,6 +48,14 @@ export function shouldClearLocalOngoingTurn(params: {
   return persistedTurn.throwCount >= 3 && persistedTurn.throwCount > localDartCount;
 }
 
+export function replaceRealtimeLegTurns<T>(
+  turnsByLeg: Readonly<Record<string, T[]>>,
+  legId: string,
+  turns: T[]
+): Record<string, T[]> {
+  return { ...turnsByLeg, [legId]: turns };
+}
+
 export class PendingThrowBuffer {
   private byTurnId = new Map<string, unknown>();
   private limit: number;

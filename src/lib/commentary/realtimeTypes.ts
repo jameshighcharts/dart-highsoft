@@ -1,6 +1,7 @@
 import type { CommentaryPersonaId } from '@/lib/commentary/types';
 import type { VoiceOption } from '@/services/ttsService';
 import type { RealtimeCommentarySnapshot } from './realtimeSnapshot';
+import type { CommentaryPolicyDecision, CommentaryPolicyEvent } from './commentaryPolicy';
 
 export const REALTIME_COMMENTARY_MODEL =
   process.env.OPENAI_REALTIME_COMMENTARY_MODEL?.trim() || 'gpt-realtime-2.1';
@@ -24,6 +25,21 @@ export type RealtimeCommentarySessionResponse = {
 export type RealtimeCommentarySessionControl = {
   matchId: string;
   sessionId: string;
+};
+
+export type RealtimeCommentaryPolicyDecisionRequest = RealtimeCommentarySessionControl & {
+  action: 'policy_decision';
+  sourceEventId: string;
+  turnId?: string;
+  epoch: number;
+  policyVersion: string;
+  priority: CommentaryPolicyEvent['priority'];
+  signals: CommentaryPolicyEvent['signals'];
+  shouldSpeak: CommentaryPolicyDecision['shouldSpeak'];
+  guaranteed: CommentaryPolicyDecision['guaranteed'];
+  interrupt: CommentaryPolicyDecision['interrupt'];
+  reason: CommentaryPolicyDecision['reason'];
+  evaluatedAt: string;
 };
 
 export type RealtimeCommentaryCorrectionReason = 'throw_updated' | 'throw_deleted';

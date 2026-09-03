@@ -188,6 +188,20 @@ describe('DartIQ projection', () => {
     expect(result.players[0].baselineThreeDartAverage).toBeGreaterThan(68);
   });
 
+  it('does not let one early maximum overwhelm the frozen baseline', () => {
+    const result = calculateDartIQProjection({
+      players: [player('a', 321, 0, 180, 3), player('b', 501)],
+      playOrder: ['b', 'a'],
+      currentPlayerId: 'b',
+      dartsRemainingInTurn: 3,
+      legsToWin: 1,
+      finishRule: 'double_out',
+    });
+
+    expect(result.players[0].adjustedThreeDartAverage).toBeLessThan(50);
+    expect(result.players[0].adjustedThreeDartAverage).toBeGreaterThan(45);
+  });
+
   it('keeps fair-ending checkout-waiting probabilities provisional and normalized', () => {
     const result = calculateDartIQProjection({
       players: [player('a', 0, 0, 55, 30), player('b', 40, 0, 55, 30)],

@@ -1,41 +1,20 @@
 "use client";
 
 import { Activity, Crosshair } from 'lucide-react';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { CSSProperties } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import type { LegRecord, Player, TurnRecord, TurnWithThrows } from '@/lib/match/types';
-import { getSpectatorScore } from '@/utils/matchStats';
-import { estimateCheckoutProbability } from '@/lib/dartiq/checkout';
-import { calculateDartIQProjection } from '@/lib/dartiq/projection';
-import { getPendingFairEndingPlayerIds, type FairEndingState } from '@/utils/fairEnding';
-import type {
-  DartIQPlayerHistoryProfile,
-  DartIQPopulationProfile,
-} from '@/lib/dartiq/evidence';
-import type { FinishRule } from '@/utils/x01';
-import type { DartIQOutcomeModel } from '@/lib/dartiq/model/outcomes';
+import type { Player } from '@/lib/match/types';
+import type { DartIQTrackerSnapshot } from '@/lib/dartiq/tracker';
 
 type Props = {
   orderPlayers: Player[];
-  spectatorCurrentPlayer: Player | null;
-  turns: TurnRecord[];
-  currentLegId?: string;
-  startScore: number;
-  finishRule: FinishRule;
-  turnThrowCounts: Record<string, number>;
-  getAvgForPlayer: (playerId: string) => number;
-  legs: LegRecord[];
   legsToWin: number;
   matchWinnerId: string | null;
-  profilesByPlayerId: ReadonlyMap<string, DartIQPlayerHistoryProfile>;
-  populationProfile?: DartIQPopulationProfile;
-  outcomeModelsByPlayerId: ReadonlyMap<string, DartIQOutcomeModel>;
+  snapshot: DartIQTrackerSnapshot;
   hasPersonalProfiles: boolean;
-  fairEnding: boolean;
-  fairEndingState?: FairEndingState;
 };
 
 function formatProbability(value: number) {
@@ -46,167 +25,23 @@ function formatProbability(value: number) {
 
 export function DartIQLive({
   orderPlayers,
-  spectatorCurrentPlayer,
-  turns,
-  currentLegId,
-  startScore,
-  finishRule,
-  turnThrowCounts,
-  getAvgForPlayer,
-  legs,
   legsToWin,
   matchWinnerId,
-  profilesByPlayerId,
-  populationProfile,
-  outcomeModelsByPlayerId,
+  snapshot,
   hasPersonalProfiles,
-  fairEnding,
-  fairEndingState,
 }: Props) {
-  const currentPlayerId = spectatorCurrentPlayer?.id ?? null;
-
-  const dartIQSnapshot = useMemo(() => {
-    const legsWon = new Map<string, number>();
-    for (const leg of legs) {
-      if (leg.winner_player_id) {
-        legsWon.set(leg.winner_player_id, (legsWon.get(leg.winner_player_id) ?? 0) + 1);
-      }
-    }
-
-    let dartsRemainingInTurn = currentPlayerId ? 3 : 0;
-    let currentVisitScored = 0;
-    if (currentPlayerId) {
-      const currentPlayerTurns = turns.filter(
-        (turn) => turn.leg_id === currentLegId && turn.player_id === currentPlayerId
-      );
-      const latestTurn = currentPlayerTurns[currentPlayerTurns.length - 1];
-      if (latestTurn && !latestTurn.busted) {
-        const throwCount = turnThrowCounts[latestTurn.id] ?? 0;
-        if (throwCount > 0 && throwCount < 3) {
-          dartsRemainingInTurn = 3 - throwCount;
-          currentVisitScored = (latestTurn as TurnWithThrows).throws
-            ?.reduce((sum, dart) => sum + dart.scored, 0) ?? latestTurn.total_scored;
-        }
-      }
-    }
-
-    const playerStates = orderPlayers.map((player) => {
-      const playerTurns = turns.filter(
-        (turn) => turn.leg_id === currentLegId && turn.player_id === player.id && turn.tiebreak_round == null
-      );
-      const dartsThrown = playerTurns.reduce((total, turn) => {
-        const explicitCount = turnThrowCounts[turn.id];
-        const loadedCount = (turn as TurnWithThrows).throws?.length;
-        return total + (explicitCount ?? loadedCount ?? (turn.busted || turn.total_scored > 0 ? 3 : 0));
-      }, 0);
-
-      return {
-        id: player.id,
-        scoreRemaining: getSpectatorScore(turns, currentLegId, startScore, turnThrowCounts, player.id),
-        legsWon: legsWon.get(player.id) ?? 0,
-        threeDartAverage: getAvgForPlayer(player.id),
-        dartsThrown,
-        historicalProfile: profilesByPlayerId.get(player.id),
-        outcomeModel: outcomeModelsByPlayerId.get(player.id),
-      };
-    });
-
-    const fairEndingTurnInputs = turns
-      .filter((turn) => turn.leg_id === currentLegId)
-      .map((turn) => {
-        const throwCount = turnThrowCounts[turn.id] ?? (turn as TurnWithThrows).throws?.length ?? 0;
-        return {
-          player_id: turn.player_id,
-          total_scored: turn.total_scored,
-          busted: turn.busted,
-          tiebreak_round: turn.tiebreak_round,
-          throw_count: throwCount,
-          throws_total: turn.total_scored,
-          completed: turn.busted
-            || throwCount >= 3
-            || Boolean(fairEndingState?.checkedOutPlayerIds.includes(turn.player_id)),
-        };
-      });
-    const fairTurnByRoundAndPlayer = new Map(
-      fairEndingTurnInputs.map((turn) => [
-        `${turn.tiebreak_round ?? 0}:${turn.player_id}`,
-        turn,
-      ])
-    );
-    const tiebreakDartsThrown = Object.fromEntries(
-      (fairEndingState?.tiebreakPlayerIds ?? []).map((playerId) => {
-        const activeTurn = fairTurnByRoundAndPlayer.get(
-          `${fairEndingState?.tiebreakRound ?? 0}:${playerId}`
-        );
-        return [playerId, activeTurn?.throw_count ?? 0];
-      })
-    );
-    const fairProjection = fairEnding && fairEndingState
-      ? {
-          ...fairEndingState,
-          pendingPlayerIds: getPendingFairEndingPlayerIds(
-            fairEndingState,
-            orderPlayers,
-            fairEndingTurnInputs
-          ),
-          tiebreakDartsThrown,
-        }
-      : undefined;
-
-    const nextProjection = calculateDartIQProjection({
-      players: playerStates,
-      playOrder: orderPlayers.map((player) => player.id),
-      currentPlayerId,
-      currentVisitStartScore: currentPlayerId
-        ? (playerStates.find((player) => player.id === currentPlayerId)?.scoreRemaining ?? 0)
-          + currentVisitScored
-        : undefined,
-      currentLegStarterId: legs.find((leg) => leg.id === currentLegId)?.starting_player_id,
-      dartsRemainingInTurn,
-      legsToWin,
-      finishRule,
-      matchWinnerId,
-      populationProfile,
-      fairEnding: fairProjection,
-    });
-    const currentProjection = currentPlayerId
-      ? nextProjection.players.find((player) => player.id === currentPlayerId)
-      : undefined;
-
-    return {
-      projection: nextProjection,
-      currentCheckoutProbability: currentProjection && fairEndingState?.phase !== 'tiebreak'
-        ? estimateCheckoutProbability({
-            visitStartScore: currentProjection.scoreRemaining + currentVisitScored,
-            scoreRemaining: currentProjection.scoreRemaining,
-            dartsRemaining: dartsRemainingInTurn,
-            finishRule,
-            outcomeModel: currentPlayerId
-              ? outcomeModelsByPlayerId.get(currentPlayerId)
-              : undefined,
-          })
-        : 0,
-    };
-  }, [
-    currentLegId,
-    currentPlayerId,
-    fairEnding,
-    fairEndingState,
-    finishRule,
-    getAvgForPlayer,
-    legs,
-    legsToWin,
-    matchWinnerId,
-    orderPlayers,
-    outcomeModelsByPlayerId,
-    populationProfile,
-    profilesByPlayerId,
-    startScore,
-    turnThrowCounts,
-    turns,
-  ]);
-
-  const { projection, currentCheckoutProbability } = dartIQSnapshot;
+  const currentPlayerId = snapshot.state.currentPlayerId;
+  const projection = {
+    players: snapshot.state.projections,
+    favoritePlayerId: snapshot.state.projections.reduce<string | null>((favoriteId, player) => {
+      if (!favoriteId) return player.id;
+      const favorite = snapshot.state.projections.find((entry) => entry.id === favoriteId);
+      return !favorite || player.matchWinProbability > favorite.matchWinProbability
+        ? player.id
+        : favoriteId;
+    }, null),
+  };
+  const currentCheckoutProbability = snapshot.currentCheckoutProbability;
 
   const projectionById = new Map(projection.players.map((player) => [player.id, player]));
   const favorite = orderPlayers.find((player) => player.id === projection.favoritePlayerId);

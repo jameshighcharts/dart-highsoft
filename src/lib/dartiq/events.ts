@@ -36,6 +36,7 @@ export type DartIQEventSignal =
   | 'nikita_special'
   | 'story_arc'
   | 'bust'
+  | 'match_finish_chances_unconverted'
   | 'favorite_change'
   | 'large_swing'
   | 'bogey_created';
@@ -180,6 +181,11 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
   }
   if (event.dartIndex === 3 && event.turnScoreAfter === 180) signals.push('one_eighty');
   if (event.busted) signals.push('bust');
+  const visitCompleted = event.dartIndex >= 3 || event.busted || event.checkedOut;
+  if (
+    visitCompleted
+    && (event.semanticStakes.unconvertedMatchFinishChancesInVisit ?? 0) >= 2
+  ) signals.push('match_finish_chances_unconverted');
   if (favoriteChanged) signals.push('favorite_change');
   if (isMaterialDartIQConsequence(consequence, playerCount)) signals.push('large_swing');
   if (event.checkout.createdBogey) signals.push('bogey_created');
@@ -203,6 +209,7 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     || favoriteChanged
     || signals.includes('large_swing')
     || signals.includes('bogey_created')
+    || signals.includes('match_finish_chances_unconverted')
   ) {
     priority = 'notable';
   } else if (event.dartIndex >= 3) priority = 'ordinary';
@@ -250,6 +257,8 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
       oneDartFinishAvailable: false,
       finishAvailableThisVisit: false,
       matchWinAvailableThisVisit: false,
+      oneDartFinishUnconverted: false,
+      unconvertedMatchFinishChancesInVisit: 0,
     },
     checkout: event.checkout,
     signals,

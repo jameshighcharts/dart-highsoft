@@ -44,6 +44,7 @@ function state(aLeg: number, aMatch: number, bLeg: number, bMatch: number): Dart
     legId: 'leg-1',
     legNumber: 1,
     currentPlayerId: 'a',
+    currentVisitStartScore: 100,
     dartsRemainingInTurn: 1,
     scores: { a: 40, b: 100 },
     legsWon: { a: 0, b: 0 },

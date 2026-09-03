@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   PendingThrowBuffer,
+  replaceRealtimeLegTurns,
   shouldClearLocalOngoingTurn,
   shouldIgnoreRealtimePayload,
 } from './realtime';
@@ -122,5 +123,20 @@ describe('shouldClearLocalOngoingTurn', () => {
         persistedTurn: { busted: true, throwCount: 2 },
       })
     ).toBe(true);
+  });
+});
+
+describe('replaceRealtimeLegTurns', () => {
+  it('keeps the completed leg when realtime advances into the next leg', () => {
+    const completedLegTurns = [{ id: 'leg-1-turn' }];
+    const nextLegTurns = [{ id: 'leg-2-turn' }];
+
+    const afterCompletedLeg = replaceRealtimeLegTurns({}, 'leg-1', completedLegTurns);
+    const afterNextLeg = replaceRealtimeLegTurns(afterCompletedLeg, 'leg-2', nextLegTurns);
+
+    expect(afterNextLeg).toEqual({
+      'leg-1': completedLegTurns,
+      'leg-2': nextLegTurns,
+    });
   });
 });

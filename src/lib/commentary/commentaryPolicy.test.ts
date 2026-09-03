@@ -58,7 +58,9 @@ describe('CommentaryPolicy', () => {
   it('deduplicates ordinary busts by player rather than unique dart id', () => {
     const policy = new CommentaryPolicy({ cooldownMs: { notable: 0 } });
     const bust = event({ priority: 'notable', busted: true, signals: ['bust'] });
-    expect(policy.evaluate(bust, 1_000).shouldSpeak).toBe(true);
+    const first = policy.evaluate(bust, 1_000);
+    expect(first.shouldSpeak).toBe(true);
+    expect(first.guaranteed).toBe(false);
     policy.responseFinished();
     expect(policy.evaluate({ ...bust, eventId: 'dart-2' }, 3_000).reason)
       .toBe('duplicate-observation');
@@ -154,6 +156,17 @@ describe('CommentaryPolicy', () => {
     expect(decision.shouldSpeak).toBe(true);
     expect(decision.guaranteed).toBe(true);
     expect(decision.interrupt).toBe(true);
+  });
+
+  it('does not guarantee an inferred unconverted match-finish chance', () => {
+    const policy = new CommentaryPolicy();
+    const decision = policy.evaluate(event({
+      eventId: 'unconverted-match-finish-chances',
+      priority: 'notable',
+      signals: ['match_finish_chances_unconverted'],
+    }), 1_000);
+
+    expect(decision.guaranteed).toBe(false);
   });
 
   it('allows distinct bad outcomes instead of deduplicating the roast', () => {

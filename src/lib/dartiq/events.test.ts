@@ -8,6 +8,7 @@ function state(matchProbability: number, legProbability: number): DartIQReplaySt
     legId: 'leg-1',
     legNumber: 1,
     currentPlayerId: 'a',
+    currentVisitStartScore: 100,
     dartsRemainingInTurn: 1,
     scores: { a: 40, b: 80 },
     legsWon: { a: 0, b: 0 },
@@ -46,6 +47,8 @@ function event(overrides: Partial<DartIQDartEvent> = {}): DartIQDartEvent {
       oneDartFinishAvailable: false,
       finishAvailableThisVisit: false,
       matchWinAvailableThisVisit: false,
+      oneDartFinishUnconverted: false,
+      unconvertedMatchFinishChancesInVisit: 0,
     },
     fairEndingBefore: null, fairEndingAfter: null,
     checkout: {
@@ -118,6 +121,31 @@ describe('createDartIQDartPacket', () => {
 
     expect(packet.priority).toBe('marquee');
     expect(packet.signals).toContain('one_eighty');
+  });
+
+  it('reports repeated unconverted match-finish chances only when the visit completes', () => {
+    const midVisit = event({
+      dartIndex: 2,
+      semanticStakes: {
+        oneDartFinishAvailable: true,
+        finishAvailableThisVisit: true,
+        matchWinAvailableThisVisit: true,
+        oneDartFinishUnconverted: true,
+        unconvertedMatchFinishChancesInVisit: 2,
+      },
+      consequence: { leg: 0.01, match: 0.01 },
+    });
+    const completedVisit = event({
+      ...midVisit,
+      dartIndex: 3,
+    });
+
+    expect(createDartIQDartPacket(midVisit).signals).not.toContain('match_finish_chances_unconverted');
+    expect(createDartIQDartPacket(completedVisit)).toMatchObject({
+      priority: 'notable',
+      shouldSpeak: true,
+    });
+    expect(createDartIQDartPacket(completedVisit).signals).toContain('match_finish_chances_unconverted');
   });
 
   it('promotes bogey mistakes to notable events', () => {

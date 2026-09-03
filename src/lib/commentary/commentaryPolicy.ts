@@ -71,6 +71,7 @@ const SIGNAL_ORDER: readonly DartIQEventSignal[] = [
   'nikita_special',
   'story_arc',
   'bust',
+  'match_finish_chances_unconverted',
   'tiebreak_started',
   'tiebreak_tied',
   'tiebreak_lead_change',

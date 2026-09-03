@@ -5,7 +5,8 @@ import { directCommentaryStoryArc } from './storyArcDirector';
 
 function state(a: number, b: number, scores = { a: 200, b: 200 }): DartIQReplayState {
   return {
-    legId: 'leg', legNumber: 1, currentPlayerId: 'a', dartsRemainingInTurn: 3,
+    legId: 'leg', legNumber: 1, currentPlayerId: 'a', currentVisitStartScore: scores.a,
+    dartsRemainingInTurn: 3,
     scores,
     legsWon: { a: 0, b: 0 }, fairEnding: null,
     projections: [

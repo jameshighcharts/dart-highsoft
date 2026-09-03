@@ -49,6 +49,7 @@ export interface CommentaryDartIQContext {
   peakMatchConsequence?: number;
   oneDartFinishAvailable?: boolean;
   matchWinAvailableThisVisit?: boolean;
+  unconvertedMatchFinishChancesInVisit?: number;
   changedMatchFavorite: boolean;
   checkedOut: boolean;
   busted: boolean;
@@ -60,6 +61,7 @@ export interface CommentaryDartIQContext {
 export interface CommentaryPayload {
   playerName: string;
   playerId: string;
+  turnId?: string;
   totalScore: number;
   remainingScore: number;
   throws: ThrowData[];

@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScoliaMatchHeatmaps } from '@/components/match/ScoliaMatchHeatmaps';
 import { analyzeDartIQTimeline } from '@/lib/dartiq/insights';
 import { createBehavioralOutcomeModel } from '@/lib/dartiq/model/outcomes';
 import { reconstructDartIQTimeline, type DartIQDartEvent } from '@/lib/dartiq/replay';
@@ -34,14 +35,20 @@ function playerProbability(event: DartIQDartEvent, playerId: string) {
   return event.after.projections.find((player) => player.id === playerId)?.matchWinProbability ?? 0;
 }
 
+function completedVisit(event: DartIQDartEvent) {
+  return event.dartIndex >= 3 || event.busted || event.checkedOut;
+}
+
 function MatchPulse({
   timeline,
   playerIds,
   names,
+  selectedDartId,
 }: {
   timeline: DartIQDartEvent[];
   playerIds: string[];
   names: ReadonlyMap<string, string>;
+  selectedDartId?: string;
 }) {
   const plotWidth = CHART_WIDTH - CHART_LEFT - CHART_RIGHT;
   const plotHeight = CHART_HEIGHT - CHART_TOP - CHART_BOTTOM;
@@ -124,14 +131,14 @@ function MatchPulse({
           const playerIndex = Math.max(0, playerIds.indexOf(event.playerId));
           const probability = playerProbability(event, event.playerId);
           return (
-            <a href={`#dart-${event.dartId}`} key={event.dartId}>
+            <a href={`?dart=${encodeURIComponent(event.dartId)}#match-pulse`} key={event.dartId}>
               <circle
                 cx={x(index + 1)}
                 cy={y(probability)}
                 fill={SERIES_COLORS[playerIndex % SERIES_COLORS.length]}
-                r="4"
-                stroke="white"
-                strokeWidth="1.5"
+                r={event.dartId === selectedDartId ? '7' : '4'}
+                stroke={event.dartId === selectedDartId ? '#67e8f9' : 'white'}
+                strokeWidth={event.dartId === selectedDartId ? '3' : '1.5'}
               >
                 <title>{`${names.get(event.playerId) ?? 'Player'} ${event.segment}: ${percent(probability)}`}</title>
               </circle>
@@ -154,8 +161,15 @@ function MatchPulse({
   );
 }
 
-export default async function DartIQReportPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function DartIQReportPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ dart?: string }>;
+}) {
   const { id } = await params;
+  const requestedDartId = (await searchParams).dart;
   const supabase = getSupabaseServerClient();
   const [data, evidence] = await Promise.all([
     loadMatchData(supabase, id, { includeTurnsByLegThrows: true }),
@@ -194,6 +208,17 @@ export default async function DartIQReportPage({ params }: { params: Promise<{ i
     fairEnding: Boolean(data.match.fair_ending),
   });
   const insights = analyzeDartIQTimeline(timeline);
+  const selectedDartId = timeline.some((event) => event.dartId === requestedDartId)
+    ? requestedDartId
+    : undefined;
+  const selectedDartIndex = selectedDartId
+    ? timeline.findIndex((event) => event.dartId === selectedDartId)
+    : -1;
+  const selectedDart = selectedDartIndex >= 0 ? timeline[selectedDartIndex] : undefined;
+  const previousDart = selectedDartIndex > 0 ? timeline[selectedDartIndex - 1] : undefined;
+  const nextDart = selectedDartIndex >= 0 && selectedDartIndex < timeline.length - 1
+    ? timeline[selectedDartIndex + 1]
+    : undefined;
   const rankedDarts = timeline
     .map((event) => ({
       event,
@@ -208,6 +233,60 @@ export default async function DartIQReportPage({ params }: { params: Promise<{ i
   const winnerName = data.match.winner_player_id
     ? names.get(data.match.winner_player_id) ?? 'Winner'
     : null;
+  const turningPoint = insights.turningPoint;
+  const storySummary = [
+    winnerName ? `${winnerName} won the match.` : 'The match is still in progress.',
+    turningPoint
+      ? `The biggest turn came in leg ${turningPoint.legNumber}, when ${names.get(turningPoint.playerId) ?? 'a player'} hit ${turningPoint.segment} and moved their match chance from ${percent(turningPoint.beforeMatchProbability)} to ${percent(turningPoint.afterMatchProbability)}.`
+      : null,
+    insights.stolenLegs.length > 0
+      ? `${insights.stolenLegs.length} ${insights.stolenLegs.length === 1 ? 'leg was' : 'legs were'} won from a 20% chance or lower.`
+      : null,
+    insights.thrownAwayLegs.length > 0
+      ? `${insights.thrownAwayLegs.length} ${insights.thrownAwayLegs.length === 1 ? 'leg was' : 'legs were'} lost after reaching at least 80%.`
+      : null,
+    `${insights.leadChanges.length} ${insights.leadChanges.length === 1 ? 'lead change' : 'lead changes'} across ${timeline.length} darts.`,
+  ].filter(Boolean).join(' ');
+  const playerSummaries = playerIds.map((playerId) => {
+    const playerEvents = timeline.filter((event) => event.playerId === playerId);
+    const completedVisits = playerEvents.filter(completedVisit);
+    const initial = timeline[0]?.before.projections.find((player) => player.id === playerId);
+    const latest = timeline.at(-1)?.after.projections.find((player) => player.id === playerId)
+      ?? initial;
+    let biggestGain = 0;
+    let biggestLoss = 0;
+    for (const event of playerEvents) {
+      const wpa = event.matchWinProbabilityAdded[playerId] ?? 0;
+      biggestGain = Math.max(biggestGain, wpa);
+      biggestLoss = Math.min(biggestLoss, wpa);
+    }
+    return {
+      playerId,
+      name: names.get(playerId) ?? 'Player',
+      average: latest?.threeDartAverage ?? 0,
+      baselineAverage: latest?.baselineThreeDartAverage ?? 0,
+      profileSource: latest?.profileSource ?? 'fallback',
+      historicalDarts: latest?.historicalDarts ?? 0,
+      matchWpaOnThrow: playerEvents.reduce(
+        (total, event) => total + (event.matchWinProbabilityAdded[playerId] ?? 0),
+        0
+      ),
+      biggestGain,
+      biggestLoss,
+      highVisits: completedVisits.filter((event) => event.turnScoreAfter >= 100).length,
+      oneEighties: completedVisits.filter((event) => event.turnScoreAfter === 180).length,
+      checkouts: playerEvents.filter((event) => event.checkedOut).length,
+      checkoutVisits: new Set(
+        playerEvents
+          .filter((event) => event.checkout.checkoutProbabilityBefore > 0)
+          .map((event) => event.turnId)
+      ).size,
+      busts: playerEvents.filter((event) => event.busted).length,
+      bogeys: playerEvents.filter((event) => event.checkout.createdBogey).length,
+      stolenLegs: insights.stolenLegs.filter((story) => story.playerId === playerId).length,
+      thrownAwayLegs: insights.thrownAwayLegs.filter((story) => story.playerId === playerId).length,
+    };
+  });
 
   return (
     <main className="container mx-auto space-y-6 p-4 pb-12">
@@ -268,16 +347,136 @@ export default async function DartIQReportPage({ params }: { params: Promise<{ i
         </Card>
       </div>
 
-      <Card>
+      <Card className="border-violet-500/25 bg-gradient-to-br from-violet-500/10 via-background to-cyan-500/10">
+        <CardHeader><CardTitle>The match in one paragraph</CardTitle></CardHeader>
+        <CardContent>
+          <p className="max-w-4xl text-base leading-7">{storySummary}</p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Every claim is generated from the frozen DartIQ replay—no AI embellishment.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card id="match-pulse" className="scroll-mt-4">
         <CardHeader><CardTitle>Match Pulse</CardTitle></CardHeader>
         <CardContent>
           {timeline.length > 0 ? (
-            <MatchPulse timeline={timeline} playerIds={playerIds} names={names} />
+            <div className="space-y-4">
+              <MatchPulse
+                timeline={timeline}
+                playerIds={playerIds}
+                names={names}
+                selectedDartId={selectedDartId}
+              />
+              {selectedDart ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-400/30 bg-cyan-400/5 p-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wider text-cyan-700 dark:text-cyan-300">
+                      Dart {selectedDartIndex + 1} of {timeline.length}
+                    </div>
+                    <div className="font-semibold">
+                      {names.get(selectedDart.playerId) ?? 'Player'} · {selectedDart.segment} for {selectedDart.scored}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      Match {points(selectedDart.matchWinProbabilityAdded[selectedDart.playerId] ?? 0)} · Leg {points(selectedDart.legWinProbabilityAdded[selectedDart.playerId] ?? 0)}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button asChild disabled={!previousDart} size="sm" variant="outline">
+                      {previousDart
+                        ? <Link href={`?dart=${encodeURIComponent(previousDart.dartId)}#match-pulse`}>Previous</Link>
+                        : <span>Previous</span>}
+                    </Button>
+                    <Button asChild disabled={!nextDart} size="sm" variant="outline">
+                      {nextDart
+                        ? <Link href={`?dart=${encodeURIComponent(nextDart.dartId)}#match-pulse`}>Next</Link>
+                        : <span>Next</span>}
+                    </Button>
+                    <Button asChild size="sm" variant="ghost">
+                      <Link href="?#match-pulse">Clear</Link>
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           ) : (
             <p className="py-12 text-center text-muted-foreground">No darts recorded.</p>
           )}
         </CardContent>
       </Card>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">Player breakdown</h2>
+          <p className="text-sm text-muted-foreground">
+            Match performance against the evidence frozen before the first dart.
+          </p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {playerSummaries.map((summary, index) => (
+            <Card key={summary.playerId}>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <span
+                        className="inline-block h-3 w-3 rounded-full"
+                        style={{ backgroundColor: SERIES_COLORS[index % SERIES_COLORS.length] }}
+                      />
+                      {summary.name}
+                    </CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {summary.profileSource} baseline · {summary.historicalDarts} historical darts
+                    </p>
+                  </div>
+                  <Badge variant={summary.average >= summary.baselineAverage ? 'default' : 'secondary'}>
+                    {summary.average >= summary.baselineAverage ? '+' : ''}
+                    {(summary.average - summary.baselineAverage).toFixed(1)} avg
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg bg-muted/60 p-3">
+                    <div className="text-xl font-semibold">{summary.average.toFixed(1)}</div>
+                    <div className="text-xs text-muted-foreground">match avg</div>
+                  </div>
+                  <div className="rounded-lg bg-muted/60 p-3">
+                    <div className="text-xl font-semibold">{summary.baselineAverage.toFixed(1)}</div>
+                    <div className="text-xs text-muted-foreground">baseline</div>
+                  </div>
+                  <div className="rounded-lg bg-muted/60 p-3">
+                    <div className="text-xl font-semibold">{points(summary.matchWpaOnThrow)}</div>
+                    <div className="text-xs text-muted-foreground">WPA on throw</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-sm sm:grid-cols-4">
+                  <div><span className="text-muted-foreground">100+ visits</span><div className="font-semibold">{summary.highVisits}</div></div>
+                  <div><span className="text-muted-foreground">180s</span><div className="font-semibold">{summary.oneEighties}</div></div>
+                  <div><span className="text-muted-foreground">Checkout visits</span><div className="font-semibold">{summary.checkouts}/{summary.checkoutVisits}</div></div>
+                  <div><span className="text-muted-foreground">Busts</span><div className="font-semibold">{summary.busts}</div></div>
+                  <div><span className="text-muted-foreground">Biggest gain</span><div className="font-semibold text-emerald-600">{points(summary.biggestGain)}</div></div>
+                  <div><span className="text-muted-foreground">Biggest loss</span><div className="font-semibold text-rose-600">{points(summary.biggestLoss)}</div></div>
+                  <div><span className="text-muted-foreground">Stolen legs</span><div className="font-semibold">{summary.stolenLegs}</div></div>
+                  <div><span className="text-muted-foreground">Bogey leaves</span><div className="font-semibold">{summary.bogeys}</div></div>
+                </div>
+                {summary.thrownAwayLegs > 0 ? (
+                  <p className="text-sm text-rose-600">
+                    {summary.thrownAwayLegs} {summary.thrownAwayLegs === 1 ? 'leg was' : 'legs were'} lost after reaching at least an 80% chance.
+                  </p>
+                ) : null}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      <ScoliaMatchHeatmaps
+        players={data.players}
+        turns={[]}
+        turnsByLeg={data.turnsByLeg as Record<string, TurnWithThrows[]>}
+        highlightedDartId={selectedDartId}
+      />
 
       <Card>
         <CardHeader><CardTitle>Biggest darts</CardTitle></CardHeader>
@@ -287,7 +486,7 @@ export default async function DartIQReportPage({ params }: { params: Promise<{ i
             const after = event.busted ? before : Math.max(0, before - event.scored);
             return (
               <article
-                className="scroll-mt-4 rounded-lg border p-3 transition-colors target:border-primary target:bg-primary/5"
+                className={`scroll-mt-4 rounded-lg border p-3 transition-colors target:border-primary target:bg-primary/5 ${selectedDartId === event.dartId ? 'border-cyan-400 bg-cyan-400/5 ring-1 ring-cyan-400/30' : ''}`}
                 id={`dart-${event.dartId}`}
                 key={event.dartId}
               >
@@ -307,6 +506,14 @@ export default async function DartIQReportPage({ params }: { params: Promise<{ i
                     <Badge variant="outline">Leg {points(legWpa)}</Badge>
                     <Badge variant="secondary">Impact {points(event.consequence.match)}</Badge>
                   </div>
+                </div>
+                <div className="mt-3">
+                  <Link
+                    className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-300"
+                    href={`?dart=${encodeURIComponent(event.dartId)}#dart-${event.dartId}`}
+                  >
+                    {selectedDartId === event.dartId ? 'Selected across the report' : 'Select this dart across the report'}
+                  </Link>
                 </div>
               </article>
             );

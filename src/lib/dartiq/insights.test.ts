@@ -13,6 +13,7 @@ function state(
     legId: 'leg-1',
     legNumber: 1,
     currentPlayerId: 'a',
+    currentVisitStartScore: 40,
     dartsRemainingInTurn: 1,
     scores: { a: 40, b: 80 },
     legsWon: { a: legsA, b: legsB },

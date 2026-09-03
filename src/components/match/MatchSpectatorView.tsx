@@ -19,7 +19,7 @@ import type {
   CommentaryPersonaId,
   CommentaryTranscriptEntry,
 } from '@/lib/commentary/types';
-import type { LegRecord, MatchRecord, Player, TurnRecord } from '@/lib/match/types';
+import type { LegRecord, MatchRecord, Player, TurnRecord, TurnWithThrows } from '@/lib/match/types';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { VoiceOption } from '@/services/ttsService';
 import type { FinishRule } from '@/utils/x01';
@@ -29,7 +29,8 @@ import type {
   DartIQPopulationProfile,
 } from '@/lib/dartiq/evidence';
 import type { DartIQOutcomeModel } from '@/lib/dartiq/model/outcomes';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { DartIQTracker } from '@/lib/dartiq/tracker';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 
 const ScoreProgressChart = dynamic(
@@ -202,6 +203,43 @@ export function MatchSpectatorView({
   const [winnerModalOpen, setWinnerModalOpen] = useState(false);
   const [scoliaBoardPhase, setScoliaBoardPhase] = useState<string | null | undefined>(undefined);
   const scoliaBoardId = match.scolia_board_id;
+  const dartIQTrackerRef = useRef(new DartIQTracker());
+
+  const dartIQSnapshot = useMemo(() => {
+    const canonicalTurnsByLeg = Object.fromEntries(
+      Object.entries(turnsByLeg).map(([legId, legTurns]) => [
+        legId,
+        legTurns as TurnWithThrows[],
+      ])
+    );
+    if (currentLegId) canonicalTurnsByLeg[currentLegId] = turns as TurnWithThrows[];
+
+    return dartIQTrackerRef.current.update({
+      playerIds: players.map((player) => player.id),
+      legs,
+      turnsByLeg: canonicalTurnsByLeg,
+      startScore,
+      finishRule,
+      legsToWin: match.legs_to_win,
+      playerProfiles: Object.fromEntries(dartIQEvidenceByPlayerId),
+      populationProfile: dartIQPopulationEvidence,
+      outcomeModels: Object.fromEntries(dartIQModelsByPlayerId),
+      fairEnding: Boolean(match.fair_ending),
+    });
+  }, [
+    currentLegId,
+    dartIQEvidenceByPlayerId,
+    dartIQModelsByPlayerId,
+    dartIQPopulationEvidence,
+    finishRule,
+    legs,
+    match.fair_ending,
+    match.legs_to_win,
+    players,
+    startScore,
+    turns,
+    turnsByLeg,
+  ]);
 
   const loadScoliaBoardPhase = useCallback(async () => {
     if (!scoliaBoardId || isHistoryView) return;
@@ -454,22 +492,10 @@ export function MatchSpectatorView({
           <>
             <DartIQLive
               orderPlayers={orderPlayers}
-              spectatorCurrentPlayer={spectatorCurrentPlayer}
-              turns={turns}
-              currentLegId={currentLegId}
-              startScore={startScore}
-              finishRule={finishRule}
-              turnThrowCounts={turnThrowCounts}
-              getAvgForPlayer={getAvgForPlayer}
-              legs={legs}
               legsToWin={match.legs_to_win}
               matchWinnerId={matchWinnerId}
-              profilesByPlayerId={dartIQEvidenceByPlayerId}
-              populationProfile={dartIQPopulationEvidence}
-              outcomeModelsByPlayerId={dartIQModelsByPlayerId}
+              snapshot={dartIQSnapshot}
               hasPersonalProfiles={hasPersonalDartIQEvidence}
-              fairEnding={Boolean(match.fair_ending)}
-              fairEndingState={fairEndingState}
             />
 
             {/* Cards Row - responsive layout */}

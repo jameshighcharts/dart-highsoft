@@ -194,12 +194,61 @@ create index dartiq_projection_resolutions_winner_idx
   on public.dartiq_projection_resolutions (winner_player_id)
   where winner_player_id is not null;
 
+create table public.dartiq_commentary_policy_decisions (
+  id bigint generated always as identity primary key,
+  session_id uuid not null,
+  match_id uuid not null references public.matches(id) on delete cascade,
+  throw_id uuid references public.throws(id) on delete set null,
+  turn_id uuid references public.turns(id) on delete set null,
+  source_event_id text not null,
+  epoch bigint not null check (epoch >= 0),
+  channel text not null check (channel in ('browser', 'scolia_worker')),
+  policy_version text not null,
+  priority text not null check (priority in ('silent', 'ordinary', 'notable', 'marquee', 'terminal')),
+  signals text[] not null default '{}',
+  should_speak boolean not null,
+  guaranteed boolean not null,
+  interrupt boolean not null,
+  reason text not null check (reason in (
+    'guaranteed',
+    'silent-priority',
+    'visit-in-progress',
+    'rapid-sequence',
+    'duplicate-observation',
+    'cooldown',
+    'ordinary-sampling',
+    'active-higher-priority',
+    'speak'
+  )),
+  evaluated_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  foreign key (session_id, match_id)
+    references public.commentary_realtime_sessions(id, match_id) on delete cascade,
+  unique (session_id, epoch, source_event_id, policy_version)
+);
+
+create index dartiq_commentary_policy_decisions_match_idx
+  on public.dartiq_commentary_policy_decisions (match_id, evaluated_at);
+
+create index dartiq_commentary_policy_decisions_calibration_idx
+  on public.dartiq_commentary_policy_decisions (policy_version, priority, should_speak)
+  include (reason, signals, evaluated_at);
+
+create index dartiq_commentary_policy_decisions_throw_idx
+  on public.dartiq_commentary_policy_decisions (throw_id)
+  where throw_id is not null;
+
+create index dartiq_commentary_policy_decisions_turn_idx
+  on public.dartiq_commentary_policy_decisions (turn_id)
+  where turn_id is not null;
+
 alter table public.dartiq_model_versions enable row level security;
 alter table public.dartiq_population_evidence enable row level security;
 alter table public.dartiq_player_evidence enable row level security;
 alter table public.dartiq_projection_events enable row level security;
 alter table public.dartiq_player_projections enable row level security;
 alter table public.dartiq_projection_resolutions enable row level security;
+alter table public.dartiq_commentary_policy_decisions enable row level security;
 
 revoke all on public.dartiq_model_versions from anon, authenticated;
 revoke all on public.dartiq_population_evidence from anon, authenticated;
@@ -207,6 +256,7 @@ revoke all on public.dartiq_player_evidence from anon, authenticated;
 revoke all on public.dartiq_projection_events from anon, authenticated;
 revoke all on public.dartiq_player_projections from anon, authenticated;
 revoke all on public.dartiq_projection_resolutions from anon, authenticated;
+revoke all on public.dartiq_commentary_policy_decisions from anon, authenticated;
 
 grant all on public.dartiq_model_versions to service_role;
 grant all on public.dartiq_population_evidence to service_role;
@@ -214,18 +264,21 @@ grant all on public.dartiq_player_evidence to service_role;
 grant all on public.dartiq_projection_events to service_role;
 grant all on public.dartiq_player_projections to service_role;
 grant all on public.dartiq_projection_resolutions to service_role;
+grant all on public.dartiq_commentary_policy_decisions to service_role;
 
 revoke all on sequence public.dartiq_model_versions_id_seq from anon, authenticated;
 revoke all on sequence public.dartiq_population_evidence_id_seq from anon, authenticated;
 revoke all on sequence public.dartiq_player_evidence_id_seq from anon, authenticated;
 revoke all on sequence public.dartiq_projection_events_id_seq from anon, authenticated;
 revoke all on sequence public.dartiq_projection_resolutions_id_seq from anon, authenticated;
+revoke all on sequence public.dartiq_commentary_policy_decisions_id_seq from anon, authenticated;
 
 grant usage, select on sequence public.dartiq_model_versions_id_seq to service_role;
 grant usage, select on sequence public.dartiq_population_evidence_id_seq to service_role;
 grant usage, select on sequence public.dartiq_player_evidence_id_seq to service_role;
 grant usage, select on sequence public.dartiq_projection_events_id_seq to service_role;
 grant usage, select on sequence public.dartiq_projection_resolutions_id_seq to service_role;
+grant usage, select on sequence public.dartiq_commentary_policy_decisions_id_seq to service_role;
 
 comment on table public.dartiq_model_versions is
   'Immutable DartIQ implementation and configuration registry.';
@@ -247,3 +300,6 @@ comment on table public.dartiq_player_projections is
 
 comment on table public.dartiq_projection_resolutions is
   'Append-only authoritative leg and match outcomes attached after projection.';
+
+comment on table public.dartiq_commentary_policy_decisions is
+  'Versioned per-listener deterministic speak/skip decisions; does not measure provider or audio latency.';

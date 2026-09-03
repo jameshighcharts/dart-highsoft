@@ -17,7 +17,7 @@ import {
 import type { CommentaryContext } from '@/services/commentaryService';
 import type { VoiceOption } from '@/services/ttsService';
 import { BroadcastDirector } from '@/lib/commentary/broadcastDirector';
-import { isMaterialDartIQConsequence } from '@/lib/dartiq/events';
+import { DARTIQ_POLICY_VERSION, isMaterialDartIQConsequence } from '@/lib/dartiq/events';
 import {
   RealtimeNarrativeWireState,
   renderManualRealtimeEvent,
@@ -216,7 +216,7 @@ export class RealtimeCommentaryService {
   }
 
   commentate(context: CommentaryContext): boolean {
-    const eventId = crypto.randomUUID();
+    const eventId = context.turnId ?? crypto.randomUUID();
     const direction = context.narrative
       ? this.broadcastDirector.direct({
           sequence: context.narrative.sequence,
@@ -261,6 +261,7 @@ export class RealtimeCommentaryService {
       this.policy.responseFinished();
     }
     const decision = this.policy.evaluate(policyEvent);
+    this.recordPolicyDecision(policyEvent, decision, context.turnId);
     if (!decision.shouldSpeak) return true;
     if (decision.interrupt) {
       this.visitTiming.cancelSpeech();
@@ -582,6 +583,8 @@ export class RealtimeCommentaryService {
       ? ['one_eighty']
       : checkedOut
         ? ['checkout']
+        : (context.dartiq?.unconvertedMatchFinishChancesInVisit ?? 0) >= 2
+          ? ['match_finish_chances_unconverted']
         : context.busted
           ? ['bust']
           : context.dartiq?.changedMatchFavorite
@@ -597,7 +600,10 @@ export class RealtimeCommentaryService {
     );
     const priority = matchWon
       ? 'terminal'
-      : context.isNikitaSpecial || context.is180 || checkedOut || semanticBust
+      : context.isNikitaSpecial
+        || context.is180
+        || checkedOut
+        || semanticBust
         ? 'marquee'
       : signals.length > 0
         ? 'notable'
@@ -619,6 +625,41 @@ export class RealtimeCommentaryService {
       signals,
       storyKey: story ? `${story.kind}:${story.subjectPlayerId ?? 'match'}` : undefined,
     };
+  }
+
+  private recordPolicyDecision(
+    event: CommentaryPolicyEvent,
+    decision: ReturnType<CommentaryPolicy['evaluate']>,
+    turnId?: string
+  ) {
+    if (!this.sessionId || !this.matchId) return;
+    void fetch(SESSION_URL, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'policy_decision',
+        sessionId: this.sessionId,
+        matchId: this.matchId,
+        sourceEventId: event.eventId,
+        ...(turnId ? { turnId } : {}),
+        epoch: this.epoch,
+        policyVersion: DARTIQ_POLICY_VERSION,
+        priority: decision.priority,
+        signals: event.signals,
+        shouldSpeak: decision.shouldSpeak,
+        guaranteed: decision.guaranteed,
+        interrupt: decision.interrupt,
+        reason: decision.reason,
+        evaluatedAt: new Date().toISOString(),
+      }),
+      keepalive: true,
+    }).then((response) => {
+      if (!response.ok) {
+        console.warn('Could not record DartIQ commentary policy decision', response.status);
+      }
+    }).catch(() => {
+      // Commentary remains available if optional calibration telemetry fails.
+    });
   }
 
   private setStatus(status: RealtimeCommentaryStatus) {

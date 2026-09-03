@@ -75,6 +75,8 @@ export type DartIQReplayInput = {
 export type DartIQReplayOptions = {
   /** Previously verified prefix. Its state transitions are reused while only new darts are projected. */
   cachedPrefix?: DartIQDartEvent[];
+  /** Immutable accumulator snapshot immediately after cachedPrefix. */
+  cachedCheckpoint?: DartIQReplayCheckpoint | null;
 };
 
 export type DartIQFairEndingReplayState = DartIQFairEndingProjectionInput & {
@@ -85,6 +87,7 @@ export type DartIQReplayState = {
   legId: string;
   legNumber: number;
   currentPlayerId: string | null;
+  currentVisitStartScore?: number | null;
   dartsRemainingInTurn: number;
   scores: Record<string, number>;
   legsWon: Record<string, number>;
@@ -101,6 +104,7 @@ export type DartIQDartEvent = {
   legNumber: number;
   turnId: string;
   playerId: string;
+  tiebreakRound?: number | null;
   dartId: string;
   dartIndex: number;
   segment: string;
@@ -112,6 +116,8 @@ export type DartIQDartEvent = {
     oneDartFinishAvailable: boolean;
     finishAvailableThisVisit: boolean;
     matchWinAvailableThisVisit: boolean;
+    oneDartFinishUnconverted?: boolean;
+    unconvertedMatchFinishChancesInVisit?: number;
   };
   consequence: DartIQConsequence;
   checkout: DartIQCheckoutAssessment;
@@ -135,6 +141,38 @@ type ReplayTurnProgress = FairEndingTurnInput & {
   id: string;
 };
 
+type DeepReadonly<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends readonly (infer Item)[]
+    ? readonly DeepReadonly<Item>[]
+    : T extends object
+      ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
+      : T;
+
+export type DartIQReplayCheckpoint = DeepReadonly<{
+  sequence: number;
+  sourceDartId: string;
+  state: DartIQReplayState;
+  activeLegIndex: number;
+  scores: Record<string, number>;
+  legsWon: Record<string, number>;
+  points: Record<string, number>;
+  dartsThrown: Record<string, number>;
+  turnId: string | null;
+  turnStartScore: number;
+  turnStartPoints: number;
+  turnStartDarts: number;
+  unconvertedMatchFinishChancesInVisit: number;
+  matchWinnerId: string | null;
+  turnProgress: ReplayTurnProgress[];
+  currentFairEnding: DartIQFairEndingProjectionInput | null;
+}>;
+
+export type DartIQReplayResult = {
+  timeline: DartIQDartEvent[];
+  checkpoint: DartIQReplayCheckpoint | null;
+};
+
 function rotatePlayerOrder(playerIds: string[], startingPlayerId: string) {
   const startIndex = playerIds.indexOf(startingPlayerId);
   if (startIndex <= 0) return playerIds.slice();
@@ -153,6 +191,39 @@ function tiebreakCheckoutAssessment(): DartIQCheckoutAssessment {
     leaveProbabilityChange: 0,
     createdBogey: false,
     avoidedBogey: false,
+  };
+}
+
+function cloneFairEnding(
+  state: DeepReadonly<DartIQFairEndingProjectionInput> | null | undefined
+): DartIQFairEndingProjectionInput | undefined {
+  if (!state) return undefined;
+  return {
+    ...state,
+    checkedOutPlayerIds: [...state.checkedOutPlayerIds],
+    tiebreakPlayerIds: [...state.tiebreakPlayerIds],
+    tiebreakScores: { ...state.tiebreakScores },
+    pendingPlayerIds: [...state.pendingPlayerIds],
+    tiebreakDartsThrown: { ...state.tiebreakDartsThrown },
+  };
+}
+
+function cloneReplayState(state: DeepReadonly<DartIQReplayState>): DartIQReplayState {
+  return {
+    ...state,
+    scores: { ...state.scores },
+    legsWon: { ...state.legsWon },
+    projections: state.projections.map((projection) => ({ ...projection })),
+    fairEnding: state.fairEnding
+      ? {
+          ...state.fairEnding,
+          checkedOutPlayerIds: [...state.fairEnding.checkedOutPlayerIds],
+          tiebreakPlayerIds: [...state.fairEnding.tiebreakPlayerIds],
+          tiebreakScores: { ...state.fairEnding.tiebreakScores },
+          pendingPlayerIds: [...state.fairEnding.pendingPlayerIds],
+          tiebreakDartsThrown: { ...state.fairEnding.tiebreakDartsThrown },
+        }
+      : null,
   };
 }
 
@@ -177,7 +248,10 @@ function flattenDarts(input: DartIQReplayInput): FlatDart[] {
 
 function matchesCachedDart(flat: FlatDart | undefined, cached: DartIQDartEvent) {
   return flat?.dart.id === cached.dartId
+    && flat.leg.id === cached.legId
     && flat.turn.id === cached.turnId
+    && flat.turn.player_id === cached.playerId
+    && (flat.turn.tiebreak_round ?? null) === (cached.tiebreakRound ?? null)
     && flat.dart.dart_index === cached.dartIndex
     && flat.dart.segment === cached.segment
     && flat.dart.scored === cached.scored;
@@ -188,14 +262,16 @@ function matchesCachedDart(flat: FlatDart | undefined, cached: DartIQDartEvent) 
  * Score and form accumulators are mutated internally, while every returned
  * state is copied so consumers can safely retain or serialize the timeline.
  */
-export function reconstructDartIQTimeline(
+export function reconstructDartIQTimelineWithCheckpoint(
   input: DartIQReplayInput,
   options: DartIQReplayOptions = {}
-): DartIQDartEvent[] {
-  if (input.playerIds.length === 0 || input.legs.length === 0) return [];
+): DartIQReplayResult {
+  if (input.playerIds.length === 0 || input.legs.length === 0) {
+    return { timeline: [], checkpoint: null };
+  }
   const orderedLegs = input.legs.slice().sort((a, b) => a.leg_number - b.leg_number);
   const darts = flattenDarts({ ...input, legs: orderedLegs });
-  if (darts.length === 0) return [];
+  if (darts.length === 0) return { timeline: [], checkpoint: null };
 
   const scores = createNumberRecord(input.playerIds, input.startScore);
   const legsWon = Object.fromEntries(
@@ -208,6 +284,7 @@ export function reconstructDartIQTimeline(
   let turnStartScore = input.startScore;
   let turnStartPoints = 0;
   let turnStartDarts = 0;
+  let unconvertedMatchFinishChancesInVisit = 0;
   let matchWinnerId: string | null = null;
   const turnProgress = new Map<string, ReplayTurnProgress>();
 
@@ -269,6 +346,7 @@ export function reconstructDartIQTimeline(
       legId: leg.id,
       legNumber: leg.leg_number,
       currentPlayerId,
+      currentVisitStartScore: currentPlayerId ? (currentVisitStartScore ?? scores[currentPlayerId]) : null,
       dartsRemainingInTurn,
       scores: { ...scores },
       legsWon: { ...legsWon },
@@ -287,12 +365,33 @@ export function reconstructDartIQTimeline(
   const reusablePrefix = (options.cachedPrefix ?? []).every(
     (cached, index) => matchesCachedDart(darts[index], cached)
   ) ? (options.cachedPrefix ?? []) : [];
-  if (reusablePrefix.length === darts.length) return reusablePrefix;
-
   const timeline: DartIQDartEvent[] = [...reusablePrefix];
   let currentFairEnding: DartIQFairEndingProjectionInput | undefined;
   let before: DartIQReplayState;
-  if (reusablePrefix.length > 0) {
+  const cachedCheckpoint = options.cachedCheckpoint;
+  const canResumeCheckpoint = Boolean(
+    cachedCheckpoint
+    && cachedCheckpoint.sequence === reusablePrefix.length
+    && cachedCheckpoint.sourceDartId === reusablePrefix.at(-1)?.dartId
+  );
+  if (canResumeCheckpoint && cachedCheckpoint) {
+    activeLegIndex = cachedCheckpoint.activeLegIndex;
+    Object.assign(scores, cachedCheckpoint.scores);
+    Object.assign(legsWon, cachedCheckpoint.legsWon);
+    Object.assign(points, cachedCheckpoint.points);
+    Object.assign(dartsThrown, cachedCheckpoint.dartsThrown);
+    turnId = cachedCheckpoint.turnId;
+    turnStartScore = cachedCheckpoint.turnStartScore;
+    turnStartPoints = cachedCheckpoint.turnStartPoints;
+    turnStartDarts = cachedCheckpoint.turnStartDarts;
+    unconvertedMatchFinishChancesInVisit = cachedCheckpoint.unconvertedMatchFinishChancesInVisit;
+    matchWinnerId = cachedCheckpoint.matchWinnerId;
+    for (const progress of cachedCheckpoint.turnProgress) {
+      turnProgress.set(progress.id, { ...progress });
+    }
+    currentFairEnding = cloneFairEnding(cachedCheckpoint.currentFairEnding);
+    before = cloneReplayState(cachedCheckpoint.state);
+  } else if (reusablePrefix.length > 0) {
     const lastCached = reusablePrefix.at(-1)!;
     const lastFlat = darts[reusablePrefix.length - 1];
     activeLegIndex = lastFlat.legIndex;
@@ -304,9 +403,14 @@ export function reconstructDartIQTimeline(
         ? (projection.threeDartAverage / 3) * projection.dartsThrown
         : 0;
     }
+    let hydratedLegIndex = darts[0].legIndex;
     for (let index = 0; index < reusablePrefix.length; index += 1) {
       const flat = darts[index];
       const cached = reusablePrefix[index];
+      if (flat.legIndex !== hydratedLegIndex) {
+        turnProgress.clear();
+        hydratedLegIndex = flat.legIndex;
+      }
       const previous = turnProgress.get(flat.turn.id);
       const throwCount = (previous?.throw_count ?? 0) + 1;
       const throwsTotal = (previous?.throws_total ?? 0) + flat.dart.scored;
@@ -330,6 +434,7 @@ export function reconstructDartIQTimeline(
       ? (startProjection.threeDartAverage / 3) * startProjection.dartsThrown
       : 0;
     currentFairEnding = lastCached.fairEndingAfter ?? undefined;
+    unconvertedMatchFinishChancesInVisit = lastCached.semanticStakes.unconvertedMatchFinishChancesInVisit ?? 0;
     before = lastCached.after;
   } else {
     currentFairEnding = buildFairEndingContext(darts[0].leg, []);
@@ -359,6 +464,7 @@ export function reconstructDartIQTimeline(
       turnStartScore = scores[event.turn.player_id];
       turnStartPoints = points[event.turn.player_id];
       turnStartDarts = dartsThrown[event.turn.player_id];
+      unconvertedMatchFinishChancesInVisit = 0;
     }
 
     const playerId = event.turn.player_id;
@@ -504,6 +610,7 @@ export function reconstructDartIQTimeline(
       legNumber: event.leg.leg_number,
       turnId: event.turn.id,
       playerId,
+      tiebreakRound: event.turn.tiebreak_round,
       dartId: event.dart.id,
       dartIndex: event.dart.dart_index,
       segment: event.dart.segment,
@@ -517,11 +624,18 @@ export function reconstructDartIQTimeline(
           && hasCheckoutRoute(scoreBefore, 1, input.finishRule);
         const finishAvailableThisVisit = !isTiebreak
           && hasCheckoutRoute(scoreBefore, before.dartsRemainingInTurn, input.finishRule);
+        const matchWinAvailableThisVisit = finishAvailableThisVisit
+          && (before.legsWon[playerId] ?? 0) === input.legsToWin - 1;
+        const oneDartFinishUnconverted = oneDartFinishAvailable && !outcome.finished;
+        if (oneDartFinishUnconverted && matchWinAvailableThisVisit) {
+          unconvertedMatchFinishChancesInVisit += 1;
+        }
         return {
           oneDartFinishAvailable,
           finishAvailableThisVisit,
-          matchWinAvailableThisVisit: finishAvailableThisVisit
-            && (before.legsWon[playerId] ?? 0) === input.legsToWin - 1,
+          matchWinAvailableThisVisit,
+          oneDartFinishUnconverted,
+          unconvertedMatchFinishChancesInVisit,
         };
       })(),
       consequence,
@@ -543,5 +657,35 @@ export function reconstructDartIQTimeline(
     before = after;
   }
 
-  return timeline;
+  const sourceDartId = timeline.at(-1)?.dartId;
+  return {
+    timeline,
+    checkpoint: sourceDartId
+      ? {
+          sequence: timeline.length,
+          sourceDartId,
+          state: cloneReplayState(before),
+          activeLegIndex,
+          scores: { ...scores },
+          legsWon: { ...legsWon },
+          points: { ...points },
+          dartsThrown: { ...dartsThrown },
+          turnId,
+          turnStartScore,
+          turnStartPoints,
+          turnStartDarts,
+          unconvertedMatchFinishChancesInVisit,
+          matchWinnerId,
+          turnProgress: [...turnProgress.values()].map((progress) => ({ ...progress })),
+          currentFairEnding: cloneFairEnding(currentFairEnding) ?? null,
+        }
+      : null,
+  };
+}
+
+export function reconstructDartIQTimeline(
+  input: DartIQReplayInput,
+  options: DartIQReplayOptions = {}
+): DartIQDartEvent[] {
+  return reconstructDartIQTimelineWithCheckpoint(input, options).timeline;
 }

@@ -19,6 +19,7 @@ import { buildRealtimeResponseInstructions } from '../lib/commentary/realtimePro
 import {
   CommentaryVisitTiming,
 } from '../lib/commentary/commentaryVisitTiming.ts';
+import { DARTIQ_POLICY_VERSION } from '../lib/dartiq/events.ts';
 import { loadMatch } from '../lib/server/matchGuards.ts';
 import { BroadcastDirector } from '../lib/commentary/broadcastDirector.ts';
 import {
@@ -294,6 +295,12 @@ export class ScoliaRealtimeCommentaryPublisher {
       }
 
       const decision = connection.policy.evaluate(policyEvent);
+      void this.persistPolicyDecision(session, event, policyEvent, decision).catch((error: unknown) => {
+        console.error(
+          'Could not record DartIQ commentary policy decision:',
+          error instanceof Error ? error.message : 'unknown error'
+        );
+      });
       if (decision.shouldSpeak) {
         if (decision.interrupt) {
           connection.visitTiming.cancelSpeech();
@@ -360,6 +367,39 @@ export class ScoliaRealtimeCommentaryPublisher {
       await this.recordFailure(delivery, error);
     } finally {
       this.inFlight.delete(deliveryKey);
+    }
+  }
+
+  private async persistPolicyDecision(
+    session: ActiveRealtimeCommentarySession,
+    event: ScoliaRealtimeDartEvent,
+    policyEvent: CommentaryPolicyEvent,
+    decision: ReturnType<CommentaryPolicy['evaluate']>
+  ) {
+    const result = await this.supabase
+      .from('dartiq_commentary_policy_decisions')
+      .upsert({
+        session_id: session.id,
+        match_id: session.match_id,
+        throw_id: event.dartId,
+        turn_id: event.turnId,
+        source_event_id: policyEvent.eventId,
+        epoch: session.epoch,
+        channel: 'scolia_worker',
+        policy_version: DARTIQ_POLICY_VERSION,
+        priority: decision.priority,
+        signals: policyEvent.signals,
+        should_speak: decision.shouldSpeak,
+        guaranteed: decision.guaranteed,
+        interrupt: decision.interrupt,
+        reason: decision.reason,
+        evaluated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'session_id,epoch,source_event_id,policy_version',
+        ignoreDuplicates: true,
+      });
+    if (result.error) {
+      console.error('Could not record DartIQ commentary policy decision:', result.error.message);
     }
   }
 
