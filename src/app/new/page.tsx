@@ -15,6 +15,7 @@ import type {
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Search, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -28,7 +29,6 @@ import type { GameMode } from "@/lib/games/types";
 import {
   GameConfigFields,
   GameTypePicker,
-  SelectedGameCard,
   defaultConfigFor,
   gameTypeName,
   loadStoredGameType,
@@ -96,6 +96,7 @@ export default function NewMatchPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [newName, setNewName] = useState("");
+  const [playerSearch, setPlayerSearch] = useState("");
   const [startScore, setStartScore] = useState<StartScore>("301");
   const [finish, setFinish] = useState<FinishRule>("single_out");
   const [legsToWin, setLegsToWin] = useState(1);
@@ -122,8 +123,13 @@ export default function NewMatchPage() {
   const [boardsLoading, setBoardsLoading] = useState(true);
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const boardsRequestInFlight = useRef(false);
-  const [enabledLocations, setEnabledLocations] =
-    useState<LocationValue[]>(loadEnabledLocations);
+  // Start with every location for SSR and pick up the stored filter after hydration.
+  const [enabledLocations, setEnabledLocations] = useState<LocationValue[]>(
+    () => LOCATIONS.map((l) => l.value),
+  );
+  useEffect(() => {
+    setEnabledLocations(loadEnabledLocations());
+  }, []);
 
   const loadBoards = useCallback(async (initialLoad = false) => {
     if (boardsRequestInFlight.current) return;
@@ -200,10 +206,6 @@ export default function NewMatchPage() {
     return () => window.clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(enabledLocations));
-  }, [enabledLocations]);
-
   // Fall back to manual scoring if the chosen board goes offline or gets taken.
   // Waits for the first board load so a remembered board is not wiped early.
   // The stored preference is kept so the board is reselected once it is back.
@@ -236,18 +238,32 @@ export default function NewMatchPage() {
       if (hiddenIds.size > 0) {
         setSelectedIds((ids) => ids.filter((id) => !hiddenIds.has(id)));
       }
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
       return next;
     });
   }
 
-  const filteredPlayers = players.filter(
+  const locationPlayers = players.filter(
     (p) =>
       p.location === null ||
       enabledLocations.includes(p.location as LocationValue),
   );
+  const searchTerm = playerSearch.trim().toLowerCase();
+  const filteredPlayers = searchTerm
+    ? locationPlayers.filter((p) =>
+        p.display_name.toLowerCase().includes(searchTerm),
+      )
+    : locationPlayers;
+  const searchMatchesExisting = players.some(
+    (p) => p.display_name.trim().toLowerCase() === searchTerm,
+  );
 
-  async function createPlayer() {
-    const name = newName.trim();
+  async function createPlayer(nameOverride?: string) {
+    const name = (nameOverride ?? newName).trim();
     if (!name) return;
     try {
       const result = await apiRequest<{ player: Player }>("/api/players", {
@@ -256,6 +272,7 @@ export default function NewMatchPage() {
       setPlayers((prev) => [...prev, result.player]);
       setSelectedIds((prev) => [...prev, result.player.id]);
       setNewName("");
+      setPlayerSearch("");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to create player";
@@ -361,10 +378,25 @@ export default function NewMatchPage() {
   return (
     <div className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
       <h1 className="text-2xl font-semibold">New Game</h1>
-      <div className="space-y-3">
+
+      <div className="space-y-2">
+        <div className="font-medium">Board</div>
+        <BoardPicker
+          boards={boards}
+          value={selectedBoardId}
+          onChange={chooseBoard}
+          loading={boardsLoading}
+        />
+        {boardsError ? (
+          <p className="text-xs text-destructive">
+            {boardsError}. Manual scoring is still available.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="space-y-2">
         <div className="font-medium">Game type</div>
         <GameTypePicker value={gameType} onChange={changeGameType} />
-        <SelectedGameCard type={gameType} />
       </div>
 
       {gameMode === null && (
@@ -467,9 +499,16 @@ export default function NewMatchPage() {
       )}
 
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="font-medium">Players</div>
-          <div className="flex gap-1">
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-medium">
+            Players
+            {selectedIds.length > 0 && (
+              <span className="ml-1.5 text-sm font-normal text-muted-foreground">
+                {selectedIds.length} selected
+              </span>
+            )}
+          </div>
+          <div className="flex gap-1" role="group" aria-label="Location filter">
             {LOCATIONS.map((loc) => (
               <Button
                 key={loc.value}
@@ -478,6 +517,7 @@ export default function NewMatchPage() {
                 variant={
                   enabledLocations.includes(loc.value) ? "default" : "outline"
                 }
+                aria-pressed={enabledLocations.includes(loc.value)}
                 onClick={() => toggleLocation(loc.value)}
               >
                 {loc.label}
@@ -485,56 +525,108 @@ export default function NewMatchPage() {
             ))}
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {selectedIds.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {selectedPlayers.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => toggle(p.id)}
+                aria-label={`Remove ${p.name}`}
+                className="flex items-center gap-1 rounded-full bg-accent/40 px-2.5 py-1 text-xs font-medium hover:bg-accent/60"
+              >
+                {p.name}
+                <X className="size-3" />
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            inputMode="search"
+            autoComplete="off"
+            className="h-11 pl-9"
+            placeholder="Search players"
+            aria-label="Search players"
+            value={playerSearch}
+            onChange={(e) => setPlayerSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              if (filteredPlayers.length === 1) {
+                toggle(filteredPlayers[0].id);
+                setPlayerSearch("");
+              } else if (
+                filteredPlayers.length === 0 &&
+                searchTerm &&
+                !searchMatchesExisting
+              ) {
+                void createPlayer(playerSearch);
+              }
+            }}
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {filteredPlayers.map((p) => {
             const loc = LOCATIONS.find((l) => l.value === p.location);
+            const checked = selectedIds.includes(p.id);
             return (
               <label
                 key={p.id}
-                className={`flex items-center gap-2 border p-2 rounded ${selectedIds.includes(p.id) ? "border-accent bg-accent/30" : ""}`}
+                className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors ${checked ? "border-accent bg-accent/30" : "border-border hover:bg-accent/15"}`}
               >
                 <input
                   type="checkbox"
-                  checked={selectedIds.includes(p.id)}
+                  className="size-4 accent-current"
+                  checked={checked}
                   onChange={() => toggle(p.id)}
                 />
-                <span>{p.display_name}</span>
+                <span className="truncate">{p.display_name}</span>
                 {loc && (
-                  <span className="ml-auto text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                  <span className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                     {loc.label}
                   </span>
                 )}
               </label>
             );
           })}
+          {filteredPlayers.length === 0 && (
+            <p className="col-span-full py-3 text-center text-sm text-muted-foreground">
+              {searchTerm
+                ? `No players match “${playerSearch.trim()}”.`
+                : "No players in the selected locations."}
+            </p>
+          )}
         </div>
-        <div className="flex gap-2">
-          <Input
-            className="flex-1"
-            placeholder="New player name"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-          />
-          <Button onClick={createPlayer}>Add player</Button>
-        </div>
-      </div>
-
-      <div>
-        <div className="font-medium mb-2">Board</div>
-        <BoardPicker
-          boards={boards}
-          value={selectedBoardId}
-          onChange={chooseBoard}
-          loading={boardsLoading}
-        />
-        {boardsError ? (
-          <p className="mt-2 text-xs text-destructive">
-            {boardsError}. Manual scoring is still available.
-          </p>
+        {searchTerm && !searchMatchesExisting ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => void createPlayer(playerSearch)}
+          >
+            Add “{playerSearch.trim()}” as a new player
+          </Button>
         ) : (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Only connected, ready Scolia boards can be picked.
-          </p>
+          <div className="flex gap-2">
+            <Input
+              className="flex-1"
+              placeholder="New player name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void createPlayer();
+                }
+              }}
+            />
+            <Button type="button" onClick={() => void createPlayer()}>
+              Add player
+            </Button>
+          </div>
         )}
       </div>
 
@@ -554,8 +646,10 @@ export default function NewMatchPage() {
         </>
       )}
 
-      <div className="flex gap-3">
+      <div className="sticky bottom-0 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:static md:mx-0 md:border-0 md:bg-transparent md:p-0">
         <Button
+          size="lg"
+          className="w-full md:w-auto"
           onClick={onStart}
           disabled={
             submitting || (gameMode !== null && validationError !== null)
