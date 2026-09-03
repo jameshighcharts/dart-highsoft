@@ -26,6 +26,7 @@ import type { LegRecord, MatchRecord, Player, TurnRecord, TurnWithThrows } from 
 import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
 import { useMemo } from 'react';
+import { Pause, Play } from 'lucide-react';
 
 type Props = {
   realtimeConnectionStatus: string;
@@ -44,6 +45,8 @@ type Props = {
   onEndGameDialogOpenChange: (open: boolean) => void;
   endGameLoading: boolean;
   onEndGameEarly: () => void;
+  pauseLoading: boolean;
+  onTogglePause: () => void;
   rematchLoading: boolean;
   onStartRematch: () => void;
   editOpen: boolean;
@@ -97,6 +100,8 @@ export function MatchScoringView({
   onEndGameDialogOpenChange,
   endGameLoading,
   onEndGameEarly,
+  pauseLoading,
+  onTogglePause,
   rematchLoading,
   onStartRematch,
   editOpen,
@@ -133,6 +138,8 @@ export function MatchScoringView({
   tournamentId,
 }: Props) {
   const isScoliaMatch = Boolean(match.scolia_board_id);
+  const isPaused = Boolean(match.paused_at);
+  const scoringDisabled = isPaused || Boolean(matchWinnerId);
   const currentPlayerLastTurn = useMemo(() => {
     if (!currentPlayer) return null;
     for (let i = turns.length - 1; i >= 0; i--) {
@@ -192,6 +199,11 @@ export function MatchScoringView({
           </span>
         </div>
       </div>
+      {isPaused && (
+        <div className="rounded-md border border-amber-400/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/70 dark:bg-amber-950/30 dark:text-amber-100">
+          Game paused — resume when you are ready to continue scoring.
+        </div>
+      )}
       {/* Scoring input at top (mobile keypad or desktop board) */}
       <div className="w-full space-y-6 md:space-y-0 md:grid md:grid-cols-[minmax(320px,25%)_1fr] md:gap-4 lg:gap-6 md:items-start">
         <div className="space-y-3 md:col-start-2 md:row-start-1">
@@ -316,13 +328,13 @@ export function MatchScoringView({
               <p className="mt-2 text-xs text-muted-foreground">Use Undo dart or Edit throws for corrections.</p>
             </div>
           ) : (
-            <div className={`${matchWinnerId ? 'pointer-events-none opacity-50' : ''} md:hidden`}>
+            <div className={`${scoringDisabled ? 'pointer-events-none opacity-50' : ''} md:hidden`}>
               <MobileKeypad onHit={(seg) => onBoardClick(0, 0, seg as unknown as ReturnType<typeof computeHit>)} />
             </div>
           )}
           {/* Desktop: board with buttons on the right */}
           <div className="hidden md:flex items-start gap-4">
-            <div className={`flex-1 flex justify-center ${matchWinnerId ? 'pointer-events-none opacity-50' : ''}`}>
+            <div className={`flex-1 flex justify-center ${scoringDisabled ? 'pointer-events-none opacity-50' : ''}`}>
               {isScoliaMatch ? (
                 <div className="flex min-h-[460px] w-full max-w-2xl items-center justify-center rounded-2xl border border-emerald-500/40 bg-emerald-50 p-8 text-center dark:bg-emerald-950/30">
                   <div>
@@ -370,6 +382,18 @@ export function MatchScoringView({
               <Button variant="outline" size="sm" onClick={onToggleSpectatorMode} className="text-xs whitespace-nowrap">
                 Spectator
               </Button>
+              {!matchWinnerId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onTogglePause}
+                  disabled={pauseLoading}
+                  className="text-xs whitespace-nowrap"
+                >
+                  {isPaused ? <Play className="mr-1 h-3 w-3" /> : <Pause className="mr-1 h-3 w-3" />}
+                  {pauseLoading ? 'Updating…' : isPaused ? 'Resume game' : 'Pause game'}
+                </Button>
+              )}
               {!matchWinnerId && !isTournamentMatch && (
                 <Dialog open={endGameDialogOpen} onOpenChange={onEndGameDialogOpenChange}>
                   <DialogTrigger asChild>
@@ -560,6 +584,12 @@ export function MatchScoringView({
       </div>
       {/* Action Buttons - Mobile only */}
       <div className="flex flex-col sm:flex-row gap-2 pt-4 md:hidden">
+        {!matchWinnerId && (
+          <Button variant="outline" onClick={onTogglePause} disabled={pauseLoading} className="flex-1 sm:max-w-xs">
+            {isPaused ? <Play className="mr-2 h-4 w-4" /> : <Pause className="mr-2 h-4 w-4" />}
+            {pauseLoading ? 'Updating…' : isPaused ? 'Resume game' : 'Pause game'}
+          </Button>
+        )}
         {!matchWinnerId && !isTournamentMatch && (
           <Dialog open={endGameDialogOpen} onOpenChange={onEndGameDialogOpenChange}>
             <DialogTrigger asChild>

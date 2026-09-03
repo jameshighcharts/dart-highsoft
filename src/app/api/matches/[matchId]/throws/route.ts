@@ -88,6 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     const match = await loadMatch(supabase, matchId);
     if (!match) return NextResponse.json({ error: 'Match not found' }, { status: 404 });
     if (!isMatchActive(match)) return NextResponse.json({ error: 'Match is not active' }, { status: 409 });
+    if (match.paused_at) return NextResponse.json({ error: 'Match is paused' }, { status: 409 });
     if (match.scolia_board_id) {
       return NextResponse.json(
         { error: 'Manual scoring is disabled for Scolia matches' },
