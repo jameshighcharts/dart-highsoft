@@ -391,11 +391,7 @@ export default function NewMatchPage() {
           <p className="text-xs text-destructive">
             {boardsError}. Manual scoring is still available.
           </p>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Only connected, ready Scolia boards can be picked.
-          </p>
-        )}
+        ) : null}
       </div>
 
       <div className="space-y-2">

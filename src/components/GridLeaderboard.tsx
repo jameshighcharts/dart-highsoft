@@ -17,14 +17,15 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 const TREND_UP_COLOR = '#2ff084';
 const TREND_DOWN_COLOR = '#ff4d5f';
 
+// Tier 5 holds the 1200 starting rating; tier 8 starts at 1400.
 const ELO_TIER_RANGES = [
-  { max: 1124, tier: 1 },
-  { max: 1174, tier: 2 },
-  { max: 1224, tier: 3 },
-  { max: 1274, tier: 4 },
-  { max: 1324, tier: 5 },
-  { max: 1374, tier: 6 },
-  { max: 1449, tier: 7 },
+  { max: 1049, tier: 1 },
+  { max: 1099, tier: 2 },
+  { max: 1149, tier: 3 },
+  { max: 1199, tier: 4 },
+  { max: 1249, tier: 5 },
+  { max: 1299, tier: 6 },
+  { max: 1399, tier: 7 },
 ] as const;
 
 /**
@@ -71,7 +72,11 @@ function renderEloBadgeHtml(value: unknown): string {
   const rating = Math.round(value);
   const tier = getEloTierBadgeNumber(rating);
 
-  return `<span class="elo-badge elo-badge--tier-${tier}">${rating}</span>`;
+  return (
+    `<span class="elo-badge elo-badge--tier-${tier}" style="background-image: url('/elo-badges/tier-${tier}.png')">` +
+    `<span class="elo-badge__rating">${rating}</span>` +
+    `</span>`
+  );
 }
 
 function renderLocationPillHtml(value: unknown): string {
@@ -80,13 +85,21 @@ function renderLocationPillHtml(value: unknown): string {
   }
 
   const normalized = value.toLowerCase();
-  const variant = normalized.includes('bergen')
-    ? 'location-pill--blue'
+  const image = normalized.includes('bergen')
+    ? 'bergen'
     : normalized.includes('vik')
-      ? 'location-pill--purple'
-      : 'location-pill--neutral';
+      ? 'vik'
+      : null;
 
-  return `<span class="location-pill ${variant}">${value}</span>`;
+  if (image) {
+    return (
+      `<span class="location-badge" style="background-image: url('/location-badges/${image}.png')">` +
+      `<span class="location-badge__label">${value}</span>` +
+      `</span>`
+    );
+  }
+
+  return `<span class="location-pill location-pill--neutral">${value}</span>`;
 }
 
 function compareNullableNumbers(a: unknown, b: unknown): number {
@@ -394,6 +407,37 @@ function loadLeaderboardLocationFilter(): LeaderboardLocationFilter {
   return 'all';
 }
 
+/**
+ * Dev-only mock rows so every Elo badge tier can be inspected locally.
+ * Shown automatically while running `next dev`; open the page with
+ * `?mockElo=0` to hide them. Never rendered in production builds.
+ * Mock ids carry a prefix so they never reach Supabase queries.
+ */
+const MOCK_PLAYER_ID_PREFIX = 'mock-elo-';
+const MOCK_ELO_TIER_NAMES = ['Chalk', 'Flight', 'Steel Tip', 'Treble', 'Double', 'Bull', 'One-Eighty', 'Champion'];
+const MOCK_ELO_TIER_RATINGS = [1000, 1075, 1125, 1175, 1225, 1275, 1350, 1450];
+const MOCK_ELO_PLAYERS: MergedPlayer[] = MOCK_ELO_TIER_NAMES.map((name, i) => ({
+  player_id: `${MOCK_PLAYER_ID_PREFIX}${i + 1}`,
+  display_name: `Mock ${name}`,
+  location: LOCATIONS[i % LOCATIONS.length]?.value ?? null,
+  wins: 8 - i,
+  games_played: 10 + i,
+  game_win_rate: Math.round(((8 - i) / (10 + i)) * 1000) / 10,
+  avg_per_turn: 40 + i * 4,
+  elo_multi: MOCK_ELO_TIER_RATINGS[i],
+  // reverse order so the two Elo columns show different tiers side by side
+  elo_1v1: MOCK_ELO_TIER_RATINGS[MOCK_ELO_TIER_RATINGS.length - 1 - i],
+}));
+
+function useMockEloRows(): boolean {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    setEnabled(new URLSearchParams(window.location.search).get('mockElo') !== '0');
+  }, []);
+  return enabled;
+}
+
 export function GridLeaderboard({ headerContent }: { headerContent?: React.ReactNode } = {}) {
   const {
     leaders,
@@ -407,6 +451,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
     loading,
   } = useLeaderboardData();
   const [locationFilter, setLocationFilter] = useState<LeaderboardLocationFilter>(loadLeaderboardLocationFilter);
+  const mockEloRows = useMockEloRows();
   const [matchActivityRange, setMatchActivityRange] = useState<MatchActivityRange>('7d');
 
   useEffect(() => {
@@ -452,8 +497,12 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
       p.elo_multi = entry.current_rating;
     }
 
+    if (mockEloRows) {
+      for (const mock of MOCK_ELO_PLAYERS) map.set(mock.player_id, { ...mock });
+    }
+
     return Array.from(map.values());
-  }, [leaders, eloLeaders, eloMultiLeaders, playerGameStats, playerLocations]);
+  }, [leaders, eloLeaders, eloMultiLeaders, playerGameStats, playerLocations, mockEloRows]);
 
   const filteredMerged = useMemo(() => {
     if (locationFilter === 'all') return merged;
@@ -489,7 +538,10 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
   }, [merged, recentWinsByPlayer]);
 
   // Stable player ID list for query key (avoids refetch on every render)
-  const playerIds = useMemo(() => merged.map((p) => p.player_id).sort(), [merged]);
+  const playerIds = useMemo(
+    () => merged.map((p) => p.player_id).filter((id) => !id.startsWith(MOCK_PLAYER_ID_PREFIX)).sort(),
+    [merged]
+  );
 
   const { data: eloHistoryData } = useQuery({
     queryKey: ['eloHistory', playerIds],
@@ -1143,60 +1195,26 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
         .grid-leaderboard .elo-badge {
           display: flex;
-          min-width: 68px;
-          width: fit-content;
-          height: 28px;
-          margin: 0 auto;
+          width: 132px;
+          height: 40px;
+          margin: -3px auto;
           align-items: center;
           justify-content: center;
-          border: 1px solid transparent;
-          border-radius: 999px;
-          padding: 0 12px;
-          font-size: 15px;
-          font-weight: 700;
+          background-repeat: no-repeat;
+          background-position: center;
+          background-size: contain;
+        }
+        .grid-leaderboard .elo-badge__rating {
+          display: inline-block;
+          min-width: 58px;
+          text-align: center;
+          color: #ffffff !important;
+          font-size: 18px;
+          font-weight: 700 !important;
           line-height: 1;
           letter-spacing: 0;
           font-variant-numeric: tabular-nums;
-        }
-        .grid-leaderboard .elo-badge--tier-1 {
-          color: #94a3b8;
-          background: rgba(100, 116, 139, 0.14);
-          border-color: rgba(148, 163, 184, 0.3);
-        }
-        .grid-leaderboard .elo-badge--tier-2 {
-          color: #a3b5c9;
-          background: rgba(148, 163, 184, 0.13);
-          border-color: rgba(163, 181, 201, 0.32);
-        }
-        .grid-leaderboard .elo-badge--tier-3 {
-          color: #67e8f9;
-          background: rgba(6, 182, 212, 0.13);
-          border-color: rgba(34, 211, 238, 0.34);
-        }
-        .grid-leaderboard .elo-badge--tier-4 {
-          color: #60a5fa;
-          background: rgba(59, 130, 246, 0.14);
-          border-color: rgba(96, 165, 250, 0.35);
-        }
-        .grid-leaderboard .elo-badge--tier-5 {
-          color: #a78bfa;
-          background: rgba(139, 92, 246, 0.14);
-          border-color: rgba(167, 139, 250, 0.35);
-        }
-        .grid-leaderboard .elo-badge--tier-6 {
-          color: #f0c45a;
-          background: rgba(245, 158, 11, 0.14);
-          border-color: rgba(240, 196, 90, 0.36);
-        }
-        .grid-leaderboard .elo-badge--tier-7 {
-          color: #fb923c;
-          background: rgba(249, 115, 22, 0.14);
-          border-color: rgba(251, 146, 60, 0.36);
-        }
-        .grid-leaderboard .elo-badge--tier-8 {
-          color: #fb7185;
-          background: rgba(244, 63, 94, 0.14);
-          border-color: rgba(251, 113, 133, 0.38);
+          text-shadow: 0 0 3px rgba(3, 7, 18, 0.95), 0 1px 4px rgba(3, 7, 18, 0.9);
         }
         .grid-leaderboard .elo-badge-empty {
           color: #94a3b8;
@@ -1214,15 +1232,23 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           letter-spacing: 0;
         }
-        .grid-leaderboard .location-pill--purple {
-          color: #c4a5ff;
-          background: rgba(139, 92, 246, 0.14);
-          border: 1px solid rgba(139, 92, 246, 0.36);
+        .grid-leaderboard .location-badge {
+          display: inline-flex;
+          width: 76px;
+          height: 24px;
+          align-items: center;
+          justify-content: center;
+          background-repeat: no-repeat;
+          background-position: center;
+          background-size: contain;
         }
-        .grid-leaderboard .location-pill--blue {
-          color: #60c7ff;
-          background: rgba(14, 165, 233, 0.13);
-          border: 1px solid rgba(14, 165, 233, 0.36);
+        .grid-leaderboard .location-badge__label {
+          color: #ffffff !important;
+          font-size: 12px;
+          font-weight: 700 !important;
+          line-height: 1;
+          letter-spacing: 0.01em;
+          text-shadow: 0 0 3px rgba(3, 7, 18, 0.95), 0 1px 3px rgba(3, 7, 18, 0.9);
         }
         .grid-leaderboard .location-pill--neutral {
           color: #cbd5e1;
