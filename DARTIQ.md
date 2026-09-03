@@ -147,6 +147,8 @@ The first foundations are in place:
 2. Deterministic per-dart replay over a behavioral visit/race model, with normalized multiplayer probabilities, WPA, full-field consequence, checkout/setup analysis, bogey classification, turning points, and stolen/thrown-away legs.
 3. Versioned DartIQ packets with stable IDs, classified signals, and commentary priorities.
 4. Fair-ending phases: provisional checkout waiting, deterministic bounded tiebreak projections, fair-ending signals, and direct worker-triggered Scolia commentary.
+5. A server-rendered `/match/[id]/report` surface with a multiplayer Match Pulse, leg boundaries,
+   summary facts, and a clickable ranked-dart list linked from completed X01 games.
 
 Historical inputs are frozen atomically when a match is created. A player's eligible completed X01 history and the installation-wide finish-rule population become immutable match evidence, so later games cannot leak backward into a replay or calibration run. The browser fetches that compact evidence rather than raw historical matches.
 
@@ -1295,14 +1297,16 @@ contracts and proofs established earlier.
 
 14. **Report-lite** — expose the deterministic swing and narrative facts on the existing finished
     match surface first, so the new engine can be inspected immediately.
-15. **Full DartIQ Report** — add `/match/[id]/report`, link it from recent games, server-load the
-    canonical compact replay, and dynamically load Highcharts in a small client island.
+15. **Full DartIQ Report — shipped foundation** — `/match/[id]/report` is linked from recent games
+    and server-loads the canonical replay. Its responsive SVG is server-rendered rather than adding
+    a Highcharts client island, keeping the route free of chart hydration and bundle cost.
 16. **Report interaction** — add the probability timeline with leg boundaries, scrubber/clickable
     swing list, synchronized Scolia heatmaps, per-player summaries, and a compact shareable story
     whose claims always resolve to deterministic facts.
 
-`analyzeDartIQTimeline()` is a substantial head start, not a finished report. Loading, routing,
-charting, interaction, heatmap synchronization, summaries, and sharing are all included in this PR.
+`analyzeDartIQTimeline()` now drives the report's loading, routing, chart, summary counts, and ranked
+dart navigation. Heatmap synchronization, deeper per-player summaries, and sharing remain in the
+report-interaction slice of this PR.
 
 #### F. Proof and documentation
 

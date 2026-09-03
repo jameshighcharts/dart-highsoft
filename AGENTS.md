@@ -37,6 +37,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `new/page.tsx` | New X01 or party-game form with optional ready Scolia board selection |
 | `match/[id]/page.tsx` | Match page (server component) |
 | `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator/history stats view |
+| `match/[id]/report/page.tsx` | Server-rendered DartIQ Match Pulse, summary facts, and clickable ranked dart swings |
 | `game/[id]/page.tsx` | Party-game page (server component) |
 | `game/[id]/GameClient.tsx` | Party-game scoring and spectator client |
 | `games/page.tsx` | Live and recent X01 and party-game listing; completed X01 games link to read-only stats |
