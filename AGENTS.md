@@ -18,6 +18,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `e2e`: Playwright E2E tests and fixtures.
 - `supabase`: SQL migrations and local config.
 - `supabase-test`: Separate Supabase config for E2E tests (port 56XXX).
+- `.github/workflows/test.yml`: Required CI check for lint, unit tests, build, and Lighthouse performance budgets.
+- `.lighthouserc.json`: Mobile Lighthouse workload and performance limits for the home page.
 - `DEPLOYMENT.md`: Beginner-friendly production deployment guide for Vercel + Supabase.
 - `Dockerfile.scolia-worker`: Production container for the separate persistent Scolia worker.
 - `docs/SCOLIA_SOCIAL_API.md`: Markdown reference for the complete Scolia Social API v1.2 protocol.
@@ -157,6 +159,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `npm run lint`: Lint with Next.js + ESLint config.
 - `npm test`: Run tests in watch mode (interactive).
 - `npm run test:run`: Run all tests once (for CI/CD).
+- `npm run test:performance`: Run three Lighthouse audits against the production build and enforce the committed performance budgets.
 - `npm run test:ui`: Open visual test interface.
 - `npm run test:coverage`: Generate and display coverage report.
 - `npm run test:e2e`: Run Playwright E2E tests (requires test Supabase instance).
@@ -231,6 +234,9 @@ Current-round app undo/edit → match throw API mutates and recomputes app state
 New Match and Boards load one API snapshot → `scolia_board_public_status` Postgres Realtime updates runtime status immediately while match events refresh occupancy → reconnects reconcile from the API and a local heartbeat-expiry timer detects silent worker loss. The user selects manual scoring or a connected/ready unused board → `POST /api/matches` revalidates availability → persists `matches.scolia_board_id`. A partial unique index permits only one active match per physical board.
 
 Scolia matches replace the manual keypad/dartboard with a hardware-scoring notice, and manual throw POSTs are rejected server-side. Rematch revalidates and carries the same ready board; the partial unique index rejects a concurrent claim.
+
+**Production release gate:**
+Pull request or merge queue → `Tests / test` runs lint, unit tests, a production build, and three Lighthouse samples → GitHub branch protection permits merge only after success → Vercel Deployment Checks hold the production alias for the same commit until `Tests / test` passes.
 
 Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. A missing acknowledgement resets a stale command for retry; after three attempts it becomes `failed`. Deploy `Dockerfile.scolia-worker` as exactly one always-on worker replica outside Vercel.
 

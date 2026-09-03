@@ -174,9 +174,29 @@ SCOLIA_ACCESS_TOKEN=...
 
 10. Click `Deploy`
 
-After the first deploy, every push to the connected GitHub repo should trigger a new Vercel deployment automatically.
+After the first deploy, every push to the connected GitHub repo creates a Vercel deployment.
 
-### Step 7: Verify The Deployment
+### Step 7: Gate Production Releases
+
+The repository's `Tests / test` GitHub check runs lint, unit tests, a production build, and three mobile Lighthouse audits. Configure GitHub and Vercel once so a failed performance budget cannot reach the production domain.
+
+1. Push `.github/workflows/test.yml` to GitHub and let `Tests / test` complete once.
+2. Open the GitHub repository's rulesets or branch protection settings.
+3. Protect `main`, require a pull request, and require the `Tests / test` status check.
+4. If you use GitHub's merge queue, keep the workflow's `merge_group` trigger enabled.
+5. Open the Vercel project's **Settings** page, then open **Deployment Checks**.
+6. Add the GitHub check named `Tests / test` to the Production environment.
+7. Keep automatic production aliasing enabled. Vercel builds the commit, waits for the check, and assigns the production domain only after the check passes.
+
+The Lighthouse limits live in `.lighthouserc.json`. Run the same check locally after `npm run build`:
+
+```bash
+npm run test:performance
+```
+
+GitHub keeps each run's Lighthouse reports as a `lighthouse-reports` artifact for 14 days. Change a budget only after you measure a new baseline and explain why the old limit is no longer valid.
+
+### Step 8: Verify The Deployment
 
 After Vercel finishes:
 
