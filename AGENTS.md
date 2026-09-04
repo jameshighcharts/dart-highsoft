@@ -82,6 +82,11 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/` | POST | Generate AI commentary via LLM |
 | `tts/` | POST | Text-to-speech for commentary |
 | `slack/darts/` | POST | Verify Slack slash commands/button actions and create dart polls |
+| `auth/[...nextauth]/` | GET, POST | Auth.js (next-auth v5) Sign in with Slack handlers; `auth/slack/callback` aliases the callback URL |
+| `admin/players/` | GET, POST | Admin-only: players with Slack links plus workspace directory; create player |
+| `admin/players/[playerId]/` | PATCH | Admin-only: rename, relocate, or (de)activate a player |
+| `admin/players/[playerId]/slack-link/` | PUT, DELETE | Admin-only: link/unlink a player and a Slack user in `slack_player_links` |
+| `admin/slack/sync/` | POST | Admin-only: import workspace members as players (first name / `First L`) and link them |
 | `background-jobs/` | POST | Authenticate Supabase job batches and run typed background handlers |
 
 ### Utils (`src/utils`) — Pure Business Logic
@@ -150,6 +155,10 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `scolia/protocol.ts` | Pure Scolia message/throw parsing, board-state mapping, and reconnect timing |
 | `scolia/types.ts` | Shared Scolia board response types |
 | `slack/dartPollService.ts` | Creates polls, records votes, links Slack users to players, and finalizes matches |
+| `slack/members.ts` | Lists full, active, human workspace members via `users.list` |
+| `slack/playerImport.ts` | Plans and applies the Slack member → player import with the first-name / `First L` naming rule |
+| `auth/slackWorkspace.ts` | Pure Slack sign-in gate helpers (team id, verified email, allowed domains, admin list) |
+| `auth/requireAdmin.ts` | Session guard for `/api/admin` routes |
 | `slack/dartTime.ts` | Parses `/dart HH:MM` in the configured IANA time zone |
 | `slack/messages.ts` | Builds accessible Slack Block Kit poll messages |
 | `slack/signature.ts` | Verifies Slack request signatures and rejects replayed requests |

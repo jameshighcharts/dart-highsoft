@@ -15,7 +15,7 @@ export default async function PracticePlayerPage({ params }: Props) {
   // Get the specific player
   const { data: player, error } = await supabase
     .from('players')
-    .select('id, display_name')
+    .select('id, display_name, avatar_url')
     .eq('id', playerId)
     .single();
 

@@ -1,3 +1,4 @@
+import { PlayerAvatar, type AvatarPlayer } from '@/components/PlayerAvatar';
 import { ThrowSegmentBadges } from '@/components/ThrowSegmentBadges';
 import { cn } from '@/lib/utils';
 import type { ReactNode } from 'react';
@@ -20,6 +21,7 @@ export type TurnRowTurn = {
 type TurnRowProps = {
   turn: TurnRowTurn;
   playerName?: string;
+  player?: AvatarPlayer;
   playersCount: number;
   leading?: ReactNode;
   placeholder?: string;
@@ -33,6 +35,7 @@ type TurnRowProps = {
 export function TurnRow({
   turn,
   playerName,
+  player,
   playersCount,
   leading,
   placeholder = '-',
@@ -62,7 +65,10 @@ export function TurnRow({
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             {leading}
-            <span>{playerName ?? 'Unknown'}</span>
+            <span className="inline-flex items-center gap-1.5">
+              {player ? <PlayerAvatar player={player} size="xs" /> : null}
+              <span>{playerName ?? player?.display_name ?? 'Unknown'}</span>
+            </span>
           </div>
           {showThrows && (
             <ThrowSegmentBadges

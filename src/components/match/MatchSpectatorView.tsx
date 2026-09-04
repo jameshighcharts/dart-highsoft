@@ -1,5 +1,6 @@
 import QRCode from 'react-qr-code';
 import { ArrowLeft, Home } from 'lucide-react';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { TurnRow } from '@/components/TurnRow';
 import { SpectatorLiveMatchCard } from '@/components/match/SpectatorLiveMatchCard';
 import CommentaryDisplay from '@/components/CommentaryDisplay';
@@ -476,7 +477,9 @@ export function MatchSpectatorView({
                     >
                       <span className="font-medium">Leg {leg.leg_number}</span>
                       {winner ? (
-                        <span className="font-semibold text-green-600 dark:text-green-400">🏆 {winner.display_name}</span>
+                        <span className="inline-flex items-center gap-2 font-semibold text-green-600 dark:text-green-400">
+                          🏆 <PlayerAvatar player={winner} size="sm" /> {winner.display_name}
+                        </span>
                       ) : (
                         <span className="text-muted-foreground">In Progress</span>
                       )}
@@ -506,6 +509,7 @@ export function MatchSpectatorView({
                             key={turn.id}
                             turn={turn}
                             playerName={playerById[turn.player_id]?.display_name}
+                            player={playerById[turn.player_id]}
                             playersCount={players.length}
                             leading={<span className="text-xl">{medal}</span>}
                             placeholder="—"
@@ -533,6 +537,7 @@ export function MatchSpectatorView({
                           key={turn.id}
                           turn={turn}
                           playerName={playerById[turn.player_id]?.display_name}
+                          player={playerById[turn.player_id]}
                           playersCount={players.length}
                           placeholder="—"
                           className="p-3 rounded-md bg-muted/30 hover:bg-muted/50 transition-colors"
@@ -585,8 +590,9 @@ export function MatchSpectatorView({
             <ConfettiOverlay />
             <div className="text-center space-y-4">
               <div className="text-5xl md:text-6xl">🏆</div>
-              <div className="text-3xl md:text-4xl font-extrabold text-green-600 dark:text-green-400">
-                {(matchWinnerId ? playerById[matchWinnerId] : undefined)?.display_name} Wins!
+              <div className="inline-flex items-center justify-center gap-2 text-3xl md:text-4xl font-extrabold text-green-600 dark:text-green-400">
+                {matchWinnerId && playerById[matchWinnerId] ? <PlayerAvatar player={playerById[matchWinnerId]} size="xl" /> : null}
+                <span>{(matchWinnerId ? playerById[matchWinnerId] : undefined)?.display_name} Wins!</span>
               </div>
               <div className="text-base md:text-lg text-muted-foreground">
                 Match complete

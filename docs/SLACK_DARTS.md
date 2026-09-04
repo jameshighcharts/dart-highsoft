@@ -28,6 +28,72 @@ SLACK_DART_TIME_ZONE=Europe/Oslo
 defaults to `Europe/Oslo`; the app URL defaults to the job request origin.
 Generate `BACKGROUND_JOB_SECRET` as a random value of at least 32 characters.
 
+## Sign in with Slack: global gate and admin panel
+
+The whole app is behind Sign in with Slack. `/login` gates the game (any
+verified member of the Highsoft workspace), `/signin` gates `/admin` (members
+on `AUTH_SLACK_ADMIN_EMAILS`, or everyone when that list is empty). Both pages
+share one light card with a single "Login with Slack" button. Server-to-server
+endpoints stay public and authenticate on their own: `/api/slack/*` (request
+signatures), `/api/background-jobs` (bearer secret) and `/api/auth/*`.
+
+### Profile pictures and nicknames
+
+Migration `0059_player_avatars_and_nicknames.sql` adds `players.avatar_url`,
+`players.nicknames text[]` and a public-read `avatars` storage bucket. Admins
+upload PNG/JPEG/WebP pictures (max 2 MB) per player in `/admin`; the server
+sniffs the real image type and stores `players/<id>.<ext>`. Nicknames are
+entered comma-separated. The `PlayerAvatar` component renders the picture (or
+initials) as a circle at fixed sizes wherever players appear.
+
+
+`/admin` is a light, minimal user-management page (players, pictures,
+nicknames, locations, active flag, and Slack identity links). Auth uses the
+same env contract as the Compass app, so the Compass Slack OAuth values can be
+reused as-is:
+
+```env
+AUTH_SECRET=                      # openssl rand -base64 32
+AUTH_SLACK_ID=                    # Slack app client id
+AUTH_SLACK_SECRET=                # Slack app client secret
+AUTH_SLACK_TEAM_ID=               # Highsoft workspace id (T…)
+AUTH_SLACK_ALLOWED_EMAIL_DOMAINS=highsoft.com
+AUTH_SLACK_ADMIN_EMAILS=          # optional; empty = every workspace member is an admin
+AUTH_TRUST_HOST=true              # only needed outside Vercel
+```
+
+On the Slack app, enable **Sign in with Slack** (OpenID Connect) and register
+`https://YOUR_APP/api/auth/callback/slack` as a redirect URL. Slack requires
+HTTPS, so local development needs a tunnel or the production deployment.
+For a local preview without Slack, set `AUTH_DEV_BYPASS=1` in `.env.local`
+and run `npm run dev`; it only works under `next dev` and signs you in as a
+fake "Local dev" admin. Production builds ignore it. The Playwright server
+(`npm run dev:test`) sets it so E2E tests run without Slack.
+
+Sign-in is refused unless the Slack profile belongs to `AUTH_SLACK_TEAM_ID`
+and carries a verified email on an allowed domain. `/signin` shows a single
+"Login with Slack" button.
+
+### Magic Slack linking
+
+The admin panel reads and writes `slack_player_links`, the same table the
+poll scheduler uses to turn Yes-votes into match players. Linking a player to
+a Slack user in `/admin` therefore fixes how that person is resolved by
+`/dart`. The signed-in admin can also link themselves with one click.
+
+**Import Slack members** (button in `/admin`, or `npm run slack:sync-players`)
+lists every full, active, human member of the workspace via `users.list`
+(needs `SLACK_BOT_TOKEN` with `users:read`) and:
+
+- creates one player per member named by first name; members who share a
+  first name get `First L` (first name + last-name initial), falling back to
+  the full name if that still collides;
+- links a member to an existing unlinked player with exactly that name
+  instead of creating a duplicate;
+- skips members that already have a link. The import is idempotent.
+
+Run `npm run slack:sync-players -- --dry` to print the plan without writing.
+
 ## Deployment
 
 1. Apply migrations `0057_slack_dart_polls.sql` and

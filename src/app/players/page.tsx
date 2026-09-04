@@ -7,8 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 
-type Player = { id: string; display_name: string; location: string | null };
+type Player = { id: string; display_name: string; location: string | null; avatar_url?: string | null };
 
 export default function PlayersPage() {
   const [players, setPlayers] = useState<Player[]>([]);
@@ -79,7 +80,10 @@ export default function PlayersPage() {
       <ul className="divide-y border rounded bg-card text-card-foreground">
         {players.map((p) => (
           <li key={p.id} className="px-3 py-2 flex items-center justify-between">
-            <span>{p.display_name}</span>
+            <span className="inline-flex items-center gap-2">
+              <PlayerAvatar player={p} size="md" />
+              <span>{p.display_name}</span>
+            </span>
             <div className="flex items-center gap-2">
               <Select
                 value={p.location ?? undefined}

@@ -6,6 +6,7 @@ import { Grid3x3, Target, BarChart3, Plus, Radio, Trophy, Users } from "lucide-r
 import { Analytics } from "@vercel/analytics/react";
 import { MatchSpectatorHotkey } from "@/components/MatchSpectatorHotkey";
 import { QueryProvider } from "@/components/QueryProvider";
+import { SiteChrome } from "@/components/SiteChrome";
 
 // Use system fonts as fallback when Google Fonts cannot be loaded during build
 const fontVariables = 'font-sans';
@@ -43,7 +44,9 @@ export default function RootLayout({
         className={`${fontVariables} antialiased min-h-screen h-full bg-background text-foreground`}
       >
         <QueryProvider>
-        <div className="min-h-screen pb-16 lg:pb-0">
+          <SiteChrome
+            nav={
+              <>
           <nav className="hidden lg:flex items-center justify-between px-6 py-3 border-b bg-card">
             <Link href="/" className="flex items-center gap-3 font-semibold">
               <Image src="/icon-192x192.png" alt="" width={40} height={40} className="size-10 object-contain" priority />
@@ -80,7 +83,6 @@ export default function RootLayout({
               </Link>
             </div>
           </nav>
-          <main className="px-3 py-2 md:p-6">{children}</main>
           <nav className="lg:hidden fixed bottom-0 left-0 right-0 border-t bg-card">
             <div className="grid grid-cols-5">
               <Link href="/" className="flex flex-col items-center justify-center py-2 gap-1">
@@ -105,7 +107,11 @@ export default function RootLayout({
               </Link>
             </div>
           </nav>
-        </div>
+              </>
+            }
+          >
+            {children}
+          </SiteChrome>
         </QueryProvider>
         <Analytics />
         <MatchSpectatorHotkey />

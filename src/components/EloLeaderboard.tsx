@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 import {
   getEloLeaderboard,
   getRecentEloChanges,
@@ -114,6 +115,7 @@ export function EloLeaderboard({ limit = 20, showRecentChanges = false }: Props)
                            `#${entry.rank}`}
                         </div>
                         
+                        <PlayerAvatarById playerId={entry.player_id} name={entry.display_name} size="md" />
                         <div>
                           <div className="font-semibold text-lg">{entry.display_name}</div>
                           <div className="flex items-center gap-2 text-sm">

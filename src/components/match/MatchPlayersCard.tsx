@@ -2,6 +2,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { decorateAvg } from '@/utils/playerStats';
 import type { Player, ThrowRecord, TurnRecord, TurnWithThrows } from '@/lib/match/types';
 import type { FairEndingState } from '@/utils/fairEnding';
@@ -100,7 +101,10 @@ export function MatchPlayersCard({
                   {checkedOutPlayerIds?.includes(p.id) && (
                     <Badge variant="outline" className="border-green-500 text-green-600 dark:text-green-400">Checked out</Badge>
                   )}
-                  <div className="font-medium">{p.display_name}</div>
+                  <div className="inline-flex items-center gap-2 font-medium">
+                    <PlayerAvatar player={p} size="md" />
+                    <span>{p.display_name}</span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-3">
                   {isActiveTurn && (

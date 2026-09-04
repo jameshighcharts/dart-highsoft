@@ -5,6 +5,7 @@ import { Check } from 'lucide-react';
 import { clockSequence } from '@/lib/games/engines/aroundTheClock';
 import type { AroundTheClockConfig, AroundTheClockEvent, AroundTheClockPlayerState, GameState } from '@/lib/games/types';
 import type { GamePlayerData } from '@/hooks/useGameData';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { cn } from '@/lib/utils';
 
 type ClockBoardProps = {
@@ -47,7 +48,10 @@ export function ClockBoard({ state, players, config, currentPlayerId }: ClockBoa
                 {ps.finished ? <Check className="size-7" /> : targetLabel(ps.target)}
               </div>
               <div className="min-w-0">
-                <div className="font-medium truncate">{player.display_name}</div>
+                <div className="flex items-center gap-2 font-medium">
+                  <PlayerAvatar player={{ id: player.player_id, display_name: player.display_name, avatar_url: player.avatar_url }} size="sm" />
+                  <span className="truncate">{player.display_name}</span>
+                </div>
                 <div className="text-xs text-muted-foreground tabular-nums">
                   {ps.finished ? `Done in ${ps.dartsThrown} darts` : `${ps.dartsThrown} darts`}
                 </div>

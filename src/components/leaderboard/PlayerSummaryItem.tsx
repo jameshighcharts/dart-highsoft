@@ -1,3 +1,4 @@
+import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 import { type PlayerSummaryEntry } from '@/hooks/useLeaderboardData';
 import { medal } from '@/utils/leaderboard';
 
@@ -10,8 +11,9 @@ type PlayerSummaryItemProps = {
 export function PlayerSummaryItem({ entry, index, primaryMetric }: PlayerSummaryItemProps) {
   return (
     <li className="flex items-center justify-between px-3 py-2">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <span className="w-8 text-lg text-center">{medal(index)}</span>
+        <PlayerAvatarById playerId={entry.player_id} name={entry.display_name} size="sm" />
         <span>{entry.display_name}</span>
       </div>
       <div className="flex items-center gap-6">

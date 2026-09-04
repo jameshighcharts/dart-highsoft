@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 
 type TurnsHistoryCardProps = {
   turns: TurnRowTurn[];
-  playerById: Record<string, { display_name: string }>;
+  playerById: Record<string, { id?: string; display_name: string; avatar_url?: string | null }>;
   playersCount: number;
   placeholder?: string;
 };
@@ -26,6 +26,7 @@ export function TurnsHistoryCard({ turns, playerById, playersCount, placeholder 
                 key={turn.id}
                 turn={turn}
                 playerName={playerById[turn.player_id]?.display_name}
+                player={playerById[turn.player_id]}
                 playersCount={playersCount}
                 placeholder={placeholder}
                 className="py-2 text-sm"

@@ -32,6 +32,25 @@ COMMENTARY_PERSONA=
 COMMENTARY_MODEL=
 ```
 
+Sign in with Slack gates the whole app (`/login`) and the `/admin` user panel
+(`/signin`); same values as the Compass app. `SLACK_BOT_TOKEN` enables the
+Slack member import:
+
+```env
+AUTH_SECRET=
+AUTH_SLACK_ID=
+AUTH_SLACK_SECRET=
+AUTH_SLACK_TEAM_ID=
+AUTH_SLACK_ALLOWED_EMAIL_DOMAINS=highsoft.com
+AUTH_SLACK_ADMIN_EMAILS=
+SLACK_BOT_TOKEN=
+```
+
+See `docs/SLACK_DARTS.md` for the Slack app configuration. Without these,
+`/login` and `/signin` report that sign-in is not configured and nobody can
+enter the app, so set them before deploying. Also apply migration
+`0059_player_avatars_and_nicknames.sql` for profile pictures and nicknames.
+
 Scolia requires one additional secret in both the Next.js app and the worker:
 
 ```env

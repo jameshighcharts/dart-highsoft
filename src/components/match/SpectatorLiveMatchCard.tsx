@@ -2,6 +2,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { ThrowSegmentBadges } from '@/components/ThrowSegmentBadges';
 import { computeCheckoutSuggestions } from '@/utils/checkoutSuggestions';
 import { computeSetupSuggestions } from '@/utils/setupSuggestions';
@@ -76,7 +77,10 @@ export function SpectatorLiveMatchCard({
           {!currentPlayerPresentedElsewhere && spectatorCurrentPlayer ? (
             <div className="text-center">
               <div className="text-lg font-semibold text-muted-foreground">Current Turn</div>
-              <div className="text-3xl font-bold text-primary">{spectatorCurrentPlayer.display_name}</div>
+              <div className="inline-flex items-center justify-center gap-2 text-3xl font-bold text-primary">
+                <PlayerAvatar player={spectatorCurrentPlayer} size="lg" />
+                <span>{spectatorCurrentPlayer.display_name}</span>
+              </div>
             </div>
           ) : null}
 
@@ -190,7 +194,10 @@ export function SpectatorLiveMatchCard({
                       {isCheckedOut && (
                         <Badge variant="outline" className="border-green-500 text-green-600 dark:text-green-400">Checked out</Badge>
                       )}
-                      <div className="font-semibold text-lg">{player.display_name}</div>
+                      <div className="inline-flex items-center gap-2 font-semibold text-lg">
+                        <PlayerAvatar player={player} size="md" />
+                        <span>{player.display_name}</span>
+                      </div>
 
                       {/* Inline throw indicators */}
                       {displayThrows.length > 0 && (
