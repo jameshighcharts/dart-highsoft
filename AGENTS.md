@@ -18,6 +18,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `e2e`: Playwright E2E tests and fixtures.
 - `supabase`: SQL migrations and local config.
 - `supabase/tests`: SQL regression tests for migration-level invariants and RPCs.
+- `scripts/supabase-migrations.mjs`: Exact-name migration validation, deployment, and production verification.
 - `supabase-test`: Separate Supabase config for E2E tests (port 56XXX).
 - `.github/workflows/test.yml`: Required CI check for lint, unit tests, build, and Lighthouse performance budgets.
 - `.lighthouserc.json`: Mobile Lighthouse workload and performance limits for the home page.
@@ -204,6 +205,14 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `gameFixtures.ts` | Party-game session, player, and throw factories |
 | `gameSupabaseMock.ts` | In-memory Supabase and RPC mock for party-game lifecycle tests |
 
+### Release Tooling
+| Path | Purpose |
+|------|---------|
+| `scripts/supabase-migrations.mjs` | Validates timestamped names, deploys migrations by exact name, and verifies production migration history plus database writes |
+| `scripts/supabase-migrations.test.mjs` | Regression tests for exact-name selection and migration filename policy |
+| `supabase/migrations/legacy-numbered-migrations.txt` | Immutable allowlist for the repository's historical numbered migrations |
+| `supabase/migrations/20260904091825_verify_match_creation_and_throw.sql` | Production database smoke migration that verifies `matches.paused_at`, creates an X01 match and throw, then removes its test rows |
+
 ## Build, Test, and Development Commands
 - `npm run dev`: Start local dev server (Turbopack) at `http://localhost:3000`.
 - `npm run build`: Create optimized production build.
@@ -302,7 +311,7 @@ Recent Games card → `/match/:id?spectator=true&history=true` → spectator dat
 `/dart HH:MM` → signed `POST /api/slack/darts` → insert poll and its `background_jobs` row atomically → publish a Yes/No Block Kit poll → signed button actions upsert one vote per Slack user → one Supabase Cron job checks for due work every five seconds → `dispatch_due_background_jobs()` atomically claims a batch and makes no HTTP request for an empty batch → authenticated `POST /api/background-jobs` dispatches `slack_dart_poll` → fewer than two Yes votes cancel; otherwise stable Slack identities resolve/create app players → `create_slack_x01_match_atomic` creates a manual 501 double-out match → Slack message links to scoring. See `docs/SLACK_DARTS.md` for setup and Vault configuration.
 
 **Production release gate:**
-Pull request or merge queue → `Tests / test` runs lint, unit tests, a production build, and three Lighthouse samples → GitHub branch protection permits merge only after success → Vercel Deployment Checks hold the production alias for the same commit until `Tests / test` passes.
+Pull request or merge queue → `Tests / test` validates migration filenames, runs lint, unit tests, a production build, and three Lighthouse samples → GitHub branch protection permits merge only after success. On a push to `main`, the Supabase workflow deploys every migration after the exact `0055_game_sessions` baseline by full migration name. The timestamped production smoke migration is recorded only after it verifies `matches.paused_at`, creates an X01 match and throw, and removes its test rows. `Tests / test` waits for that exact production history before Vercel Deployment Checks can promote the commit.
 
 Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. A missing acknowledgement resets a stale command for retry; after three attempts it becomes `failed`. Deploy `Dockerfile.scolia-worker` as exactly one always-on worker replica outside Vercel.
 
@@ -310,6 +319,8 @@ Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. 
 - Do not use `ALTER FUNCTION` in Supabase migrations. For function changes, use drop + recreate.
 - Never modify existing Supabase migration files after they are created/committed.
 - Any schema/function/policy change must be done by adding a new migration that supersedes earlier ones.
+- Name every new migration with a unique 14-digit UTC timestamp: `YYYYMMDDHHMMSS_description.sql`. The numbered migrations in `legacy-numbered-migrations.txt` are the only exceptions.
+- Migration deployment and verification track the complete migration name, never only its numeric or timestamp prefix.
 
 ## Boundaries / Do Not Touch
 - `.env*` files, secrets, production credentials.
