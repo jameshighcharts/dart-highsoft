@@ -178,7 +178,7 @@ After the first deploy, every push to the connected GitHub repo creates a Vercel
 
 ### Step 7: Gate Production Releases
 
-The repository's `Tests / test` GitHub check runs lint, unit tests, a production build, and three mobile Lighthouse audits. Configure GitHub and Vercel once so a failed performance budget cannot reach the production domain.
+The repository's `Tests / test` GitHub check validates migration filenames, runs lint, unit tests, a production build, and three mobile Lighthouse audits. On pushes to `main`, it also waits for the exact production migration history. The timestamped production smoke migration is recorded only after it verifies the pause column and successfully creates a match and throw. Configure GitHub and Vercel once so a failed schema check, database write, or performance budget cannot reach the production domain.
 
 1. Push `.github/workflows/test.yml` to GitHub and let `Tests / test` complete once.
 2. Open the GitHub repository's rulesets or branch protection settings.
@@ -187,6 +187,22 @@ The repository's `Tests / test` GitHub check runs lint, unit tests, a production
 5. Open the Vercel project's **Settings** page, then open **Deployment Checks**.
 6. Add the GitHub check named `Tests / test` to the Production environment.
 7. Keep automatic production aliasing enabled. Vercel builds the commit, waits for the check, and assigns the production domain only after the check passes.
+
+The Supabase migration workflow and the production phase of `Tests / test` require a GitHub Actions secret named `SUPABASE_ACCESS_TOKEN` and a repository variable named `SUPABASE_PROJECT_ID`. The workflow's legacy baseline is the exact migration name `0055_game_sessions`. Applied migrations are compared by complete name, so another migration cannot be skipped merely because it shares a numeric prefix.
+
+All future files in `supabase/migrations` must use a unique 14-digit UTC timestamp followed by a description, for example:
+
+```text
+20260904123000_add_match_column.sql
+```
+
+Historical numbered migrations are recorded in `supabase/migrations/legacy-numbered-migrations.txt`; do not add new entries to that allowlist. Validate names locally with:
+
+```bash
+node scripts/supabase-migrations.mjs validate
+```
+
+The `20260904091825_verify_match_creation_and_throw.sql` migration first verifies that `matches.paused_at` exists, then creates two players, an X01 match, a turn, and a throw. It deletes every test row before it can be recorded in production migration history. Any failed assertion aborts the migration, keeps it out of history, fails `Tests / test`, and prevents Vercel production promotion.
 
 The Lighthouse limits live in `.lighthouserc.json`. Run the same check locally after `npm run build`:
 
