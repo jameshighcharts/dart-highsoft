@@ -1303,6 +1303,9 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           font-variant-numeric: tabular-nums;
           text-shadow: 0 0 3px rgba(3, 7, 18, 0.95), 0 1px 4px rgba(3, 7, 18, 0.9);
         }
+        .grid-leaderboard .elo-badge--tier-2 .elo-badge__rating {
+          transform: translateY(1px);
+        }
         .grid-leaderboard .elo-badge-empty {
           color: #94a3b8;
         }
