@@ -32,8 +32,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import AroundTheWorldGame from '@/components/AroundTheWorldGame';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 
-type Player = { id: string; display_name: string };
+type Player = { id: string; display_name: string; avatar_url?: string | null };
 
 type Props = {
   player: Player;
@@ -353,7 +354,10 @@ export default function PracticeClient({ player }: Props) {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-xl lg:text-2xl font-bold">Traditional Practice</h1>
-              <p className="text-sm text-muted-foreground">{player.display_name}</p>
+              <p className="text-sm text-muted-foreground inline-flex items-center gap-2">
+                <PlayerAvatar player={player} size="md" />
+                {player.display_name}
+              </p>
               {session.session_goal && (
                 <p className="text-xs lg:text-sm text-blue-600 mt-1">Goal: {session.session_goal}</p>
               )}

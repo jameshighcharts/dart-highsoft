@@ -10,33 +10,31 @@ import '@highcharts/grid-pro/css/grid-pro.css';
 import { useLeaderboardData } from '@/hooks/useLeaderboardData';
 import { batchEloHistory, batchMultiEloHistory } from '@/utils/eloHistory';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
+import { renderPlayerCellHtml } from '@/lib/avatarStyle';
+import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 
 SparklineRenderer['useHighcharts'](Highcharts);
 
 const MEDALS = ['🥇', '🥈', '🥉'];
-const TREND_UP_COLOR = '#2ff084';
-const TREND_DOWN_COLOR = '#ff4d5f';
+// Same pair as the Last 10 chips: emissive mint for a rising trend,
+// emissive violet for a falling one. These feed Highcharts options rather
+// than CSS, so they cannot use the --brand-* custom properties and are
+// kept in sync by hand with the .win-loss-pill--win / --loss rules.
+const TREND_UP_COLOR = '#5cf0b8';
+const TREND_DOWN_COLOR = '#e38cff';
+const TREND_UP_AREA = '92, 240, 184';
+const TREND_DOWN_AREA = '195, 107, 255';
 
+// Tier 5 holds the 1200 starting rating; tier 8 starts at 1400.
 const ELO_TIER_RANGES = [
-  { max: 1124, tier: 1 },
-  { max: 1174, tier: 2 },
-  { max: 1224, tier: 3 },
-  { max: 1274, tier: 4 },
-  { max: 1324, tier: 5 },
-  { max: 1374, tier: 6 },
-  { max: 1449, tier: 7 },
+  { max: 1049, tier: 1 },
+  { max: 1099, tier: 2 },
+  { max: 1149, tier: 3 },
+  { max: 1199, tier: 4 },
+  { max: 1249, tier: 5 },
+  { max: 1299, tier: 6 },
+  { max: 1399, tier: 7 },
 ] as const;
-
-const ELO_TIER_TEXT_OFFSET_Y: Record<number, number> = {
-  1: 1,
-  2: 1,
-  3: 1,
-  4: 0,
-  5: 0,
-  6: 0,
-  7: 0,
-  8: 0,
-};
 
 /**
  * For an array of nullable numbers, return a Map from row-index to medal string
@@ -69,9 +67,20 @@ function getEloTierBadgeNumber(rating: number): number {
   return 8;
 }
 
+const PODIUM_LABELS: Record<number, string> = {
+  1: '1st place',
+  2: '2nd place',
+  3: '3rd place',
+};
+
 function renderRowRankHtml(rank: number): string {
-  const top = rank <= 3 ? ' row-rank--top' : '';
-  return `<span class="row-rank${top}">${rank}</span>`;
+  const label = PODIUM_LABELS[rank];
+  if (!label) {
+    return `<span class="row-rank">${rank}</span>`;
+  }
+  // row-rank--top is kept alongside the per-position class so any existing
+  // selectors that target the podium as a group keep working.
+  return `<span class="row-rank row-rank--top row-rank--${rank}" aria-label="${label}">${rank}</span>`;
 }
 
 function renderEloBadgeHtml(value: unknown): string {
@@ -81,13 +90,12 @@ function renderEloBadgeHtml(value: unknown): string {
 
   const rating = Math.round(value);
   const tier = getEloTierBadgeNumber(rating);
-  const textOffsetY = ELO_TIER_TEXT_OFFSET_Y[tier] ?? 0;
 
-  return `
-    <span class="elo-badge elo-badge--tier-${tier}" style="background-image: url('/elo-badges/tier-${tier}.png');">
-      <span class="elo-badge__rating" style="transform: translateY(${textOffsetY}px);">${rating}</span>
-    </span>
-  `;
+  return (
+    `<span class="elo-badge elo-badge--tier-${tier}" style="background-image: url('/elo-badges/tier-${tier}.png')">` +
+    `<span class="elo-badge__rating">${rating}</span>` +
+    `</span>`
+  );
 }
 
 function renderLocationPillHtml(value: unknown): string {
@@ -96,13 +104,21 @@ function renderLocationPillHtml(value: unknown): string {
   }
 
   const normalized = value.toLowerCase();
-  const variant = normalized.includes('bergen')
-    ? 'location-pill--blue'
+  const image = normalized.includes('bergen')
+    ? 'bergen'
     : normalized.includes('vik')
-      ? 'location-pill--purple'
-      : 'location-pill--neutral';
+      ? 'vik'
+      : null;
 
-  return `<span class="location-pill ${variant}">${value}</span>`;
+  if (image) {
+    return (
+      `<span class="location-badge" style="background-image: url('/location-badges/${image}.png')">` +
+      `<span class="location-badge__label">${value}</span>` +
+      `</span>`
+    );
+  }
+
+  return `<span class="location-pill location-pill--neutral">${value}</span>`;
 }
 
 function compareNullableNumbers(a: unknown, b: unknown): number {
@@ -120,21 +136,14 @@ function sparklineChartOptions(this: { value: unknown }) {
 
   const positive = nums.length > 1 && nums[nums.length - 1] >= nums[0];
   const lineColor = positive ? TREND_UP_COLOR : TREND_DOWN_COLOR;
-  const areaColor: Highcharts.GradientColorObject = positive
-    ? {
-        linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
-        stops: [
-          [0, 'rgba(47, 240, 132, 0.28)'],
-          [1, 'rgba(47, 240, 132, 0)'],
-        ],
-      }
-    : {
-        linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
-        stops: [
-          [0, 'rgba(255, 77, 95, 0.26)'],
-          [1, 'rgba(255, 77, 95, 0)'],
-        ],
-      };
+  const areaRgb = positive ? TREND_UP_AREA : TREND_DOWN_AREA;
+  const areaColor: Highcharts.GradientColorObject = {
+    linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
+    stops: [
+      [0, `rgba(${areaRgb}, 0.28)`],
+      [1, `rgba(${areaRgb}, 0)`],
+    ],
+  };
 
   return {
     colors: [lineColor],
@@ -336,12 +345,20 @@ function renderWinRateHtml(value: unknown): string {
   }
 
   const clamped = Math.max(0, Math.min(100, value));
-  const isStrong = value >= 40;
+  // The bar itself is one continuous treatment; only the numeral changes
+  // state. Mint marks a winning record, muted grey marks no wins at all.
+  let valueTone = 'win-rate__value--glass';
+  if (clamped === 0) {
+    valueTone = 'win-rate__value--muted';
+  } else if (value >= 50) {
+    valueTone = 'win-rate__value--mint';
+  }
+
   return `
     <span class="win-rate">
-      <span class="win-rate__value ${isStrong ? 'win-rate__value--strong' : 'win-rate__value--muted'}">${value.toFixed(1)}%</span>
+      <span class="win-rate__value ${valueTone}">${value.toFixed(1)}%</span>
       <span class="win-rate__track">
-        <span class="win-rate__bar ${isStrong ? 'win-rate__bar--strong' : 'win-rate__bar--muted'}" style="width: ${clamped}%;"></span>
+        <span class="win-rate__bar" style="width: ${clamped}%;"></span>
       </span>
     </span>
   `;
@@ -356,9 +373,10 @@ function renderWinLossHtml(value: unknown): string {
   return `
     <span class="win-loss-strip" aria-label="${points.filter((point) => point > 0).length} wins in last ${points.length} games">
       ${points
-        .map((point) => {
+        .map((point, index) => {
           const isWin = point > 0;
-          return `<span class="win-loss-pill ${isWin ? 'win-loss-pill--win' : 'win-loss-pill--loss'}">${isWin ? 'W' : 'L'}</span>`;
+          const latest = index === points.length - 1 ? ' win-loss-pill--latest' : '';
+          return `<span class="win-loss-pill ${isWin ? 'win-loss-pill--win' : 'win-loss-pill--loss'}${latest}">${isWin ? 'W' : 'L'}</span>`;
         })
         .join('')}
     </span>
@@ -381,6 +399,7 @@ function compareWinsForm(a: unknown, b: unknown): number {
 type MergedPlayer = {
   player_id: string;
   display_name: string;
+  avatar_url: string | null;
   location: string | null;
   wins: number | null;
   games_played: number | null;
@@ -410,6 +429,38 @@ function loadLeaderboardLocationFilter(): LeaderboardLocationFilter {
   return 'all';
 }
 
+/**
+ * Dev-only mock rows so every Elo badge tier can be inspected locally.
+ * Shown automatically while running `next dev`; open the page with
+ * `?mockElo=0` to hide them. Never rendered in production builds.
+ * Mock ids carry a prefix so they never reach Supabase queries.
+ */
+const MOCK_PLAYER_ID_PREFIX = 'mock-elo-';
+const MOCK_ELO_TIER_NAMES = ['Chalk', 'Flight', 'Steel Tip', 'Treble', 'Double', 'Bull', 'One-Eighty', 'Champion'];
+const MOCK_ELO_TIER_RATINGS = [1000, 1075, 1125, 1175, 1225, 1275, 1350, 1450];
+const MOCK_ELO_PLAYERS: MergedPlayer[] = MOCK_ELO_TIER_NAMES.map((name, i) => ({
+  player_id: `${MOCK_PLAYER_ID_PREFIX}${i + 1}`,
+  display_name: `Mock ${name}`,
+  avatar_url: null,
+  location: LOCATIONS[i % LOCATIONS.length]?.value ?? null,
+  wins: 8 - i,
+  games_played: 10 + i,
+  game_win_rate: Math.round(((8 - i) / (10 + i)) * 1000) / 10,
+  avg_per_turn: 40 + i * 4,
+  elo_multi: MOCK_ELO_TIER_RATINGS[i],
+  // reverse order so the two Elo columns show different tiers side by side
+  elo_1v1: MOCK_ELO_TIER_RATINGS[MOCK_ELO_TIER_RATINGS.length - 1 - i],
+}));
+
+function useMockEloRows(): boolean {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    setEnabled(new URLSearchParams(window.location.search).get('mockElo') !== '0');
+  }, []);
+  return enabled;
+}
+
 export function GridLeaderboard({ headerContent }: { headerContent?: React.ReactNode } = {}) {
   const {
     leaders,
@@ -418,11 +469,13 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
     recentWinsByPlayer,
     playerGameStats,
     playerLocations,
+    playerAvatarUrls,
     matchActivity,
     weeklyEloClimber,
     loading,
   } = useLeaderboardData();
   const [locationFilter, setLocationFilter] = useState<LeaderboardLocationFilter>(loadLeaderboardLocationFilter);
+  const mockEloRows = useMockEloRows();
   const [matchActivityRange, setMatchActivityRange] = useState<MatchActivityRange>('7d');
 
   useEffect(() => {
@@ -437,6 +490,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         map.set(id, {
           player_id: id,
           display_name: name,
+          avatar_url: playerAvatarUrls.get(id) ?? null,
           location: playerLocations.get(id) ?? null,
           wins: null,
           games_played: null,
@@ -468,8 +522,12 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
       p.elo_multi = entry.current_rating;
     }
 
+    if (mockEloRows) {
+      for (const mock of MOCK_ELO_PLAYERS) map.set(mock.player_id, { ...mock });
+    }
+
     return Array.from(map.values());
-  }, [leaders, eloLeaders, eloMultiLeaders, playerGameStats, playerLocations]);
+  }, [leaders, eloLeaders, eloMultiLeaders, playerGameStats, playerLocations, playerAvatarUrls, mockEloRows]);
 
   const filteredMerged = useMemo(() => {
     if (locationFilter === 'all') return merged;
@@ -505,7 +563,10 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
   }, [merged, recentWinsByPlayer]);
 
   // Stable player ID list for query key (avoids refetch on every render)
-  const playerIds = useMemo(() => merged.map((p) => p.player_id).sort(), [merged]);
+  const playerIds = useMemo(
+    () => merged.map((p) => p.player_id).filter((id) => !id.startsWith(MOCK_PLAYER_ID_PREFIX)).sort(),
+    [merged]
+  );
 
   const { data: eloHistoryData } = useQuery({
     queryKey: ['eloHistory', playerIds],
@@ -544,6 +605,11 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
 
   const options = useMemo<GridOptions>(() => {
     const player: string[] = [];
+    // Hidden columns (not in `header`) so the player cell formatter can read
+    // the avatar for its own row via this.row.data, which stays correct
+    // under sorting/filtering unlike a positional lookup.
+    const playerId: string[] = [];
+    const avatarUrl: string[] = [];
     const location: string[] = [];
     const multiEloRaw: (number | null)[] = [];
     const multiEloTrend: string[] = [];
@@ -556,6 +622,8 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
 
     filteredMerged.forEach((row) => {
       player.push(row.display_name);
+      playerId.push(row.player_id);
+      avatarUrl.push(row.avatar_url ?? '');
       const loc = LOCATIONS.find((l) => l.value === row.location);
       location.push(loc?.label ?? '–');
       multiEloRaw.push(row.elo_multi);
@@ -587,6 +655,8 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         columns: {
           idx,
           player,
+          playerId,
+          avatarUrl,
           location,
           multiElo,
           multiEloTrend,
@@ -615,6 +685,15 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         {
           id: 'player',
           header: { format: 'Player' },
+          cells: {
+            formatter: function () {
+              const data = (this.row as unknown as { data?: Record<string, unknown> }).data ?? {};
+              const name = typeof this.value === 'string' ? this.value : String(this.value ?? '');
+              const id = typeof data.playerId === 'string' ? data.playerId : null;
+              const url = typeof data.avatarUrl === 'string' && data.avatarUrl ? data.avatarUrl : null;
+              return renderPlayerCellHtml({ id, display_name: name, avatar_url: url }, 'sm');
+            },
+          },
         },
         {
           id: 'location',
@@ -805,99 +884,6 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
     <div className="grid-leaderboard highcharts-dark">
       <div className="leaderboard-header">
         <div className="leaderboard-heading">{headerContent}</div>
-        <div className="leaderboard-kpis" aria-label="Leaderboard overview">
-          <div className="leaderboard-kpi">
-            <div className="leaderboard-kpi__topline">
-              <span className="leaderboard-kpi__label">Hot streak</span>
-              {hotStreak && <span className="leaderboard-kpi__badge leaderboard-kpi__badge--hot">🔥 On fire</span>}
-            </div>
-            <div className="leaderboard-kpi__headline">
-              {hotStreak ? `${hotStreak.player} · ${hotStreak.streak}W` : '–'}
-            </div>
-            <svg className="leaderboard-kpi__chart" viewBox="0 0 150 42" aria-hidden="true">
-              <defs>
-                <linearGradient id="hot-streak-fill-compact" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#ff7a18" stopOpacity="0.26" />
-                  <stop offset="100%" stopColor="#ff7a18" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              {hotStreakAreaPoints && <polygon points={hotStreakAreaPoints} fill="url(#hot-streak-fill-compact)" />}
-              {hotStreakLinePoints && <polyline points={hotStreakLinePoints} fill="none" stroke="#ff7a18" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
-              {hotStreakLinePoints && <circle cx={hotStreakLinePoints.split(' ').at(-1)?.split(',')[0]} cy={hotStreakLinePoints.split(' ').at(-1)?.split(',')[1]} r="2.2" fill="#ff7a18" />}
-            </svg>
-            <div className="leaderboard-kpi__axis">
-              <span>Oldest</span>
-              <span>Latest</span>
-            </div>
-          </div>
-          <div className="leaderboard-kpi leaderboard-kpi--wide">
-            <div className="leaderboard-kpi__topline">
-              <span className="leaderboard-kpi__label">
-                {matchActivityRange === '7d' ? 'Matches last 7 days' : 'Matches last 30 days'}
-              </span>
-              <span className="leaderboard-kpi__toggle" aria-label="Select match activity range" role="group">
-                <button
-                  type="button"
-                  className={matchActivityRange === '7d' ? 'leaderboard-kpi__toggle-option leaderboard-kpi__toggle-option--active' : 'leaderboard-kpi__toggle-option'}
-                  onClick={() => setMatchActivityRange('7d')}
-                >
-                  7d
-                </button>
-                <button
-                  type="button"
-                  className={matchActivityRange === '30d' ? 'leaderboard-kpi__toggle-option leaderboard-kpi__toggle-option--active' : 'leaderboard-kpi__toggle-option'}
-                  onClick={() => setMatchActivityRange('30d')}
-                >
-                  30d
-                </button>
-              </span>
-            </div>
-            <div className="leaderboard-kpi__metric">
-              <span>{selectedMatchTotal}</span>
-              {selectedMatchDelta !== 0 && (
-                <span className={selectedMatchDelta > 0 ? 'leaderboard-kpi__delta' : 'leaderboard-kpi__delta leaderboard-kpi__delta--down'}>
-                  {selectedMatchDelta > 0 ? '+' : ''}{selectedMatchDelta} vs prev
-                </span>
-              )}
-            </div>
-            <div className={matchActivityRange === '30d' ? 'leaderboard-kpi__bars leaderboard-kpi__bars--dense' : 'leaderboard-kpi__bars'} aria-hidden="true">
-              {safeMatchCounts.map((count, index) => (
-                <span
-                  key={`${matchActivityRange}-${index}`}
-                  className={matchActivityRange === '7d' && index >= 5 ? 'leaderboard-kpi__bar leaderboard-kpi__bar--weekend' : 'leaderboard-kpi__bar'}
-                  style={{ height: `${Math.max(8, (count / maxMatchCount) * 32)}px` }}
-                />
-              ))}
-            </div>
-          </div>
-          <div className="leaderboard-kpi">
-            <div className="leaderboard-kpi__topline">
-              <span className="leaderboard-kpi__label">Biggest climber</span>
-              {weeklyEloClimber && <span className="leaderboard-kpi__badge leaderboard-kpi__badge--climber">▲</span>}
-            </div>
-            <div className="leaderboard-kpi__headline">
-              {weeklyEloClimber ? weeklyEloClimber.display_name : '–'}
-            </div>
-            <div className="leaderboard-kpi__subvalue leaderboard-kpi__subvalue--positive">
-              {weeklyEloClimber ? `+${weeklyEloClimber.rating_change} Elo` : 'No gain yet'}
-            </div>
-            <svg className="leaderboard-kpi__chart" viewBox="0 0 150 42" aria-hidden="true">
-              <defs>
-                <linearGradient id="climber-fill-compact" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#35f58c" stopOpacity="0.24" />
-                  <stop offset="100%" stopColor="#35f58c" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              {climberAreaPoints && <polygon points={climberAreaPoints} fill="url(#climber-fill-compact)" />}
-              {climberLinePoints && <polyline points={climberLinePoints} fill="none" stroke="#35f58c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
-              {climberLinePoints && <circle cx={climberLinePoints.split(' ').at(-1)?.split(',')[0]} cy={climberLinePoints.split(' ').at(-1)?.split(',')[1]} r="2.2" fill="#35f58c" />}
-            </svg>
-            <div className="leaderboard-kpi__axis">
-              <span>7d ago</span>
-              <span>Now</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div className="leaderboard-toolbar">
@@ -926,22 +912,27 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
       </div>
       <style>{`
         .grid-leaderboard {
+          --brand-cyan: #4fe3f5;
+          --brand-mint: #5cf0b8;
+          --brand-violet: #c36bff;
+          --glass-white: #e8fbff;
+          --muted-text: #9aa4b8;
+          --brand-sweep: linear-gradient(90deg, var(--brand-cyan) 0%, var(--brand-mint) 50%, var(--brand-violet) 100%);
           display: flex;
           flex-direction: column;
           gap: 14px;
         }
         .leaderboard-header {
           display: grid;
-          grid-template-columns: minmax(300px, 1fr) minmax(620px, 720px);
-          gap: 28px;
-          align-items: end;
+          grid-template-columns: 1fr;
+          gap: 14px;
         }
         .leaderboard-kpis {
           display: grid;
           grid-template-columns: 1fr 1.18fr 1fr;
           gap: 8px;
-          justify-self: end;
           width: min(100%, 720px);
+          margin-inline: auto;
         }
         .leaderboard-kpi {
           position: relative;
@@ -1169,7 +1160,6 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
             grid-template-columns: 1fr;
           }
           .leaderboard-kpis {
-            justify-self: stretch;
             width: 100%;
           }
         }
@@ -1248,34 +1238,94 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           margin: 0 auto;
         }
+        /* Podium chips: the New match icon's own glass, sampled from
+           public/game-icons/newmatch.png. That icon is a single left-to-right
+           sweep -- electric cyan #35E6F8 into an emissive mint core #77FCAB
+           into violet-magenta #C57AE1 -- so rank 1 carries the whole sweep and
+           is literally the New match gradient. Rank 2 takes its cyan half,
+           rank 3 its violet half, so the podium reads as three views of one
+           identity rather than three unrelated colours.
+
+           There is deliberately no border: a 1px rim reads as a drawn white
+           outline and flattens the chip. Volume comes from stacked background
+           layers, listed top-most first: a specular hotspot high and left, a
+           contact shadow pooling at the base, then the hue body.
+
+           The fill is left at full icon brightness, which puts glass white at
+           roughly 3.9:1 over the mint core. The digit's legibility therefore
+           comes from the halo in its text-shadow, not from the fill -- see
+           .row-rank--top. */
         .grid-leaderboard .row-rank--top {
-          color: #f4c84a;
-          background: rgba(245, 158, 11, 0.17);
+          border: 0;
+          color: var(--glass-white);
+          /* The digit sits straight on the bright fill, so its contrast comes
+             from a halo tight to the glyph rather than from a scrim behind it:
+             a scrim large enough to help was visible as a dark disc. */
+          text-shadow:
+            0 1px 1px rgba(2, 16, 12, 0.85),
+            0 0 2px rgba(2, 16, 12, 0.8),
+            0 0 5px rgba(2, 16, 12, 0.55);
+        }
+        .grid-leaderboard .row-rank--1,
+        .grid-leaderboard .row-rank--2,
+        .grid-leaderboard .row-rank--3 {
+          background-image:
+            radial-gradient(70% 50% at 30% 8%, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.15) 42%, rgba(255, 255, 255, 0) 72%),
+            radial-gradient(120% 95% at 50% 118%, rgba(0, 12, 18, 0.45) 0%, rgba(0, 12, 18, 0) 60%),
+            var(--podium-body);
+        }
+        /* Rank 1: the full New match sweep. */
+        .grid-leaderboard .row-rank--1 {
+          --podium-body: linear-gradient(135deg, #35e6f8 0%, #77fcab 48%, #c57ae1 100%);
+          box-shadow:
+            inset 0 1.5px 1px rgba(255, 255, 255, 0.5),
+            inset 0 -3px 4px rgba(0, 30, 22, 0.4),
+            0 1px 2px rgba(0, 0, 0, 0.5),
+            0 0 12px rgba(119, 252, 171, 0.6),
+            0 0 30px rgba(119, 252, 171, 0.32);
+        }
+        /* Rank 2: the cyan half of the sweep. */
+        .grid-leaderboard .row-rank--2 {
+          --podium-body: linear-gradient(135deg, #35e6f8 0%, #5ff0d0 55%, #77fcab 100%);
+          box-shadow:
+            inset 0 1.5px 1px rgba(255, 255, 255, 0.46),
+            inset 0 -3px 4px rgba(0, 28, 34, 0.4),
+            0 1px 2px rgba(0, 0, 0, 0.5),
+            0 0 11px rgba(53, 230, 248, 0.52),
+            0 0 26px rgba(53, 230, 248, 0.26);
+        }
+        /* Rank 3: the violet half of the sweep. */
+        .grid-leaderboard .row-rank--3 {
+          --podium-body: linear-gradient(135deg, #77fcab 0%, #b083e8 55%, #c57ae1 100%);
+          box-shadow:
+            inset 0 1.5px 1px rgba(255, 255, 255, 0.42),
+            inset 0 -3px 4px rgba(22, 0, 34, 0.42),
+            0 1px 2px rgba(0, 0, 0, 0.5),
+            0 0 11px rgba(197, 122, 225, 0.52),
+            0 0 26px rgba(197, 122, 225, 0.26);
         }
         .grid-leaderboard .elo-badge {
           display: flex;
-          position: relative;
           width: 132px;
-          height: 32px;
-          margin: 0 auto;
+          height: 40px;
+          margin: -3px auto;
           align-items: center;
           justify-content: center;
-          background-size: contain;
           background-repeat: no-repeat;
           background-position: center;
+          background-size: contain;
         }
         .grid-leaderboard .elo-badge__rating {
           display: inline-block;
           min-width: 58px;
           text-align: center;
-          font-weight: 800;
+          color: #ffffff !important;
           font-size: 18px;
+          font-weight: 700 !important;
           line-height: 1;
-          letter-spacing: 0.02em;
-          color: #ffffff;
-          text-shadow:
-            0 1px 2px rgba(0, 0, 0, 0.85),
-            0 0 8px rgba(0, 0, 0, 0.45);
+          letter-spacing: 0;
+          font-variant-numeric: tabular-nums;
+          text-shadow: 0 0 3px rgba(3, 7, 18, 0.95), 0 1px 4px rgba(3, 7, 18, 0.9);
         }
         .grid-leaderboard .elo-badge-empty {
           color: #94a3b8;
@@ -1293,15 +1343,23 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           letter-spacing: 0;
         }
-        .grid-leaderboard .location-pill--purple {
-          color: #c4a5ff;
-          background: rgba(139, 92, 246, 0.14);
-          border: 1px solid rgba(139, 92, 246, 0.36);
+        .grid-leaderboard .location-badge {
+          display: inline-flex;
+          width: 76px;
+          height: 24px;
+          align-items: center;
+          justify-content: center;
+          background-repeat: no-repeat;
+          background-position: center;
+          background-size: contain;
         }
-        .grid-leaderboard .location-pill--blue {
-          color: #60c7ff;
-          background: rgba(14, 165, 233, 0.13);
-          border: 1px solid rgba(14, 165, 233, 0.36);
+        .grid-leaderboard .location-badge__label {
+          color: #ffffff !important;
+          font-size: 12px;
+          font-weight: 700 !important;
+          line-height: 1;
+          letter-spacing: 0.01em;
+          text-shadow: 0 0 3px rgba(3, 7, 18, 0.95), 0 1px 3px rgba(3, 7, 18, 0.9);
         }
         .grid-leaderboard .location-pill--neutral {
           color: #cbd5e1;
@@ -1340,7 +1398,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
         .grid-leaderboard .games-summary-empty,
         .grid-leaderboard .win-rate-empty {
-          color: #94a3b8;
+          color: var(--muted-text);
         }
         .grid-leaderboard .win-rate {
           display: inline-flex;
@@ -1357,31 +1415,46 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           line-height: 1;
           letter-spacing: 0;
         }
-        .grid-leaderboard .win-rate__value--strong {
-          color: #35f58c;
+        .grid-leaderboard .win-rate__value--mint {
+          color: var(--brand-mint);
+        }
+        .grid-leaderboard .win-rate__value--glass {
+          color: var(--glass-white);
         }
         .grid-leaderboard .win-rate__value--muted {
-          color: #f8fafc;
+          color: var(--muted-text);
         }
         .grid-leaderboard .win-rate__track {
           position: relative;
           display: inline-flex;
+          box-sizing: border-box;
+          /* Must not shrink: the bar's gradient is sized to exactly 46px, so a
+             squeezed track would misalign the sweep and stop a 100% row from
+             ever reaching violet. As a flex item in a tight cell it was
+             rendering at 41px. */
+          flex: 0 0 46px;
           width: 46px;
           height: 4px;
           overflow: hidden;
+          border: 1px solid rgba(232, 251, 255, 0.1);
           border-radius: 999px;
-          background: rgba(148, 163, 184, 0.12);
+          background: rgba(232, 251, 255, 0.08);
         }
+        /* One continuous bar rather than a per-threshold colour. The gradient
+           is sized to the full 46px track and pinned left, so a shorter bar
+           shows the left slice of the same sweep: a low win rate reads cyan
+           and only a high one reaches violet. Sizing to the track instead of
+           to the bar is what makes the colour mean something -- scaled to the
+           bar, every row would end on violet regardless of its rate. */
         .grid-leaderboard .win-rate__bar {
           height: 100%;
           min-width: 3px;
           border-radius: inherit;
-        }
-        .grid-leaderboard .win-rate__bar--strong {
-          background: #35f58c;
-        }
-        .grid-leaderboard .win-rate__bar--muted {
-          background: #5db8ff;
+          background-image: var(--brand-sweep);
+          background-repeat: no-repeat;
+          background-position: left center;
+          background-size: 46px 100%;
+          box-shadow: 0 0 6px rgba(92, 240, 184, 0.45);
         }
         .grid-leaderboard .win-loss-strip {
           display: inline-flex;
@@ -1401,30 +1474,146 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           align-items: center;
           justify-content: center;
           overflow: hidden;
-          border-radius: 4px;
+          border-radius: 5px;
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
           font-size: 9px;
           font-weight: 800;
           line-height: 1;
           letter-spacing: 0;
         }
+        /* Frosted chips: emissive mint for a win, emissive violet for a loss.
+           The loss hue replaces the old red -- nothing in these two columns is
+           red, orange or gold any more. */
         .grid-leaderboard .win-loss-pill--win {
-          color: #35f58c;
-          background: rgba(47, 240, 132, 0.14);
-          border: 1px solid rgba(47, 240, 132, 0.24);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+          color: var(--brand-mint);
+          background: rgba(92, 240, 184, 0.16);
+          border: 1px solid rgba(92, 240, 184, 0.45);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 6px rgba(92, 240, 184, 0.35);
         }
         .grid-leaderboard .win-loss-pill--loss {
-          color: #ff6b78;
-          background: rgba(255, 77, 95, 0.14);
-          border: 1px solid rgba(255, 77, 95, 0.24);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+          color: #e38cff;
+          background: rgba(195, 107, 255, 0.16);
+          border: 1px solid rgba(195, 107, 255, 0.45);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 6px rgba(195, 107, 255, 0.35);
+        }
+        /* The strip is oldest-to-newest, so the last chip is the most recent
+           result: lift its rim and glow so the eye lands there first. */
+        .grid-leaderboard .win-loss-pill--latest.win-loss-pill--win {
+          border-color: rgba(92, 240, 184, 0.7);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 8px rgba(92, 240, 184, 0.45);
+        }
+        .grid-leaderboard .win-loss-pill--latest.win-loss-pill--loss {
+          border-color: rgba(195, 107, 255, 0.7);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.1),
+            0 0 8px rgba(195, 107, 255, 0.45);
         }
         .grid-leaderboard .win-loss-empty {
-          color: #94a3b8;
+          color: var(--muted-text);
         }
       `}</style>
       <Grid options={options} />
+
+      <div className="leaderboard-kpis" aria-label="Leaderboard overview">
+        <div className="leaderboard-kpi">
+          <div className="leaderboard-kpi__topline">
+            <span className="leaderboard-kpi__label">Hot streak</span>
+            {hotStreak && <span className="leaderboard-kpi__badge leaderboard-kpi__badge--hot">🔥 On fire</span>}
+          </div>
+          <div className="leaderboard-kpi__headline">
+            {hotStreak ? `${hotStreak.player} · ${hotStreak.streak}W` : '–'}
+          </div>
+          <svg className="leaderboard-kpi__chart" viewBox="0 0 150 42" aria-hidden="true">
+            <defs>
+              <linearGradient id="hot-streak-fill-compact" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#ff7a18" stopOpacity="0.26" />
+                <stop offset="100%" stopColor="#ff7a18" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {hotStreakAreaPoints && <polygon points={hotStreakAreaPoints} fill="url(#hot-streak-fill-compact)" />}
+            {hotStreakLinePoints && <polyline points={hotStreakLinePoints} fill="none" stroke="#ff7a18" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
+            {hotStreakLinePoints && <circle cx={hotStreakLinePoints.split(' ').at(-1)?.split(',')[0]} cy={hotStreakLinePoints.split(' ').at(-1)?.split(',')[1]} r="2.2" fill="#ff7a18" />}
+          </svg>
+          <div className="leaderboard-kpi__axis">
+            <span>Oldest</span>
+            <span>Latest</span>
+          </div>
+        </div>
+        <div className="leaderboard-kpi leaderboard-kpi--wide">
+          <div className="leaderboard-kpi__topline">
+            <span className="leaderboard-kpi__label">
+              {matchActivityRange === '7d' ? 'Matches last 7 days' : 'Matches last 30 days'}
+            </span>
+            <span className="leaderboard-kpi__toggle" aria-label="Select match activity range" role="group">
+              <button
+                type="button"
+                className={matchActivityRange === '7d' ? 'leaderboard-kpi__toggle-option leaderboard-kpi__toggle-option--active' : 'leaderboard-kpi__toggle-option'}
+                onClick={() => setMatchActivityRange('7d')}
+              >
+                7d
+              </button>
+              <button
+                type="button"
+                className={matchActivityRange === '30d' ? 'leaderboard-kpi__toggle-option leaderboard-kpi__toggle-option--active' : 'leaderboard-kpi__toggle-option'}
+                onClick={() => setMatchActivityRange('30d')}
+              >
+                30d
+              </button>
+            </span>
+          </div>
+          <div className="leaderboard-kpi__metric">
+            <span>{selectedMatchTotal}</span>
+            {selectedMatchDelta !== 0 && (
+              <span className={selectedMatchDelta > 0 ? 'leaderboard-kpi__delta' : 'leaderboard-kpi__delta leaderboard-kpi__delta--down'}>
+                {selectedMatchDelta > 0 ? '+' : ''}{selectedMatchDelta} vs prev
+              </span>
+            )}
+          </div>
+          <div className={matchActivityRange === '30d' ? 'leaderboard-kpi__bars leaderboard-kpi__bars--dense' : 'leaderboard-kpi__bars'} aria-hidden="true">
+            {safeMatchCounts.map((count, index) => (
+              <span
+                key={`${matchActivityRange}-${index}`}
+                className={matchActivityRange === '7d' && index >= 5 ? 'leaderboard-kpi__bar leaderboard-kpi__bar--weekend' : 'leaderboard-kpi__bar'}
+                style={{ height: `${Math.max(8, (count / maxMatchCount) * 32)}px` }}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="leaderboard-kpi">
+          <div className="leaderboard-kpi__topline">
+            <span className="leaderboard-kpi__label">Biggest climber</span>
+            {weeklyEloClimber && <span className="leaderboard-kpi__badge leaderboard-kpi__badge--climber">▲</span>}
+          </div>
+          <div className="leaderboard-kpi__headline flex items-center gap-2">
+            {weeklyEloClimber && <PlayerAvatarById playerId={weeklyEloClimber.player_id} name={weeklyEloClimber.display_name} size="sm" />}
+            <span className="truncate">{weeklyEloClimber ? weeklyEloClimber.display_name : '–'}</span>
+          </div>
+          <div className="leaderboard-kpi__subvalue leaderboard-kpi__subvalue--positive">
+            {weeklyEloClimber ? `+${weeklyEloClimber.rating_change} Elo` : 'No gain yet'}
+          </div>
+          <svg className="leaderboard-kpi__chart" viewBox="0 0 150 42" aria-hidden="true">
+            <defs>
+              <linearGradient id="climber-fill-compact" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#35f58c" stopOpacity="0.24" />
+                <stop offset="100%" stopColor="#35f58c" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {climberAreaPoints && <polygon points={climberAreaPoints} fill="url(#climber-fill-compact)" />}
+            {climberLinePoints && <polyline points={climberLinePoints} fill="none" stroke="#35f58c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
+            {climberLinePoints && <circle cx={climberLinePoints.split(' ').at(-1)?.split(',')[0]} cy={climberLinePoints.split(' ').at(-1)?.split(',')[1]} r="2.2" fill="#35f58c" />}
+          </svg>
+          <div className="leaderboard-kpi__axis">
+            <span>7d ago</span>
+            <span>Now</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

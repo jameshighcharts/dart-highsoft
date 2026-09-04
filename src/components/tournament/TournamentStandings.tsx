@@ -1,8 +1,9 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { TournamentPlayerRecord } from '@/lib/tournament/types';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 
-type PlayerInfo = { id: string; display_name: string };
+type PlayerInfo = { id: string; display_name: string; avatar_url?: string | null };
 
 type Props = {
   players: (TournamentPlayerRecord & { player: PlayerInfo })[];
@@ -45,6 +46,7 @@ export function TournamentStandings({ players, winnerId }: Props) {
                 ) : (
                   <span className="w-6" />
                 )}
+                <PlayerAvatar player={p.player} size="sm" />
                 <span>{p.player.display_name}</span>
               </div>
               <Badge

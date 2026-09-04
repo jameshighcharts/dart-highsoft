@@ -1,5 +1,6 @@
 import QRCode from 'react-qr-code';
 import { ArrowLeft, Home } from 'lucide-react';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { TurnRow } from '@/components/TurnRow';
 import { SpectatorLiveMatchCard } from '@/components/match/SpectatorLiveMatchCard';
 import CommentaryDisplay from '@/components/CommentaryDisplay';
@@ -291,6 +292,11 @@ export function MatchSpectatorView({
   return (
     <div className="fixed inset-0 overflow-y-auto bg-background">
       <div className="w-full space-y-3 md:space-y-6 px-4 md:px-6 xl:px-8 py-6 pb-24 md:pb-6 relative">
+        {match.paused_at && (
+          <div className="rounded-md border border-amber-400/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/70 dark:bg-amber-950/30 dark:text-amber-100">
+            Game paused
+          </div>
+        )}
         {/* Round Score Modal */}
         <Dialog open={!!celebration} onOpenChange={() => {}}>
           <DialogContent className="sm:max-w-md [&>button]:hidden">
@@ -540,7 +546,9 @@ export function MatchSpectatorView({
                     >
                       <span className="font-medium">Leg {leg.leg_number}</span>
                       {winner ? (
-                        <span className="font-semibold text-green-600 dark:text-green-400">🏆 {winner.display_name}</span>
+                        <span className="inline-flex items-center gap-2 font-semibold text-green-600 dark:text-green-400">
+                          🏆 <PlayerAvatar player={winner} size="sm" /> {winner.display_name}
+                        </span>
                       ) : (
                         <span className="text-muted-foreground">In Progress</span>
                       )}
@@ -570,6 +578,7 @@ export function MatchSpectatorView({
                             key={turn.id}
                             turn={turn}
                             playerName={playerById[turn.player_id]?.display_name}
+                            player={playerById[turn.player_id]}
                             playersCount={players.length}
                             leading={<span className="text-xl">{medal}</span>}
                             placeholder="—"
@@ -597,6 +606,7 @@ export function MatchSpectatorView({
                           key={turn.id}
                           turn={turn}
                           playerName={playerById[turn.player_id]?.display_name}
+                          player={playerById[turn.player_id]}
                           playersCount={players.length}
                           placeholder="—"
                           className="p-3 rounded-md bg-muted/30 hover:bg-muted/50 transition-colors"
@@ -650,8 +660,9 @@ export function MatchSpectatorView({
             <ConfettiOverlay />
             <div className="text-center space-y-4">
               <div className="text-5xl md:text-6xl">🏆</div>
-              <div className="text-3xl md:text-4xl font-extrabold text-green-600 dark:text-green-400">
-                {(matchWinnerId ? playerById[matchWinnerId] : undefined)?.display_name} Wins!
+              <div className="inline-flex items-center justify-center gap-2 text-3xl md:text-4xl font-extrabold text-green-600 dark:text-green-400">
+                {matchWinnerId && playerById[matchWinnerId] ? <PlayerAvatar player={playerById[matchWinnerId]} size="xl" /> : null}
+                <span>{(matchWinnerId ? playerById[matchWinnerId] : undefined)?.display_name} Wins!</span>
               </div>
               <div className="text-base md:text-lg text-muted-foreground">
                 Match complete

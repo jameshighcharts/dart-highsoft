@@ -2,6 +2,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 
 // The player list is live data and needs Supabase at request time, so never
 // prerender this page at build (build hosts may not have the env vars).
@@ -12,7 +13,7 @@ export default async function PracticePage() {
   
   const { data: players } = await supabase
     .from('players')
-    .select('id, display_name')
+    .select('id, display_name, avatar_url')
     .eq('is_active', true)
     .order('display_name', { ascending: true });
 
@@ -34,7 +35,8 @@ export default async function PracticePage() {
                 className="justify-start"
                 asChild
               >
-                <Link href={`/practice/${player.id}`}>
+                <Link href={`/practice/${player.id}`} className="inline-flex items-center gap-2">
+                  <PlayerAvatar player={player} size="md" />
                   {player.display_name}
                 </Link>
               </Button>

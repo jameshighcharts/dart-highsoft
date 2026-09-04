@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 
-type Player = { id: string; display_name: string; location: string | null };
+type Player = { id: string; display_name: string; location: string | null; avatar_url?: string | null };
 type StartScore = '201' | '301' | '501';
 type FinishRule = 'single_out' | 'double_out';
 
@@ -33,8 +34,8 @@ export default function NewTournamentPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [name, setName] = useState('');
   const [newPlayerName, setNewPlayerName] = useState('');
-  const [startScore, setStartScore] = useState<StartScore>('501');
-  const [finish, setFinish] = useState<FinishRule>('double_out');
+  const [startScore, setStartScore] = useState<StartScore>('301');
+  const [finish, setFinish] = useState<FinishRule>('single_out');
   const [legsToWin, setLegsToWin] = useState(1);
   const [fairEnding, setFairEnding] = useState(false);
   const [enabledLocations, setEnabledLocations] = useState<LocationValue[]>(loadEnabledLocations);
@@ -148,6 +149,7 @@ export default function NewTournamentPage() {
             return (
               <label key={p.id} className={`flex items-center gap-2 border p-2 rounded ${selectedIds.includes(p.id) ? 'border-accent bg-accent/30' : ''}`}>
                 <input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => toggle(p.id)} />
+                <PlayerAvatar player={p} size="sm" />
                 <span>{p.display_name}</span>
                 {loc && <span className="ml-auto text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{loc.label}</span>}
               </label>

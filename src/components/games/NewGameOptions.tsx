@@ -1,6 +1,7 @@
 "use client";
 
-import type { ComponentType } from "react";
+import { useState, type ComponentType } from "react";
+import { Info } from "lucide-react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,9 +13,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { GAME_MODE_INFO, GAME_MODE_ORDER, type ConfigField } from "@/lib/games/labels";
 import { isGameMode, type GameMode } from "@/lib/games/types";
-import { OptionCard } from "./OptionCard";
 
 export type GameType = "x01" | GameMode;
 
@@ -112,7 +119,7 @@ export function gameCardName(type: GameType): string {
   return CARD_NAMES[type] ?? gameTypeName(type);
 }
 
-/** Short one-liners so every card stays the same height. */
+/** Short one-liners shown under each game name. */
 const CARD_TAGLINES: Record<GameType, string> = {
   x01: "Count down from 501, 301 or 201.",
   cricket: "Close 15 to 20 and Bull.",
@@ -131,6 +138,48 @@ const GAME_TYPE_CARDS: GameTypeCard[] = [
   })),
 ];
 
+/** Modal explaining how a game is played. */
+export function HowToPlayDialog({
+  type,
+  open,
+  onOpenChange,
+}: {
+  type: GameType | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const Icon = type ? GAME_ART_ICONS[type] : null;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[calc(100%-2rem)] rounded-2xl p-0 sm:max-w-md">
+        {type && Icon && (
+          <>
+            <div className="flex flex-col items-center gap-2 px-6 pt-8">
+              <Icon className="size-28" />
+              <DialogHeader className="items-center text-center">
+                <DialogTitle className="text-xl">{gameCardName(type)}</DialogTitle>
+                <DialogDescription className="text-sm">{CARD_TAGLINES[type]}</DialogDescription>
+              </DialogHeader>
+            </div>
+            <div className="px-6 pb-2">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                How to play
+              </div>
+              <p className="mt-1 text-sm leading-relaxed">{gameTypeDescription(type)}</p>
+            </div>
+            <div className="px-6 pb-6">
+              <Button type="button" className="w-full" onClick={() => onOpenChange(false)}>
+                Got it
+              </Button>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Stacked full-width rows: artwork on the left, name and tagline, plus a "How to play" popup. */
 export function GameTypePicker({
   value,
   onChange,
@@ -138,43 +187,58 @@ export function GameTypePicker({
   value: GameType;
   onChange: (type: GameType) => void;
 }) {
+  const [infoType, setInfoType] = useState<GameType | null>(null);
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5" role="group" aria-label="Game type">
-      {GAME_TYPE_CARDS.map((card) => (
-        <OptionCard
-          key={card.type}
-          icon={card.icon}
-          iconSize="lg"
-          align="center"
-          title={card.name}
-          selected={card.type === value}
-          onClick={() => onChange(card.type)}
-        >
-          <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{card.tagline}</span>
-        </OptionCard>
-      ))}
-    </div>
-  );
-}
-
-/** Outlined card under the picker that names the chosen game and explains how it is played. */
-export function SelectedGameCard({ type }: { type: GameType }) {
-  const Icon = GAME_ART_ICONS[type];
-  return (
-    <div
-      className="rounded-lg border border-foreground/80 p-4"
-      role="status"
-      aria-live="polite"
-    >
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        <Icon className="size-6" />
-        <span>Selected game</span>
+    <>
+      <div className="flex flex-col gap-2" role="radiogroup" aria-label="Game type">
+        {GAME_TYPE_CARDS.map((card) => {
+          const Icon = card.icon;
+          const selected = card.type === value;
+          return (
+            <div
+              key={card.type}
+              className={`flex items-center gap-3 rounded-xl border p-2 pr-3 transition-colors ${
+                selected
+                  ? "border-accent bg-accent/30"
+                  : "border-border hover:border-accent/60 hover:bg-accent/15"
+              }`}
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => onChange(card.type)}
+                className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="flex size-16 shrink-0 items-center justify-center">
+                  <Icon className="size-16" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base font-bold leading-tight">{card.name}</span>
+                  <span className="block text-xs leading-snug text-muted-foreground">{card.tagline}</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setInfoType(card.type)}
+                aria-label={`How to play ${card.name}`}
+                className="flex shrink-0 items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Info className="size-3.5" />
+                <span className="hidden sm:inline">How to play</span>
+              </button>
+            </div>
+          );
+        })}
       </div>
-      <div className="mt-1 font-bold">{gameCardName(type)}</div>
-      <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
-        {gameTypeDescription(type)}
-      </p>
-    </div>
+      <HowToPlayDialog
+        type={infoType}
+        open={infoType !== null}
+        onOpenChange={(open) => {
+          if (!open) setInfoType(null);
+        }}
+      />
+    </>
   );
 }
 

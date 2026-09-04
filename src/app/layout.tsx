@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import "./globals.css";
 import Link from "next/link";
-import { Home, Gamepad2, BarChart3, Radio, Trophy } from "lucide-react";
+import { Grid3x3, Target, BarChart3, Plus, Radio, Trophy, Users, UserCircle } from "lucide-react";
 import { Analytics } from "@vercel/analytics/react";
 import { MatchSpectatorHotkey } from "@/components/MatchSpectatorHotkey";
 import { QueryProvider } from "@/components/QueryProvider";
+import { SiteChrome } from "@/components/SiteChrome";
 
 // Use system fonts as fallback when Google Fonts cannot be loaded during build
 const fontVariables = 'font-sans';
@@ -43,20 +44,30 @@ export default function RootLayout({
         className={`${fontVariables} antialiased min-h-screen h-full bg-background text-foreground`}
       >
         <QueryProvider>
-        <div className="min-h-screen pb-16 md:pb-0">
-          <nav className="hidden md:flex items-center justify-between px-6 py-3 border-b bg-card">
+          <SiteChrome
+            nav={
+              <>
+          <nav className="hidden lg:flex items-center justify-between px-6 py-3 border-b bg-card">
             <Link href="/" className="flex items-center gap-3 font-semibold">
               <Image src="/icon-192x192.png" alt="" width={40} height={40} className="size-10 object-contain" priority />
               Highsoft Dart Scoreboard
             </Link>
             <div className="flex items-center gap-4 text-sm">
+              <Link href="/new" className="flex items-center gap-2">
+                <Plus className="size-4" />
+                New match
+              </Link>
               <Link href="/" className="flex items-center gap-2">
-                <Home className="size-4" />
-                Home
+                <Grid3x3 className="size-4" />
+                The Grid
               </Link>
               <Link href="/games" className="flex items-center gap-2">
-                <Gamepad2 className="size-4" />
+                <Target className="size-4" />
                 Games
+              </Link>
+              <Link href="/players" className="flex items-center gap-2">
+                <Users className="size-4" />
+                Players
               </Link>
               <Link href="/leaderboards" className="flex items-center gap-2">
                 <Trophy className="size-4" />
@@ -70,18 +81,25 @@ export default function RootLayout({
                 <BarChart3 className="size-4" />
                 Statistics
               </Link>
+              <Link href="/profile" className="flex items-center gap-2">
+                <UserCircle className="size-4" />
+                Profile
+              </Link>
             </div>
           </nav>
-          <main className="px-3 py-2 md:p-6">{children}</main>
-          <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-card">
-            <div className="grid grid-cols-4">
+          <nav className="lg:hidden fixed bottom-0 left-0 right-0 border-t bg-card">
+            <div className="grid grid-cols-6">
               <Link href="/" className="flex flex-col items-center justify-center py-2 gap-1">
-                <Home className="size-5" />
-                <span className="text-xs">Home</span>
+                <Grid3x3 className="size-5" />
+                <span className="text-xs">The Grid</span>
               </Link>
               <Link href="/games" className="flex flex-col items-center justify-center py-2 gap-1">
-                <Gamepad2 className="size-5" />
+                <Target className="size-5" />
                 <span className="text-xs">Games</span>
+              </Link>
+              <Link href="/players" className="flex flex-col items-center justify-center py-2 gap-1">
+                <Users className="size-5" />
+                <span className="text-xs">Players</span>
               </Link>
               <Link href="/boards" className="flex flex-col items-center justify-center py-2 gap-1">
                 <Radio className="size-5" />
@@ -91,9 +109,17 @@ export default function RootLayout({
                 <BarChart3 className="size-5" />
                 <span className="text-xs">Stats</span>
               </Link>
+              <Link href="/profile" className="flex flex-col items-center justify-center py-2 gap-1">
+                <UserCircle className="size-5" />
+                <span className="text-xs">Me</span>
+              </Link>
             </div>
           </nav>
-        </div>
+              </>
+            }
+          >
+            {children}
+          </SiteChrome>
         </QueryProvider>
         <Analytics />
         <MatchSpectatorHotkey />

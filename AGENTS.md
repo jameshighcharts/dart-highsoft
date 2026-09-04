@@ -60,6 +60,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `matches/[matchId]/turns/[turnId]/` | PATCH, DELETE | Finish a turn (score, bust); auto-resolves leg on fair ending |
 | `matches/[matchId]/legs/[legId]/complete/` | POST | Complete a leg (set winner, create next leg or finalize match + Elo) |
 | `matches/[matchId]/end/` | PATCH | End match early |
+| `matches/[matchId]/pause/` | PATCH | Pause or resume an active match |
 | `matches/[matchId]/rematch/` | POST | Create a rematch |
 | `matches/[matchId]/players/` | POST | Add player to match |
 | `matches/[matchId]/players/new/` | POST | Create new player and add to match |
@@ -69,6 +70,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `elo/update/` | POST | Update 1v1 Elo ratings |
 | `elo-multi/update/` | POST | Update multiplayer Elo ratings |
 | `players/` | GET, POST | List or create players |
+| `players/[playerId]/` | PATCH | Update a player's location |
 | `games/` | POST | Create a Cricket, Killer, Shanghai, or Around the Clock session |
 | `games/[id]/` | GET | Load a party-game session, players, throws, and derived state |
 | `games/[id]/throws/` | POST, DELETE | Record or undo a party-game dart |
@@ -85,6 +87,14 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/realtime/session/` | POST, PUT, PATCH, DELETE | Create an output-only OpenAI Realtime WebRTC call, advance its correction epoch, record versioned browser speak/skip decisions, heartbeat it, or close it |
 | `tts/` | POST | Text-to-speech for commentary |
 | `slack/darts/` | POST | Verify Slack slash commands/button actions and create dart polls |
+| `auth/[...nextauth]/` | GET, POST | Auth.js (next-auth v5) Sign in with Slack handlers; `auth/slack/callback` aliases the callback URL |
+| `admin/players/` | GET, POST | Admin-only: players with Slack links plus workspace directory; create player |
+| `admin/players/[playerId]/` | PATCH | Admin-only: rename, relocate, or (de)activate a player |
+| `admin/players/[playerId]/slack-link/` | PUT, DELETE | Admin-only: link/unlink a player and a Slack user in `slack_player_links` |
+| `admin/slack/sync/` | POST | Admin-only: import workspace members as players (first name / `First L`) and link them |
+| `me/` | GET, PATCH | Signed-in member's own player (via `slack_player_links`); edit nicknames/location |
+| `me/link/` | POST | Claim an unclaimed player or create one and link it to my Slack identity |
+| `me/avatar/` | POST, DELETE | Upload/remove my own profile picture |
 | `background-jobs/` | POST | Authenticate Supabase job batches and run typed background handlers |
 
 ### Utils (`src/utils`) — Pure Business Logic
@@ -178,6 +188,11 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `scolia/protocol.ts` | Pure Scolia message/throw parsing, board-state mapping, and reconnect timing |
 | `scolia/types.ts` | Shared Scolia board response types |
 | `slack/dartPollService.ts` | Creates polls, records votes, links Slack users to players, and finalizes matches |
+| `slack/members.ts` | Lists full, active, human workspace members via `users.list` |
+| `slack/playerLinks.ts` | Typed client for atomic Slack identity claim, replacement, and unlink RPCs |
+| `slack/playerImport.ts` | Plans and applies the Slack member → player import with the first-name / `First L` naming rule |
+| `auth/slackWorkspace.ts` | Pure Slack sign-in gate helpers (team id, verified email, allowed domains, admin list) |
+| `auth/requireAdmin.ts` | Session guard for `/api/admin` routes |
 | `slack/dartTime.ts` | Parses `/dart HH:MM` in the configured IANA time zone |
 | `slack/messages.ts` | Builds accessible Slack Block Kit poll messages |
 | `slack/signature.ts` | Verifies Slack request signatures and rejects replayed requests |
@@ -229,6 +244,12 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `realtimeCommentaryService.ts` | Browser WebRTC audio/data-channel transport, transcript streaming, audio-context unlock, heartbeat, skip, and teardown |
 | `scoliaRealtimeCommentaryPublisher.ts` | Worker-side OpenAI sideband connection pool, idempotent delivery/retry, and latest-wins response triggering |
 
+### Static Assets (`public`)
+
+| Path | Purpose |
+|------|---------|
+| `game-icons/*.png` | Glossy 3D artwork for game-mode pickers and the home-page play menu |
+
 ### Test Utilities (`src/test-utils`)
 | File | Purpose |
 |------|---------|
@@ -244,7 +265,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `npm run lint`: Lint with Next.js + ESLint config.
 - `npm test`: Run tests in watch mode (interactive).
 - `npm run test:run`: Run all tests once (for CI/CD).
-- `npm run test:performance`: Run three Lighthouse audits against the production build and enforce the committed performance budgets.
+- `npm run test:performance`: Run five Lighthouse audits against the production build and enforce the committed median performance budgets.
 - `npm run test:ui`: Open visual test interface.
 - `npm run test:coverage`: Generate and display coverage report.
 - `npm run commentary:demo -- preview|prepare|run <match-id>|cleanup <match-id>`: Preview, provision, play, or safely clean a test-only local synthetic Scolia commentary match. `run` waits for an active browser Realtime listener before injection.
@@ -305,6 +326,9 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 **Throw recording:**
 `handleBoardClick` (useMatchActions) → optimistic local state → `POST /api/matches/:id/throws` → `resolveOrCreateTurnForPlayer` (turnLifecycle.ts) → insert throw → enqueue durable DartIQ live capture → on 3rd dart: `PATCH /api/matches/:id/turns/:id` → if fair ending: `computeFairEndingState` → if resolved: `completeLeg` → Elo RPC + completed-leg DartIQ job. Capture/replay work runs outside the scoring response path.
 
+**Match pause:**
+`Pause game` (MatchScoringView) → `PATCH /api/matches/:id/pause` → `matches.paused_at` → existing matches realtime refreshes scoring and spectator clients; throw/turn/leg-completion APIs reject new scoring while paused.
+
 **Spectator realtime:**
 `useRealtime` subscribes to Supabase channel → dispatches DOM custom events → `useMatchRealtime` listens → `applyThrowChange/applyTurnChange` (spectatorRealtimeReducer) updates state incrementally → on `needsReconcile`: `loadAll()` full refresh.
 
@@ -348,10 +372,10 @@ Scolia spectator loads include throw geometry across every leg for per-player wh
 Recent Games card → `/match/:id?spectator=true&history=true` → spectator data load includes every leg and Scolia throw geometry → read-only result hero, whole-match KPIs/player performance/top visits, final-leg score progression, Elo changes, and whole-match heatmaps. Live-only board status, QR code, current-player state, commentary, and winner popup are suppressed.
 
 **Slack dart poll:**
-`/dart HH:MM` → signed `POST /api/slack/darts` → insert poll and its `background_jobs` row atomically → publish a Yes/No Block Kit poll → signed button actions upsert one vote per Slack user → one Supabase Cron job checks for due work every five seconds → `dispatch_due_background_jobs()` atomically claims a batch and makes no HTTP request for an empty batch → authenticated `POST /api/background-jobs` dispatches `slack_dart_poll` → fewer than two Yes votes cancel; otherwise stable Slack identities resolve/create app players → `create_slack_x01_match_atomic` creates a manual 501 double-out match → Slack message links to scoring. See `docs/SLACK_DARTS.md` for setup and Vault configuration.
+`/dart HH:MM` → signed `POST /api/slack/darts` → insert poll and its `background_jobs` row atomically → publish a Yes/No Block Kit poll → signed button actions upsert one vote per Slack user → one Supabase Cron job checks for due work every five seconds → `dispatch_due_background_jobs()` atomically claims a batch and makes no HTTP request for an empty batch → authenticated `POST /api/background-jobs` dispatches `slack_dart_poll` → fewer than two Yes votes cancel; otherwise `claim_slack_player_atomic` resolves or creates each stable Slack identity without exposing a half-created player → `create_slack_x01_match_atomic` creates a manual 501 double-out match → Slack message links to scoring. Self-service claims use the same RPC; admin replacements use `set_slack_player_link_atomic`, so link changes roll back together. See `docs/SLACK_DARTS.md` for setup and Vault configuration.
 
 **Production release gate:**
-Pull request or merge queue → `Tests / test` runs lint, unit tests, a production build, and three Lighthouse samples → GitHub branch protection permits merge only after success → Vercel Deployment Checks hold the production alias for the same commit until `Tests / test` passes.
+Pull request or merge queue → `Tests / test` runs lint, unit tests, a production build, and five Lighthouse samples of the real home page through a loopback-only CI auth bypass → GitHub branch protection permits merge only after success → Vercel Deployment Checks hold the production alias for the same commit until `Tests / test` passes.
 
 Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. A missing acknowledgement resets a stale command for retry; after three attempts it becomes `failed`. Deploy `Dockerfile.scolia-worker` as exactly one always-on worker replica outside Vercel.
 
@@ -359,6 +383,7 @@ Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. 
 - Do not use `ALTER FUNCTION` in Supabase migrations. For function changes, use drop + recreate.
 - Never modify existing Supabase migration files after they are created/committed.
 - Any schema/function/policy change must be done by adding a new migration that supersedes earlier ones.
+- New migrations use unique 14-digit UTC timestamp names. Existing numbered migrations keep their deployed names.
 
 ## Boundaries / Do Not Touch
 - `.env*` files, secrets, production credentials.

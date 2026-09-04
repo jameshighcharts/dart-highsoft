@@ -3,6 +3,7 @@
 import { CRICKET_TARGETS } from '@/lib/games/types';
 import type { CricketConfig, CricketEvent, CricketPlayerState, CricketTarget, GameState } from '@/lib/games/types';
 import type { GamePlayerData } from '@/hooks/useGameData';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { cn } from '@/lib/utils';
 
 type CricketBoardProps = {
@@ -62,7 +63,10 @@ export function CricketBoard({ state, players, config, currentPlayerId }: Cricke
                     isCurrent && 'bg-accent/40 border-b-2 border-b-primary'
                   )}
                 >
-                  <div className="truncate max-w-[9rem] mx-auto font-medium">{player.display_name}</div>
+                  <div className="inline-flex items-center gap-2 max-w-[9rem] font-medium">
+                    <PlayerAvatar player={{ id: player.player_id, display_name: player.display_name, avatar_url: player.avatar_url }} size="sm" />
+                    <span className="truncate">{player.display_name}</span>
+                  </div>
                   <div className="text-xl font-bold leading-tight">{ps?.points ?? 0}</div>
                 </th>
               );

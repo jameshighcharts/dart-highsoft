@@ -449,6 +449,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     endGameDialogOpen,
     setEndGameDialogOpen,
     endGameLoading,
+    pauseLoading,
     rematchLoading,
     handleBoardClick,
     undoLastThrow,
@@ -462,6 +463,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     movePlayerDown,
     startRematch,
     endGameEarly,
+    togglePause,
     endLegAndMaybeMatch,
   } = useMatchActions({
     matchId,
@@ -614,6 +616,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
         onEndGameDialogOpenChange={setEndGameDialogOpen}
         endGameLoading={endGameLoading}
         onEndGameEarly={endGameEarly}
+        pauseLoading={pauseLoading}
+        onTogglePause={togglePause}
         rematchLoading={rematchLoading}
         onStartRematch={startRematch}
         editOpen={editOpen}

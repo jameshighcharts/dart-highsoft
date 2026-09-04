@@ -14,6 +14,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     const match = await loadMatch(supabase, matchId);
     if (!match) return NextResponse.json({ error: 'Match not found' }, { status: 404 });
     if (!isMatchActive(match)) return NextResponse.json({ error: 'Match is not active' }, { status: 409 });
+    if (match.paused_at) return NextResponse.json({ error: 'Match is paused' }, { status: 409 });
 
     const { data: leg } = await supabase.from('legs').select('id').eq('id', body.legId).eq('match_id', matchId).single();
     if (!leg) {

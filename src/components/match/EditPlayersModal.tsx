@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { Player } from '@/lib/match/types';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 type Props = {
@@ -90,6 +91,7 @@ export function EditPlayersModal({
                   )}
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <span className="text-sm text-muted-foreground">#{index + 1}</span>
+                    <PlayerAvatar player={player} size="sm" />
                     <span className="truncate">{player.display_name}</span>
                   </div>
                   <Button
@@ -130,6 +132,7 @@ export function EditPlayersModal({
             <div className="space-y-2 max-h-48 overflow-auto border rounded p-2">
               {addablePlayers.map((player) => (
                 <div key={player.id} className="flex items-center gap-2 py-2 px-3 hover:bg-accent/30 rounded">
+                  <PlayerAvatar player={player} size="sm" />
                   <span className="flex-1 min-w-0 truncate">{player.display_name}</span>
                   <Button
                     variant="outline"

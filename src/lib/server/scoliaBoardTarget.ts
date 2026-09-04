@@ -18,6 +18,7 @@ export async function findActiveScoliaBoardTarget(
       .is('winner_player_id', null)
       .is('completed_at', null)
       .eq('ended_early', false)
+      .is('paused_at', null)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle(),

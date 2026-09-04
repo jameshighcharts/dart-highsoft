@@ -3,6 +3,7 @@
 import { Trophy } from 'lucide-react';
 
 import type { GamePlayerData } from '@/hooks/useGameData';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { clockSequence } from '@/lib/games/engines/aroundTheClock';
 import type {
   AroundTheClockConfig,
@@ -59,7 +60,9 @@ function summaryFor(mode: GameMode, config: Record<string, unknown>, playerState
 
 export function GameResults({ mode, status, config, state, players, winnerId, children }: GameResultsProps) {
   const endedEarly = status === 'ended_early';
-  const nameOf = (id: string) => players.find((p) => p.player_id === id)?.display_name ?? 'Unknown';
+  const playerOf = (id: string) => players.find((p) => p.player_id === id);
+  const nameOf = (id: string) => playerOf(id)?.display_name ?? 'Unknown';
+  const avatarOf = (id: string) => ({ id, display_name: nameOf(id), avatar_url: playerOf(id)?.avatar_url });
   const ranked = state.standings.length > 0 ? state.standings : players.map((p) => p.player_id);
   const winner = !endedEarly && winnerId ? nameOf(winnerId) : null;
 
@@ -79,7 +82,10 @@ export function GameResults({ mode, status, config, state, players, winnerId, ch
         {ranked.map((playerId, index) => (
           <li key={playerId} className="flex items-center gap-3 px-3 py-2">
             <span className="w-6 text-sm text-muted-foreground tabular-nums">{index + 1}.</span>
-            <span className={cn('flex-1 truncate', playerId === winnerId && !endedEarly && 'font-semibold')}>{nameOf(playerId)}</span>
+            <span className={cn('flex-1 min-w-0 inline-flex items-center gap-2', playerId === winnerId && !endedEarly && 'font-semibold')}>
+              <PlayerAvatar player={avatarOf(playerId)} size="sm" />
+              <span className="truncate">{nameOf(playerId)}</span>
+            </span>
             <span className="text-sm text-muted-foreground tabular-nums">{summaryFor(mode, config, state.perPlayer[playerId])}</span>
           </li>
         ))}

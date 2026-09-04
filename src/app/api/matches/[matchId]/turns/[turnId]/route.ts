@@ -36,6 +36,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ma
     const match = await loadMatch(supabase, matchId);
     if (!match) return NextResponse.json({ error: 'Match not found' }, { status: 404 });
     if (!isMatchActive(match)) return NextResponse.json({ error: 'Match is not active' }, { status: 409 });
+    if (match.paused_at) return NextResponse.json({ error: 'Match is paused' }, { status: 409 });
 
     const linked = await ensureTurnInMatch(supabase, matchId, turnId);
     if (!linked) return NextResponse.json({ error: 'Turn not found for match' }, { status: 404 });

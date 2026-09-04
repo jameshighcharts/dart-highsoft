@@ -1,3 +1,4 @@
+import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 import type { GameMode } from '@/lib/games/types';
 import { medal } from '@/utils/leaderboard';
 
@@ -52,8 +53,9 @@ export function GameModeLeaderboardItem({ entry, mode, index }: GameModeLeaderbo
   const winRate = Number(entry.win_rate ?? 0);
   return (
     <li className="flex items-center justify-between px-3 py-2">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <span className="w-8 text-lg text-center">{medal(index)}</span>
+        <PlayerAvatarById playerId={entry.player_id} name={entry.display_name} size="sm" />
         <div>
           <div className="font-medium">{entry.display_name}</div>
           <div className="text-xs text-muted-foreground">

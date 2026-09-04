@@ -1,12 +1,13 @@
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { formatEloChange } from '@/utils/eloRating';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import type { MatchEloChange } from '@/hooks/useMatchEloChanges';
 
 type Props = {
   eloChanges: MatchEloChange[];
   loading: boolean;
   matchWinnerId: string | null;
-  playerById: Record<string, { display_name: string }>;
+  playerById: Record<string, { id?: string; display_name: string; avatar_url?: string | null }>;
 };
 
 export function EloChangesDisplay({ eloChanges, loading, matchWinnerId, playerById }: Props) {
@@ -27,12 +28,16 @@ export function EloChangesDisplay({ eloChanges, loading, matchWinnerId, playerBy
       <div className="space-y-1.5">
         {sorted.map((entry) => {
           const { text, color } = formatEloChange(entry.rating_change);
-          const name = playerById[entry.player_id]?.display_name ?? 'Unknown';
+          const player = playerById[entry.player_id];
+          const name = player?.display_name ?? 'Unknown';
           const Icon = entry.rating_change > 0 ? TrendingUp : entry.rating_change < 0 ? TrendingDown : Minus;
 
           return (
             <div key={entry.player_id} className="flex items-center justify-between text-sm">
-              <span className="truncate mr-2">{name}</span>
+              <span className="inline-flex items-center gap-2 truncate mr-2">
+                <PlayerAvatar player={{ id: player?.id ?? entry.player_id, display_name: name, avatar_url: player?.avatar_url }} size="sm" />
+                <span className="truncate">{name}</span>
+              </span>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="font-mono text-muted-foreground">
                   {entry.rating_before}

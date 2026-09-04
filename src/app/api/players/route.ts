@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { LOCATIONS } from '@/utils/locations';
+
+const locationValues = new Set<string>(LOCATIONS.map((location) => location.value));
 
 export async function POST(request: Request) {
   try {
@@ -7,6 +10,9 @@ export async function POST(request: Request) {
     const displayName = body.displayName?.trim();
     if (!displayName) {
       return NextResponse.json({ error: 'displayName is required' }, { status: 400 });
+    }
+    if (body.location !== undefined && body.location !== null && !locationValues.has(body.location)) {
+      return NextResponse.json({ error: 'Invalid location' }, { status: 400 });
     }
     const supabase = getSupabaseServerClient();
     const { data, error } = await supabase
