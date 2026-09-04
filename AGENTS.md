@@ -87,6 +87,9 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `admin/players/[playerId]/` | PATCH | Admin-only: rename, relocate, or (de)activate a player |
 | `admin/players/[playerId]/slack-link/` | PUT, DELETE | Admin-only: link/unlink a player and a Slack user in `slack_player_links` |
 | `admin/slack/sync/` | POST | Admin-only: import workspace members as players (first name / `First L`) and link them |
+| `me/` | GET, PATCH | Signed-in member's own player (via `slack_player_links`); edit nicknames/location |
+| `me/link/` | POST | Claim an unclaimed player or create one and link it to my Slack identity |
+| `me/avatar/` | POST, DELETE | Upload/remove my own profile picture |
 | `background-jobs/` | POST | Authenticate Supabase job batches and run typed background handlers |
 
 ### Utils (`src/utils`) — Pure Business Logic

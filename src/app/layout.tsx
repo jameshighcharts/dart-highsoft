@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import "./globals.css";
 import Link from "next/link";
-import { Grid3x3, Target, BarChart3, Plus, Radio, Trophy, Users } from "lucide-react";
+import { Grid3x3, Target, BarChart3, Plus, Radio, Trophy, Users, UserCircle } from "lucide-react";
 import { Analytics } from "@vercel/analytics/react";
 import { MatchSpectatorHotkey } from "@/components/MatchSpectatorHotkey";
 import { QueryProvider } from "@/components/QueryProvider";
@@ -81,10 +81,14 @@ export default function RootLayout({
                 <BarChart3 className="size-4" />
                 Statistics
               </Link>
+              <Link href="/profile" className="flex items-center gap-2">
+                <UserCircle className="size-4" />
+                Profile
+              </Link>
             </div>
           </nav>
           <nav className="lg:hidden fixed bottom-0 left-0 right-0 border-t bg-card">
-            <div className="grid grid-cols-5">
+            <div className="grid grid-cols-6">
               <Link href="/" className="flex flex-col items-center justify-center py-2 gap-1">
                 <Grid3x3 className="size-5" />
                 <span className="text-xs">The Grid</span>
@@ -104,6 +108,10 @@ export default function RootLayout({
               <Link href="/stats" className="flex flex-col items-center justify-center py-2 gap-1">
                 <BarChart3 className="size-5" />
                 <span className="text-xs">Stats</span>
+              </Link>
+              <Link href="/profile" className="flex flex-col items-center justify-center py-2 gap-1">
+                <UserCircle className="size-5" />
+                <span className="text-xs">Me</span>
               </Link>
             </div>
           </nav>

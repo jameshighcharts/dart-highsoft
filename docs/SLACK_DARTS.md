@@ -37,6 +37,15 @@ share one light card with a single "Login with Slack" button. Server-to-server
 endpoints stay public and authenticate on their own: `/api/slack/*` (request
 signatures), `/api/background-jobs` (bearer secret) and `/api/auth/*`.
 
+### My profile (`/profile`)
+
+Every signed-in member has a self-service profile. On first visit they link
+their Slack account to a player ("This is me" from the unclaimed players, or
+"Create my player"); afterwards they can upload or remove their picture, edit
+nicknames (comma-separated) and location, and see their stats (matches, wins,
+win rate, average, legs won, last-10 form, 1v1 and multiplayer Elo). Names are
+changed by admins only. Backed by `/api/me`, `/api/me/link`, `/api/me/avatar`.
+
 ### Profile pictures and nicknames
 
 Migration `0059_player_avatars_and_nicknames.sql` adds `players.avatar_url`,

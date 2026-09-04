@@ -31,3 +31,17 @@ export async function requireAdmin(): Promise<AdminSession | NextResponse> {
 export function isGuardResponse(value: AdminSession | NextResponse): value is NextResponse {
   return value instanceof NextResponse;
 }
+
+export type UserSession = AdminSession;
+
+/** Guard for self-service routes: any signed-in, fully identified workspace member. */
+export async function requireUser(): Promise<UserSession | NextResponse> {
+  if (!isSlackAuthConfigured && !isAuthDevBypassEnabled()) {
+    return NextResponse.json({ error: 'Slack sign-in is not configured' }, { status: 503 });
+  }
+  const session = await getAuthenticatedSession();
+  if (!session?.user.slackUserId || !session.user.slackTeamId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  return session as UserSession;
+}
