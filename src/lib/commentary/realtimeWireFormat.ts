@@ -13,6 +13,36 @@ function points(value: number) {
   return `${rounded >= 0 ? '+' : ''}${rounded}pp`;
 }
 
+function opportunityLine(dartiq: ScoliaRealtimeDartEvent['dartiq']) {
+  if (!dartiq?.opportunity) return null;
+  return `Before the dart: expected movement leg ${points(dartiq.opportunity.leg)}, match ${points(dartiq.opportunity.match)}; evidence ${words(dartiq.opportunity.confidenceTier)}.`;
+}
+
+function rarityLine(dartiq: ScoliaRealtimeDartEvent['dartiq']) {
+  if (!dartiq?.outcomeRarity?.eligibleForCommentary) return null;
+  const tail = Math.min(
+    dartiq.outcomeRarity.legDirectionalTail,
+    dartiq.outcomeRarity.matchDirectionalTail
+  );
+  if (tail > 0.1 || (dartiq.consequence.leg < 0.05 && dartiq.consequence.match < 0.02)) return null;
+  return `Model rarity: this direction of swing was in the outer ${percent(tail)} tail for this state.`;
+}
+
+function legResolutionLine(
+  resolution: NonNullable<ScoliaRealtimeDartEvent['dartiq']>['legResolution'],
+  state: RealtimeNarrativeWireState
+) {
+  if (!resolution) return null;
+  const winner = state.name(resolution.winnerPlayerId);
+  const scoreline = Object.entries(resolution.legsWonAfter)
+    .map(([playerId, legs]) => `${state.name(playerId)} ${legs}`)
+    .join(', ');
+  const bridge = resolution.nextLeg
+    ? ` Next: leg ${resolution.nextLeg.number}, ${state.name(resolution.nextLeg.startingPlayerId)} throws first.`
+    : '';
+  return `Leg result: ${winner} wins${resolution.wonAgainstThrow ? ', breaking throw' : ''}; ${scoreline}.${bridge}`;
+}
+
 function words(value: string) {
   return value.replaceAll('_', ' ');
 }
@@ -131,7 +161,8 @@ export function renderScoliaRealtimeEvent(
   direction?: BroadcastDirection
 ) {
   const dartiq = event.dartiq;
-  const result = event.matchWon
+  const resolvedMatchWin = event.dartiq?.legResolution?.matchWon ?? event.matchWon;
+  const result = resolvedMatchWin
     ? 'match won'
     : dartiq?.signals.includes('leg_win')
       ? 'leg won'
@@ -161,6 +192,13 @@ export function renderScoliaRealtimeEvent(
     visit,
     probability,
     consequence,
+    opportunityLine(dartiq),
+    rarityLine(dartiq),
+    dartiq?.firstNineAverage !== undefined
+      ? `First-nine average: ${dartiq.firstNineAverage.toFixed(1)}.`
+      : null,
+    dartiq?.tonPlusStreakReached ? 'Run: three consecutive ton-plus visits.' : null,
+    legResolutionLine(dartiq?.legResolution, state),
     opponentThreat,
     signals,
     ...state.renderNarrativeDelta(event.narrative, direction),
@@ -193,6 +231,19 @@ export function renderManualRealtimeEvent(
     `${context.playerName} · leg ${context.gameContext.currentLegNumber} · visit ${context.gameContext.playerTurnNumber}: ${context.throws.map((dart) => dart.segment).join(' · ')} = ${context.totalScore}; score ${currentScoreBefore} → ${context.remainingScore}${context.busted ? '; bust' : dartiq?.checkedOut ? '; checkout' : ''}.`,
     probability,
     dartiq ? `Full-field consequence: leg ${points(dartiq.peakLegConsequence ?? Math.abs(dartiq.legWpa))}; match ${points(dartiq.peakMatchConsequence ?? Math.abs(dartiq.matchWpa))}.` : null,
+    dartiq?.peakLegOpportunity !== undefined
+      ? `Before the visit's biggest dart: expected movement leg ${points(dartiq.peakLegOpportunity)}, match ${points(dartiq.peakMatchOpportunity ?? 0)}.`
+      : null,
+    dartiq?.rarestMatchDirectionalTail !== undefined
+      && dartiq.rarestMatchDirectionalTail <= 0.1
+      && (dartiq.peakMatchConsequence ?? 0) >= 0.02
+      ? `Model rarity: the visit contained an outer ${percent(dartiq.rarestMatchDirectionalTail)} match-swing tail.`
+      : null,
+    dartiq?.firstNineAverage !== undefined
+      ? `First-nine average: ${dartiq.firstNineAverage.toFixed(1)}.`
+      : null,
+    dartiq?.signals?.includes('ton_plus_streak') ? 'Run: three consecutive ton-plus visits.' : null,
+    legResolutionLine(dartiq?.legResolution, state),
     opponentThreat,
     ...state.renderNarrativeDelta(context.narrative, storyDirection),
   ].filter(Boolean).join('\n');

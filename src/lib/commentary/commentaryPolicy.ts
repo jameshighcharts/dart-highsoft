@@ -70,6 +70,11 @@ const SIGNAL_ORDER: readonly DartIQEventSignal[] = [
   'big_fish',
   'ton_plus_checkout',
   'bull_checkout',
+  'nine_darter',
+  'nine_dart_pace',
+  'break_of_throw',
+  'ton_plus_streak',
+  'first_nine',
   'one_eighty',
   'nikita_special',
   'story_arc',
@@ -135,7 +140,7 @@ export class CommentaryPolicy {
       return this.reject(event.priority, observationKey, 'silent-priority');
     }
     const earnedMidVisitReaction = event.priority === 'notable'
-      && event.signals.includes('large_swing');
+      && (event.signals.includes('large_swing') || event.signals.includes('first_nine'));
     if (
       (event.priority === 'ordinary' || event.priority === 'notable')
       && event.dartIndex < 3
@@ -179,6 +184,14 @@ export class CommentaryPolicy {
     this.activePriority = null;
   }
 
+  /** Seeds cadence after a non-dart opening call without inventing an observation. */
+  recordAmbientCall(nowMs = Date.now(), active = false) {
+    this.lastSpokenAtMs = nowMs;
+    this.lastSpokenAtByPriority.set('ordinary', nowMs);
+    this.ordinaryVisitsSinceSpeech = 0;
+    this.activePriority = active ? 'ordinary' : null;
+  }
+
   reset(epoch?: number) {
     this.epoch = epoch ?? this.epoch + 1;
     this.lastSpokenAtByPriority.clear();
@@ -219,6 +232,8 @@ export class CommentaryPolicy {
       || signals.has('match_win')
       || signals.has('leg_win')
       || signals.has('one_eighty')
+      || signals.has('nine_dart_pace')
+      || signals.has('nine_darter')
       || signals.has('nikita_special')
       || (signals.has('bust') && event.priority === 'marquee')
       || (event.checkedOut && (event.scoreBefore ?? 0) >= this.majorCheckoutMinimum);
@@ -231,6 +246,8 @@ export class CommentaryPolicy {
       || signal === 'leg_win'
       || signal === 'checkout'
       || signal === 'one_eighty'
+      || signal === 'nine_dart_pace'
+      || signal === 'nine_darter'
       || signal === 'bogey_created'
     ) {
       return `${signal}:${event.eventId}`;

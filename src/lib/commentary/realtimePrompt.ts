@@ -22,6 +22,17 @@ export function buildRealtimeSessionInstructions(persona: CommentaryPersona) {
 - Accuracy comes before the joke. Use the strongest supplied fact without reciting labels or numbers mechanically.`;
 }
 
+export function buildRealtimeOpeningInstructions(personaId?: CommentaryPersonaId) {
+  return [
+    '# Pre-match Opening',
+    '- Use only the authoritative match snapshot already supplied.',
+    '- Introduce the matchup and make one playful, specific observation from the supplied history or rematch context.',
+    '- Do not predict a record, rivalry, intent, or result that was not supplied.',
+    '- Length: 5–14 words. Sound spontaneous; this is the walk-on, not an essay.',
+    `- ${realtimePersonaResponseInstruction(personaId)}`,
+  ].join('\n');
+}
+
 type RealtimeResponseBrief = {
   personaId?: CommentaryPersonaId;
   priority: DartIQEventPriority;
@@ -33,6 +44,8 @@ type RealtimeResponseBrief = {
   nextPlayerAlreadyThrowing: boolean;
   direction?: BroadcastDirection | null;
   nikitaSpecial?: boolean;
+  legResolved?: boolean;
+  nextLegAvailable?: boolean;
 };
 
 export function realtimeLengthInstruction(input: Pick<
@@ -67,6 +80,9 @@ export function buildRealtimeResponseInstructions(input: RealtimeResponseBrief) 
     `- ${visitTimingInstruction(input)}`,
     `- ${realtimeLengthInstruction(input)}`,
     '- Choose the strongest fresh supplied fact; perform it spontaneously instead of listing candidates.',
+    input.legResolved
+      ? `- Celebrate the leg result first.${input.nextLegAvailable ? ' You may tee up the supplied next-leg starter in the same line.' : ''}`
+      : '',
     story ? `- ${story}` : '',
     `- ${realtimePersonaResponseInstruction(input.personaId)}`,
   ].filter(Boolean).join('\n');

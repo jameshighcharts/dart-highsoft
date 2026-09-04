@@ -169,14 +169,14 @@ The current request-per-turn commentary endpoint and separate text-to-speech cal
 
 - The server uses the standard OpenAI API key with the unified WebRTC interface: it forwards the browser SDP offer, supplies trusted session configuration, returns the SDP answer, and retains the returned OpenAI call ID for worker sideband control. The standard key and call ID must never be shipped to the browser.
 - The browser establishes the persistent WebRTC connection and receives audio directly from the model.
-- Every accepted dart produces a compact event containing the dart result, updated game state, and deterministic DartIQ metrics such as match/leg win probability, per-player WPA, total-variation consequence, semantic stakes, and classified moments. Opportunity and rarity join this contract only when their full outcome enumeration is implemented.
+- Every accepted dart produces a compact event containing the dart result, updated game state, and deterministic DartIQ metrics such as match/leg win probability, per-player WPA, total-variation consequence, semantic stakes, and classified moments. Standard play also carries pre-dart opportunity and direction-aware/magnitude outcome tails from full behavioral outcome enumeration.
 - The model narrates those facts; it does not calculate or invent the authoritative metrics.
 - Feed every dart into the session, but only request speech when the commentary policy calls for it. Ordinary darts preserve context silently while checkouts, lead changes, large swings, pressure misses, and other significant moments can trigger a response.
 - Start a session with a compact match/player snapshot, then send event deltas rather than repeatedly sending the entire throw history. Add periodic summaries or checkpoints to keep long multiplayer matches within a predictable context and cost envelope.
 - On reconnect, create or restore the session from the current match snapshot plus recent significant moments instead of replaying the full match dart by dart.
 - Keep transport-specific Realtime code separate from probability calculation so the same event stream can later drive text commentary, audio commentary, highlights, notifications, and post-match stories.
 
-A useful event contract is `DartIQDartEvent`: stable IDs for deduplication, match/leg/turn/dart position, player and score state, model/config identity, full probability vectors before/after, per-player WPA, consequence, approximation provenance, semantic stakes, and classified commentary moments. Edits and undos emit explicit correction events so the commentator's persistent view cannot drift from authoritative match state. Opportunity and rarity remain reserved extensions rather than placeholder heuristics.
+A useful event contract is `DartIQDartEvent`: stable IDs for deduplication, match/leg/turn/dart position, player and score state, model/config identity, full probability vectors before/after, per-player WPA, consequence, standard-play opportunity and outcome tails, approximation provenance, semantic stakes, and classified commentary moments. Edits and undos emit explicit correction events so the commentator's persistent view cannot drift from authoritative match state. Fair-ending opportunity remains absent rather than replaced by a placeholder heuristic.
 
 #### Latency path
 
@@ -984,22 +984,26 @@ its variance is largest where the denominator is smallest — so `argmax` select
 an outcome probability, a percentile, a residual standard deviation, or a calibrated rarity
 measure. It is a normalized magnitude, and naming it "unexpectedness" would misrepresent it.
 
-The significance contract separates four concepts. Consequence and semantic stakes ship in this
-PR; opportunity and outcome rarity deliberately remain unpopulated until outcome enumeration is
-both fast and validated:
+The significance contract separates four concepts. All four now exist for standard X01 play;
+fair-ending matches deliberately leave opportunity and rarity absent until their provisional
+checkout continuation can be enumerated with the same semantics:
 
 - **Consequence** — total variation `C = ½ Σ_i |P_after,i − P_before,i|`, used universally and
   measured separately for leg and match. For two players this equals acting-player `|WPA|` exactly
   because the probabilities sum to one. For larger fields it also captures probability moving
   among non-actors. The full per-player vector remains attached so the subject is never lost;
   absolute TV floors are bucketed by player count.
-- **Opportunity** — `E[|Δ|]` computed pre-dart. The honest name for what the heuristic engine called leverage.
-- **Outcome rarity** — probability, percentile, or tail probability of the realized `Δ` under the
-  supplied outcome distribution. Never inferred from leverage.
+- **Opportunity** — expected total variation `E_q[½ Σ_i |P_after(o),i − P_before,i|]`, computed
+  pre-dart for leg and match from the behavioral outcome distribution. Candidate vectors are
+  transient; only the aggregate is retained.
+- **Outcome rarity** — upper signed tail for positive actor WPA, lower signed tail for negative
+  actor WPA, plus a separate full-vector consequence-magnitude tail. It is never raw segment
+  probability and never inferred from opportunity. Commentary eligibility requires exact-state
+  support; the tail remains model-relative rather than advertised as empirically calibrated.
 - **Semantic stakes** — a finish being available, checkout, bust, repeated unconverted finish
   chance, or story resolution. A “missed double” requires observed aim evidence and is not inferred.
 
-Possible future diagnostics are `μ = Σ q_o Δ_o`, `swingVariance`, and a direction-aware tail.
+Possible future diagnostics are `μ = Σ q_o Δ_o` and `swingVariance`.
 They are not emitted in this PR. In a self-consistent probability model `μ` should be approximately
 zero, so it is primarily a solver-coherence diagnostic rather than a new performance statistic.
 
@@ -1285,9 +1289,11 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
    scoring totals, visit rollback state, current-leg fair-ending progress, and projection state;
    verified appends resume from it without rehydrating prefix accumulators. Corrections and context
    changes deliberately rebuild from canonical inputs.
-8. **Metric cleanup — consequence and semantic stakes shipped** — remove the invented leverage
-   index, every WPA/leverage gate, and user-facing `bestSegment`. Pre-dart opportunity and calibrated
-   outcome rarity remain explicit next steps; neither is represented by a substitute heuristic.
+8. **Metric cleanup — shipped for standard play** — remove the invented leverage index, every
+   WPA/leverage gate, and user-facing `bestSegment`. Pre-dart opportunity is exact expected
+   full-vector movement under the behavioral model; direction-aware and magnitude tails describe
+   the realized outcome only when state evidence is sufficient. Empirical rarity calibration and
+   fair-ending opportunity remain explicit later work rather than substitute heuristics.
    Until finish-on-dart mass is preserved by the kernel, the UI exposes honest expected visits
    remaining rather than presenting visit-indexed finish mass as an expected dart count.
 
@@ -1302,6 +1308,11 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
     on the visit and emit one neutral notable fact only when that visit completes. They are not
     labelled attempted or missed match darts without observed aim evidence. Observation
     deduplication remains player/semantic scoped rather than unique-dart scoped.
+10a. **Broadcast anticipation and native vocabulary — shipped** — the live strip renders a
+    provisional opportunity band, each listener can receive one persisted snapshot-anchored
+    pre-match opener, and the leg-win call may bridge to the supplied next starter. Breaks of throw,
+    nine-dart pace/nine-darters, first-nine average, and three consecutive ton-plus visits are
+    deterministic facts available to both browser and Scolia commentary.
 
 #### D. Frozen evidence and telemetry
 

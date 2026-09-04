@@ -8,11 +8,13 @@ import type { FairEndingPhase } from '@/utils/fairEnding';
 import type { FinishRule } from '@/utils/x01';
 import {
   createBehavioralOutcomeModel,
+  DARTIQ_OUTCOME_CONFIGURATION,
   type DartIQOutcomeModel,
 } from './model/outcomes';
 import {
   combineCurrentLegWithMatch,
   combineOrderedFirstFinishPmfs,
+  createCurrentLegMatchContinuations,
   createFirstFinishPmf,
   type DartIQFirstFinishPmf,
   type DartIQVisitKernel,
@@ -85,6 +87,34 @@ export type DartIQEngineProjection = {
   players: DartIQPlayerProjection[];
   favoritePlayerId: string | null;
   approximationMode: DartIQProjectionApproximationMode;
+};
+
+export type DartIQOpportunity = {
+  leg: number;
+  match: number;
+  availability: 'standard';
+  confidenceTier: ReturnType<DartIQOutcomeModel['distribution']>['confidenceTier'];
+  stateBackoffLevel: ReturnType<DartIQOutcomeModel['distribution']>['stateBackoffLevel'];
+  outcomeBackoffLevel: ReturnType<DartIQOutcomeModel['distribution']>['outcomeBackoffLevel'];
+  sampleSize: number;
+  exactStateSampleSize: number;
+  eligibleForCommentary: boolean;
+  approximationModes: DartIQProjectionApproximationMode[];
+};
+
+export type DartIQCandidateImpact = {
+  scoreDelta: number;
+  isDouble: boolean;
+  probability: number;
+  actorLegWpa: number;
+  actorMatchWpa: number;
+  legConsequence: number;
+  matchConsequence: number;
+};
+
+export type DartIQNextDartAnalysis = {
+  opportunity: DartIQOpportunity;
+  candidates: DartIQCandidateImpact[];
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -225,6 +255,153 @@ function markovLegProbabilities(players: PreparedDartIQPlayer[], input: DartIQEn
     probabilities: players.map((player) => probabilityById.get(player.id) ?? 0),
     pmfById: new Map(orderedPlayers.map((player, index) => [player.id, pmfs[index]])),
     approximationMode: race.approximationMode,
+  };
+}
+
+function probabilityVectorConsequence(before: number[], after: number[]) {
+  return before.reduce(
+    (sum, probability, index) => sum + Math.abs((after[index] ?? 0) - probability),
+    0
+  ) / 2;
+}
+
+function combineLegVectorWithMatch(leg: number[], continuations: number[][]) {
+  const match = new Array<number>(leg.length).fill(0);
+  for (let winner = 0; winner < leg.length; winner += 1) {
+    for (let player = 0; player < leg.length; player += 1) {
+      match[player] += (leg[winner] ?? 0) * (continuations[winner]?.[player] ?? 0);
+    }
+  }
+  return normalizeWeights(match);
+}
+
+function preparePlayers(input: DartIQEngineInput): PreparedDartIQPlayer[] {
+  return input.players.map((player) => {
+    const skillModel = createDartIQSkillModel(player.historicalProfile, input.populationProfile);
+    return {
+      ...player,
+      adjustedAverage: adjustedAverage(
+        player.threeDartAverage,
+        player.dartsThrown,
+        skillModel.threeDartAverage
+      ),
+      skillModel,
+      outcomeModel: player.outcomeModel ?? FALLBACK_OUTCOME_MODEL,
+    };
+  });
+}
+
+/**
+ * Enumerates the acting player's behavioral next-dart outcomes against the
+ * same ordered race and match-continuation solvers used by the live forecast.
+ * Special fair-ending play is deliberately unavailable until it has an
+ * equally exact continuation model.
+ */
+export function calculateDartIQNextDartAnalysis(
+  input: DartIQEngineInput,
+  beforeProjection: Pick<DartIQEngineProjection, 'players'>
+): DartIQNextDartAnalysis | null {
+  if (input.fairEnding || input.matchWinnerId || !input.currentPlayerId) return null;
+  const actorIndex = input.players.findIndex((player) => player.id === input.currentPlayerId);
+  if (actorIndex < 0 || input.dartsRemainingInTurn < 1 || input.dartsRemainingInTurn > 3) return null;
+
+  const prepared = preparePlayers(input);
+  const actor = prepared[actorIndex];
+  const distribution = actor.outcomeModel.distribution({
+    currentScore: actor.scoreRemaining,
+    dartsLeft: input.dartsRemainingInTurn as 1 | 2 | 3,
+    finishRule: input.finishRule,
+  });
+  const beforeLeg = beforeProjection.players.map((player) => player.legWinProbability);
+  const beforeMatch = beforeProjection.players.map((player) => player.matchWinProbability);
+  const legsWon = prepared.map((player) => player.legsWon);
+  const currentStarterIndex = Math.max(
+    0,
+    input.playOrder.indexOf(input.currentLegStarterId ?? input.playOrder[0])
+  );
+  const continuations = createCurrentLegMatchContinuations({
+    legsWon,
+    legsToWin: input.legsToWin,
+    nextStarterIndex: (currentStarterIndex + 1) % prepared.length,
+    futureLegProbabilitiesByStarter: futureLegProbabilitiesByStarter(
+      prepared,
+      input.playOrder,
+      input.finishRule,
+      input.startScore
+    ),
+  });
+  const actorOrderIndex = Math.max(0, input.playOrder.indexOf(actor.id));
+  const nextPlayerId = input.playOrder[(actorOrderIndex + 1) % input.playOrder.length] ?? null;
+  const candidates: DartIQCandidateImpact[] = [];
+  const approximationModes = new Set<DartIQProjectionApproximationMode>();
+  if (continuations.approximationMode !== 'exact') {
+    approximationModes.add(continuations.approximationMode === 'truncated-tail'
+      ? 'truncated-tail'
+      : continuations.approximationMode === 'no-finish-fallback'
+        ? 'no-finish-fallback'
+        : 'large-field-bounded');
+  }
+
+  for (const dart of distribution.outcomes) {
+    if (!(dart.probability > 0)) continue;
+    const nextScore = actor.scoreRemaining - dart.scoreDelta;
+    const busted = nextScore < 0
+      || (input.finishRule === 'double_out' && nextScore === 1)
+      || (input.finishRule === 'double_out' && nextScore === 0 && !dart.isDouble);
+    const finished = !busted && nextScore === 0;
+    let leg: number[];
+    if (finished) {
+      leg = prepared.map((_, index) => index === actorIndex ? 1 : 0);
+    } else {
+      const candidatePlayers = prepared.map((player) => player.id === actor.id
+        ? { ...player, scoreRemaining: busted ? input.currentVisitStartScore ?? actor.scoreRemaining : nextScore }
+        : player
+      );
+      const visitContinues = !busted && input.dartsRemainingInTurn > 1;
+      const candidateRace = markovLegProbabilities(candidatePlayers, {
+        ...input,
+        players: candidatePlayers,
+        currentPlayerId: visitContinues ? actor.id : nextPlayerId,
+        currentVisitStartScore: visitContinues
+          ? input.currentVisitStartScore ?? actor.scoreRemaining
+          : nextPlayerId
+            ? candidatePlayers.find((player) => player.id === nextPlayerId)?.scoreRemaining
+            : undefined,
+        dartsRemainingInTurn: visitContinues ? input.dartsRemainingInTurn - 1 : 3,
+      });
+      leg = candidateRace.probabilities;
+      if (candidateRace.approximationMode !== 'exact') {
+        approximationModes.add(candidateRace.approximationMode);
+      }
+    }
+    const match = combineLegVectorWithMatch(leg, continuations.probabilities);
+    candidates.push({
+      scoreDelta: dart.scoreDelta,
+      isDouble: dart.isDouble,
+      probability: dart.probability,
+      actorLegWpa: (leg[actorIndex] ?? 0) - (beforeLeg[actorIndex] ?? 0),
+      actorMatchWpa: (match[actorIndex] ?? 0) - (beforeMatch[actorIndex] ?? 0),
+      legConsequence: probabilityVectorConsequence(beforeLeg, leg),
+      matchConsequence: probabilityVectorConsequence(beforeMatch, match),
+    });
+  }
+
+  return {
+    opportunity: {
+      leg: candidates.reduce((sum, candidate) => sum + candidate.probability * candidate.legConsequence, 0),
+      match: candidates.reduce((sum, candidate) => sum + candidate.probability * candidate.matchConsequence, 0),
+      availability: 'standard',
+      confidenceTier: distribution.confidenceTier,
+      stateBackoffLevel: distribution.stateBackoffLevel,
+      outcomeBackoffLevel: distribution.outcomeBackoffLevel,
+      sampleSize: distribution.sampleSize,
+      exactStateSampleSize: distribution.exactStateSampleSize,
+      eligibleForCommentary: distribution.confidenceTier !== 'fallback'
+        && distribution.outcomeBackoffLevel === 'exact'
+        && distribution.exactStateSampleSize >= DARTIQ_OUTCOME_CONFIGURATION.exactOutcomeThreshold,
+      approximationModes: [...approximationModes],
+    },
+    candidates,
   };
 }
 
@@ -383,23 +560,7 @@ export function calculateDartIQProjection(input: DartIQEngineInput): DartIQEngin
     return { players: [], favoritePlayerId: null, approximationMode: 'standard' };
   }
 
-  const prepared = players.map((player) => {
-    const skillModel = createDartIQSkillModel(
-      player.historicalProfile,
-      input.populationProfile
-    );
-    const average = adjustedAverage(
-      player.threeDartAverage,
-      player.dartsThrown,
-      skillModel.threeDartAverage
-    );
-    return {
-      ...player,
-      adjustedAverage: average,
-      skillModel,
-      outcomeModel: player.outcomeModel ?? FALLBACK_OUTCOME_MODEL,
-    };
-  });
+  const prepared = preparePlayers(input);
 
   let legProbabilities: number[];
   let matchProbabilities: number[];

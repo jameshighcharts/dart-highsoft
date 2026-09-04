@@ -61,6 +61,21 @@ export interface CommentaryDartIQContext {
     checkoutProbabilityNextVisit: number;
   } | null;
   createdBogey?: boolean;
+  peakLegOpportunity?: number;
+  peakMatchOpportunity?: number;
+  rarestLegDirectionalTail?: number;
+  rarestMatchDirectionalTail?: number;
+  firstNineAverage?: number;
+  tonPlusVisitStreak?: number;
+  legResolution?: {
+    winnerPlayerId: string;
+    startingPlayerId: string;
+    wonAgainstThrow: boolean;
+    legsWonAfter: Record<string, number>;
+    matchWon: boolean;
+    nextLeg: { number: number; startingPlayerId: string } | null;
+  };
+  signals?: import('@/lib/dartiq/events').DartIQEventSignal[];
 }
 
 export interface CommentaryPayload {

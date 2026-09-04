@@ -1,5 +1,9 @@
 import { estimateCheckoutProbability } from './checkout';
-import { calculateDartIQProjection } from './projection';
+import {
+  calculateDartIQNextDartAnalysis,
+  calculateDartIQProjection,
+  type DartIQOpportunity,
+} from './projection';
 import {
   reconstructDartIQTimelineWithCheckpoint,
   type DartIQDartEvent,
@@ -11,6 +15,7 @@ import {
 export type DartIQTrackerSnapshot = {
   state: DartIQReplayState;
   currentCheckoutProbability: number;
+  currentOpportunity: DartIQOpportunity | null;
   latestEvent: DartIQDartEvent | null;
   sequence: number;
 };
@@ -145,7 +150,33 @@ function snapshotFromState(
       })
     : 0;
 
-  return { state, currentCheckoutProbability, latestEvent, sequence };
+  const currentLeg = input.legs.find((leg) => leg.id === state.legId);
+  const currentOpportunity = currentPlayerId && currentLeg
+    ? calculateDartIQNextDartAnalysis({
+        players: state.projections.map((projection) => ({
+          id: projection.id,
+          scoreRemaining: state.scores[projection.id],
+          legsWon: state.legsWon[projection.id],
+          threeDartAverage: projection.threeDartAverage,
+          dartsThrown: projection.dartsThrown,
+          historicalProfile: input.playerProfiles?.[projection.id],
+          outcomeModel: input.outcomeModels?.[projection.id],
+        })),
+        startScore: input.startScore,
+        playOrder: rotatePlayerOrder(input.playerIds, currentLeg.starting_player_id),
+        currentPlayerId,
+        currentVisitStartScore: state.currentVisitStartScore ?? state.scores[currentPlayerId],
+        currentLegStarterId: currentLeg.starting_player_id,
+        dartsRemainingInTurn: state.dartsRemainingInTurn,
+        legsToWin: input.legsToWin,
+        finishRule: input.finishRule,
+        matchWinnerId: null,
+        populationProfile: input.populationProfile,
+        fairEnding: state.fairEnding ?? undefined,
+      }, { players: state.projections })?.opportunity ?? null
+    : null;
+
+  return { state, currentCheckoutProbability, currentOpportunity, latestEvent, sequence };
 }
 
 /**

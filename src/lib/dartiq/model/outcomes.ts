@@ -47,6 +47,7 @@ export type DartIQOutcomeDistribution = {
   outcomeBackoffLevel: 'family' | 'exact';
   confidenceTier: 'fallback' | 'population' | 'player_sparse' | 'player_established';
   sampleSize: number;
+  exactStateSampleSize: number;
 };
 
 export type DartIQOutcomeModel = {
@@ -348,6 +349,7 @@ export function createBehavioralOutcomeModel(
       let stateBackoffLevel: DartIQOutcomeBackoffLevel = 'fallback';
       let outcomeBackoffLevel: 'family' | 'exact' = 'family';
       let appliedSamples = 0;
+      let exactStateSampleSize = 0;
       for (const layer of layers) {
         const updated = updatePosterior(
           outcomes,
@@ -360,6 +362,9 @@ export function createBehavioralOutcomeModel(
         appliedSamples += updated.sampleSize;
         stateBackoffLevel = layer.level;
         outcomeBackoffLevel = updated.outcomeBackoffLevel;
+        if (layer.level === 'population_exact' || layer.level === 'player_exact') {
+          exactStateSampleSize = updated.sampleSize;
+        }
       }
 
       const personalSamples = personalIndex.samplesByRule.get(context.finishRule) ?? 0;
@@ -378,6 +383,7 @@ export function createBehavioralOutcomeModel(
         outcomeBackoffLevel,
         confidenceTier,
         sampleSize: appliedSamples,
+        exactStateSampleSize,
       };
       distributionCache.set(cacheKey, result);
       return result;

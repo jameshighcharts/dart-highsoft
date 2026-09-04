@@ -2,12 +2,22 @@ import { describe, expect, it } from 'vitest';
 
 import { resolvePersona } from './personas';
 import {
+  buildRealtimeOpeningInstructions,
   buildRealtimeResponseInstructions,
   buildRealtimeSessionInstructions,
   realtimeLengthInstruction,
 } from './realtimePrompt';
 
 describe('Realtime commentary prompts', () => {
+  it('opens from supplied facts with room for persona performance', () => {
+    const prompt = buildRealtimeOpeningInstructions('chad');
+
+    expect(prompt).toContain('# Pre-match Opening');
+    expect(prompt).toContain('authoritative match snapshot');
+    expect(prompt).toContain('playful, specific observation');
+    expect(prompt).toContain('5–14 words');
+    expect(prompt).toContain('surf-bro');
+  });
   it('builds a labeled session prompt with one clear speaking contract', () => {
     const prompt = buildRealtimeSessionInstructions(resolvePersona('chad'));
 
@@ -84,5 +94,22 @@ describe('Realtime commentary prompts', () => {
 
     expect(prompt).toContain('Moment: bust');
     expect(prompt).toContain('roast the failed visit without cushioning it');
+  });
+
+  it('lets one leg-winning call bridge into the supplied next leg', () => {
+    const prompt = buildRealtimeResponseInstructions({
+      personaId: 'chad',
+      priority: 'marquee',
+      dartIndex: 2,
+      turnScore: 40,
+      checkedOut: true,
+      busted: false,
+      nextPlayerAlreadyThrowing: false,
+      legResolved: true,
+      nextLegAvailable: true,
+    });
+
+    expect(prompt).toContain('Celebrate the leg result first');
+    expect(prompt).toContain('next-leg starter');
   });
 });

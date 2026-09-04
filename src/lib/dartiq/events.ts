@@ -1,4 +1,4 @@
-import type { DartIQCheckoutAssessment } from '@/lib/dartiq/checkout';
+import { hasCheckoutRoute, type DartIQCheckoutAssessment } from '@/lib/dartiq/checkout';
 import type {
   DartIQConsequence,
   DartIQDartEvent,
@@ -37,6 +37,11 @@ export type DartIQEventSignal =
   | 'big_fish'
   | 'ton_plus_checkout'
   | 'bull_checkout'
+  | 'break_of_throw'
+  | 'nine_dart_pace'
+  | 'nine_darter'
+  | 'first_nine'
+  | 'ton_plus_streak'
   | 'nikita_special'
   | 'story_arc'
   | 'bust'
@@ -51,6 +56,8 @@ export type DartIQDartPacket = {
   type: 'dart';
   eventId: string;
   matchId: string;
+  startScore?: number;
+  finishRule?: DartIQDartEvent['finishRule'];
   legId: string;
   legNumber: number;
   turnId: string;
@@ -65,6 +72,11 @@ export type DartIQDartPacket = {
   scoreAfter: number;
   busted: boolean;
   checkedOut: boolean;
+  playerLegDartNumber?: number;
+  firstNineAverage?: number;
+  tonPlusVisitStreak?: number;
+  tonPlusStreakReached?: boolean;
+  legResolution?: DartIQDartEvent['legResolution'];
   nextOpponentThreat?: DartIQDartEvent['nextOpponentThreat'];
   fairEnding?: {
     enabled: true;
@@ -83,6 +95,8 @@ export type DartIQDartPacket = {
   legWpa: number;
   matchWpa: number;
   consequence: DartIQDartEvent['consequence'];
+  opportunity?: DartIQDartEvent['opportunity'];
+  outcomeRarity?: DartIQDartEvent['outcomeRarity'];
   approximationModes: DartIQProjectionApproximationMode[];
   semanticStakes: DartIQDartEvent['semanticStakes'];
   checkout: DartIQCheckoutAssessment;
@@ -167,6 +181,23 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
   if (event.checkedOut && scoreBefore === 170) signals.push('big_fish');
   else if (event.checkedOut && scoreBefore >= 100) signals.push('ton_plus_checkout');
   if (event.checkedOut && event.segment === 'DB') signals.push('bull_checkout');
+  if (event.legResolution?.wonAgainstThrow) signals.push('break_of_throw');
+  if (
+    event.startScore === 501
+    && event.finishRule === 'double_out'
+    && event.playerLegDartNumber === 6
+    && !event.busted
+    && !event.checkedOut
+    && hasCheckoutRoute(scoreAfter, 3, event.finishRule)
+  ) signals.push('nine_dart_pace');
+  if (
+    event.startScore === 501
+    && event.finishRule === 'double_out'
+    && event.playerLegDartNumber === 9
+    && event.checkedOut
+  ) signals.push('nine_darter');
+  if (event.firstNineAverage !== undefined) signals.push('first_nine');
+  if (event.tonPlusStreakReached) signals.push('ton_plus_streak');
   if (event.checkedOut && fairAfter && fairAfter.phase !== 'resolved') {
     signals.push('fair_ending_checkout');
   }
@@ -204,6 +235,8 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     event.checkedOut
     || fairLegResolved
     || signals.includes('one_eighty')
+    || signals.includes('nine_dart_pace')
+    || signals.includes('nine_darter')
     || signals.includes('tiebreak_tied')
     || (
       event.busted
@@ -219,6 +252,8 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     || signals.includes('large_swing')
     || signals.includes('bogey_created')
     || signals.includes('match_finish_chances_unconverted')
+    || signals.includes('break_of_throw')
+    || signals.includes('ton_plus_streak')
   ) {
     priority = 'notable';
   } else if (event.dartIndex >= 3) priority = 'ordinary';
@@ -229,6 +264,8 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     type: 'dart',
     eventId: event.eventId,
     matchId: event.matchId,
+    startScore: event.startScore,
+    finishRule: event.finishRule,
     legId: event.legId,
     legNumber: event.legNumber,
     turnId: event.turnId,
@@ -243,6 +280,11 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     scoreAfter,
     busted: event.busted,
     checkedOut: event.checkedOut,
+    playerLegDartNumber: event.playerLegDartNumber,
+    firstNineAverage: event.firstNineAverage,
+    tonPlusVisitStreak: event.tonPlusVisitStreak,
+    tonPlusStreakReached: event.tonPlusStreakReached,
+    legResolution: event.legResolution,
     nextOpponentThreat: event.nextOpponentThreat,
     ...(fairAfter ? {
       fairEnding: {
@@ -263,9 +305,12 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     legWpa,
     matchWpa,
     consequence,
+    opportunity: event.opportunity,
+    outcomeRarity: event.outcomeRarity,
     approximationModes: [...new Set([
       event.before.approximationMode,
       event.after.approximationMode,
+      ...(event.opportunity?.approximationModes ?? []),
     ].filter((mode) => mode !== 'standard'))],
     semanticStakes: event.semanticStakes ?? {
       oneDartFinishAvailable: false,

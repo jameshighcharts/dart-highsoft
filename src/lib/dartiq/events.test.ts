@@ -148,6 +148,54 @@ describe('createDartIQDartPacket', () => {
     expect(packet.signals).toContain('one_eighty');
   });
 
+  it('recognizes nine-dart pace and a completed nine-darter exactly', () => {
+    const paceBefore = state(0.5, 0.5);
+    paceBefore.scores.a = 201;
+    const paceAfter = state(0.65, 0.7);
+    paceAfter.scores.a = 141;
+    const pace = createDartIQDartPacket(event({
+      startScore: 501,
+      finishRule: 'double_out',
+      playerLegDartNumber: 6,
+      dartIndex: 3,
+      before: paceBefore,
+      after: paceAfter,
+    }));
+    expect(pace.signals).toContain('nine_dart_pace');
+    expect(pace.priority).toBe('marquee');
+
+    const nine = createDartIQDartPacket(event({
+      startScore: 501,
+      finishRule: 'double_out',
+      playerLegDartNumber: 9,
+      checkedOut: true,
+      segment: 'D12',
+    }));
+    expect(nine.signals).toContain('nine_darter');
+  });
+
+  it('carries a break of throw and native visit facts without losing the winner subject', () => {
+    const packet = createDartIQDartPacket(event({
+      firstNineAverage: 104.3,
+      tonPlusVisitStreak: 3,
+      tonPlusStreakReached: true,
+      legResolution: {
+        winnerPlayerId: 'b',
+        startingPlayerId: 'a',
+        wonAgainstThrow: true,
+        legsWonAfter: { a: 0, b: 1 },
+        matchWon: false,
+        nextLeg: { number: 2, startingPlayerId: 'b' },
+      },
+    }));
+
+    expect(packet.signals).toEqual(expect.arrayContaining([
+      'break_of_throw', 'first_nine', 'ton_plus_streak',
+    ]));
+    expect(packet.legResolution?.winnerPlayerId).toBe('b');
+    expect(packet.priority).toBe('notable');
+  });
+
   it('reports repeated unconverted match-finish chances only when the visit completes', () => {
     const midVisit = event({
       dartIndex: 2,

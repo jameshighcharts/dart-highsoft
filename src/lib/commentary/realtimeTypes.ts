@@ -20,6 +20,7 @@ export type RealtimeCommentarySessionResponse = {
   epoch: number;
   snapshot: RealtimeCommentarySnapshot;
   snapshotSource: 'browser' | 'worker';
+  openingCallClaimed: boolean;
 };
 
 export type RealtimeCommentarySessionControl = {
@@ -90,6 +91,7 @@ export type ActiveRealtimeCommentarySession = {
   epoch: number;
   last_correction_id: string | null;
   last_correction_reason: RealtimeCommentaryCorrectionReason | null;
+  opening_call_claimed_at?: string | null;
 };
 
 export const REALTIME_VOICES = [

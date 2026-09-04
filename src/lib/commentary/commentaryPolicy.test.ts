@@ -36,6 +36,14 @@ describe('CommentaryPolicy', () => {
       .toBe(true);
   });
 
+  it('counts a pre-match opener as ambient speech before sampling routine visits', () => {
+    const policy = new CommentaryPolicy({ ordinaryEveryVisits: 3, ordinaryQuietWindowMs: 20_000 });
+    policy.recordAmbientCall(1_000);
+
+    expect(policy.evaluate(event({ eventId: 'first-visit' }), 5_000).reason)
+      .toBe('cooldown');
+  });
+
   it('uses independent cooldowns per priority', () => {
     const policy = new CommentaryPolicy();
     expect(policy.evaluate(event(), 10_000).shouldSpeak).toBe(true);
@@ -109,6 +117,18 @@ describe('CommentaryPolicy', () => {
       dartIndex: 2,
       priority: 'notable',
       signals: ['large_swing'],
+    }), 1_000);
+
+    expect(decision.shouldSpeak).toBe(true);
+  });
+
+  it('can announce a first-nine stat on the ninth physical dart', () => {
+    const policy = new CommentaryPolicy();
+    const decision = policy.evaluate(event({
+      eventId: 'first-nine',
+      dartIndex: 1,
+      priority: 'notable',
+      signals: ['first_nine'],
     }), 1_000);
 
     expect(decision.shouldSpeak).toBe(true);

@@ -23,6 +23,13 @@ function formatProbability(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
+function tensionBand(opportunity: number) {
+  if (opportunity >= 0.2) return { label: 'Huge', width: '100%', color: 'bg-rose-400' };
+  if (opportunity >= 0.08) return { label: 'Big', width: '75%', color: 'bg-amber-300' };
+  if (opportunity >= 0.02) return { label: 'Live', width: '45%', color: 'bg-cyan-300' };
+  return { label: 'Calm', width: '18%', color: 'bg-slate-400' };
+}
+
 export function DartIQLive({
   orderPlayers,
   legsToWin,
@@ -42,6 +49,9 @@ export function DartIQLive({
     }, null),
   };
   const currentCheckoutProbability = snapshot.currentCheckoutProbability;
+  const tension = snapshot.currentOpportunity
+    ? tensionBand(Math.max(snapshot.currentOpportunity.leg, snapshot.currentOpportunity.match))
+    : null;
 
   const projectionById = new Map(projection.players.map((player) => [player.id, player]));
   const favorite = orderPlayers.find((player) => player.id === projection.favoritePlayerId);
@@ -141,6 +151,15 @@ export function DartIQLive({
                   <div className="text-sm font-bold tabular-nums">
                     <span className="text-amber-300">{formatProbability(currentCheckoutProbability)}</span>
                   </div>
+                </div>
+              ) : null}
+              {tension ? (
+                <div className="hidden w-20 border-r border-white/10 pr-4 sm:block">
+                  <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Tension</div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10" aria-label={`${tension.label} pre-dart opportunity`}>
+                    <div className={`h-full rounded-full transition-[width] duration-300 ${tension.color}`} style={{ width: tension.width }} />
+                  </div>
+                  <div className="mt-0.5 text-[9px] font-bold uppercase tracking-wide text-foreground">{tension.label}</div>
                 </div>
               ) : null}
               <div>

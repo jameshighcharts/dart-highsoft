@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import type { LegRecord, ThrowRecord, TurnWithThrows } from '@/lib/match/types';
+import { createDartIQDartPacket } from './events';
 import {
+  calculateDartIQOutcomeRarity,
   reconstructDartIQTimeline,
   reconstructDartIQTimelineWithCheckpoint,
   transitionDartIQDart,
@@ -43,6 +45,43 @@ function leg(id: string, number: number, starter: string, winner: string | null)
 }
 
 describe('reconstructDartIQTimeline', () => {
+  it('uses the good or bad directional tail while ranking consequence by magnitude', () => {
+    const analysis = {
+      opportunity: {
+        leg: 0.1,
+        match: 0.1,
+        availability: 'standard' as const,
+        confidenceTier: 'population' as const,
+        stateBackoffLevel: 'population_exact' as const,
+        outcomeBackoffLevel: 'exact' as const,
+        sampleSize: 100,
+        exactStateSampleSize: 100,
+        eligibleForCommentary: true,
+        approximationModes: [],
+      },
+      candidates: [
+        { scoreDelta: 0, isDouble: false, probability: 0.2, actorLegWpa: -0.2, actorMatchWpa: -0.1, legConsequence: 0.2, matchConsequence: 0.1 },
+        { scoreDelta: 20, isDouble: false, probability: 0.5, actorLegWpa: 0, actorMatchWpa: 0, legConsequence: 0.01, matchConsequence: 0.01 },
+        { scoreDelta: 40, isDouble: true, probability: 0.3, actorLegWpa: 0.4, actorMatchWpa: 0.2, legConsequence: 0.4, matchConsequence: 0.2 },
+      ],
+    };
+
+    const bad = calculateDartIQOutcomeRarity(analysis, {
+      legWpa: -0.2,
+      matchWpa: -0.1,
+      consequence: { leg: 0.2, match: 0.1 },
+    });
+    const good = calculateDartIQOutcomeRarity(analysis, {
+      legWpa: 0.4,
+      matchWpa: 0.2,
+      consequence: { leg: 0.4, match: 0.2 },
+    });
+
+    expect(bad.legDirectionalTail).toBeCloseTo(0.2);
+    expect(good.legDirectionalTail).toBeCloseTo(0.3);
+    expect(bad.legConsequenceTail).toBeCloseTo(0.5);
+    expect(good.legConsequenceTail).toBeCloseTo(0.3);
+  });
   it.each([
     { finishRule: 'double_out' as const, startScore: 40, segment: 'S20', scored: 20 },
     { finishRule: 'single_out' as const, startScore: 60, segment: 'S20', scored: 20 },
@@ -105,6 +144,185 @@ describe('reconstructDartIQTimeline', () => {
     expect(firstTurn.throws.map((entry) => entry.id)).toEqual(['dart-2', 'dart-1']);
   });
 
+  it('tracks physical leg darts, first-nine average, and a three-visit ton streak', () => {
+    const visits = [1, 2, 3].map((visit) => turn(
+      `turn-${visit}`,
+      'leg-1',
+      'a',
+      visit,
+      [
+        dart(`dart-${visit}-1`, `turn-${visit}`, 1, 'T20', 60),
+        dart(`dart-${visit}-2`, `turn-${visit}`, 2, 'S20', 20),
+        dart(`dart-${visit}-3`, `turn-${visit}`, 3, 'S20', 20),
+      ]
+    ));
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: { 'leg-1': visits },
+      startScore: 501,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+    const ninth = timeline.at(-1)!;
+
+    expect(ninth.playerLegDartNumber).toBe(9);
+    expect(ninth.firstNineAverage).toBeCloseTo(100);
+    expect(ninth.tonPlusVisitStreak).toBe(3);
+    expect(ninth.tonPlusStreakReached).toBe(true);
+  });
+
+  it('emits the ton-plus streak milestone once and resets it on a sub-ton visit', () => {
+    const scores = [100, 100, 100, 20, 100];
+    const visits = scores.map((score, index) => turn(
+      `turn-${index}`,
+      'leg-1',
+      'a',
+      index + 1,
+      score === 100
+        ? [
+            dart(`dart-${index}-1`, `turn-${index}`, 1, 'T20', 60),
+            dart(`dart-${index}-2`, `turn-${index}`, 2, 'S20', 20),
+            dart(`dart-${index}-3`, `turn-${index}`, 3, 'S20', 20),
+          ]
+        : [
+            dart(`dart-${index}-1`, `turn-${index}`, 1, 'S20', 20),
+            dart(`dart-${index}-2`, `turn-${index}`, 2, 'Miss', 0),
+            dart(`dart-${index}-3`, `turn-${index}`, 3, 'Miss', 0),
+          ]
+    ));
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: { 'leg-1': visits },
+      startScore: 701,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    expect(timeline.filter((event) => event.tonPlusStreakReached)).toHaveLength(1);
+    expect(timeline.at(-1)?.tonPlusVisitStreak).toBe(1);
+  });
+
+  it('reports first-nine scoring after nine physical darts even when an early bust shortened a visit', () => {
+    const visits = [
+      turn('turn-1', 'leg-1', 'a', 1, [
+        dart('dart-1-1', 'turn-1', 1, 'T20', 60),
+        dart('dart-1-2', 'turn-1', 2, 'S1', 1),
+      ], { busted: true }),
+      ...[2, 3].map((visit) => turn(
+        `turn-${visit}`,
+        'leg-1',
+        'a',
+        visit,
+        [1, 2, 3].map((dartIndex) =>
+          dart(`dart-${visit}-${dartIndex}`, `turn-${visit}`, dartIndex, 'Miss', 0)
+        )
+      )),
+      turn('turn-4', 'leg-1', 'a', 4, [dart('dart-4-1', 'turn-4', 1, 'Miss', 0)]),
+    ];
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: { 'leg-1': visits },
+      startScore: 62,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    const ninth = timeline.find((event) => event.playerLegDartNumber === 9)!;
+    expect(ninth.firstNineAverage).toBeDefined();
+    expect(ninth.firstNineAverage).toBe(0);
+  });
+
+  it('marks six perfect scoring darts as nine-dart pace', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: {
+        'leg-1': [1, 2].map((visit) => turn(
+          `turn-${visit}`,
+          'leg-1',
+          'a',
+          visit,
+          [1, 2, 3].map((dartIndex) =>
+            dart(`dart-${visit}-${dartIndex}`, `turn-${visit}`, dartIndex, 'T20', 60)
+          )
+        )),
+      },
+      startScore: 501,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    expect(timeline.at(-1)).toMatchObject({ playerLegDartNumber: 6, checkedOut: false });
+    expect(createDartIQDartPacket(timeline.at(-1)!).signals).toContain('nine_dart_pace');
+  });
+
+  it('attributes a break of throw to the leg winner rather than the resolving dart actor', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', 'b')],
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'b', 1, [dart('dart-1', 'turn-1', 1, 'D20', 40)])],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    expect(timeline[0].legResolution).toMatchObject({
+      winnerPlayerId: 'b',
+      startingPlayerId: 'a',
+      wonAgainstThrow: true,
+    });
+  });
+
+  it('derives a standard leg resolution from a valid live checkout before the leg row reconciles', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'b', 1, [dart('dart-1', 'turn-1', 1, 'D20', 40)])],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    expect(timeline[0].legResolution).toMatchObject({
+      winnerPlayerId: 'b',
+      wonAgainstThrow: true,
+      nextLeg: { number: 2, startingPlayerId: 'b' },
+    });
+  });
+
+  it('never describes fair-ending resolution as a break of throw', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', 'a')],
+      turnsByLeg: {
+        'leg-1': [
+          turn('turn-a', 'leg-1', 'a', 1, [dart('dart-a', 'turn-a', 1, 'D20', 40)]),
+          turn('turn-b', 'leg-1', 'b', 2, [
+            dart('dart-b1', 'turn-b', 1, 'Miss', 0),
+            dart('dart-b2', 'turn-b', 2, 'Miss', 0),
+            dart('dart-b3', 'turn-b', 3, 'Miss', 0),
+          ]),
+        ],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 2,
+      fairEnding: true,
+    });
+
+    const resolved = timeline.at(-1)!;
+    expect(resolved.legResolution?.winnerPlayerId).toBe('a');
+    expect(resolved.legResolution?.wonAgainstThrow).toBe(false);
+    expect(createDartIQDartPacket(resolved).signals).not.toContain('break_of_throw');
+  });
+
   it('reuses a verified prefix while producing the same projection for an appended dart', () => {
     const firstTwo = turn('turn-1', 'leg-1', 'a', 1, [
       dart('dart-1', 'turn-1', 1, 'T20', 60),
@@ -137,6 +355,53 @@ describe('reconstructDartIQTimeline', () => {
     expect(incremental).toEqual(clean);
     expect(incremental[0]).toBe(prefix[0]);
     expect(incremental[1]).toBe(prefix[1]);
+  });
+
+  it('restores leg points correctly when a cached mid-visit prefix is followed by a bust', () => {
+    const base = {
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      startScore: 40,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const first = turn('turn-1', 'leg-1', 'a', 1, [dart('dart-1', 'turn-1', 1, 'S20', 20)]);
+    const prefix = reconstructDartIQTimeline({ ...base, turnsByLeg: { 'leg-1': [first] } });
+    const bust = turn('turn-1', 'leg-1', 'a', 1, [
+      ...first.throws,
+      dart('dart-2', 'turn-1', 2, 'T20', 60),
+    ]);
+    const input = { ...base, turnsByLeg: { 'leg-1': [bust] } };
+
+    const resumed = reconstructDartIQTimelineWithCheckpoint(input, { cachedPrefix: prefix });
+    const clean = reconstructDartIQTimelineWithCheckpoint(input);
+    expect(resumed).toEqual(clean);
+    expect(resumed.timeline.at(-1)?.after.scores.a).toBe(40);
+  });
+
+  it('hydrates a cached leg-ending prefix without leaking leg counters into the next leg', () => {
+    const legs = [leg('leg-1', 1, 'a', 'a'), leg('leg-2', 2, 'b', null)];
+    const checkout = turn('turn-1', 'leg-1', 'a', 1, [dart('dart-1', 'turn-1', 1, 'D20', 40)]);
+    const base = {
+      playerIds: ['a', 'b'],
+      legs,
+      startScore: 40,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const prefix = reconstructDartIQTimeline({
+      ...base,
+      turnsByLeg: { 'leg-1': [checkout], 'leg-2': [] },
+    });
+    const nextTurn = turn('turn-2', 'leg-2', 'b', 1, [dart('dart-2', 'turn-2', 1, 'S20', 20)]);
+    const input = {
+      ...base,
+      turnsByLeg: { 'leg-1': [checkout], 'leg-2': [nextTurn] },
+    };
+
+    const resumed = reconstructDartIQTimelineWithCheckpoint(input, { cachedPrefix: prefix });
+    const clean = reconstructDartIQTimelineWithCheckpoint(input);
+    expect(resumed).toEqual(clean);
   });
 
   it('invalidates a cached prefix when an edited dart keeps the same id', () => {

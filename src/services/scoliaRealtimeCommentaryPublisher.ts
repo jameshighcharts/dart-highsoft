@@ -45,12 +45,16 @@ type SidebandConnection = {
   wireState: RealtimeNarrativeWireState;
   activeResponseId: string | null;
   responseInFlight: boolean;
+  openingGraceUntilMs: number;
+  openingClaimedAtMs: number;
 };
 
 const OPENAI_REALTIME_SIDEBAND_URL = 'wss://api.openai.com/v1/realtime';
 const ACTIVE_HEARTBEAT_WINDOW_MS = 45_000;
 const SESSION_LIFETIME_MS = 55 * 60_000;
 const MAX_DELIVERY_ATTEMPTS = 3;
+const OPENING_GRACE_MS = 15_000;
+const SESSION_COLUMNS = 'id, match_id, openai_call_id, persona_id, voice, epoch, last_correction_id, last_correction_reason, opening_call_claimed_at';
 
 function realtimeEventId(prefix: string, id: string) {
   return `${prefix}_${id.replaceAll('-', '')}`;
@@ -148,7 +152,7 @@ export class ScoliaRealtimeCommentaryPublisher {
     const now = Date.now();
     const { data, error } = await this.supabase
       .from('commentary_realtime_sessions')
-      .select('id, match_id, openai_call_id, persona_id, voice, epoch, last_correction_id, last_correction_reason')
+      .select(SESSION_COLUMNS)
       .eq('match_id', matchId)
       .eq('status', 'active')
       .gte('last_seen_at', new Date(now - ACTIVE_HEARTBEAT_WINDOW_MS).toISOString())
@@ -161,7 +165,7 @@ export class ScoliaRealtimeCommentaryPublisher {
     const now = Date.now();
     const { data, error } = await this.supabase
       .from('commentary_realtime_sessions')
-      .select('id, match_id, openai_call_id, persona_id, voice, epoch, last_correction_id, last_correction_reason')
+      .select(SESSION_COLUMNS)
       .eq('status', 'active')
       .gte('last_seen_at', new Date(now - ACTIVE_HEARTBEAT_WINDOW_MS).toISOString())
       .gte('created_at', new Date(now - SESSION_LIFETIME_MS).toISOString());
@@ -184,7 +188,7 @@ export class ScoliaRealtimeCommentaryPublisher {
     const now = Date.now();
     const { data, error } = await this.supabase
       .from('commentary_realtime_sessions')
-      .select('id, match_id, openai_call_id, persona_id, voice, epoch, last_correction_id, last_correction_reason')
+      .select(SESSION_COLUMNS)
       .eq('id', sessionId)
       .eq('status', 'active')
       .gte('last_seen_at', new Date(now - ACTIVE_HEARTBEAT_WINDOW_MS).toISOString())
@@ -223,11 +227,16 @@ export class ScoliaRealtimeCommentaryPublisher {
     this.inFlight.add(deliveryKey);
     try {
       const connection = await this.connection(session);
+      const resolvedMatchWinnerId = event.dartiq?.legResolution?.matchWon
+        ? event.dartiq.legResolution.winnerPlayerId
+        : event.matchWon
+          ? event.playerId
+          : null;
       const direction = event.narrative
         ? connection.broadcastDirector.direct({
             sequence: event.narrative.sequence,
             candidates: event.narrative.storyArcCandidates,
-            matchWinnerId: event.matchWon ? event.playerId : null,
+            matchWinnerId: resolvedMatchWinnerId,
           })
         : null;
       const directedEvent: ScoliaRealtimeDartEvent = direction && event.narrative
@@ -265,7 +274,10 @@ export class ScoliaRealtimeCommentaryPublisher {
         ...(event.nikitaSpecial ? ['nikita_special' as const] : []),
         ...(direction?.shouldPromote ? ['story_arc' as const] : []),
       ];
-      const policyPriority = direction?.shouldPromote && (event.priority === 'silent' || event.priority === 'ordinary')
+      const resolvedMatchWon = resolvedMatchWinnerId !== null;
+      const policyPriority = resolvedMatchWon
+        ? 'terminal'
+        : direction?.shouldPromote && (event.priority === 'silent' || event.priority === 'ordinary')
         ? 'notable'
         : event.priority;
       const policyEvent: CommentaryPolicyEvent = {
@@ -278,7 +290,7 @@ export class ScoliaRealtimeCommentaryPublisher {
         scoreBefore: event.dartiq?.scoreBefore,
         checkedOut: event.checkedOut,
         busted: event.busted,
-        matchWon: event.matchWon,
+        matchWon: resolvedMatchWon,
         priority: policyPriority,
         signals,
         storyKey: story ? `${story.kind}:${story.subjectPlayerId ?? 'match'}` : undefined,
@@ -302,9 +314,10 @@ export class ScoliaRealtimeCommentaryPublisher {
         );
       });
       if (decision.shouldSpeak) {
-        if (decision.interrupt) {
+        if (decision.interrupt || Date.now() < connection.openingGraceUntilMs) {
           connection.visitTiming.cancelSpeech();
-          this.cancelProviderSpeech(connection, 'priority_interrupt');
+          this.cancelProviderSpeech(connection, decision.interrupt ? 'priority_interrupt' : 'opening_handoff');
+          connection.openingGraceUntilMs = 0;
         }
         connection.visitTiming.schedule(
           { ...policyEvent, guaranteed: decision.guaranteed },
@@ -326,6 +339,8 @@ export class ScoliaRealtimeCommentaryPublisher {
                     nextPlayerAlreadyThrowing: timingObservation.nextPlayerAlreadyThrowing,
                     direction,
                     nikitaSpecial: event.nikitaSpecial,
+                    legResolved: Boolean(event.dartiq?.legResolution),
+                    nextLegAvailable: Boolean(event.dartiq?.legResolution?.nextLeg),
                   }),
                   metadata: {
                     source: 'scolia-worker',
@@ -415,6 +430,15 @@ export class ScoliaRealtimeCommentaryPublisher {
         await this.applyCorrection(existing, session);
       } else {
         existing.session = session;
+        if (session.opening_call_claimed_at) {
+          const claimedAt = new Date(session.opening_call_claimed_at).getTime();
+          const graceUntil = claimedAt + OPENING_GRACE_MS;
+          if (claimedAt > existing.openingClaimedAtMs) {
+            existing.openingClaimedAtMs = claimedAt;
+            existing.openingGraceUntilMs = graceUntil;
+            existing.policy.recordAmbientCall(claimedAt);
+          }
+        }
       }
       return existing;
     }
@@ -441,7 +465,16 @@ export class ScoliaRealtimeCommentaryPublisher {
       wireState: new RealtimeNarrativeWireState(),
       activeResponseId: null,
       responseInFlight: false,
+      openingGraceUntilMs: session.opening_call_claimed_at
+        ? new Date(session.opening_call_claimed_at).getTime() + OPENING_GRACE_MS
+        : 0,
+      openingClaimedAtMs: session.opening_call_claimed_at
+        ? new Date(session.opening_call_claimed_at).getTime()
+        : 0,
     };
+    if (session.opening_call_claimed_at) {
+      connection.policy.recordAmbientCall(new Date(session.opening_call_claimed_at).getTime());
+    }
     this.connections.set(session.id, connection);
 
     const timeout = setTimeout(() => {

@@ -15,6 +15,7 @@ function fixedModel(outcomes: DartIQDartOutcome[]): DartIQOutcomeModel {
       outcomeBackoffLevel: 'exact',
       confidenceTier: 'fallback',
       sampleSize: 0,
+      exactStateSampleSize: 0,
     }),
   };
 }

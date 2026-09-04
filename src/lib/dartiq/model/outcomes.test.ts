@@ -66,6 +66,25 @@ describe('createBehavioralOutcomeModel', () => {
     expect(result.outcomes.reduce((sum, outcome) => sum + outcome.probability, 0)).toBeCloseTo(1);
   });
 
+  it('does not add separate sparse exact-state layers into fictional exact support', () => {
+    const observation = {
+      currentScore: 40,
+      dartsLeft: 1 as const,
+      finishRule: 'double_out' as const,
+      scoreDelta: 40,
+      isDouble: true,
+      count: 20,
+    };
+    const result = createBehavioralOutcomeModel({
+      population: [observation],
+      personal: [observation],
+      exactOutcomeThreshold: 40,
+    }).distribution({ currentScore: 40, dartsLeft: 1, finishRule: 'double_out' });
+
+    expect(result.outcomeBackoffLevel).toBe('family');
+    expect(result.exactStateSampleSize).toBe(20);
+  });
+
   it('does not let state-agnostic personal evidence overwrite exact population shape', () => {
     const model = createBehavioralOutcomeModel({
       population: [{

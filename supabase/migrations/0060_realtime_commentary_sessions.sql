@@ -12,6 +12,7 @@ create table public.commentary_realtime_sessions (
   last_correction_id text,
   last_correction_reason text
     check (last_correction_reason in ('throw_updated', 'throw_deleted')),
+  opening_call_claimed_at timestamptz,
   status text not null default 'active'
     check (status in ('active', 'closed')),
   created_at timestamptz not null default now(),
@@ -27,6 +28,10 @@ create index commentary_realtime_sessions_active_match_idx
 create index commentary_realtime_sessions_client_idx
   on public.commentary_realtime_sessions (match_id, client_instance_id, created_at desc);
 
+create unique index commentary_realtime_sessions_opening_once_idx
+  on public.commentary_realtime_sessions (match_id, client_instance_id)
+  where opening_call_claimed_at is not null;
+
 alter table public.commentary_realtime_sessions enable row level security;
 revoke all on public.commentary_realtime_sessions from anon, authenticated;
 grant all on public.commentary_realtime_sessions to service_role;
@@ -39,6 +44,9 @@ comment on column public.commentary_realtime_sessions.epoch is
 
 comment on column public.commentary_realtime_sessions.last_correction_id is
   'Idempotency key for the most recently applied correction envelope.';
+
+comment on column public.commentary_realtime_sessions.opening_call_claimed_at is
+  'At-most-once pre-match opener claim for this browser listener and match.';
 
 create table public.commentary_realtime_deliveries (
   session_id uuid not null references public.commentary_realtime_sessions(id) on delete cascade,

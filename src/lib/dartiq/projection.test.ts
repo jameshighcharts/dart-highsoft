@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  calculateDartIQNextDartAnalysis,
   calculateDartIQProjection as calculateProjection,
   type DartIQEngineInput,
 } from './projection';
+import type { DartIQDartOutcome, DartIQOutcomeModel } from './model/outcomes';
 
 function calculateDartIQProjection(
   input: Omit<DartIQEngineInput, 'startScore'> & { startScore?: number }
@@ -18,6 +20,24 @@ const player = (id: string, scoreRemaining = 501, legsWon = 0, average = 45, dar
   threeDartAverage: average,
   dartsThrown,
 });
+
+function outcomeModel(outcomes: DartIQDartOutcome[]): DartIQOutcomeModel {
+  return {
+    version: 'behavioral-v1',
+    distribution: () => ({
+      outcomes,
+      stateBackoffLevel: 'population_exact',
+      outcomeBackoffLevel: 'exact',
+      confidenceTier: 'population',
+      sampleSize: 100,
+      exactStateSampleSize: 100,
+    }),
+  };
+}
+
+function totalVariation(before: number[], after: number[]) {
+  return before.reduce((sum, value, index) => sum + Math.abs(value - (after[index] ?? 0)), 0) / 2;
+}
 
 describe('DartIQ projection', () => {
   it('gives the on-throw player a modest opening advantage', () => {
@@ -278,5 +298,177 @@ describe('DartIQ projection', () => {
     expect(result.players.slice(3).every((entry) => entry.legWinProbability === 0)).toBe(true);
     expect(result.players.reduce((sum, entry) => sum + entry.legWinProbability, 0)).toBeCloseTo(1);
     expect(result.players.every((entry) => Number.isFinite(entry.matchWinProbability))).toBe(true);
+  });
+});
+
+describe('DartIQ next-dart analysis', () => {
+  it('computes expected full-vector movement in probability-point units', () => {
+    const input: DartIQEngineInput = {
+      players: [player('a', 20, 0, 55, 30), player('b', 40, 0, 55, 30)],
+      startScore: 501,
+      playOrder: ['a', 'b'],
+      currentPlayerId: 'a',
+      currentVisitStartScore: 100,
+      currentLegStarterId: 'a',
+      dartsRemainingInTurn: 1,
+      legsToWin: 1,
+      finishRule: 'double_out',
+    };
+    const before = calculateProjection(input);
+    const analysis = calculateDartIQNextDartAnalysis(input, before);
+
+    expect(analysis).not.toBeNull();
+    expect(analysis!.candidates.reduce((sum, candidate) => sum + candidate.probability, 0))
+      .toBeCloseTo(1);
+    expect(analysis!.opportunity.leg).toBeGreaterThan(0);
+    expect(analysis!.opportunity.leg).toBeLessThanOrEqual(1);
+    expect(analysis!.opportunity.match).toBeCloseTo(analysis!.opportunity.leg);
+    expect(analysis!.opportunity.eligibleForCommentary).toBe(false);
+  });
+
+  it('treats an invalid non-double finish as a visit-ending reset to the visit start', () => {
+    const input: DartIQEngineInput = {
+      players: [player('a', 20, 0, 55, 30), player('b', 40, 0, 55, 30)],
+      startScore: 501,
+      playOrder: ['a', 'b'],
+      currentPlayerId: 'a',
+      currentVisitStartScore: 100,
+      currentLegStarterId: 'a',
+      dartsRemainingInTurn: 1,
+      legsToWin: 1,
+      finishRule: 'double_out',
+    };
+    const before = calculateProjection(input);
+    const analysis = calculateDartIQNextDartAnalysis(input, before)!;
+    const invalidFinish = analysis.candidates.find((candidate) =>
+      candidate.scoreDelta === 20 && !candidate.isDouble
+    );
+
+    expect(invalidFinish).toBeDefined();
+    expect(invalidFinish!.actorLegWpa).toBeLessThan(0);
+  });
+
+  it.each([
+    {
+      name: 'continuing and checkout darts',
+      playerIds: ['a', 'b'], score: 40, visitStart: 40, dartsLeft: 3,
+      finishRule: 'double_out' as const, legsToWin: 2,
+      outcomes: [
+        { scoreDelta: 0, isDouble: false, probability: 0.25 },
+        { scoreDelta: 20, isDouble: false, probability: 0.35 },
+        { scoreDelta: 40, isDouble: true, probability: 0.4 },
+      ],
+    },
+    {
+      name: 'third-dart rotation and bust reset',
+      playerIds: ['a', 'b'], score: 20, visitStart: 100, dartsLeft: 1,
+      finishRule: 'double_out' as const, legsToWin: 2,
+      outcomes: [
+        { scoreDelta: 20, isDouble: false, probability: 0.5 },
+        { scoreDelta: 20, isDouble: true, probability: 0.5 },
+      ],
+    },
+    {
+      name: 'multiplayer single-out',
+      playerIds: ['a', 'b', 'c'], score: 20, visitStart: 60, dartsLeft: 2,
+      finishRule: 'single_out' as const, legsToWin: 2,
+      outcomes: [
+        { scoreDelta: 0, isDouble: false, probability: 0.6 },
+        { scoreDelta: 20, isDouble: false, probability: 0.4 },
+      ],
+    },
+  ])('matches authoritative after-state projections for $name', (scenario) => {
+    const model = outcomeModel(scenario.outcomes);
+    const players = scenario.playerIds.map((id, index) => ({
+      ...player(id, index === 0 ? scenario.score : 80 + index * 20, 0, 55, 30),
+      outcomeModel: model,
+    }));
+    const input: DartIQEngineInput = {
+      players,
+      startScore: 501,
+      playOrder: scenario.playerIds,
+      currentPlayerId: 'a',
+      currentVisitStartScore: scenario.visitStart,
+      currentLegStarterId: 'a',
+      dartsRemainingInTurn: scenario.dartsLeft,
+      legsToWin: scenario.legsToWin,
+      finishRule: scenario.finishRule,
+    };
+    const before = calculateProjection(input);
+    const analysis = calculateDartIQNextDartAnalysis(input, before)!;
+    const beforeLeg = before.players.map((entry) => entry.legWinProbability);
+    const beforeMatch = before.players.map((entry) => entry.matchWinProbability);
+
+    for (const candidate of analysis.candidates) {
+      const rawNext = scenario.score - candidate.scoreDelta;
+      const busted = rawNext < 0
+        || (scenario.finishRule === 'double_out' && rawNext === 1)
+        || (scenario.finishRule === 'double_out' && rawNext === 0 && !candidate.isDouble);
+      const finished = !busted && rawNext === 0;
+      let currentPlayerId: string | null;
+      let currentLegStarterId = 'a';
+      let dartsRemainingInTurn: number;
+      let matchWinnerId: string | null | undefined;
+      const actor = { ...players[0] };
+      if (finished) {
+        actor.legsWon += 1;
+        matchWinnerId = actor.legsWon >= scenario.legsToWin ? 'a' : null;
+        actor.scoreRemaining = 501;
+        currentPlayerId = matchWinnerId ? null : scenario.playerIds[1];
+        currentLegStarterId = scenario.playerIds[1];
+        dartsRemainingInTurn = matchWinnerId ? 0 : 3;
+      } else {
+        actor.scoreRemaining = busted ? scenario.visitStart : rawNext;
+        const continues = !busted && scenario.dartsLeft > 1;
+        currentPlayerId = continues ? 'a' : scenario.playerIds[1];
+        dartsRemainingInTurn = continues ? scenario.dartsLeft - 1 : 3;
+      }
+      const afterPlayers = finished
+        ? [actor, ...players.slice(1).map((entry) => ({ ...entry, scoreRemaining: 501 }))]
+        : [actor, ...players.slice(1)];
+      const after = calculateProjection({
+        ...input,
+        players: afterPlayers,
+        currentPlayerId,
+        currentVisitStartScore: currentPlayerId === 'a' ? scenario.visitStart : undefined,
+        currentLegStarterId,
+        dartsRemainingInTurn,
+        matchWinnerId,
+      });
+      const afterMatch = after.players.map((entry) => entry.matchWinProbability);
+      expect(candidate.actorMatchWpa).toBeCloseTo(afterMatch[0] - beforeMatch[0], 9);
+      expect(candidate.matchConsequence).toBeCloseTo(totalVariation(beforeMatch, afterMatch), 9);
+      if (!finished) {
+        const afterLeg = after.players.map((entry) => entry.legWinProbability);
+        expect(candidate.actorLegWpa).toBeCloseTo(afterLeg[0] - beforeLeg[0], 9);
+        expect(candidate.legConsequence).toBeCloseTo(totalVariation(beforeLeg, afterLeg), 9);
+      }
+    }
+  });
+
+  it('does not invent opportunity for fair-ending play', () => {
+    const input: DartIQEngineInput = {
+      players: [player('a', 40), player('b', 40)],
+      startScore: 501,
+      playOrder: ['a', 'b'],
+      currentPlayerId: 'a',
+      currentVisitStartScore: 40,
+      currentLegStarterId: 'a',
+      dartsRemainingInTurn: 3,
+      legsToWin: 1,
+      finishRule: 'double_out',
+      fairEnding: {
+        phase: 'normal',
+        checkedOutPlayerIds: [],
+        tiebreakRound: 0,
+        tiebreakPlayerIds: [],
+        tiebreakScores: {},
+        winnerId: null,
+        pendingPlayerIds: [],
+        tiebreakDartsThrown: {},
+      },
+    };
+
+    expect(calculateDartIQNextDartAnalysis(input, calculateProjection(input))).toBeNull();
   });
 });

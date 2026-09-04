@@ -51,6 +51,47 @@ begin
     'alloy'
   ) returning id into v_session_id;
 
+  update public.commentary_realtime_sessions
+  set opening_call_claimed_at = now()
+  where id = v_session_id;
+
+  begin
+    insert into public.commentary_realtime_sessions (
+      match_id,
+      client_instance_id,
+      openai_call_id,
+      persona_id,
+      voice,
+      opening_call_claimed_at
+    ) values (
+      v_match.id,
+      'd0620000-0000-0000-0000-000000000010',
+      'policy-call-reconnect',
+      'classic',
+      'alloy',
+      now()
+    );
+    raise exception 'A reconnect claimed a duplicate pre-match opener';
+  exception
+    when unique_violation then null;
+  end;
+
+  insert into public.commentary_realtime_sessions (
+    match_id,
+    client_instance_id,
+    openai_call_id,
+    persona_id,
+    voice,
+    opening_call_claimed_at
+  ) values (
+    v_match.id,
+    'd0620000-0000-0000-0000-000000000011',
+    'policy-call-other-listener',
+    'classic',
+    'alloy',
+    now()
+  );
+
   insert into public.dartiq_commentary_policy_decisions (
     session_id,
     match_id,

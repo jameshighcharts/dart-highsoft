@@ -3,7 +3,10 @@ import {
   CommentaryPolicy,
   type CommentaryPolicyEvent,
 } from '@/lib/commentary/commentaryPolicy';
-import { buildRealtimeResponseInstructions } from '@/lib/commentary/realtimePrompt';
+import {
+  buildRealtimeOpeningInstructions,
+  buildRealtimeResponseInstructions,
+} from '@/lib/commentary/realtimePrompt';
 import {
   isSuccessfulRealtimeResponse,
   type RealtimeCommentaryCorrectionReason,
@@ -85,6 +88,7 @@ export class RealtimeCommentaryService {
   private transcript = '';
   private activeResponseId: string | null = null;
   private responseInFlight = false;
+  private openingResponseInFlight = false;
   private readonly discardedResponseIds = new Set<string>();
   private status: RealtimeCommentaryStatus = 'idle';
   private readonly policy = new CommentaryPolicy();
@@ -203,7 +207,10 @@ export class RealtimeCommentaryService {
       });
       await peer.setRemoteDescription({ type: 'answer', sdp: payload.answerSdp });
       await this.waitForChannel(channel);
-      if (payload.snapshotSource === 'browser') this.sendSnapshot(payload.snapshot);
+      if (payload.snapshotSource === 'browser' || payload.openingCallClaimed) {
+        this.sendSnapshot(payload.snapshot);
+      }
+      if (payload.openingCallClaimed) this.requestOpeningCall();
       this.setStatus('ready');
       this.startHeartbeat();
     } catch (error) {
@@ -217,10 +224,14 @@ export class RealtimeCommentaryService {
 
   commentate(context: CommentaryContext): boolean {
     const eventId = context.turnId ?? crypto.randomUUID();
+    const resolvedWinnerId = context.dartiq?.legResolution?.matchWon
+      ? context.dartiq.legResolution.winnerPlayerId
+      : null;
     const direction = context.narrative
       ? this.broadcastDirector.direct({
           sequence: context.narrative.sequence,
           candidates: context.narrative.storyArcCandidates,
+          matchWinnerId: resolvedWinnerId,
         })
       : null;
     const directedContext: CommentaryContext = direction && context.narrative
@@ -263,6 +274,11 @@ export class RealtimeCommentaryService {
     const decision = this.policy.evaluate(policyEvent);
     this.recordPolicyDecision(policyEvent, decision, context.turnId);
     if (!decision.shouldSpeak) return true;
+    if (this.openingResponseInFlight) {
+      this.openingResponseInFlight = false;
+      this.visitTiming.cancelSpeech();
+      this.clearProviderSpeech();
+    }
     if (decision.interrupt) {
       this.visitTiming.cancelSpeech();
       this.clearProviderSpeech();
@@ -287,6 +303,8 @@ export class RealtimeCommentaryService {
             nextPlayerAlreadyThrowing: timingObservation.nextPlayerAlreadyThrowing,
             direction: directedContext.narrative?.broadcastDirection,
             nikitaSpecial: directedContext.isNikitaSpecial,
+            legResolved: Boolean(directedContext.dartiq?.legResolution),
+            nextLegAvailable: Boolean(directedContext.dartiq?.legResolution?.nextLeg),
           }),
           metadata: { source: 'browser', epoch: String(this.epoch), priority: decision.priority },
         },
@@ -376,6 +394,24 @@ export class RealtimeCommentaryService {
     }
   }
 
+  private requestOpeningCall() {
+    const sent = this.send({
+      event_id: `commentary-opening-${crypto.randomUUID()}`,
+      type: 'response.create',
+      response: {
+        output_modalities: ['audio'],
+        instructions: buildRealtimeOpeningInstructions(this.personaId),
+        metadata: { source: 'browser-opening', epoch: String(this.epoch), priority: 'ordinary' },
+      },
+    });
+    if (sent) {
+      this.responseInFlight = true;
+      this.openingResponseInFlight = true;
+      this.policy.recordAmbientCall(Date.now(), true);
+      this.callbacks.onPlaying?.(true);
+    }
+  }
+
   skip() {
     this.cancelSpeech();
   }
@@ -460,6 +496,7 @@ export class RealtimeCommentaryService {
       const completedTranscript = this.transcript.trim();
       this.activeResponseId = null;
       this.responseInFlight = false;
+      this.openingResponseInFlight = false;
       this.policy.responseFinished();
       this.visitTiming.responseFinished();
       this.callbacks.onPlaying?.(false);
@@ -526,6 +563,7 @@ export class RealtimeCommentaryService {
     this.broadcastDirector.reset();
     this.activeResponseId = null;
     this.responseInFlight = false;
+    this.openingResponseInFlight = false;
     this.discardedResponseIds.clear();
   }
 
@@ -551,6 +589,7 @@ export class RealtimeCommentaryService {
     });
     this.activeResponseId = null;
     this.responseInFlight = false;
+    this.openingResponseInFlight = false;
     this.transcript = '';
     this.callbacks.onTranscript?.('');
     this.callbacks.onPlaying?.(false);
@@ -565,8 +604,8 @@ export class RealtimeCommentaryService {
 
   private manualPolicyEvent(eventId: string, context: CommentaryContext): CommentaryPolicyEvent {
     const checkedOut = Boolean(context.dartiq?.checkedOut) || (!context.busted && context.remainingScore === 0);
-    const matchWon = checkedOut
-      && context.gameContext.playerLegsWon + 1 >= context.gameContext.legsToWin;
+    const matchWon = Boolean(context.dartiq?.legResolution?.matchWon)
+      || (checkedOut && context.gameContext.playerLegsWon + 1 >= context.gameContext.legsToWin);
     const consequence = {
       leg: context.dartiq?.peakLegConsequence ?? Math.abs(context.dartiq?.legWpa ?? 0),
       match: context.dartiq?.peakMatchConsequence ?? Math.abs(context.dartiq?.matchWpa ?? 0),
@@ -577,23 +616,18 @@ export class RealtimeCommentaryService {
     );
     const direction = context.narrative?.broadcastDirection;
     const story = direction?.activeStoryArc ?? context.narrative?.activeStoryArc;
-    const signals: CommentaryPolicyEvent['signals'] = context.isNikitaSpecial
-      ? ['nikita_special']
-      : context.is180
-      ? ['one_eighty']
-      : checkedOut
-        ? ['checkout']
-        : (context.dartiq?.unconvertedMatchFinishChancesInVisit ?? 0) >= 2
-          ? ['match_finish_chances_unconverted']
-        : context.busted
-          ? ['bust']
-          : context.dartiq?.changedMatchFavorite
-            ? ['favorite_change']
-            : materialConsequence
-              ? ['large_swing']
-              : direction?.shouldPromote
-                ? ['story_arc']
-                : [];
+    const signals = new Set<CommentaryPolicyEvent['signals'][number]>(context.dartiq?.signals ?? []);
+    if (context.isNikitaSpecial) signals.add('nikita_special');
+    if (context.is180) signals.add('one_eighty');
+    if (checkedOut) signals.add('checkout');
+    if ((context.dartiq?.unconvertedMatchFinishChancesInVisit ?? 0) >= 2) {
+      signals.add('match_finish_chances_unconverted');
+    }
+    if (context.busted) signals.add('bust');
+    if (context.dartiq?.changedMatchFavorite) signals.add('favorite_change');
+    if (materialConsequence) signals.add('large_swing');
+    if (direction?.shouldPromote) signals.add('story_arc');
+    const signalList = [...signals];
     const semanticBust = context.busted && Boolean(
       context.dartiq?.oneDartFinishAvailable
       || context.dartiq?.matchWinAvailableThisVisit
@@ -605,7 +639,7 @@ export class RealtimeCommentaryService {
         || checkedOut
         || semanticBust
         ? 'marquee'
-      : signals.length > 0
+      : signalList.length > 0
         ? 'notable'
         : direction?.shouldPromote
           ? 'notable'
@@ -622,7 +656,7 @@ export class RealtimeCommentaryService {
       busted: context.busted,
       matchWon,
       priority,
-      signals,
+      signals: signalList,
       storyKey: story ? `${story.kind}:${story.subjectPlayerId ?? 'match'}` : undefined,
     };
   }

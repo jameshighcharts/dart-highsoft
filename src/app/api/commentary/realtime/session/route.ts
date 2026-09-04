@@ -155,12 +155,32 @@ export async function POST(request: NextRequest) {
     return noStoreJson({ error: 'Could not snapshot active match' }, 500);
   }
 
+  const snapshot = snapshotResult.snapshot;
+  const openingEligible = snapshot.narrative.sequence === 0
+    && snapshot.currentLeg?.number === 1
+    && snapshot.players.every((player) => player.legsWon === 0);
+  let openingCallClaimed = false;
+  if (openingEligible) {
+    const claim = await supabase
+      .from('commentary_realtime_sessions')
+      .update({ opening_call_claimed_at: new Date().toISOString() })
+      .eq('id', session.id)
+      .is('opening_call_claimed_at', null)
+      .select('id')
+      .maybeSingle();
+    if (!claim.error && claim.data) openingCallClaimed = true;
+    else if (claim.error && claim.error.code !== '23505') {
+      console.error('Could not claim Realtime commentary opener:', claim.error);
+    }
+  }
+
   return noStoreJson({
     answerSdp,
     sessionId: session.id,
     epoch: session.epoch,
-    snapshot: snapshotResult.snapshot,
+    snapshot,
     snapshotSource: match.scolia_board_id ? 'worker' : 'browser',
+    openingCallClaimed,
   });
 }
 

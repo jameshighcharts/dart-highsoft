@@ -1,4 +1,5 @@
 import type { DartIQDartEvent, DartIQReplayState } from '@/lib/dartiq/replay';
+import { createDartIQDartPacket, type DartIQEventSignal } from '@/lib/dartiq/events';
 
 export type DartIQSwing = {
   sequence: number;
@@ -86,6 +87,14 @@ export type DartIQTurnSummary = {
   nextVisitCheckoutProbability: number;
   nextOpponentThreat?: DartIQDartEvent['nextOpponentThreat'];
   createdBogey: boolean;
+  peakLegOpportunity?: number;
+  peakMatchOpportunity?: number;
+  rarestLegDirectionalTail?: number;
+  rarestMatchDirectionalTail?: number;
+  firstNineAverage?: number;
+  tonPlusVisitStreak: number;
+  legResolution?: DartIQDartEvent['legResolution'];
+  signals: DartIQEventSignal[];
 };
 
 function projectionFor(state: DartIQReplayState, playerId: string) {
@@ -148,6 +157,11 @@ export function summarizeDartIQForTurn(
   let oneDartFinishAvailable = false;
   let matchWinAvailableThisVisit = false;
   let unconvertedMatchFinishChancesInVisit = 0;
+  let peakLegOpportunity: number | undefined;
+  let peakMatchOpportunity: number | undefined;
+  let rarestLegDirectionalTail: number | undefined;
+  let rarestMatchDirectionalTail: number | undefined;
+  const signals = new Set<DartIQEventSignal>();
 
   for (const event of timeline) {
     if (event.turnId !== turnId || event.playerId !== playerId) continue;
@@ -167,6 +181,21 @@ export function summarizeDartIQForTurn(
       unconvertedMatchFinishChancesInVisit,
       event.semanticStakes.unconvertedMatchFinishChancesInVisit ?? 0
     );
+    if (event.opportunity) {
+      peakLegOpportunity = Math.max(peakLegOpportunity ?? 0, event.opportunity.leg);
+      peakMatchOpportunity = Math.max(peakMatchOpportunity ?? 0, event.opportunity.match);
+    }
+    if (event.outcomeRarity?.eligibleForCommentary) {
+      rarestLegDirectionalTail = Math.min(
+        rarestLegDirectionalTail ?? 1,
+        event.outcomeRarity.legDirectionalTail
+      );
+      rarestMatchDirectionalTail = Math.min(
+        rarestMatchDirectionalTail ?? 1,
+        event.outcomeRarity.matchDirectionalTail
+      );
+    }
+    for (const signal of createDartIQDartPacket(event).signals) signals.add(signal);
   }
 
   if (!first || !last) return null;
@@ -197,6 +226,14 @@ export function summarizeDartIQForTurn(
     nextVisitCheckoutProbability: last.checkout.nextVisitCheckoutProbability,
     nextOpponentThreat: last.nextOpponentThreat,
     createdBogey: last.checkout.createdBogey,
+    peakLegOpportunity,
+    peakMatchOpportunity,
+    rarestLegDirectionalTail,
+    rarestMatchDirectionalTail,
+    firstNineAverage: last.firstNineAverage,
+    tonPlusVisitStreak: last.tonPlusVisitStreak ?? 0,
+    legResolution: last.legResolution,
+    signals: [...signals],
   };
 }
 

@@ -7,8 +7,12 @@ import {
   type DartIQCheckoutAssessment,
 } from './checkout';
 import {
+  calculateDartIQNextDartAnalysis,
   calculateDartIQProjection,
+  type DartIQCandidateImpact,
   type DartIQFairEndingProjectionInput,
+  type DartIQNextDartAnalysis,
+  type DartIQOpportunity,
   type DartIQPlayerProjection,
   type DartIQProjectionApproximationMode,
 } from './projection';
@@ -38,6 +42,14 @@ export type DartIQProbabilityPoint = {
 export type DartIQConsequence = {
   leg: number;
   match: number;
+};
+
+export type DartIQOutcomeRarity = {
+  legDirectionalTail: number;
+  matchDirectionalTail: number;
+  legConsequenceTail: number;
+  matchConsequenceTail: number;
+  eligibleForCommentary: boolean;
 };
 
 export function calculateProbabilityVectorConsequence(
@@ -102,6 +114,8 @@ export type DartIQDartEvent = {
   eventId: string;
   engineVersion: typeof DARTIQ_OUTCOME_MODEL_VERSION;
   matchId: string;
+  startScore?: number;
+  finishRule?: FinishRule;
   sequence: number;
   legId: string;
   legNumber: number;
@@ -115,6 +129,18 @@ export type DartIQDartEvent = {
   turnScoreAfter: number;
   busted: boolean;
   checkedOut: boolean;
+  playerLegDartNumber?: number;
+  firstNineAverage?: number;
+  tonPlusVisitStreak?: number;
+  tonPlusStreakReached?: boolean;
+  legResolution?: {
+    winnerPlayerId: string;
+    startingPlayerId: string;
+    wonAgainstThrow: boolean;
+    legsWonAfter: Record<string, number>;
+    matchWon: boolean;
+    nextLeg: { number: number; startingPlayerId: string } | null;
+  };
   nextOpponentThreat?: {
     playerId: string;
     scoreRemaining: number;
@@ -128,6 +154,8 @@ export type DartIQDartEvent = {
     unconvertedMatchFinishChancesInVisit?: number;
   };
   consequence: DartIQConsequence;
+  opportunity?: DartIQOpportunity;
+  outcomeRarity?: DartIQOutcomeRarity;
   checkout: DartIQCheckoutAssessment;
   fairEndingBefore: DartIQFairEndingReplayState | null;
   fairEndingAfter: DartIQFairEndingReplayState | null;
@@ -166,10 +194,15 @@ export type DartIQReplayCheckpoint = DeepReadonly<{
   legsWon: Record<string, number>;
   points: Record<string, number>;
   dartsThrown: Record<string, number>;
+  legDartsThrown: Record<string, number>;
+  legPoints: Record<string, number>;
+  legCompletedVisits: Record<string, number>;
+  tonPlusVisitStreaks: Record<string, number>;
   turnId: string | null;
   turnStartScore: number;
   turnStartPoints: number;
   turnStartDarts: number;
+  turnStartLegPoints: number;
   unconvertedMatchFinishChancesInVisit: number;
   matchWinnerId: string | null;
   turnProgress: ReplayTurnProgress[];
@@ -189,6 +222,55 @@ function rotatePlayerOrder(playerIds: string[], startingPlayerId: string) {
   const startIndex = playerIds.indexOf(startingPlayerId);
   if (startIndex <= 0) return playerIds.slice();
   return [...playerIds.slice(startIndex), ...playerIds.slice(0, startIndex)];
+}
+
+function directionalTail(
+  candidates: DartIQCandidateImpact[],
+  actual: number,
+  key: 'actorLegWpa' | 'actorMatchWpa'
+) {
+  const epsilon = 1e-12;
+  if (Math.abs(actual) <= epsilon) return 1;
+  return Math.min(1, candidates.reduce((sum, candidate) => {
+    const candidateValue = candidate[key];
+    const inTail = actual > 0
+      ? candidateValue >= actual - epsilon
+      : candidateValue <= actual + epsilon;
+    return sum + (inTail ? candidate.probability : 0);
+  }, 0));
+}
+
+function consequenceTail(
+  candidates: DartIQCandidateImpact[],
+  actual: number,
+  key: 'legConsequence' | 'matchConsequence'
+) {
+  const epsilon = 1e-12;
+  return Math.min(1, candidates.reduce(
+    (sum, candidate) => sum + (candidate[key] >= actual - epsilon ? candidate.probability : 0),
+    0
+  ));
+}
+
+export function calculateDartIQOutcomeRarity(
+  analysis: DartIQNextDartAnalysis,
+  actual: { legWpa: number; matchWpa: number; consequence: DartIQConsequence }
+): DartIQOutcomeRarity {
+  return {
+    legDirectionalTail: directionalTail(analysis.candidates, actual.legWpa, 'actorLegWpa'),
+    matchDirectionalTail: directionalTail(analysis.candidates, actual.matchWpa, 'actorMatchWpa'),
+    legConsequenceTail: consequenceTail(
+      analysis.candidates,
+      actual.consequence.leg,
+      'legConsequence'
+    ),
+    matchConsequenceTail: consequenceTail(
+      analysis.candidates,
+      actual.consequence.match,
+      'matchConsequence'
+    ),
+    eligibleForCommentary: analysis.opportunity.eligibleForCommentary,
+  };
 }
 
 function createNumberRecord(playerIds: string[], initialValue: number) {
@@ -374,10 +456,15 @@ export function transitionDartIQDart(
   const legsWon = { ...previous.legsWon };
   const points = { ...previous.points };
   const dartsThrown = { ...previous.dartsThrown };
+  const legDartsThrown = { ...previous.legDartsThrown };
+  const legPoints = { ...previous.legPoints };
+  const legCompletedVisits = { ...previous.legCompletedVisits };
+  const tonPlusVisitStreaks = { ...previous.tonPlusVisitStreaks };
   let turnId = previous.turnId;
   let turnStartScore = previous.turnStartScore;
   let turnStartPoints = previous.turnStartPoints;
   let turnStartDarts = previous.turnStartDarts;
+  let turnStartLegPoints = previous.turnStartLegPoints;
   let unconvertedMatchFinishChancesInVisit = previous.unconvertedMatchFinishChancesInVisit;
   let matchWinnerId = previous.matchWinnerId;
   const turnProgress = new Map(previous.turnProgress.map((progress) => [progress.id, { ...progress }]));
@@ -387,6 +474,11 @@ export function transitionDartIQDart(
   if (source.legIndex !== activeLegIndex) {
     activeLegIndex = source.legIndex;
     for (const playerId of input.playerIds) scores[playerId] = input.startScore;
+    for (const playerId of input.playerIds) {
+      legDartsThrown[playerId] = 0;
+      legPoints[playerId] = 0;
+      legCompletedVisits[playerId] = 0;
+    }
     turnProgress.clear();
     currentFairEnding = buildFairEndingContext(input, source.leg, []);
     before = createReplayState(
@@ -410,11 +502,39 @@ export function transitionDartIQDart(
     turnStartScore = scores[source.turn.player_id];
     turnStartPoints = points[source.turn.player_id];
     turnStartDarts = dartsThrown[source.turn.player_id];
+    turnStartLegPoints = legPoints[source.turn.player_id];
     unconvertedMatchFinishChancesInVisit = 0;
   }
 
   const playerId = source.turn.player_id;
+  const nextDartAnalysis = calculateDartIQNextDartAnalysis({
+    players: input.playerIds.map((id) => {
+      const projection = before.projections.find((entry) => entry.id === id);
+      return {
+        id,
+        scoreRemaining: before.scores[id],
+        legsWon: before.legsWon[id],
+        threeDartAverage: projection?.threeDartAverage ?? 0,
+        dartsThrown: projection?.dartsThrown ?? 0,
+        historicalProfile: input.playerProfiles?.[id],
+        outcomeModel: input.outcomeModels?.[id],
+      };
+    }),
+    startScore: input.startScore,
+    playOrder: rotatePlayerOrder(input.playerIds, source.leg.starting_player_id),
+    currentPlayerId: playerId,
+    currentVisitStartScore: turnStartScore,
+    currentLegStarterId: source.leg.starting_player_id,
+    dartsRemainingInTurn: before.dartsRemainingInTurn,
+    legsToWin: input.legsToWin,
+    finishRule: input.finishRule,
+    matchWinnerId,
+    populationProfile: input.populationProfile,
+    fairEnding: currentFairEnding,
+  }, { players: before.projections });
   const isTiebreak = source.turn.tiebreak_round != null;
+  if (!isTiebreak) legDartsThrown[playerId] = (legDartsThrown[playerId] ?? 0) + 1;
+  const playerLegDartNumber = legDartsThrown[playerId] ?? 0;
   const segment = parseSegmentLabel(source.dart.segment);
   const outcome = isTiebreak
     ? { newScore: scores[playerId], busted: false, finished: false }
@@ -423,8 +543,11 @@ export function transitionDartIQDart(
     scores[playerId] = turnStartScore;
     points[playerId] = turnStartPoints;
     dartsThrown[playerId] = turnStartDarts;
+    legPoints[playerId] = turnStartLegPoints;
   } else if (!isTiebreak) {
-    points[playerId] += scores[playerId] - outcome.newScore;
+    const effectiveScored = scores[playerId] - outcome.newScore;
+    points[playerId] += effectiveScored;
+    legPoints[playerId] = (legPoints[playerId] ?? 0) + effectiveScored;
     dartsThrown[playerId] += 1;
     scores[playerId] = outcome.newScore;
   }
@@ -435,6 +558,22 @@ export function transitionDartIQDart(
   const turnScoreAfter = isTiebreak
     ? throwsTotal
     : outcome.busted ? 0 : turnStartScore - scores[playerId];
+  const visitCompleted = outcome.busted || outcome.finished || throwCount >= 3;
+  let firstNineAverage: number | undefined;
+  let tonPlusStreakReached = false;
+  if (!isTiebreak && visitCompleted) {
+    legCompletedVisits[playerId] = (legCompletedVisits[playerId] ?? 0) + 1;
+    if (turnScoreAfter >= 100) {
+      tonPlusVisitStreaks[playerId] = (tonPlusVisitStreaks[playerId] ?? 0) + 1;
+      tonPlusStreakReached = tonPlusVisitStreaks[playerId] === 3;
+    } else {
+      tonPlusVisitStreaks[playerId] = 0;
+    }
+  }
+  if (!isTiebreak && playerLegDartNumber === 9) {
+    firstNineAverage = (legPoints[playerId] ?? 0) / 3;
+  }
+  const tonPlusVisitStreak = tonPlusVisitStreaks[playerId] ?? 0;
   turnProgress.set(source.turn.id, {
     id: source.turn.id,
     player_id: playerId,
@@ -467,20 +606,46 @@ export function transitionDartIQDart(
   const fairEndingWinnerId = input.fairEnding && currentFairEnding?.phase === 'resolved'
     ? currentFairEnding.winnerId
     : null;
-  const standardWinnerId = !input.fairEnding && source.isLastInLeg
-    ? source.leg.winner_player_id
+  const standardWinnerId = !input.fairEnding && outcome.finished
+    ? source.leg.winner_player_id ?? playerId
     : null;
   const legWinnerId = fairEndingWinnerId ?? standardWinnerId;
+  const nextLeg = legWinnerId ? orderedLegs[source.legIndex + 1] : undefined;
+  const nextStarterIndex = Math.max(0, input.playerIds.indexOf(source.leg.starting_player_id));
+  const projectedNextStarterId = input.playerIds[
+    (nextStarterIndex + 1) % Math.max(1, input.playerIds.length)
+  ];
+  const winsAfterResolution = legWinnerId ? (legsWon[legWinnerId] ?? 0) + 1 : 0;
+  const legResolution = legWinnerId ? {
+    winnerPlayerId: legWinnerId,
+    startingPlayerId: source.leg.starting_player_id,
+    wonAgainstThrow: !input.fairEnding
+      && input.playerIds.length === 2
+      && legWinnerId !== source.leg.starting_player_id,
+    legsWonAfter: { ...legsWon, [legWinnerId]: winsAfterResolution },
+    matchWon: winsAfterResolution >= input.legsToWin,
+    nextLeg: winsAfterResolution >= input.legsToWin || !projectedNextStarterId
+      ? null
+      : {
+          number: nextLeg?.leg_number ?? source.leg.leg_number + 1,
+          startingPlayerId: nextLeg?.starting_player_id ?? projectedNextStarterId,
+        },
+  } : undefined;
 
   if (legWinnerId) {
     resolvedLegWinnerId = legWinnerId;
     legsWon[legWinnerId] = (legsWon[legWinnerId] ?? 0) + 1;
     if (legsWon[legWinnerId] >= input.legsToWin) matchWinnerId = legWinnerId;
-    const nextLeg = orderedLegs[source.legIndex + 1];
-    if (!matchWinnerId && nextLeg) {
+    if (!matchWinnerId) {
       for (const id of input.playerIds) scores[id] = input.startScore;
-      stateLeg = nextLeg;
-      nextPlayerId = nextLeg.starting_player_id;
+      stateLeg = nextLeg ?? {
+        ...source.leg,
+        id: `pending-next:${source.leg.id}`,
+        leg_number: source.leg.leg_number + 1,
+        starting_player_id: projectedNextStarterId ?? source.leg.starting_player_id,
+        winner_player_id: null,
+      };
+      nextPlayerId = stateLeg.starting_player_id;
       nextDartsRemaining = 3;
     } else {
       nextPlayerId = null;
@@ -546,6 +711,15 @@ export function transitionDartIQDart(
       : projection.legWinProbability,
   }));
   const consequence = calculateProbabilityVectorConsequence(before.projections, consequenceAfter);
+  const actorLegWpa = legWinProbabilityAdded[playerId] ?? 0;
+  const actorMatchWpa = matchWinProbabilityAdded[playerId] ?? 0;
+  const outcomeRarity = nextDartAnalysis
+    ? calculateDartIQOutcomeRarity(nextDartAnalysis, {
+        legWpa: actorLegWpa,
+        matchWpa: actorMatchWpa,
+        consequence,
+      })
+    : undefined;
   const scoreBefore = before.scores[playerId] ?? 0;
   const oneDartFinishAvailable = !isTiebreak && hasCheckoutRoute(scoreBefore, 1, input.finishRule);
   const finishAvailableThisVisit = !isTiebreak
@@ -584,6 +758,8 @@ export function transitionDartIQDart(
     eventId: `${DARTIQ_OUTCOME_MODEL_VERSION}:${source.leg.match_id}:${source.dart.id}`,
     engineVersion: DARTIQ_OUTCOME_MODEL_VERSION,
     matchId: source.leg.match_id,
+    startScore: input.startScore,
+    finishRule: input.finishRule,
     sequence: previous.sequence + 1,
     legId: source.leg.id,
     legNumber: source.leg.leg_number,
@@ -597,6 +773,11 @@ export function transitionDartIQDart(
     turnScoreAfter,
     busted: outcome.busted,
     checkedOut: outcome.finished,
+    playerLegDartNumber,
+    firstNineAverage,
+    tonPlusVisitStreak,
+    tonPlusStreakReached,
+    legResolution,
     nextOpponentThreat,
     semanticStakes: {
       oneDartFinishAvailable,
@@ -606,6 +787,8 @@ export function transitionDartIQDart(
       unconvertedMatchFinishChancesInVisit,
     },
     consequence,
+    opportunity: nextDartAnalysis?.opportunity,
+    outcomeRarity,
     checkout,
     fairEndingBefore,
     fairEndingAfter: currentFairEnding
@@ -633,10 +816,17 @@ export function transitionDartIQDart(
       legsWon: { ...legsWon },
       points: { ...points },
       dartsThrown: { ...dartsThrown },
+      legDartsThrown: legWinnerId ? createNumberRecord(input.playerIds, 0) : { ...legDartsThrown },
+      legPoints: legWinnerId ? createNumberRecord(input.playerIds, 0) : { ...legPoints },
+      legCompletedVisits: legWinnerId
+        ? createNumberRecord(input.playerIds, 0)
+        : { ...legCompletedVisits },
+      tonPlusVisitStreaks: { ...tonPlusVisitStreaks },
       turnId,
       turnStartScore,
       turnStartPoints,
       turnStartDarts,
+      turnStartLegPoints,
       unconvertedMatchFinishChancesInVisit,
       matchWinnerId,
       turnProgress: [...turnProgress.values()].map((progress) => ({ ...progress })),
@@ -667,11 +857,16 @@ export function reconstructDartIQTimelineWithCheckpoint(
   );
   const points = createNumberRecord(input.playerIds, 0);
   const dartsThrown = createNumberRecord(input.playerIds, 0);
+  const legDartsThrown = createNumberRecord(input.playerIds, 0);
+  const legPoints = createNumberRecord(input.playerIds, 0);
+  const legCompletedVisits = createNumberRecord(input.playerIds, 0);
+  const tonPlusVisitStreaks = createNumberRecord(input.playerIds, 0);
   let activeLegIndex = darts[0].legIndex;
   let turnId: string | null = null;
   let turnStartScore = input.startScore;
   let turnStartPoints = 0;
   let turnStartDarts = 0;
+  let turnStartLegPoints = 0;
   let unconvertedMatchFinishChancesInVisit = 0;
   let matchWinnerId: string | null = null;
   const turnProgress = new Map<string, ReplayTurnProgress>();
@@ -694,10 +889,15 @@ export function reconstructDartIQTimelineWithCheckpoint(
     Object.assign(legsWon, cachedCheckpoint.legsWon);
     Object.assign(points, cachedCheckpoint.points);
     Object.assign(dartsThrown, cachedCheckpoint.dartsThrown);
+    Object.assign(legDartsThrown, cachedCheckpoint.legDartsThrown);
+    Object.assign(legPoints, cachedCheckpoint.legPoints);
+    Object.assign(legCompletedVisits, cachedCheckpoint.legCompletedVisits);
+    Object.assign(tonPlusVisitStreaks, cachedCheckpoint.tonPlusVisitStreaks);
     turnId = cachedCheckpoint.turnId;
     turnStartScore = cachedCheckpoint.turnStartScore;
     turnStartPoints = cachedCheckpoint.turnStartPoints;
     turnStartDarts = cachedCheckpoint.turnStartDarts;
+    turnStartLegPoints = cachedCheckpoint.turnStartLegPoints;
     unconvertedMatchFinishChancesInVisit = cachedCheckpoint.unconvertedMatchFinishChancesInVisit;
     matchWinnerId = cachedCheckpoint.matchWinnerId;
     for (const progress of cachedCheckpoint.turnProgress) {
@@ -723,7 +923,19 @@ export function reconstructDartIQTimelineWithCheckpoint(
       const cached = reusablePrefix[index];
       if (flat.legIndex !== hydratedLegIndex) {
         turnProgress.clear();
+        for (const playerId of input.playerIds) {
+          legDartsThrown[playerId] = 0;
+          legPoints[playerId] = 0;
+          legCompletedVisits[playerId] = 0;
+        }
         hydratedLegIndex = flat.legIndex;
+      }
+      if (flat.turn.tiebreak_round == null) {
+        legDartsThrown[flat.turn.player_id] += 1;
+        if (cached.after.legId === flat.leg.id) {
+          legPoints[flat.turn.player_id] = input.startScore
+            - cached.after.scores[flat.turn.player_id];
+        }
       }
       const previous = turnProgress.get(flat.turn.id);
       const throwCount = (previous?.throw_count ?? 0) + 1;
@@ -738,12 +950,26 @@ export function reconstructDartIQTimelineWithCheckpoint(
         throws_total: throwsTotal,
         completed: cached.busted || cached.checkedOut || throwCount >= 3,
       });
+      if (flat.turn.tiebreak_round == null && (cached.busted || cached.checkedOut || throwCount >= 3)) {
+        legCompletedVisits[flat.turn.player_id] += 1;
+        tonPlusVisitStreaks[flat.turn.player_id] = cached.turnScoreAfter >= 100
+          ? tonPlusVisitStreaks[flat.turn.player_id] + 1
+          : 0;
+      }
+      if (cached.legResolution || cached.after.legId !== flat.leg.id) {
+        for (const playerId of input.playerIds) {
+          legDartsThrown[playerId] = 0;
+          legPoints[playerId] = 0;
+          legCompletedVisits[playerId] = 0;
+        }
+      }
     }
     turnId = lastFlat.turn.id;
     const firstInTurn = reusablePrefix.find((event) => event.turnId === turnId)!;
     const startProjection = firstInTurn.before.projections.find((entry) => entry.id === lastFlat.turn.player_id);
     turnStartScore = firstInTurn.before.scores[lastFlat.turn.player_id] ?? input.startScore;
     turnStartDarts = startProjection?.dartsThrown ?? 0;
+    turnStartLegPoints = Math.max(0, input.startScore - turnStartScore);
     turnStartPoints = startProjection && startProjection.dartsThrown > 0
       ? (startProjection.threeDartAverage / 3) * startProjection.dartsThrown
       : 0;
@@ -776,10 +1002,15 @@ export function reconstructDartIQTimelineWithCheckpoint(
     legsWon: { ...legsWon },
     points: { ...points },
     dartsThrown: { ...dartsThrown },
+    legDartsThrown: { ...legDartsThrown },
+    legPoints: { ...legPoints },
+    legCompletedVisits: { ...legCompletedVisits },
+    tonPlusVisitStreaks: { ...tonPlusVisitStreaks },
     turnId,
     turnStartScore,
     turnStartPoints,
     turnStartDarts,
+    turnStartLegPoints,
     unconvertedMatchFinishChancesInVisit,
     matchWinnerId,
     turnProgress: [...turnProgress.values()].map((progress) => ({ ...progress })),

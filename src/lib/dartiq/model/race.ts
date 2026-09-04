@@ -13,29 +13,10 @@ export type DartIQRaceResult = {
   approximationMode: 'exact' | 'truncated-tail' | 'no-finish-fallback';
 };
 
-function addMass(distribution: DartIQVisitDistribution, score: number, probability: number) {
-  distribution.set(score, (distribution.get(score) ?? 0) + probability);
-}
-
-function advanceVisit(
-  survivors: DartIQVisitDistribution,
-  kernel: DartIQVisitKernel
-) {
-  const next: DartIQVisitDistribution = new Map();
-  let finished = 0;
-  for (const [score, stateProbability] of survivors) {
-    const transitions = kernel.get(score);
-    if (!transitions) {
-      throw new Error(`Missing DartIQ visit-kernel state for score ${score}`);
-    }
-    for (const [nextScore, transitionProbability] of transitions) {
-      const probability = stateProbability * transitionProbability;
-      if (nextScore === 0) finished += probability;
-      else addMass(next, nextScore, probability);
-    }
-  }
-  return { survivors: next, finished };
-}
+const FIRST_FINISH_TABLE_CACHE = new WeakMap<
+  DartIQVisitKernel,
+  Map<string, ReadonlyMap<number, DartIQFirstFinishPmf>>
+>();
 
 export function createFirstFinishPmf(input: {
   startScore: number;
@@ -47,32 +28,101 @@ export function createFirstFinishPmf(input: {
   if (input.startScore <= 0) return { probabilities: [1], truncatedMass: 0 };
   const maximumVisits = Math.max(1, input.maximumVisits ?? 120);
   const tailTolerance = Math.max(0, input.tailTolerance ?? 1e-10);
-  const probabilities: number[] = [];
-  let survivors: DartIQVisitDistribution = new Map([[input.startScore, 1]]);
 
-  for (let visit = 0; visit < maximumVisits; visit += 1) {
-    let advanced: ReturnType<typeof advanceVisit>;
-    if (visit === 0 && input.firstVisit) {
-      const next: DartIQVisitDistribution = new Map();
-      let finished = 0;
-      for (const [score, probability] of input.firstVisit) {
-        if (score === 0) finished += probability;
-        else addMass(next, score, probability);
-      }
-      advanced = { survivors: next, finished };
-    } else {
-      advanced = advanceVisit(survivors, input.kernel);
-    }
-    probabilities.push(advanced.finished);
-    survivors = advanced.survivors;
-    const remaining = [...survivors.values()].reduce((sum, probability) => sum + probability, 0);
-    if (remaining <= tailTolerance) return { probabilities, truncatedMass: remaining };
+  if (!input.firstVisit) {
+    return createFirstFinishPmfTable({
+      kernel: input.kernel,
+      maximumVisits,
+      tailTolerance,
+    }).get(input.startScore) ?? (() => {
+      throw new Error(`Missing DartIQ visit-kernel state for score ${input.startScore}`);
+    })();
   }
 
-  return {
-    probabilities,
-    truncatedMass: [...survivors.values()].reduce((sum, probability) => sum + probability, 0),
-  };
+  const probabilities: number[] = [];
+  const firstVisit = input.firstVisit;
+  const firstFinish = firstVisit.get(0) ?? 0;
+  const survivorEntries = [...firstVisit.entries()].filter(([score]) => score > 0);
+  probabilities.push(firstFinish);
+  const table = createFirstFinishPmfTable({
+    kernel: input.kernel,
+    maximumVisits: Math.max(1, maximumVisits - 1),
+    tailTolerance: 0,
+  });
+
+  for (let visit = 1; visit < maximumVisits; visit += 1) {
+    let finish = 0;
+    for (const [score, probability] of survivorEntries) {
+      finish += probability * (table.get(score)?.probabilities[visit - 1] ?? 0);
+    }
+    probabilities.push(finish);
+  }
+
+  const finished = probabilities.reduce((sum, probability) => sum + probability, 0);
+  return { probabilities, truncatedMass: Math.max(0, 1 - finished) };
+}
+
+/**
+ * Builds every fresh-visit first-finish PMF in one backward pass. Visit
+ * transitions never increase the score, so each visit layer can reuse the
+ * preceding layer for every starting score without replaying 502 sparse
+ * survivor distributions independently.
+ */
+export function createFirstFinishPmfTable(input: {
+  kernel: DartIQVisitKernel;
+  maximumVisits?: number;
+  tailTolerance?: number;
+}): ReadonlyMap<number, DartIQFirstFinishPmf> {
+  const maximumVisits = Math.max(1, input.maximumVisits ?? 120);
+  const tailTolerance = Math.max(0, input.tailTolerance ?? 1e-10);
+  let byConfiguration = FIRST_FINISH_TABLE_CACHE.get(input.kernel);
+  if (!byConfiguration) {
+    byConfiguration = new Map();
+    FIRST_FINISH_TABLE_CACHE.set(input.kernel, byConfiguration);
+  }
+  const cacheKey = `${maximumVisits}:${tailTolerance}`;
+  const cached = byConfiguration.get(cacheKey);
+  if (cached) return cached;
+
+  const scores = [...input.kernel.keys()].filter((score) => score > 0).sort((a, b) => a - b);
+  const probabilitiesByScore = new Map<number, number[]>();
+  let previousFinish = new Map<number, number>();
+  for (const score of scores) {
+    const transitions = input.kernel.get(score);
+    if (!transitions) throw new Error(`Missing DartIQ visit-kernel state for score ${score}`);
+    const finish = transitions.get(0) ?? 0;
+    probabilitiesByScore.set(score, [finish]);
+    previousFinish.set(score, finish);
+  }
+
+  for (let visit = 1; visit < maximumVisits; visit += 1) {
+    const currentFinish = new Map<number, number>();
+    for (const score of scores) {
+      const transitions = input.kernel.get(score)!;
+      let finish = 0;
+      for (const [nextScore, transitionProbability] of transitions) {
+        if (nextScore > 0) finish += transitionProbability * (previousFinish.get(nextScore) ?? 0);
+      }
+      probabilitiesByScore.get(score)!.push(finish);
+      currentFinish.set(score, finish);
+    }
+    previousFinish = currentFinish;
+  }
+
+  const table = new Map<number, DartIQFirstFinishPmf>();
+  table.set(0, { probabilities: [1], truncatedMass: 0 });
+  for (const score of scores) {
+    const probabilities = probabilitiesByScore.get(score)!;
+    const lastMaterialVisit = probabilities.findLastIndex((probability) => probability > tailTolerance);
+    const returnedProbabilities = probabilities.slice(0, Math.max(1, lastMaterialVisit + 1));
+    const returnedFinished = returnedProbabilities.reduce((sum, probability) => sum + probability, 0);
+    table.set(score, {
+      probabilities: returnedProbabilities,
+      truncatedMass: Math.max(0, 1 - returnedFinished),
+    });
+  }
+  byConfiguration.set(cacheKey, table);
+  return table;
 }
 
 function cumulative(pmf: number[], maximumVisits: number) {
@@ -137,6 +187,30 @@ export function combineCurrentLegWithMatch(input: {
   futureLegProbabilitiesByStarter: number[][];
   maximumStates?: number;
 }): DartIQRaceResult {
+  const continuations = createCurrentLegMatchContinuations(input);
+  const match = input.legsWon.map(() => 0);
+  for (let legWinner = 0; legWinner < continuations.probabilities.length; legWinner += 1) {
+    for (let playerIndex = 0; playerIndex < match.length; playerIndex += 1) {
+      match[playerIndex] += (input.currentLegProbabilities[legWinner] ?? 0)
+        * (continuations.probabilities[legWinner]?.[playerIndex] ?? 0);
+    }
+  }
+  const total = match.reduce((sum, probability) => sum + probability, 0);
+  return {
+    probabilities: total > 0
+      ? match.map((probability) => probability / total)
+      : match.map(() => 1 / Math.max(1, match.length)),
+    approximationMode: continuations.approximationMode,
+  };
+}
+
+export function createCurrentLegMatchContinuations(input: Omit<
+  Parameters<typeof combineCurrentLegWithMatch>[0],
+  'currentLegProbabilities'
+>): {
+  probabilities: number[][];
+  approximationMode: DartIQRaceResult['approximationMode'];
+} {
   const playerCount = input.legsWon.length;
   if (playerCount === 0) return { probabilities: [], approximationMode: 'exact' };
   const maximumStates = input.maximumStates ?? 10_000;
@@ -177,22 +251,14 @@ export function combineCurrentLegWithMatch(input: {
     return result;
   }
 
-  const match = input.legsWon.map(() => 0);
+  const probabilities: number[][] = [];
   for (let legWinner = 0; legWinner < playerCount; legWinner += 1) {
     const afterLeg = input.legsWon.slice();
     afterLeg[legWinner] += 1;
-    const continuation = solve(afterLeg, input.nextStarterIndex % playerCount);
-    for (let playerIndex = 0; playerIndex < playerCount; playerIndex += 1) {
-      match[playerIndex] += (input.currentLegProbabilities[legWinner] ?? 0)
-        * continuation[playerIndex];
-    }
+    probabilities.push(solve(afterLeg, input.nextStarterIndex % playerCount));
   }
-
-  const total = match.reduce((sum, probability) => sum + probability, 0);
   return {
-    probabilities: total > 0
-      ? match.map((probability) => probability / total)
-      : match.map(() => 1 / playerCount),
+    probabilities,
     approximationMode: bounded ? 'truncated-tail' : 'exact',
   };
 }
