@@ -1296,7 +1296,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           min-width: 58px;
           text-align: center;
           color: #ffffff !important;
-          font-size: 18px;
+          font-size: 15px;
           font-weight: 700 !important;
           line-height: 1;
           letter-spacing: 0;
