@@ -47,6 +47,7 @@ export type ThrowRecord = {
   dart_index: number;
   segment: string;
   scored: number;
+  scolia_event_id?: number | null;
   impact_x_mm?: number | null;
   impact_y_mm?: number | null;
   angle_horizontal_deg?: number | null;

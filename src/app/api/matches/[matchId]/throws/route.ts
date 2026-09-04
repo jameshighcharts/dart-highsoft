@@ -4,6 +4,10 @@ import { isMatchActive, loadMatch } from '@/lib/server/matchGuards';
 import { resolveOrCreateTurnForPlayer } from '@/lib/server/turnLifecycle';
 import { commandSourceForMatch, enqueueCurrentRoundScoliaThrowCommand } from '@/lib/server/scoliaCommands';
 import { scoreFromSegment } from '@/lib/games/segment';
+import {
+  enqueueDartIQLiveReplay,
+  enqueueDartIQLiveThrow,
+} from '@/lib/server/backgroundJobs';
 
 async function ensureTurnInMatch(
   supabase: ReturnType<typeof getSupabaseServerClient>,
@@ -12,12 +16,12 @@ async function ensureTurnInMatch(
 ) {
   const { data: turn } = await supabase
     .from('turns')
-    .select('id, legs!inner(match_id)')
+    .select('id, leg_id, legs!inner(match_id)')
     .eq('id', turnId)
     .eq('legs.match_id', matchId)
     .single();
   if (!turn) return null;
-  return { turn };
+  return { turn, legId: turn.leg_id as string };
 }
 
 type ThrowSequenceRow = {
@@ -184,6 +188,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     if (error || !data) {
       return NextResponse.json({ error: error?.message ?? 'Failed to create throw' }, { status: 500 });
     }
+    try {
+      await enqueueDartIQLiveThrow(supabase, matchId, data.id as string);
+    } catch (telemetryError) {
+      console.error('DartIQ live throw telemetry error:', telemetryError);
+    }
     return NextResponse.json({ turnId: resolvedTurnId, throw: data });
   } catch (error) {
     console.error('POST /api/matches/[matchId]/throws error:', error);
@@ -230,6 +239,11 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ m
       .eq('id', latestThrow.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (count === 0) return NextResponse.json({ error: 'Throw was already removed' }, { status: 404 });
+    try {
+      await enqueueDartIQLiveReplay(supabase, matchId, linked.legId, latestThrow.id);
+    } catch (telemetryError) {
+      console.error('DartIQ undo telemetry error:', telemetryError);
+    }
     try {
       await enqueueCurrentRoundScoliaThrowCommand(supabase, commandSourceForMatch(match),
         { dartIndex: latestThrow.dart_index, scoliaEventId: latestThrow.scolia_event_id ?? null },

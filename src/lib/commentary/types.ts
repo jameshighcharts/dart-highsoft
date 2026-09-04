@@ -55,6 +55,11 @@ export interface CommentaryDartIQContext {
   busted: boolean;
   leaveProbabilityChange?: number;
   nextVisitCheckoutProbability?: number;
+  nextOpponentThreat?: {
+    playerId: string;
+    scoreRemaining: number;
+    checkoutProbabilityNextVisit: number;
+  } | null;
   createdBogey?: boolean;
 }
 

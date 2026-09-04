@@ -16,7 +16,7 @@ function state(matchProbability: number, legProbability: number): DartIQReplaySt
     projections: [
       {
         id: 'a', scoreRemaining: 40, legsWon: 0, threeDartAverage: 60, dartsThrown: 20,
-        adjustedThreeDartAverage: 55, expectedDartsRemaining: 3,
+        adjustedThreeDartAverage: 55, expectedVisitsRemaining: 1,
         legWinProbability: legProbability, matchWinProbability: matchProbability,
         baselineThreeDartAverage: 45, historicalDarts: 0, profileConfidence: 0,
         profileSource: 'fallback', checkoutRate: 0.12, populationCheckoutRate: 0.12,
@@ -24,13 +24,14 @@ function state(matchProbability: number, legProbability: number): DartIQReplaySt
       },
       {
         id: 'b', scoreRemaining: 80, legsWon: 0, threeDartAverage: 60, dartsThrown: 20,
-        adjustedThreeDartAverage: 55, expectedDartsRemaining: 5,
+        adjustedThreeDartAverage: 55, expectedVisitsRemaining: 2,
         legWinProbability: 1 - legProbability, matchWinProbability: 1 - matchProbability,
         baselineThreeDartAverage: 45, historicalDarts: 0, profileConfidence: 0,
         profileSource: 'fallback', checkoutRate: 0.12, populationCheckoutRate: 0.12,
         bustRate: 0.04,
       },
     ],
+    approximationMode: 'standard',
   };
 }
 
@@ -107,6 +108,30 @@ describe('createDartIQDartPacket', () => {
     const packet = createDartIQDartPacket(checkout);
     expect(packet.priority).toBe('terminal');
     expect(packet.signals).toEqual(expect.arrayContaining(['match_win', 'checkout']));
+  });
+
+  it('names darts-native marquee finishes without inferring an aim', () => {
+    const before = state(0.25, 0.2);
+    before.scores.a = 170;
+    const after = state(0.7, 1);
+    after.scores.a = 0;
+
+    const bigFish = createDartIQDartPacket(event({
+      before,
+      after,
+      checkedOut: true,
+      segment: 'DB',
+      scored: 50,
+    }));
+    expect(bigFish.signals).toEqual(expect.arrayContaining([
+      'checkout', 'big_fish', 'bull_checkout',
+    ]));
+    expect(bigFish.signals).not.toContain('ton_plus_checkout');
+
+    before.scores.a = 120;
+    const tonPlus = createDartIQDartPacket(event({ before, after, checkedOut: true }));
+    expect(tonPlus.signals).toContain('ton_plus_checkout');
+    expect(tonPlus.signals).not.toContain('big_fish');
   });
 
   it('recognizes a completed 180 visit as marquee commentary', () => {

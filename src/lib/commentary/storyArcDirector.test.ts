@@ -13,6 +13,7 @@ function state(a: number, b: number, scores = { a: 200, b: 200 }): DartIQReplayS
       { id: 'a', matchWinProbability: a, threeDartAverage: 50, baselineThreeDartAverage: 50, dartsThrown: 9 },
       { id: 'b', matchWinProbability: b, threeDartAverage: 50, baselineThreeDartAverage: 50, dartsThrown: 9 },
     ] as DartIQReplayState['projections'],
+    approximationMode: 'standard',
   };
 }
 
@@ -72,7 +73,7 @@ describe('directCommentaryStoryArc', () => {
       event({ sequence: 2, playerId: 'b', before: state(0.4, 0.6), after: state(0.2, 0.8), checkedOut: true, scoreBefore: 32 }),
     ];
     expect(directCommentaryStoryArc({ events, finishRule: 'double_out' })).toMatchObject({
-      kind: 'miss_punished',
+      kind: 'finish_chance_punished',
       phase: 'payoff',
       subjectPlayerId: 'b',
       counterpartPlayerId: 'a',

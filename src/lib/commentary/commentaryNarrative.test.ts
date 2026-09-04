@@ -53,7 +53,7 @@ describe('buildCommentaryNarrativeMemory', () => {
       checkoutPressure: {
         opportunities: 1,
         highPressureOpportunities: 1,
-        recentMissedDoubles: [{ scoreBefore: 40, hitSegment: 'S5' }],
+        recentUnconvertedOneDartFinishes: [{ scoreBefore: 40, hitSegment: 'S5' }],
       },
     });
   });

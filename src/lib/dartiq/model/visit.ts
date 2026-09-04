@@ -13,6 +13,11 @@ export type DartIQVisitState = {
 
 export type DartIQVisitDistribution = Map<number, number>;
 
+const VISIT_DISTRIBUTION_CACHE = new WeakMap<
+  DartIQOutcomeModel,
+  Map<string, DartIQVisitDistribution>
+>();
+
 function addProbability(distribution: DartIQVisitDistribution, score: number, probability: number) {
   distribution.set(score, (distribution.get(score) ?? 0) + probability);
 }
@@ -32,6 +37,14 @@ export function solveDartIQVisit(
   state: DartIQVisitState
 ): DartIQVisitDistribution {
   if (state.currentScore <= 0) return new Map([[0, 1]]);
+  let modelCache = VISIT_DISTRIBUTION_CACHE.get(model);
+  if (!modelCache) {
+    modelCache = new Map();
+    VISIT_DISTRIBUTION_CACHE.set(model, modelCache);
+  }
+  const cacheKey = `${state.finishRule}:${state.visitStartScore}:${state.currentScore}:${state.dartsLeft}`;
+  const cached = modelCache.get(cacheKey);
+  if (cached) return cached;
   let active: DartIQVisitDistribution = new Map([[state.currentScore, 1]]);
   const result: DartIQVisitDistribution = new Map();
 
@@ -63,7 +76,9 @@ export function solveDartIQVisit(
     if (active.size === 0) break;
   }
 
-  return normalize(result, state.visitStartScore);
+  const normalized = normalize(result, state.visitStartScore);
+  modelCache.set(cacheKey, normalized);
+  return normalized;
 }
 
 export function createDartIQVisitKernel(

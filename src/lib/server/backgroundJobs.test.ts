@@ -2,12 +2,23 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { finalizeSlackDartPollById } from '@/lib/slack/dartPollService';
+import {
+  persistDartIQCompletedLeg,
+  persistDartIQLiveReplay,
+  persistDartIQLiveThrow,
+} from './dartiqTelemetry';
 
 import { processBackgroundJob } from './backgroundJobs';
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/slack/dartPollService', () => ({
   finalizeSlackDartPollById: vi.fn(),
+}));
+vi.mock('./dartiqTelemetry', () => ({
+  persistDartIQCompletedLeg: vi.fn(),
+  persistDartIQLiveReplay: vi.fn(),
+  persistDartIQLiveThrow: vi.fn(),
+  supersedeDartIQLiveThrow: vi.fn(),
 }));
 
 type JobFixture = {
@@ -69,6 +80,51 @@ const dispatchingJob: JobFixture = {
 describe('processBackgroundJob', () => {
   beforeEach(() => {
     vi.mocked(finalizeSlackDartPollById).mockReset();
+    vi.mocked(persistDartIQCompletedLeg).mockReset();
+    vi.mocked(persistDartIQLiveReplay).mockReset();
+    vi.mocked(persistDartIQLiveThrow).mockReset();
+  });
+
+  it('processes DartIQ capture outside the scoring request', async () => {
+    const job = {
+      ...dispatchingJob,
+      job_type: 'dartiq_live_throw',
+      payload: { matchId: 'match-1', throwId: 'throw-1' },
+    };
+    const test = createSupabase(job);
+
+    await expect(processBackgroundJob({
+      supabase: test.supabase,
+      jobId: job.id,
+      appOrigin: 'https://darts.example',
+    })).resolves.toEqual({ id: 'job-1', status: 'completed' });
+
+    expect(persistDartIQLiveThrow).toHaveBeenCalledWith(
+      test.supabase,
+      'match-1',
+      'throw-1'
+    );
+  });
+
+  it('scopes a correction replay to the affected leg', async () => {
+    const job = {
+      ...dispatchingJob,
+      job_type: 'dartiq_live_replay',
+      payload: { matchId: 'match-1', legId: 'leg-2' },
+    };
+    const test = createSupabase(job);
+
+    await processBackgroundJob({
+      supabase: test.supabase,
+      jobId: job.id,
+      appOrigin: 'https://darts.example',
+    });
+
+    expect(persistDartIQLiveReplay).toHaveBeenCalledWith(
+      test.supabase,
+      'match-1',
+      'leg-2'
+    );
   });
 
   it('runs the typed handler and marks a dispatched job completed', async () => {

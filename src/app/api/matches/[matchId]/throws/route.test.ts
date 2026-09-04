@@ -8,6 +8,8 @@ const getSupabaseServerClientMock = vi.fn();
 const loadMatchMock = vi.fn();
 const isMatchActiveMock = vi.fn();
 const resolveOrCreateTurnForPlayerMock = vi.fn();
+const enqueueDartIQLiveReplayMock = vi.fn();
+const enqueueDartIQLiveThrowMock = vi.fn();
 
 vi.mock('@/lib/supabaseServer', () => ({
   getSupabaseServerClient: () => getSupabaseServerClientMock(),
@@ -20,6 +22,11 @@ vi.mock('@/lib/server/matchGuards', () => ({
 
 vi.mock('@/lib/server/turnLifecycle', () => ({
   resolveOrCreateTurnForPlayer: (...args: unknown[]) => resolveOrCreateTurnForPlayerMock(...args),
+}));
+
+vi.mock('@/lib/server/backgroundJobs', () => ({
+  enqueueDartIQLiveReplay: (...args: unknown[]) => enqueueDartIQLiveReplayMock(...args),
+  enqueueDartIQLiveThrow: (...args: unknown[]) => enqueueDartIQLiveThrowMock(...args),
 }));
 
 type ThrowRow = {
@@ -143,7 +150,7 @@ describe('POST /api/matches/[matchId]/throws', () => {
         if (table === 'turns') {
           return {
             select(query?: string) {
-              expect(query).toBe('id, legs!inner(match_id)');
+              expect(query).toBe('id, leg_id, legs!inner(match_id)');
               return this;
             },
             eq(column: string, value: string) {
@@ -152,7 +159,10 @@ describe('POST /api/matches/[matchId]/throws', () => {
               return this;
             },
             async single() {
-              return { data: { id: 'turn-1', legs: { match_id: 'match-1' } }, error: null };
+              return {
+                data: { id: 'turn-1', leg_id: 'leg-1', legs: { match_id: 'match-1' } },
+                error: null,
+              };
             },
           };
         }
@@ -301,7 +311,7 @@ describe('POST /api/matches/[matchId]/throws', () => {
         if (table === 'turns') {
           return {
             select(query?: string) {
-              expect(query).toBe('id, legs!inner(match_id)');
+              expect(query).toBe('id, leg_id, legs!inner(match_id)');
               return this;
             },
             eq(column: string, value: string) {
@@ -310,7 +320,10 @@ describe('POST /api/matches/[matchId]/throws', () => {
               return this;
             },
             async single() {
-              return { data: { id: 'turn-1', legs: { match_id: 'match-1' } }, error: null };
+              return {
+                data: { id: 'turn-1', leg_id: 'leg-1', legs: { match_id: 'match-1' } },
+                error: null,
+              };
             },
           };
         }
@@ -565,7 +578,7 @@ describe('DELETE /api/matches/[matchId]/throws', () => {
         if (table === 'turns') {
           return {
             select(query?: string) {
-              expect(query).toBe('id, legs!inner(match_id)');
+              expect(query).toBe('id, leg_id, legs!inner(match_id)');
               return this;
             },
             eq(column: string, value: string) {
@@ -574,7 +587,10 @@ describe('DELETE /api/matches/[matchId]/throws', () => {
               return this;
             },
             async single() {
-              return { data: { id: 'turn-1', legs: { match_id: 'match-1' } }, error: null };
+              return {
+                data: { id: 'turn-1', leg_id: 'leg-1', legs: { match_id: 'match-1' } },
+                error: null,
+              };
             },
           };
         }

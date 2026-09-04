@@ -3,6 +3,12 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { finalizeSlackDartPollById } from '@/lib/slack/dartPollService';
+import {
+  persistDartIQCompletedLeg,
+  persistDartIQLiveReplay,
+  persistDartIQLiveThrow,
+  supersedeDartIQLiveThrow,
+} from './dartiqTelemetry';
 
 type BackgroundJobStatus = 'pending' | 'dispatching' | 'completed' | 'failed';
 
@@ -58,6 +64,14 @@ function slackDartPollId(payload: Record<string, unknown>): string {
   return pollId;
 }
 
+function requiredPayloadId(payload: Record<string, unknown>, key: string, jobType: string) {
+  const value = payload[key];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new PermanentJobError(`${jobType} requires payload.${key}`);
+  }
+  return value;
+}
+
 async function runJob(
   supabase: SupabaseClient,
   job: BackgroundJobRow,
@@ -71,9 +85,96 @@ async function runJob(
         appOrigin,
       });
       return;
+    case 'dartiq_live_throw':
+      await persistDartIQLiveThrow(
+        supabase,
+        requiredPayloadId(job.payload, 'matchId', job.job_type),
+        requiredPayloadId(job.payload, 'throwId', job.job_type)
+      );
+      return;
+    case 'dartiq_live_replay': {
+      const matchId = requiredPayloadId(job.payload, 'matchId', job.job_type);
+      const supersedeThrowId = job.payload.supersedeThrowId;
+      if (supersedeThrowId != null && typeof supersedeThrowId !== 'string') {
+        throw new PermanentJobError('dartiq_live_replay payload.supersedeThrowId must be a string');
+      }
+      if (supersedeThrowId) {
+        await supersedeDartIQLiveThrow(supabase, matchId, supersedeThrowId);
+      }
+      await persistDartIQLiveReplay(
+        supabase,
+        matchId,
+        requiredPayloadId(job.payload, 'legId', job.job_type)
+      );
+      return;
+    }
+    case 'dartiq_completed_leg':
+      await persistDartIQCompletedLeg(
+        supabase,
+        requiredPayloadId(job.payload, 'matchId', job.job_type),
+        requiredPayloadId(job.payload, 'legId', job.job_type)
+      );
+      return;
     default:
       throw new PermanentJobError(`Unsupported background job type: ${job.job_type}`);
   }
+}
+
+async function enqueueDartIQJob(
+  supabase: SupabaseClient,
+  input: {
+    jobType: 'dartiq_live_throw' | 'dartiq_live_replay' | 'dartiq_completed_leg';
+    payload: Record<string, string>;
+    deduplicationKey?: string;
+  }
+) {
+  const { error } = await supabase.from('background_jobs').insert({
+    job_type: input.jobType,
+    payload: input.payload,
+    run_at: new Date().toISOString(),
+    deduplication_key: input.deduplicationKey ?? null,
+  });
+  if (error && error.code !== '23505') throw new Error(error.message);
+}
+
+export function enqueueDartIQLiveThrow(
+  supabase: SupabaseClient,
+  matchId: string,
+  throwId: string
+) {
+  return enqueueDartIQJob(supabase, {
+    jobType: 'dartiq_live_throw',
+    payload: { matchId, throwId },
+    deduplicationKey: `dartiq_live_throw:${throwId}`,
+  });
+}
+
+export function enqueueDartIQLiveReplay(
+  supabase: SupabaseClient,
+  matchId: string,
+  legId: string,
+  supersedeThrowId?: string
+) {
+  return enqueueDartIQJob(supabase, {
+    jobType: 'dartiq_live_replay',
+    payload: {
+      matchId,
+      legId,
+      ...(supersedeThrowId ? { supersedeThrowId } : {}),
+    },
+  });
+}
+
+export function enqueueDartIQCompletedLeg(
+  supabase: SupabaseClient,
+  matchId: string,
+  legId: string
+) {
+  return enqueueDartIQJob(supabase, {
+    jobType: 'dartiq_completed_leg',
+    payload: { matchId, legId },
+    deduplicationKey: `dartiq_completed_leg:${legId}`,
+  });
 }
 
 async function recordJobFailure(

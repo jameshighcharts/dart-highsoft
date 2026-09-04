@@ -15,7 +15,11 @@ vi.mock('@/lib/dartiq/replay', async (importOriginal) => {
   return { ...actual, reconstructDartIQTimeline };
 });
 
-import { persistDartIQCompletedLeg } from './dartiqTelemetry';
+import {
+  persistDartIQCompletedLeg,
+  persistDartIQLiveReplay,
+  persistDartIQLiveThrow,
+} from './dartiqTelemetry';
 
 function state(aLeg: number, aMatch: number, bLeg: number, bMatch: number): DartIQReplayState {
   const projection = (
@@ -29,7 +33,7 @@ function state(aLeg: number, aMatch: number, bLeg: number, bMatch: number): Dart
     threeDartAverage: 60,
     dartsThrown: 9,
     adjustedThreeDartAverage: 60,
-    expectedDartsRemaining: id === 'a' ? 2 : 5,
+    expectedVisitsRemaining: id === 'a' ? 1 : 2,
     legWinProbability,
     matchWinProbability,
     baselineThreeDartAverage: 55,
@@ -49,6 +53,7 @@ function state(aLeg: number, aMatch: number, bLeg: number, bMatch: number): Dart
     scores: { a: 40, b: 100 },
     legsWon: { a: 0, b: 0 },
     projections: [projection('a', aLeg, aMatch), projection('b', bLeg, bMatch)],
+    approximationMode: 'standard',
     fairEnding: null,
   };
 }
@@ -95,7 +100,7 @@ function event(): DartIQDartEvent {
 
 type Write = { table: string; operation: 'insert' | 'upsert' | 'update' | 'rpc'; payload: unknown };
 
-function fakeSupabase() {
+function fakeSupabase(options: { activeLiveProjection?: boolean } = {}) {
   const writes: Write[] = [];
   const from = (table: string) => {
     let operation: Exclude<Write['operation'], 'rpc'> | 'select' = 'select';
@@ -109,6 +114,9 @@ function fakeSupabase() {
         if (table === 'dartiq_model_versions') return { data: { id: 7 }, error: null };
         if (table === 'dartiq_population_evidence') {
           return { data: { id: 11, content_hash: 'population-hash' }, error: null };
+        }
+        if (table === 'dartiq_projection_events' && options.activeLiveProjection) {
+          return { data: { id: 30 }, error: null };
         }
         return { data: null, error: null };
       },
@@ -208,9 +216,132 @@ describe('persistDartIQCompletedLeg', () => {
       p_revision_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
     }));
     expect(writes).toContainEqual(expect.objectContaining({
-      table: 'dartiq_projection_resolutions',
-      operation: 'insert',
-      payload: expect.objectContaining({ kind: 'leg', winner_player_id: 'a' }),
+      table: 'replace_dartiq_projection_resolution',
+      operation: 'rpc',
+      payload: expect.objectContaining({
+        p_kind: 'leg',
+        p_winner_player_id: 'a',
+      }),
+    }));
+    expect(writes).toContainEqual(expect.objectContaining({
+      table: 'replace_dartiq_projection_resolution',
+      operation: 'rpc',
+      payload: expect.objectContaining({
+        p_kind: 'match',
+        p_winner_player_id: null,
+      }),
+    }));
+  });
+
+  it('atomically captures one live projection and its full player vector', async () => {
+    const { client, writes } = fakeSupabase();
+
+    await expect(
+      persistDartIQLiveThrow(client as never, 'match-1', 'dart-1')
+    ).resolves.toEqual({ persisted: true, skipped: null });
+
+    expect(writes).toContainEqual(expect.objectContaining({
+      table: 'capture_dartiq_live_projection_event',
+      operation: 'rpc',
+      payload: expect.objectContaining({
+        p_event: expect.objectContaining({
+          source_throw_id: 'dart-1',
+          provenance: 'live',
+          live_capture_status: 'complete',
+          live_capture_cause: null,
+          revision_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+        p_player_projections: [
+          expect.objectContaining({ player_id: 'a', match_probability_before: 0.55 }),
+          expect.objectContaining({ player_id: 'b', match_probability_before: 0.45 }),
+        ],
+      }),
+    }));
+  });
+
+  it('replaces a corrected live leg in one atomic batch instead of one RPC per dart', async () => {
+    reconstructDartIQTimeline.mockReturnValueOnce([
+      event(),
+      { ...event(), eventId: 'dartiq:dart-2', dartId: 'dart-2', sequence: 2 },
+    ]);
+    const { client, writes } = fakeSupabase();
+
+    await expect(
+      persistDartIQLiveReplay(client as never, 'match-1', 'leg-1')
+    ).resolves.toEqual({ persisted: 2, skipped: null });
+
+    expect(writes.filter(
+      (write) => write.table === 'capture_dartiq_live_projection_event'
+    )).toHaveLength(0);
+    const replacements = writes.filter(
+      (write) => write.table === 'replace_dartiq_leg_projection_events'
+    );
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0]?.payload).toEqual(expect.objectContaining({
+      p_provenance: 'live',
+      p_events: [
+        expect.objectContaining({
+          source_throw_id: 'dart-1',
+          live_capture_status: 'partial',
+          live_capture_cause: 'correction_replay',
+        }),
+        expect.objectContaining({
+          source_throw_id: 'dart-2',
+          live_capture_status: 'partial',
+          live_capture_cause: 'correction_replay',
+        }),
+      ],
+      p_player_projections: expect.arrayContaining([
+        expect.objectContaining({ source_throw_id: 'dart-1', player_id: 'a' }),
+        expect.objectContaining({ source_throw_id: 'dart-2', player_id: 'b' }),
+      ]),
+    }));
+  });
+
+  it('freezes the Scolia cohort from the canonical throw link', async () => {
+    loadMatchData.mockResolvedValueOnce({
+      match: {
+        id: 'match-1', start_score: '501', finish: 'double_out', legs_to_win: 2,
+        fair_ending: false, winner_player_id: null, ended_early: false,
+      },
+      players: [{ id: 'a', display_name: 'A' }, { id: 'b', display_name: 'B' }],
+      legs: [{
+        id: 'leg-1', match_id: 'match-1', leg_number: 1,
+        starting_player_id: 'a', winner_player_id: null,
+      }],
+      turnsByLeg: {
+        'leg-1': [{
+          id: 'turn-1',
+          throws: [{
+            id: 'dart-1', turn_id: 'turn-1', dart_index: 3,
+            segment: 'D20', scored: 40, scolia_event_id: 42,
+          }],
+        }],
+      },
+    });
+    const { client, writes } = fakeSupabase();
+
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1');
+
+    expect(writes).toContainEqual(expect.objectContaining({
+      table: 'capture_dartiq_live_projection_event',
+      payload: expect.objectContaining({
+        p_event: expect.objectContaining({ cohort: 'scolia' }),
+      }),
+    }));
+  });
+
+  it('refreshes an existing final live dart after authoritative leg resolution', async () => {
+    const { client, writes } = fakeSupabase({ activeLiveProjection: true });
+
+    await persistDartIQCompletedLeg(client as never, 'match-1', 'leg-1');
+
+    expect(writes).toContainEqual(expect.objectContaining({
+      table: 'capture_dartiq_live_projection_event',
+      operation: 'rpc',
+      payload: expect.objectContaining({
+        p_event: expect.objectContaining({ source_throw_id: 'dart-1' }),
+      }),
     }));
   });
 
@@ -256,5 +387,25 @@ describe('persistDartIQCompletedLeg', () => {
     }));
     expect((replacement?.payload as { p_revision_hash: string }).p_revision_hash)
       .not.toBe(originalHash);
+  });
+
+  it('changes the live revision hash when authoritative resolution changes only the after vector', async () => {
+    const original = fakeSupabase();
+    await persistDartIQLiveThrow(original.client as never, 'match-1', 'dart-1');
+    const originalHash = ((original.writes.find(
+      (write) => write.table === 'capture_dartiq_live_projection_event'
+    )?.payload as { p_event: { revision_hash: string } }).p_event.revision_hash);
+    reconstructDartIQTimeline.mockReturnValueOnce([{
+      ...event(),
+      after: state(0.65, 0.55, 0.35, 0.45),
+    }]);
+    const changed = fakeSupabase();
+
+    await persistDartIQLiveThrow(changed.client as never, 'match-1', 'dart-1');
+
+    const changedHash = ((changed.writes.find(
+      (write) => write.table === 'capture_dartiq_live_projection_event'
+    )?.payload as { p_event: { revision_hash: string } }).p_event.revision_hash);
+    expect(changedHash).not.toBe(originalHash);
   });
 });

@@ -1,14 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { MatchRow } from './matchGuards.ts';
-import { persistDartIQCompletedLeg } from './dartiqTelemetry';
+import { enqueueDartIQCompletedLeg } from './backgroundJobs';
 
-async function persistDartIQWithoutBreakingScoring(
+async function enqueueDartIQWithoutBreakingScoring(
   supabase: SupabaseClient,
   matchId: string,
   legId: string
 ) {
   try {
-    await persistDartIQCompletedLeg(supabase, matchId, legId);
+    await enqueueDartIQCompletedLeg(supabase, matchId, legId);
   } catch (error) {
     console.error('DartIQ completed-leg telemetry error:', error);
   }
@@ -41,7 +41,7 @@ export async function completeLeg(
 
   if (leg.winner_player_id) {
     // Already completed – return current match state without re-processing.
-    await persistDartIQWithoutBreakingScoring(supabase, matchId, legId);
+    await enqueueDartIQWithoutBreakingScoring(supabase, matchId, legId);
     return { matchCompleted: !!match.completed_at };
   }
 
@@ -98,7 +98,7 @@ export async function completeLeg(
       .insert({ match_id: matchId, leg_number: nextLegNumber, starting_player_id: nextStarterId });
     if (insErr) throw new Error(insErr.message);
 
-    await persistDartIQWithoutBreakingScoring(supabase, matchId, legId);
+    await enqueueDartIQWithoutBreakingScoring(supabase, matchId, legId);
     return { matchCompleted: false };
   }
 
@@ -134,6 +134,6 @@ export async function completeLeg(
     if (error) console.error('Multiplayer ELO update error:', error);
   }
 
-  await persistDartIQWithoutBreakingScoring(supabase, matchId, legId);
+  await enqueueDartIQWithoutBreakingScoring(supabase, matchId, legId);
   return { matchCompleted: true };
 }

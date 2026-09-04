@@ -76,7 +76,7 @@ vi.mock('@/lib/dartiq/tracker', () => ({
             legsWon: 0,
             matchWinProbability: 1 / input.playerIds.length,
             legWinProbability: 1 / input.playerIds.length,
-            expectedDartsRemaining: 24,
+            expectedVisitsRemaining: 8,
           })),
         },
         currentCheckoutProbability: 0,

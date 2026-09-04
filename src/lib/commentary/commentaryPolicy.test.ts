@@ -78,7 +78,7 @@ describe('CommentaryPolicy', () => {
     expect(policy.evaluate(story, 1_000).shouldSpeak).toBe(true);
     policy.responseFinished();
     expect(policy.evaluate({ ...story, eventId: 'dart-2' }, 2_000).reason).toBe('duplicate-observation');
-    expect(policy.evaluate({ ...story, eventId: 'dart-3', storyKey: 'miss_punished:b' }, 3_000).shouldSpeak)
+    expect(policy.evaluate({ ...story, eventId: 'dart-3', storyKey: 'finish_chance_punished:b' }, 3_000).shouldSpeak)
       .toBe(true);
   });
 

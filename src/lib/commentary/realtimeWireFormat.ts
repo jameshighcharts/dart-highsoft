@@ -28,8 +28,10 @@ function narrativePlayerLine(player: CommentaryPlayerNarrative, name: string) {
     );
   }
   if (player.tendencies.length > 0) facts.push(`pattern: ${player.tendencies.join(', ')}`);
-  const missed = player.checkoutPressure.recentMissedDoubles.at(-1);
-  if (missed) facts.push(`latest missed double: leg ${missed.legNumber}, ${missed.scoreBefore} left, hit ${missed.hitSegment}`);
+  const unconverted = player.checkoutPressure.recentUnconvertedOneDartFinishes.at(-1);
+  if (unconverted) {
+    facts.push(`latest one-dart finish left unconverted: leg ${unconverted.legNumber}, ${unconverted.scoreBefore} left, hit ${unconverted.hitSegment}`);
+  }
   return `${name}: ${facts.join('; ')}`;
 }
 
@@ -78,10 +80,11 @@ export class RealtimeNarrativeWireState {
     if (!narrative) return [];
     const lines: string[] = [];
     for (const player of narrative.players) {
-      const fingerprint = JSON.stringify(player);
+      const rendered = narrativePlayerLine(player, this.name(player.playerId));
+      const fingerprint = rendered;
       if (this.playerFingerprints.get(player.playerId) === fingerprint) continue;
       this.playerFingerprints.set(player.playerId, fingerprint);
-      lines.push(`Memory update — ${narrativePlayerLine(player, this.name(player.playerId))}`);
+      lines.push(`Memory update — ${rendered}`);
     }
     const story = arcLine(direction, this.names);
     const fingerprint = story ?? '';
@@ -146,6 +149,11 @@ export function renderScoliaRealtimeEvent(
   const consequence = dartiq
     ? `Full-field consequence: leg ${points(dartiq.consequence.leg)}; match ${points(dartiq.consequence.match)}.`
     : null;
+  const opponentThreat = dartiq && !dartiq.checkedOut && dartiq.nextOpponentThreat
+    && dartiq.nextOpponentThreat.scoreRemaining <= 170
+    && dartiq.nextOpponentThreat.checkoutProbabilityNextVisit >= 0.05
+    ? `If the visit passes: ${state.name(dartiq.nextOpponentThreat.playerId)} has ${dartiq.nextOpponentThreat.scoreRemaining} left and a ${percent(dartiq.nextOpponentThreat.checkoutProbabilityNextVisit)} next-visit checkout chance.`
+    : null;
   const signals = dartiq?.signals.length ? `Facts: ${dartiq.signals.map(words).join(', ')}.` : null;
   return [
     `AUTHORITATIVE EVENT · epoch ${epoch}`,
@@ -153,6 +161,7 @@ export function renderScoliaRealtimeEvent(
     visit,
     probability,
     consequence,
+    opponentThreat,
     signals,
     ...state.renderNarrativeDelta(event.narrative, direction),
   ].filter(Boolean).join('\n');
@@ -174,11 +183,17 @@ export function renderManualRealtimeEvent(
   const storyDirection = direction
     ? { ...direction, activeStoryArc: direction.activeStoryArc }
     : undefined;
+  const opponentThreat = dartiq && !dartiq.checkedOut && dartiq.nextOpponentThreat
+    && dartiq.nextOpponentThreat.scoreRemaining <= 170
+    && dartiq.nextOpponentThreat.checkoutProbabilityNextVisit >= 0.05
+    ? `If the visit passes: ${state.name(dartiq.nextOpponentThreat.playerId)} has ${dartiq.nextOpponentThreat.scoreRemaining} left and a ${percent(dartiq.nextOpponentThreat.checkoutProbabilityNextVisit)} next-visit checkout chance.`
+    : null;
   return [
     `AUTHORITATIVE EVENT · epoch ${epoch}`,
     `${context.playerName} · leg ${context.gameContext.currentLegNumber} · visit ${context.gameContext.playerTurnNumber}: ${context.throws.map((dart) => dart.segment).join(' · ')} = ${context.totalScore}; score ${currentScoreBefore} → ${context.remainingScore}${context.busted ? '; bust' : dartiq?.checkedOut ? '; checkout' : ''}.`,
     probability,
     dartiq ? `Full-field consequence: leg ${points(dartiq.peakLegConsequence ?? Math.abs(dartiq.legWpa))}; match ${points(dartiq.peakMatchConsequence ?? Math.abs(dartiq.matchWpa))}.` : null,
+    opponentThreat,
     ...state.renderNarrativeDelta(context.narrative, storyDirection),
   ].filter(Boolean).join('\n');
 }

@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  calculateDartIQProjection,
+  calculateDartIQProjection as calculateProjection,
+  type DartIQEngineInput,
 } from './projection';
+
+function calculateDartIQProjection(
+  input: Omit<DartIQEngineInput, 'startScore'> & { startScore?: number }
+) {
+  return calculateProjection({ ...input, startScore: input.startScore ?? 501 });
+}
 
 const player = (id: string, scoreRemaining = 501, legsWon = 0, average = 45, dartsThrown = 0) => ({
   id,
@@ -53,6 +60,23 @@ describe('DartIQ projection', () => {
     });
 
     expect(result.players[0].matchWinProbability).toBeGreaterThan(0.7);
+  });
+
+  it('starts future legs from the configured match score, not the current remaining scores', () => {
+    const result = calculateDartIQProjection({
+      players: [player('a', 40, 0, 55, 30), player('b', 450, 0, 55, 30)],
+      startScore: 501,
+      playOrder: ['a', 'b'],
+      currentPlayerId: 'a',
+      currentLegStarterId: 'a',
+      dartsRemainingInTurn: 3,
+      legsToWin: 3,
+      finishRule: 'double_out',
+    });
+
+    expect(result.players[0].legWinProbability).toBeGreaterThan(0.85);
+    expect(result.players[0].matchWinProbability).toBeLessThan(0.85);
+    expect(result.players[0].matchWinProbability).toBeGreaterThan(0.6);
   });
 
   it('supports multiplayer races and keeps probabilities normalized', () => {

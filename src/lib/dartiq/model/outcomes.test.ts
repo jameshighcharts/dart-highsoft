@@ -65,4 +65,37 @@ describe('createBehavioralOutcomeModel', () => {
       ?.probability).toBeGreaterThan(0.7);
     expect(result.outcomes.reduce((sum, outcome) => sum + outcome.probability, 0)).toBeCloseTo(1);
   });
+
+  it('does not let state-agnostic personal evidence overwrite exact population shape', () => {
+    const model = createBehavioralOutcomeModel({
+      population: [{
+        currentScore: 40,
+        dartsLeft: 1,
+        finishRule: 'double_out',
+        scoreDelta: 40,
+        isDouble: true,
+        count: 120,
+      }],
+      personal: [{
+        currentScore: 501,
+        dartsLeft: 1,
+        finishRule: 'double_out',
+        scoreDelta: 0,
+        isDouble: false,
+        count: 500,
+      }],
+      priorStrength: 24,
+      exactOutcomeThreshold: 40,
+    });
+
+    const result = model.distribution({
+      currentScore: 40,
+      dartsLeft: 1,
+      finishRule: 'double_out',
+    });
+
+    expect(result.stateBackoffLevel).toBe('population_exact');
+    expect(result.outcomes.find((outcome) => outcome.scoreDelta === 40 && outcome.isDouble)
+      ?.probability).toBeGreaterThan(0.8);
+  });
 });

@@ -4,6 +4,8 @@ import type { LegRecord, ThrowRecord, TurnWithThrows } from '@/lib/match/types';
 import {
   reconstructDartIQTimeline,
   reconstructDartIQTimelineWithCheckpoint,
+  transitionDartIQDart,
+  type DartIQReplayDart,
 } from './replay';
 
 function dart(id: string, turnId: string, dartIndex: number, segment: string, scored: number): ThrowRecord {
@@ -67,6 +69,11 @@ describe('reconstructDartIQTimeline', () => {
       matchWinAvailableThisVisit: true,
       oneDartFinishUnconverted: true,
       unconvertedMatchFinishChancesInVisit: 1,
+    });
+    expect(timeline[0].nextOpponentThreat).toMatchObject({
+      playerId: 'b',
+      scoreRemaining: startScore,
+      checkoutProbabilityNextVisit: expect.any(Number),
     });
   });
 
@@ -600,5 +607,123 @@ describe('reconstructDartIQTimeline', () => {
     });
     expect(roundTwo.after.projections.reduce((sum, entry) => sum + entry.legWinProbability, 0))
       .toBeCloseTo(1);
+  });
+});
+
+describe('transitionDartIQDart', () => {
+  function replaySource(
+    replayLeg: LegRecord,
+    replayTurn: TurnWithThrows,
+    replayDart: ThrowRecord,
+    isLastInLeg = false
+  ): DartIQReplayDart {
+    return {
+      leg: replayLeg,
+      legIndex: 0,
+      turn: replayTurn,
+      dart: replayDart,
+      isLastInLeg,
+    };
+  }
+
+  it('matches clean reconstruction while leaving its checkpoint and source immutable', () => {
+    const replayLeg = leg('leg-1', 1, 'a', null);
+    const firstDart = dart('dart-1', 'turn-1', 1, 'T20', 60);
+    const secondDart = dart('dart-2', 'turn-1', 2, 'S20', 20);
+    const replayTurn = turn('turn-1', 'leg-1', 'a', 1, [firstDart, secondDart]);
+    const input = {
+      playerIds: ['a', 'b'],
+      legs: [replayLeg],
+      turnsByLeg: { 'leg-1': [replayTurn] },
+      startScore: 301,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const prefix = reconstructDartIQTimelineWithCheckpoint({
+      ...input,
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'a', 1, [firstDart])],
+      },
+    });
+    const checkpoint = prefix.checkpoint!;
+    const checkpointBefore = structuredClone(checkpoint);
+    const source = replaySource(replayLeg, replayTurn, secondDart, true);
+    const sourceBefore = structuredClone(source);
+
+    const transitioned = transitionDartIQDart(input, [replayLeg], source, undefined, checkpoint);
+    const clean = reconstructDartIQTimelineWithCheckpoint(input);
+
+    expect(transitioned.event).toEqual(clean.timeline[1]);
+    expect(transitioned.checkpoint).toEqual(clean.checkpoint);
+    expect(checkpoint).toEqual(checkpointBefore);
+    expect(source).toEqual(sourceBefore);
+    expect(transitioned.checkpoint).not.toBe(checkpoint);
+    expect(transitioned.event.before).not.toBe(checkpoint.state);
+  });
+
+  it('rolls a mid-visit bust back to the visit start through the transition primitive', () => {
+    const replayLeg = leg('leg-1', 1, 'a', null);
+    const firstDart = dart('dart-1', 'turn-1', 1, 'T10', 30);
+    const bustDart = dart('dart-2', 'turn-1', 2, 'S2', 2);
+    const replayTurn = turn('turn-1', 'leg-1', 'a', 1, [firstDart, bustDart]);
+    const input = {
+      playerIds: ['a', 'b'],
+      legs: [replayLeg],
+      turnsByLeg: { 'leg-1': [replayTurn] },
+      startScore: 32,
+      finishRule: 'double_out' as const,
+      legsToWin: 1,
+    };
+    const prefix = reconstructDartIQTimelineWithCheckpoint({
+      ...input,
+      turnsByLeg: { 'leg-1': [turn('turn-1', 'leg-1', 'a', 1, [firstDart])] },
+    });
+
+    const result = transitionDartIQDart(
+      input,
+      [replayLeg],
+      replaySource(replayLeg, replayTurn, bustDart, true),
+      undefined,
+      prefix.checkpoint!
+    );
+
+    expect(result.event.busted).toBe(true);
+    expect(result.event.after.scores.a).toBe(32);
+    expect(result.event.after.projections.find((entry) => entry.id === 'a')?.dartsThrown).toBe(0);
+  });
+
+  it('preserves provisional fair-ending state when another player still has a reply', () => {
+    const replayLeg = leg('leg-1', 1, 'a', null);
+    const checkoutDart = dart('dart-a', 'turn-a', 1, 'D20', 40);
+    const replyDart = dart('dart-b', 'turn-b', 1, 'Miss', 0);
+    const checkoutTurn = turn('turn-a', 'leg-1', 'a', 1, [checkoutDart]);
+    const replyTurn = turn('turn-b', 'leg-1', 'b', 2, [replyDart]);
+    const input = {
+      playerIds: ['a', 'b'],
+      legs: [replayLeg],
+      turnsByLeg: { 'leg-1': [checkoutTurn, replyTurn] },
+      startScore: 40,
+      finishRule: 'double_out' as const,
+      legsToWin: 1,
+      fairEnding: true,
+    };
+    const prefix = reconstructDartIQTimelineWithCheckpoint({
+      ...input,
+      turnsByLeg: { 'leg-1': [checkoutTurn] },
+    });
+
+    const result = transitionDartIQDart(
+      input,
+      [replayLeg],
+      replaySource(replayLeg, replyTurn, replyDart, true),
+      undefined,
+      prefix.checkpoint!
+    );
+    const clean = reconstructDartIQTimelineWithCheckpoint(input);
+
+    expect(result.event).toEqual(clean.timeline[1]);
+    expect(result.event.fairEndingBefore?.phase).not.toBe('normal');
+    expect(result.event.after.currentPlayerId).toBe('b');
+    expect(result.event.after.dartsRemainingInTurn).toBe(2);
   });
 });

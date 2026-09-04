@@ -177,7 +177,7 @@ function exactPosterior(
   observations: DartIQOutcomeObservation[],
   priorStrength: number
 ) {
-  const { counts, total } = aggregate(observations);
+  const { counts } = aggregate(observations);
   const keys = new Set([...prior.map(outcomeKey), ...counts.keys()]);
   const priorByKey = new Map(prior.map((outcome) => [outcomeKey(outcome), outcome]));
   return normalizeWeights([...keys].map((key) => {
@@ -188,7 +188,7 @@ function exactPosterior(
       isDouble: observed?.isDouble ?? fallback?.isDouble ?? false,
       weight: (observed?.weight ?? 0) + (fallback?.probability ?? 0) * priorStrength,
     };
-  })).map((outcome) => ({ ...outcome, probability: outcome.probability / Math.max(1, total + priorStrength) * (total + priorStrength) }));
+  }));
 }
 
 function familyPosterior(
@@ -209,15 +209,86 @@ function familyPosterior(
   }
 
   const denominator = total + priorStrength;
-  return prior.map((outcome) => {
+  const observedByFamily = new Map<string, WeightedOutcome[]>();
+  for (const outcome of counts.values()) {
     const family = outcomeFamily(outcome);
+    const familyOutcomes = observedByFamily.get(family) ?? [];
+    familyOutcomes.push(outcome);
+    observedByFamily.set(family, familyOutcomes);
+  }
+  const families = new Set([...priorFamilies.keys(), ...observedFamilies.keys()]);
+  const posterior: DartIQDartOutcome[] = [];
+  for (const family of families) {
     const priorFamily = priorFamilies.get(family) ?? 0;
     const familyProbability = denominator > 0
       ? ((observedFamilies.get(family) ?? 0) + priorFamily * priorStrength) / denominator
       : priorFamily;
-    const withinFamily = priorFamily > 0 ? outcome.probability / priorFamily : 0;
-    return { ...outcome, probability: familyProbability * withinFamily };
-  });
+    if (priorFamily > 0) {
+      for (const outcome of prior) {
+        if (outcomeFamily(outcome) !== family) continue;
+        posterior.push({
+          ...outcome,
+          probability: familyProbability * outcome.probability / priorFamily,
+        });
+      }
+      continue;
+    }
+    const observed = observedByFamily.get(family) ?? [];
+    const observedTotal = observed.reduce((sum, outcome) => sum + outcome.weight, 0);
+    for (const outcome of observed) {
+      posterior.push({
+        scoreDelta: outcome.scoreDelta,
+        isDouble: outcome.isDouble,
+        probability: observedTotal > 0 ? familyProbability * outcome.weight / observedTotal : 0,
+      });
+    }
+  }
+  const normalized = normalizeWeights(posterior.map((outcome) => ({
+    scoreDelta: outcome.scoreDelta,
+    isDouble: outcome.isDouble,
+    weight: outcome.probability,
+  })));
+  return normalized;
+}
+
+type ObservationIndex = {
+  byRule: Map<FinishRule, DartIQOutcomeObservation[]>;
+  byClass: Map<string, DartIQOutcomeObservation[]>;
+  byExact: Map<string, DartIQOutcomeObservation[]>;
+  samplesByRule: Map<FinishRule, number>;
+};
+
+function classKey(context: DartIQOutcomeContext) {
+  return `${context.finishRule}:${scoreClass(context.currentScore)}:${context.dartsLeft}`;
+}
+
+function exactKey(context: DartIQOutcomeContext) {
+  return `${context.finishRule}:${context.currentScore}:${context.dartsLeft}`;
+}
+
+function indexObservations(observations: DartIQOutcomeObservation[]): ObservationIndex {
+  const index: ObservationIndex = {
+    byRule: new Map(),
+    byClass: new Map(),
+    byExact: new Map(),
+    samplesByRule: new Map(),
+  };
+  for (const observation of observations) {
+    const ruleRows = index.byRule.get(observation.finishRule) ?? [];
+    ruleRows.push(observation);
+    index.byRule.set(observation.finishRule, ruleRows);
+    const classRows = index.byClass.get(classKey(observation)) ?? [];
+    classRows.push(observation);
+    index.byClass.set(classKey(observation), classRows);
+    const exactRows = index.byExact.get(exactKey(observation)) ?? [];
+    exactRows.push(observation);
+    index.byExact.set(exactKey(observation), exactRows);
+    index.samplesByRule.set(
+      observation.finishRule,
+      (index.samplesByRule.get(observation.finishRule) ?? 0) + Math.max(0, observation.count)
+    );
+  }
+  return index;
 }
 
 function updatePosterior(
@@ -251,6 +322,8 @@ export function createBehavioralOutcomeModel(
     1,
     input.exactOutcomeThreshold ?? DARTIQ_OUTCOME_CONFIGURATION.exactOutcomeThreshold
   );
+  const personalIndex = indexObservations(personal);
+  const populationIndex = indexObservations(population);
   const distributionCache = new Map<string, DartIQOutcomeDistribution>();
 
   return {
@@ -259,27 +332,16 @@ export function createBehavioralOutcomeModel(
       const cacheKey = `${context.finishRule}:${context.currentScore}:${context.dartsLeft}`;
       const cached = distributionCache.get(cacheKey);
       if (cached) return cached;
-      const sameRule = (observation: DartIQOutcomeObservation) =>
-        observation.finishRule === context.finishRule;
-      const sameClassAndDarts = (observation: DartIQOutcomeObservation) =>
-        sameRule(observation)
-        && scoreClass(observation.currentScore) === scoreClass(context.currentScore)
-        && observation.dartsLeft === context.dartsLeft;
-      const exactState = (observation: DartIQOutcomeObservation) =>
-        sameRule(observation)
-        && observation.currentScore === context.currentScore
-        && observation.dartsLeft === context.dartsLeft;
-
       const layers: Array<{
         level: DartIQOutcomeBackoffLevel;
         observations: DartIQOutcomeObservation[];
       }> = [
-        { level: 'population_global', observations: population.filter(sameRule) },
-        { level: 'population_score_class', observations: population.filter(sameClassAndDarts) },
-        { level: 'population_exact', observations: population.filter(exactState) },
-        { level: 'player_global', observations: personal.filter(sameRule) },
-        { level: 'player_score_class', observations: personal.filter(sameClassAndDarts) },
-        { level: 'player_exact', observations: personal.filter(exactState) },
+        { level: 'population_global', observations: populationIndex.byRule.get(context.finishRule) ?? [] },
+        { level: 'player_global', observations: personalIndex.byRule.get(context.finishRule) ?? [] },
+        { level: 'population_score_class', observations: populationIndex.byClass.get(classKey(context)) ?? [] },
+        { level: 'player_score_class', observations: personalIndex.byClass.get(classKey(context)) ?? [] },
+        { level: 'population_exact', observations: populationIndex.byExact.get(exactKey(context)) ?? [] },
+        { level: 'player_exact', observations: personalIndex.byExact.get(exactKey(context)) ?? [] },
       ];
 
       let outcomes = createFallbackPrior(context);
@@ -300,12 +362,8 @@ export function createBehavioralOutcomeModel(
         outcomeBackoffLevel = updated.outcomeBackoffLevel;
       }
 
-      const personalSamples = personal
-        .filter(sameRule)
-        .reduce((sum, observation) => sum + Math.max(0, observation.count), 0);
-      const populationSamples = population
-        .filter(sameRule)
-        .reduce((sum, observation) => sum + Math.max(0, observation.count), 0);
+      const personalSamples = personalIndex.samplesByRule.get(context.finishRule) ?? 0;
+      const populationSamples = populationIndex.samplesByRule.get(context.finishRule) ?? 0;
       const confidenceTier = personalSamples >= 120
         ? 'player_established'
         : personalSamples > 0

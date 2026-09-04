@@ -38,7 +38,7 @@ export function buildCommentaryPrompt(
         || payload.narrative.players.some((player) =>
           player.tendencies.length > 0
           || player.baselinePerformance !== 'near_baseline'
-          || player.checkoutPressure.recentMissedDoubles.length > 0
+          || player.checkoutPressure.recentUnconvertedOneDartFinishes.length > 0
           || player.checkoutPressure.highPressureOpportunities > 0
         )
       )
@@ -129,6 +129,19 @@ export function buildCommentaryPrompt(
     else if (Math.abs(dartiq.leaveProbabilityChange ?? 0) >= 0.03) {
       dartIQHints.push(
         `The resulting leave changed the next-visit checkout chance by ${formatPoints(dartiq.leaveProbabilityChange ?? 0)}, to ${formatPercent(dartiq.nextVisitCheckoutProbability ?? 0)}.`
+      );
+    }
+    if (
+      dartiq.nextOpponentThreat
+      && !dartiq.checkedOut
+      && dartiq.nextOpponentThreat.scoreRemaining <= 170
+      && dartiq.nextOpponentThreat.checkoutProbabilityNextVisit >= 0.05
+    ) {
+      const opponent = payload.gameContext.allPlayers.find(
+        (player) => player.id === dartiq.nextOpponentThreat?.playerId
+      );
+      dartIQHints.push(
+        `If the visit passes, ${opponent?.name ?? 'the next opponent'} has ${dartiq.nextOpponentThreat.scoreRemaining} left with a ${formatPercent(dartiq.nextOpponentThreat.checkoutProbabilityNextVisit)} next-visit checkout chance.`
       );
     }
   }

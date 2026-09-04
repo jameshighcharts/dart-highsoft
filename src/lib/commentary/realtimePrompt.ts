@@ -13,6 +13,7 @@ export function buildRealtimeSessionInstructions(persona: CommentaryPersona) {
 - Labeled match briefs are authoritative for scores, probabilities, player names, and outcomes.
 - The latest commentary epoch is current. Earlier epochs become historical and should not influence new calls.
 - The active broadcast story is the editorial focus. Background stories remain context until promoted.
+- Every factual claim must trace to a supplied event, memory fact, or promoted story. Invent no aim, intent, miss, record, or history.
 
 # Speaking Behavior
 - Context events update memory silently. Generate speech when a response is requested.
@@ -65,6 +66,7 @@ export function buildRealtimeResponseInstructions(input: RealtimeResponseBrief) 
     `- ${visitScopeInstruction(input)}`,
     `- ${visitTimingInstruction(input)}`,
     `- ${realtimeLengthInstruction(input)}`,
+    '- Choose the strongest fresh supplied fact; perform it spontaneously instead of listing candidates.',
     story ? `- ${story}` : '',
     `- ${realtimePersonaResponseInstruction(input.personaId)}`,
   ].filter(Boolean).join('\n');

@@ -4,6 +4,7 @@ import type {
   DartIQDartEvent,
   DartIQReplayState,
 } from '@/lib/dartiq/replay';
+import type { DartIQProjectionApproximationMode } from '@/lib/dartiq/projection';
 
 export const DARTIQ_POLICY_VERSION = 'broadcast-1' as const;
 
@@ -33,6 +34,9 @@ export type DartIQEventSignal =
   | 'tiebreak_lead_change'
   | 'tiebreak_tied'
   | 'one_eighty'
+  | 'big_fish'
+  | 'ton_plus_checkout'
+  | 'bull_checkout'
   | 'nikita_special'
   | 'story_arc'
   | 'bust'
@@ -61,6 +65,7 @@ export type DartIQDartPacket = {
   scoreAfter: number;
   busted: boolean;
   checkedOut: boolean;
+  nextOpponentThreat?: DartIQDartEvent['nextOpponentThreat'];
   fairEnding?: {
     enabled: true;
     phase: 'normal' | 'completing_round' | 'tiebreak' | 'resolved';
@@ -78,6 +83,7 @@ export type DartIQDartPacket = {
   legWpa: number;
   matchWpa: number;
   consequence: DartIQDartEvent['consequence'];
+  approximationModes: DartIQProjectionApproximationMode[];
   semanticStakes: DartIQDartEvent['semanticStakes'];
   checkout: DartIQCheckoutAssessment;
   signals: DartIQEventSignal[];
@@ -158,6 +164,9 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
   if (matchWin) signals.push('match_win');
   if (fairLegResolved || (!fairAfter && event.checkedOut)) signals.push('leg_win');
   if (event.checkedOut) signals.push('checkout');
+  if (event.checkedOut && scoreBefore === 170) signals.push('big_fish');
+  else if (event.checkedOut && scoreBefore >= 100) signals.push('ton_plus_checkout');
+  if (event.checkedOut && event.segment === 'DB') signals.push('bull_checkout');
   if (event.checkedOut && fairAfter && fairAfter.phase !== 'resolved') {
     signals.push('fair_ending_checkout');
   }
@@ -234,6 +243,7 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     scoreAfter,
     busted: event.busted,
     checkedOut: event.checkedOut,
+    nextOpponentThreat: event.nextOpponentThreat,
     ...(fairAfter ? {
       fairEnding: {
         enabled: true as const,
@@ -253,6 +263,10 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     legWpa,
     matchWpa,
     consequence,
+    approximationModes: [...new Set([
+      event.before.approximationMode,
+      event.after.approximationMode,
+    ].filter((mode) => mode !== 'standard'))],
     semanticStakes: event.semanticStakes ?? {
       oneDartFinishAvailable: false,
       finishAvailableThisVisit: false,

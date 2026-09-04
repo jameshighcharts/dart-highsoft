@@ -84,6 +84,7 @@ export type DartIQTurnSummary = {
   busted: boolean;
   leaveProbabilityChange: number;
   nextVisitCheckoutProbability: number;
+  nextOpponentThreat?: DartIQDartEvent['nextOpponentThreat'];
   createdBogey: boolean;
 };
 
@@ -194,6 +195,7 @@ export function summarizeDartIQForTurn(
     busted,
     leaveProbabilityChange: last.checkout.leaveProbabilityChange,
     nextVisitCheckoutProbability: last.checkout.nextVisitCheckoutProbability,
+    nextOpponentThreat: last.nextOpponentThreat,
     createdBogey: last.checkout.createdBogey,
   };
 }

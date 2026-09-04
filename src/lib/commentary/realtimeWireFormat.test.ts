@@ -63,7 +63,7 @@ function snapshot(): RealtimeCommentarySnapshot {
         checkoutPressure: {
           opportunities: 2, conversions: 1,
           highPressureOpportunities: 1, highPressureConversions: 0,
-          recentMissedDoubles: [],
+          recentUnconvertedOneDartFinishes: [],
         },
       }],
     },
@@ -89,6 +89,12 @@ function event(narrative = snapshot().narrative): ScoliaRealtimeDartEvent {
       matchProbabilityBefore: 0.48, matchProbabilityAfter: 0.61,
       legWpa: 0.22, matchWpa: 0.13,
       consequence: { leg: 0.22, match: 0.13 },
+      approximationModes: [],
+      nextOpponentThreat: {
+        playerId: PLAYER_B,
+        scoreRemaining: 80,
+        checkoutProbabilityNextVisit: 0.27,
+      },
       semanticStakes: {
         oneDartFinishAvailable: true,
         finishAvailableThisVisit: true,
@@ -128,5 +134,31 @@ describe('Realtime commentary wire format', () => {
     expect(second).toContain('Memory update — Nikita: average 70.0');
     expect(second).not.toContain(PLAYER_A);
     expect(second.length).toBeLessThan(700);
+  });
+
+  it('supplies the next opponent checkout danger without inventing intent', () => {
+    const state = new RealtimeNarrativeWireState();
+    renderRealtimeSnapshot(1, snapshot(), state);
+    const source = event();
+    source.checkedOut = false;
+    if (source.dartiq) source.dartiq.checkedOut = false;
+
+    const text = renderScoliaRealtimeEvent(1, source, state);
+
+    expect(text).toContain('If the visit passes: Ken has 80 left and a 27% next-visit checkout chance.');
+  });
+
+  it('does not resend memory when raw values change below rendered precision', () => {
+    const state = new RealtimeNarrativeWireState();
+    renderRealtimeSnapshot(1, snapshot(), state);
+    const changed = snapshot().narrative;
+    changed.players[0] = {
+      ...changed.players[0],
+      currentThreeDartAverage: 64.204,
+    };
+
+    const text = renderScoliaRealtimeEvent(1, event(changed), state);
+
+    expect(text).not.toContain('Memory update');
   });
 });

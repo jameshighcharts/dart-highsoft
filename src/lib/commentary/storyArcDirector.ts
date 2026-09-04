@@ -7,7 +7,7 @@ export type CommentaryStoryArcKind =
   | 'collapse'
   | 'underdog_rising'
   | 'seesaw_match'
-  | 'miss_punished'
+  | 'finish_chance_punished'
   | 'checkout_duel'
   | 'pressure_resilience'
   | 'rematch_revenge'
@@ -26,7 +26,7 @@ export type CommentaryStoryArc = {
 type ArcCandidate = CommentaryStoryArc & { score: number; order: number };
 
 const KIND_ORDER: CommentaryStoryArcKind[] = [
-  'miss_punished',
+  'finish_chance_punished',
   'rematch_revenge',
   'underdog_rising',
   'comeback',
@@ -82,11 +82,11 @@ export function rankCommentaryStoryArcs(input: {
   const minima = new Map(initial);
   const maxima = new Map(initial);
   const checkoutConversions = new Map<string, number>();
-  const highPressure = new Map<string, { chances: number; conversions: number }>();
-  const lastDoubleMiss = new Map<string, { sequence: number; score: number }>();
+  const highPressure = new Map<string, { chanceTurns: Set<string>; conversionTurns: Set<string> }>();
+  const lastUnconvertedFinish = new Map<string, { sequence: number; score: number }>();
   let favoriteChanges = 0;
   let previousFavorite = favoriteId(first.before);
-  let punishment: { winner: string; missedBy: string; gap: number; score: number } | null = null;
+  let punishment: { winner: string; chanceLeftBy: string; gap: number; score: number } | null = null;
 
   for (const event of input.events) {
     for (const playerId of playerIds) {
@@ -100,7 +100,7 @@ export function rankCommentaryStoryArcs(input: {
 
     const scoreBefore = event.before.scores[event.playerId] ?? 0;
     if (isOneDartDoubleLeave(scoreBefore, input.finishRule) && !event.checkedOut) {
-      lastDoubleMiss.set(event.playerId, { sequence: event.sequence, score: scoreBefore });
+      lastUnconvertedFinish.set(event.playerId, { sequence: event.sequence, score: scoreBefore });
     }
     const opponentThreat = Object.entries(event.before.scores).some(
       ([playerId, score]) => playerId !== event.playerId
@@ -110,17 +110,23 @@ export function rankCommentaryStoryArcs(input: {
       event.checkout.checkoutProbabilityBefore > 0
       && (event.semanticStakes?.matchWinAvailableThisVisit || opponentThreat)
     ) {
-      const history = highPressure.get(event.playerId) ?? { chances: 0, conversions: 0 };
-      history.chances += 1;
-      if (event.checkedOut) history.conversions += 1;
+      const history = highPressure.get(event.playerId) ?? {
+        chanceTurns: new Set<string>(),
+        conversionTurns: new Set<string>(),
+      };
+      history.chanceTurns.add(event.turnId);
       highPressure.set(event.playerId, history);
+    }
+    const pressureHistory = highPressure.get(event.playerId);
+    if (event.checkedOut && pressureHistory?.chanceTurns.has(event.turnId)) {
+      pressureHistory.conversionTurns.add(event.turnId);
     }
     if (event.checkedOut) {
       checkoutConversions.set(event.playerId, (checkoutConversions.get(event.playerId) ?? 0) + 1);
-      for (const [missedBy, miss] of lastDoubleMiss) {
-        const gap = event.sequence - miss.sequence;
-        if (missedBy !== event.playerId && gap > 0 && gap <= 6) {
-          punishment = { winner: event.playerId, missedBy, gap, score: miss.score };
+      for (const [chanceLeftBy, chance] of lastUnconvertedFinish) {
+        const gap = event.sequence - chance.sequence;
+        if (chanceLeftBy !== event.playerId && gap > 0 && gap <= 6) {
+          punishment = { winner: event.playerId, chanceLeftBy, gap, score: chance.score };
         }
       }
     }
@@ -162,22 +168,24 @@ export function rankCommentaryStoryArcs(input: {
       }));
     }
     const pressure = highPressure.get(playerId);
-    if (pressure && pressure.chances >= 2 && pressure.conversions >= 1) {
+    const pressureChances = pressure?.chanceTurns.size ?? 0;
+    const pressureConversions = pressure?.conversionTurns.size ?? 0;
+    if (pressureChances >= 2 && pressureConversions >= 1) {
       candidates.push(candidate({
-        kind: 'pressure_resilience', score: 0.62 + Math.min(0.1, pressure.conversions * 0.04),
-        phase: pressure.conversions >= 2 ? 'established' : 'developing', treatment: 'analysis',
-        strength: clamp(pressure.conversions / pressure.chances), subjectPlayerId: playerId,
+        kind: 'pressure_resilience', score: 0.62 + Math.min(0.1, pressureConversions * 0.04),
+        phase: pressureConversions >= 2 ? 'established' : 'developing', treatment: 'analysis',
+        strength: clamp(pressureConversions / pressureChances), subjectPlayerId: playerId,
         counterpartPlayerId: null,
-        evidence: { pressureCheckoutChances: pressure.chances, pressureCheckouts: pressure.conversions },
+        evidence: { pressureCheckoutChances: pressureChances, pressureCheckouts: pressureConversions },
       }));
     }
   }
 
   if (punishment) {
     candidates.push(candidate({
-      kind: 'miss_punished', score: 0.92, phase: 'payoff', treatment: 'light_sass', strength: 0.9,
-      subjectPlayerId: punishment.winner, counterpartPlayerId: punishment.missedBy,
-      evidence: { dartsLater: punishment.gap, missedDoubleScore: punishment.score },
+      kind: 'finish_chance_punished', score: 0.92, phase: 'payoff', treatment: 'light_sass', strength: 0.9,
+      subjectPlayerId: punishment.winner, counterpartPlayerId: punishment.chanceLeftBy,
+      evidence: { dartsLater: punishment.gap, unconvertedFinishScore: punishment.score },
     }));
   }
   if (favoriteChanges >= 3) {

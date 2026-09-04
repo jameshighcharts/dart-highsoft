@@ -22,7 +22,7 @@ const dart = (
 
 /**
  * A valid 301 double-out leg designed to exercise the full commentary stack:
- * Nikita special -> opposing 180 -> deficit -> comeback 180 -> missed double
+ * Nikita special -> opposing 180 -> deficit -> comeback 180 -> unconverted finish
  * leave -> bull checkout and punished-miss payoff.
  */
 export const BROADCAST_DIRECTOR_DEMO: readonly CommentaryDemoVisit[] = [

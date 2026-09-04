@@ -102,6 +102,7 @@ function createInitialState(input: DartIQReplayInput): DartIQReplayState {
       historicalProfile: input.playerProfiles?.[playerId],
       outcomeModel: input.outcomeModels?.[playerId],
     })),
+    startScore: input.startScore,
     playOrder: rotatePlayerOrder(input.playerIds, currentLeg.starting_player_id),
     currentPlayerId,
     currentVisitStartScore: currentPlayerId ? input.startScore : undefined,
@@ -122,6 +123,7 @@ function createInitialState(input: DartIQReplayInput): DartIQReplayState {
     scores,
     legsWon,
     projections: projection.players,
+    approximationMode: projection.approximationMode,
     fairEnding: null,
   };
 }

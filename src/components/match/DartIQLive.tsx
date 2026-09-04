@@ -237,7 +237,7 @@ export function DartIQLive({
                     <div><span className="font-semibold text-foreground">{stats.scoreRemaining}</span>{highField ? '' : ' left'} · {stats.legsWon}/{legsToWin}</div>
                     <div>
                       Leg <span className="font-mono font-semibold text-foreground">{formatProbability(stats.legWinProbability)}</span>
-                      {' · '}~{Math.max(0, Math.ceil(stats.expectedDartsRemaining))} darts
+                      {' · '}~{Math.max(0, Math.ceil(stats.expectedVisitsRemaining))} visits
                     </div>
                   </div>
                 </div>

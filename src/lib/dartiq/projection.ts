@@ -36,6 +36,7 @@ export type DartIQPlayerState = {
 
 export type DartIQEngineInput = {
   players: DartIQPlayerState[];
+  startScore: number;
   playOrder: string[];
   currentPlayerId: string | null;
   currentVisitStartScore?: number;
@@ -61,7 +62,7 @@ export type DartIQFairEndingProjectionInput = {
 
 export type DartIQPlayerProjection = DartIQPlayerState & {
   adjustedThreeDartAverage: number;
-  expectedDartsRemaining: number;
+  expectedVisitsRemaining: number;
   legWinProbability: number;
   matchWinProbability: number;
   baselineThreeDartAverage: number;
@@ -73,10 +74,17 @@ export type DartIQPlayerProjection = DartIQPlayerState & {
   bustRate: number;
 };
 
+export type DartIQProjectionApproximationMode =
+  | 'standard'
+  | 'truncated-tail'
+  | 'no-finish-fallback'
+  | 'large-field-bounded'
+  | 'fair-ending-weighted';
+
 export type DartIQEngineProjection = {
   players: DartIQPlayerProjection[];
   favoritePlayerId: string | null;
-  approximationMode: 'standard' | 'truncated-tail' | 'no-finish-fallback' | 'large-field-bounded' | 'fair-ending-weighted';
+  approximationMode: DartIQProjectionApproximationMode;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -141,13 +149,13 @@ function rotateOrder(playOrder: string[], firstPlayerId: string | null | undefin
   return [...playOrder.slice(firstIndex), ...playOrder.slice(0, firstIndex)];
 }
 
-function expectedDartsFromPmf(pmf: DartIQFirstFinishPmf, firstVisitDarts = 3) {
+function expectedVisitsFromPmf(pmf: DartIQFirstFinishPmf) {
   let expected = 0;
   for (let index = 0; index < pmf.probabilities.length; index += 1) {
-    expected += pmf.probabilities[index] * (firstVisitDarts + index * 3);
+    expected += pmf.probabilities[index] * (index + 1);
   }
   if (pmf.truncatedMass > 0) {
-    expected += pmf.truncatedMass * (firstVisitDarts + pmf.probabilities.length * 3);
+    expected += pmf.truncatedMass * (pmf.probabilities.length + 1);
   }
   return expected;
 }
@@ -157,42 +165,42 @@ function createPlayerPmf(
   finishRule: FinishRule,
   partial?: { visitStartScore: number; dartsLeft: number }
 ) {
+  const normalizedPartial = partial
+    && !(partial.dartsLeft === 3 && partial.visitStartScore === player.scoreRemaining)
+    ? partial
+    : undefined;
+  let byState = FINISH_PMF_CACHE.get(player.outcomeModel);
+  if (!byState) {
+    byState = new Map();
+    FINISH_PMF_CACHE.set(player.outcomeModel, byState);
+  }
+  const key = normalizedPartial
+    ? `${finishRule}:${player.scoreRemaining}:${normalizedPartial.visitStartScore}:${normalizedPartial.dartsLeft}`
+    : `${finishRule}:${player.scoreRemaining}`;
+  const cached = byState.get(key);
+  if (cached) return cached;
+
   const kernel = getVisitKernel(
     player.outcomeModel,
     finishRule,
-    Math.max(player.scoreRemaining, partial?.visitStartScore ?? 0)
+    Math.max(player.scoreRemaining, normalizedPartial?.visitStartScore ?? 0)
   );
-  if (!partial) {
-    let byState = FINISH_PMF_CACHE.get(player.outcomeModel);
-    if (!byState) {
-      byState = new Map();
-      FINISH_PMF_CACHE.set(player.outcomeModel, byState);
-    }
-    const key = `${finishRule}:${player.scoreRemaining}`;
-    const cached = byState.get(key);
-    if (cached) return cached;
-    const pmf = createFirstFinishPmf({
-      startScore: player.scoreRemaining,
-      kernel,
-      maximumVisits: DARTIQ_PROJECTION_CONFIGURATION.maximumVisits,
-    });
-    byState.set(key, pmf);
-    return pmf;
-  }
-  const firstVisit = partial
+  const firstVisit = normalizedPartial
     ? solveDartIQVisit(player.outcomeModel, {
-        visitStartScore: partial.visitStartScore,
+        visitStartScore: normalizedPartial.visitStartScore,
         currentScore: player.scoreRemaining,
-        dartsLeft: clamp(Math.floor(partial.dartsLeft), 1, 3) as 1 | 2 | 3,
+        dartsLeft: clamp(Math.floor(normalizedPartial.dartsLeft), 1, 3) as 1 | 2 | 3,
         finishRule,
       })
     : undefined;
-  return createFirstFinishPmf({
+  const pmf = createFirstFinishPmf({
     startScore: player.scoreRemaining,
     kernel,
     firstVisit,
     maximumVisits: DARTIQ_PROJECTION_CONFIGURATION.maximumVisits,
   });
+  byState.set(key, pmf);
+  return pmf;
 }
 
 function markovLegProbabilities(players: PreparedDartIQPlayer[], input: DartIQEngineInput) {
@@ -223,9 +231,13 @@ function markovLegProbabilities(players: PreparedDartIQPlayer[], input: DartIQEn
 function futureLegProbabilitiesByStarter(
   players: PreparedDartIQPlayer[],
   playOrder: string[],
-  finishRule: FinishRule
+  finishRule: FinishRule,
+  startScore: number
 ) {
-  const byId = new Map(players.map((player) => [player.id, player]));
+  const byId = new Map(players.map((player) => [
+    player.id,
+    { ...player, scoreRemaining: startScore },
+  ]));
   return playOrder.map((starterId) => {
     const orderedPlayers = rotateOrder(playOrder, starterId)
       .map((id) => byId.get(id))
@@ -391,6 +403,7 @@ export function calculateDartIQProjection(input: DartIQEngineInput): DartIQEngin
 
   let legProbabilities: number[];
   let matchProbabilities: number[];
+  let currentLegPmfs: Map<string, DartIQFirstFinishPmf> | null = null;
   let projectionApproximation: DartIQEngineProjection['approximationMode'] = 'standard';
 
   const winnerIndex = input.matchWinnerId
@@ -403,6 +416,7 @@ export function calculateDartIQProjection(input: DartIQEngineInput): DartIQEngin
     const liveLeg = input.fairEnding && input.fairEnding.phase !== 'normal'
       ? null
       : markovLegProbabilities(prepared, input);
+    currentLegPmfs = liveLeg?.pmfById ?? null;
     legProbabilities = input.fairEnding && input.fairEnding.phase !== 'normal'
       ? fairEndingLegProbabilities(prepared, input, input.fairEnding)
       : liveLeg!.probabilities;
@@ -427,7 +441,8 @@ export function calculateDartIQProjection(input: DartIQEngineInput): DartIQEngin
       futureLegProbabilitiesByStarter: futureLegProbabilitiesByStarter(
         prepared,
         input.playOrder,
-        input.finishRule
+        input.finishRule,
+        input.startScore
       ),
     });
     matchProbabilities = matchRace.probabilities;
@@ -443,8 +458,8 @@ export function calculateDartIQProjection(input: DartIQEngineInput): DartIQEngin
     threeDartAverage: player.threeDartAverage,
     dartsThrown: player.dartsThrown,
     adjustedThreeDartAverage: player.adjustedAverage,
-    expectedDartsRemaining: expectedDartsFromPmf(
-      createPlayerPmf(
+    expectedVisitsRemaining: player.scoreRemaining <= 0 ? 0 : expectedVisitsFromPmf(
+      currentLegPmfs?.get(player.id) ?? createPlayerPmf(
         player,
         input.finishRule,
         player.id === input.currentPlayerId
@@ -453,8 +468,7 @@ export function calculateDartIQProjection(input: DartIQEngineInput): DartIQEngin
               dartsLeft: input.dartsRemainingInTurn,
             }
           : undefined
-      ),
-      player.id === input.currentPlayerId ? input.dartsRemainingInTurn : 3
+      )
     ),
     legWinProbability: legProbabilities[index],
     matchWinProbability: matchProbabilities[index],

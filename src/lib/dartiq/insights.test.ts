@@ -21,7 +21,7 @@ function state(
     projections: [
       {
         id: 'a', scoreRemaining: 40, legsWon: legsA, threeDartAverage: 50, dartsThrown: 30,
-        adjustedThreeDartAverage: 50, expectedDartsRemaining: 3,
+        adjustedThreeDartAverage: 50, expectedVisitsRemaining: 1,
         legWinProbability: legProbabilityA, matchWinProbability: matchProbabilityA,
         baselineThreeDartAverage: 45, historicalDarts: 0, profileConfidence: 0,
         profileSource: 'fallback', checkoutRate: 0.12, populationCheckoutRate: 0.12,
@@ -29,13 +29,14 @@ function state(
       },
       {
         id: 'b', scoreRemaining: 80, legsWon: legsB, threeDartAverage: 50, dartsThrown: 30,
-        adjustedThreeDartAverage: 50, expectedDartsRemaining: 6,
+        adjustedThreeDartAverage: 50, expectedVisitsRemaining: 2,
         legWinProbability: 1 - legProbabilityA, matchWinProbability: 1 - matchProbabilityA,
         baselineThreeDartAverage: 45, historicalDarts: 0, profileConfidence: 0,
         profileSource: 'fallback', checkoutRate: 0.12, populationCheckoutRate: 0.12,
         bustRate: 0.04,
       },
     ],
+    approximationMode: 'standard',
   };
 }
 

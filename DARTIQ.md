@@ -169,14 +169,14 @@ The current request-per-turn commentary endpoint and separate text-to-speech cal
 
 - The server uses the standard OpenAI API key with the unified WebRTC interface: it forwards the browser SDP offer, supplies trusted session configuration, returns the SDP answer, and retains the returned OpenAI call ID for worker sideband control. The standard key and call ID must never be shipped to the browser.
 - The browser establishes the persistent WebRTC connection and receives audio directly from the model.
-- Every accepted dart produces a compact event containing the dart result, updated game state, and deterministic DartIQ metrics such as match/leg win probability, per-player WPA, total-variation consequence, opportunity, and classified moments.
+- Every accepted dart produces a compact event containing the dart result, updated game state, and deterministic DartIQ metrics such as match/leg win probability, per-player WPA, total-variation consequence, semantic stakes, and classified moments. Opportunity and rarity join this contract only when their full outcome enumeration is implemented.
 - The model narrates those facts; it does not calculate or invent the authoritative metrics.
 - Feed every dart into the session, but only request speech when the commentary policy calls for it. Ordinary darts preserve context silently while checkouts, lead changes, large swings, pressure misses, and other significant moments can trigger a response.
 - Start a session with a compact match/player snapshot, then send event deltas rather than repeatedly sending the entire throw history. Add periodic summaries or checkpoints to keep long multiplayer matches within a predictable context and cost envelope.
 - On reconnect, create or restore the session from the current match snapshot plus recent significant moments instead of replaying the full match dart by dart.
 - Keep transport-specific Realtime code separate from probability calculation so the same event stream can later drive text commentary, audio commentary, highlights, notifications, and post-match stories.
 
-A useful event contract is `DartIQDartEvent`: stable IDs for deduplication, match/leg/turn/dart position, player and score state, model/config identity, full probability vectors before/after, per-player WPA, consequence, opportunity, semantic stakes, and classified commentary moments. Edits and undos emit explicit correction events so the commentator's persistent view cannot drift from authoritative match state.
+A useful event contract is `DartIQDartEvent`: stable IDs for deduplication, match/leg/turn/dart position, player and score state, model/config identity, full probability vectors before/after, per-player WPA, consequence, approximation provenance, semantic stakes, and classified commentary moments. Edits and undos emit explicit correction events so the commentator's persistent view cannot drift from authoritative match state. Opportunity and rarity remain reserved extensions rather than placeholder heuristics.
 
 #### Latency path
 
@@ -275,7 +275,7 @@ Keep these responsibilities explicit:
 | Layer | Owns | Must not own |
 |---|---|---|
 | Match engine | Accepted throws, turns, scores, busts, checkouts, legs, winner | Commentary timing or prose |
-| DartIQ | Probability vectors, per-player WPA, consequence, opportunity, checkout/setup facts, classified signals | Persona, voice, jokes, or audio |
+| DartIQ | Probability vectors, per-player WPA, consequence, semantic stakes, checkout/setup facts, classified signals, and later opportunity/rarity | Persona, voice, jokes, or audio |
 | Commentary policy | Whether to speak, priority, interruption, cooldown, local sting selection | Recalculating match or pressure facts |
 | Realtime transport | Session/auth lifecycle, event delivery, audio, transcript, cancellation | Event significance or analytics |
 | Realtime model | Narrative continuity, concise wording, vocal performance | Correcting supplied facts or inventing missing metrics |
@@ -574,7 +574,7 @@ The session instruction should establish durable rules once:
 - You are a live darts commentator using the selected persona.
 - Treat supplied match and DartIQ facts as authoritative.
 - Never calculate, revise, or contradict probabilities.
-- Keep pre-dart opportunity, realized consequence, outcome rarity, and semantic stakes distinct; never infer pressure merely from success.
+- Keep supplied pre-dart opportunity, realized consequence, outcome rarity, and semantic stakes distinct; never infer a missing metric or pressure merely from success.
 - Mention percentages only when the change is meaningful and speak them naturally.
 - Prefer what changed and why it matters over repeating the raw score.
 - Speak one short line and stop. Do not greet, ask questions, or describe the JSON.
@@ -984,7 +984,9 @@ its variance is largest where the denominator is smallest — so `argmax` select
 an outcome probability, a percentile, a residual standard deviation, or a calibrated rarity
 measure. It is a normalized magnitude, and naming it "unexpectedness" would misrepresent it.
 
-The engine emits four separate concepts:
+The significance contract separates four concepts. Consequence and semantic stakes ship in this
+PR; opportunity and outcome rarity deliberately remain unpopulated until outcome enumeration is
+both fast and validated:
 
 - **Consequence** — total variation `C = ½ Σ_i |P_after,i − P_before,i|`, used universally and
   measured separately for leg and match. For two players this equals acting-player `|WPA|` exactly
@@ -994,10 +996,12 @@ The engine emits four separate concepts:
 - **Opportunity** — `E[|Δ|]` computed pre-dart. The honest name for what the heuristic engine called leverage.
 - **Outcome rarity** — probability, percentile, or tail probability of the realized `Δ` under the
   supplied outcome distribution. Never inferred from leverage.
-- **Semantic stakes** — match dart, missed double, checkout, bust, repeated failure, story resolution.
+- **Semantic stakes** — a finish being available, checkout, bust, repeated unconverted finish
+  chance, or story resolution. A “missed double” requires observed aim evidence and is not inferred.
 
-Diagnostics also emitted, never used as gates: `μ = Σ q_o Δ_o`, `swingVariance`, and
-`z = (Δ_actual − μ) / max(√Var(Δ_o), ε)`.
+Possible future diagnostics are `μ = Σ q_o Δ_o`, `swingVariance`, and a direction-aware tail.
+They are not emitted in this PR. In a self-consistent probability model `μ` should be approximately
+zero, so it is primarily a solver-coherence diagnostic rather than a new performance statistic.
 
 Note: before/after probabilities are calibratable against outcomes. Their *difference* is
 interpretable and testable, but is not independently calibrated the way a 70% prediction is.
@@ -1218,11 +1222,10 @@ probability calibration and deliberately contains no provider/audio timing field
 - RLS enabled with **no** `anon`/`authenticated` policy — server-written telemetry only.
 - Any exposed view sets `security_invoker = true`, re-applied in the same migration on every
   `create or replace view`.
-- The final unreleased migration sequence is `0059_dartiq_evidence_views.sql`,
-  `0060_realtime_commentary_sessions.sql`, `0061_match_rematch_lineage.sql`,
-  `0062_dartiq_telemetry.sql`, `0063_dartiq_evidence_capture.sql`, and
-  `0064_atomic_dartiq_projection_replace.sql`. Earlier numbers are occupied by the merged game,
-  Slack, and background-job work from `master`; no artificial DartIQ v2/v3 layer is introduced.
+- The final unreleased migration sequence is `0059_dartiq_evidence.sql`,
+  `0060_realtime_commentary_sessions.sql`, and `0061_dartiq_telemetry.sql`. The branch-only evidence,
+  rematch-lineage, capture, and atomic-replacement work is collapsed into those migrations; no
+  artificial DartIQ v2/v3 layer is introduced.
 - **Bitwise replay is not the product contract.** Code revisions, ordering, math-library behaviour,
   and serialization paths all produce harmless last-bit differences. Use exact hashes for canonical
   inputs and configuration, numerical tolerances for projected outputs, and golden fixtures with
@@ -1257,8 +1260,8 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
 
 #### A. Foundation
 
-1. **Database consolidation** — collapse branch-only migrations `0055`–`0059` into the final
-   `0055`–`0058` sequence documented above.
+1. **Database consolidation — shipped** — collapse the branch-only DartIQ migrations into the final
+   `0059`–`0061` sequence documented above.
 2. **Replay integrity** — replace the ID-only cached-prefix check with the full dart fingerprint and
    prove edit/delete correction equivalence.
 
@@ -1282,9 +1285,11 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
    scoring totals, visit rollback state, current-leg fair-ending progress, and projection state;
    verified appends resume from it without rehydrating prefix accumulators. Corrections and context
    changes deliberately rebuild from canonical inputs.
-8. **Metric cleanup** — add total-variation consequence, opportunity, outcome rarity, and semantic
-   stakes; remove the invented leverage index, every WPA/leverage ratio, and user-facing
-   `bestSegment`.
+8. **Metric cleanup — consequence and semantic stakes shipped** — remove the invented leverage
+   index, every WPA/leverage gate, and user-facing `bestSegment`. Pre-dart opportunity and calibrated
+   outcome rarity remain explicit next steps; neither is represented by a substitute heuristic.
+   Until finish-on-dart mass is preserved by the kernel, the UI exposes honest expected visits
+   remaining rather than presenting visit-indexed finish mass as an expected dart count.
 
 #### C. Commentary transport and policy
 
@@ -1303,13 +1308,17 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
 11. **Telemetry schema** — add immutable model/config identity, frozen population/player evidence,
     projection events, full per-player vectors, append-only resolutions, provenance, capture status,
     and real calibration columns.
-12. **Capture path — completed-leg path shipped** — evidence freezes at match creation and the shared
-    `completeLeg()` path batch-persists projection events, full player vectors, realized outcomes,
-    and leg/match resolutions for both manual and Scolia play. These rows are explicitly marked
-    `not_supported/completed_leg_reconstruction`: no live capture is claimed. Revision replacement
-    is serialized and atomic; the database compares a content hash and assigns the monotone revision
-    under the same advisory lock, so concurrent or failed corrections cannot create duplicate
-    generations, incomplete player vectors, or supersede the prior evidence alone.
+12. **Capture path — shipped** — evidence freezes at match creation. Accepted manual and Scolia darts
+    enqueue live capture only after scoring succeeds, while edits and undos enqueue one atomic
+    correction replacement for the affected leg. Correction-derived rows are labelled
+    `partial/correction_replay` and are excluded from independent live-versus-replay parity. The
+    shared `completeLeg()` path separately batch-persists
+    reconstructed events, full player vectors, realized outcomes, and authoritative leg/match
+    resolutions. Genuine complete-live and reconstructed revisions remain distinct and generate
+    persisted divergence evidence. Revision replacement is serialized and atomic; the database compares a content hash
+    and assigns the monotone revision under the same advisory lock, so concurrent or failed
+    corrections cannot create duplicate generations, incomplete vectors, or supersede prior evidence
+    alone. All replay work is outside the scorer and Scolia-commentary critical paths.
 13. **Calibration instrumentation — shipped** — browser and Scolia-worker policy evaluations persist
     listener/epoch-scoped speak/skip decisions with policy version, input signals, priority,
     guarantee/interruption flags, and exact decision reason alongside model evidence. Inserts are
@@ -1323,14 +1332,17 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
 15. **Full DartIQ Report — shipped foundation** — `/match/[id]/report` is linked from recent games
     and server-loads the canonical replay. Its responsive SVG is server-rendered rather than adding
     a Highcharts client island, keeping the route free of chart hydration and bundle cost.
-16. **Report interaction — in progress** — the probability timeline, leg boundaries, clickable
-    swing list, URL-stable dart selection synchronized with Scolia impact heatmaps, detailed
+16. **Report interaction — shipped** — the probability timeline, leg boundaries, clickable
+    swing list, initial URL-selected dart hydration, Scolia impact synchronization, detailed
     per-player baseline/WPA summaries, and compact deterministic match story are present. A
-    continuous keyboard/touch scrubber remains.
+    continuous keyboard/touch scrubber owns selection entirely in the hydrated explorer, preventing
+    any navigation or server replay as the selected dart changes.
 
-`analyzeDartIQTimeline()` now drives the report's loading, routing, chart, summary counts, ranked
-dart navigation, player breakdowns, shareable factual paragraph, and selected-impact highlighting.
-A continuous keyboard/touch scrubber remains in the report-interaction slice of this PR.
+`analyzeDartIQTimeline()` now drives the report's loading, chart, summary counts, ranked darts,
+player breakdowns, shareable factual paragraph, and selected-impact highlighting. The server sends
+a compact chart/event projection rather than hydrating every retained before/after replay state.
+The optional `?dart=` value chooses the initial focus; subsequent chart, scrubber, ranked-moment,
+and physical-impact selection remains synchronized entirely client-side.
 
 #### F. Proof and documentation
 

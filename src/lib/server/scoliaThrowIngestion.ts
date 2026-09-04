@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { detectedThrowFromMessage, type ScoliaMessage } from '../scolia/protocol.ts';
 import { completeLeg } from './completeLeg.ts';
+import { enqueueDartIQLiveThrow } from './backgroundJobs.ts';
 import { isMatchActive, loadMatch, type MatchRow } from './matchGuards.ts';
 import { resolveOrCreateTurnForPlayer } from './turnLifecycle.ts';
 import { replayTurn, type ThrowData } from '../../utils/legScoreCalculator.ts';
@@ -224,6 +225,18 @@ async function finishThrowLifecycle(
   void throwId;
 }
 
+async function enqueueLiveDartIQWithoutBreakingScoring(
+  supabase: SupabaseClient,
+  matchId: string,
+  throwId: string
+) {
+  try {
+    await enqueueDartIQLiveThrow(supabase, matchId, throwId);
+  } catch (error) {
+    console.error('DartIQ live Scolia telemetry error:', error);
+  }
+}
+
 async function findExistingThrow(supabase: SupabaseClient, eventId: number): Promise<ThrowRow | null> {
   const { data, error } = await supabase
     .from('throws')
@@ -292,6 +305,7 @@ export async function ingestScoliaThrowEvent(
             existingThrow.id
           );
         }
+        await enqueueLiveDartIQWithoutBreakingScoring(supabase, linked.matchId, existingThrow.id);
         await updateEvent(supabase, event.id, 'processed', null);
         return { status: 'processed', target: { kind: 'match', id: linked.matchId }, throwId: existingThrow.id };
       }
@@ -359,12 +373,14 @@ export async function ingestScoliaThrowEvent(
       const duplicate = await findExistingThrow(supabase, event.id);
       if (!duplicate) throw new Error(insertError?.message ?? 'Failed to create Scolia throw');
       await finishThrowLifecycle(supabase, matchId, snapshot.leg.id, duplicate.turn_id, duplicate.id);
+      await enqueueLiveDartIQWithoutBreakingScoring(supabase, matchId, duplicate.id);
       await updateEvent(supabase, event.id, 'processed', null);
       return { status: 'processed', target, throwId: duplicate.id };
     }
 
     const inserted = insertedThrow as ThrowRow;
     await finishThrowLifecycle(supabase, matchId, snapshot.leg.id, inserted.turn_id, inserted.id);
+    await enqueueLiveDartIQWithoutBreakingScoring(supabase, matchId, inserted.id);
     await updateEvent(supabase, event.id, 'processed', null);
     return { status: 'processed', target, throwId: inserted.id };
   } catch (error) {

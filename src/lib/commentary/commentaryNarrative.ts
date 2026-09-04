@@ -27,7 +27,7 @@ export type CommentaryPlayerNarrative = {
     conversions: number;
     highPressureOpportunities: number;
     highPressureConversions: number;
-    recentMissedDoubles: Array<{
+    recentUnconvertedOneDartFinishes: Array<{
       sequence: number;
       legNumber: number;
       scoreBefore: number;
@@ -61,11 +61,11 @@ type MutablePlayerMemory = {
   bogeys: number;
   positiveImpactDarts: number;
   negativeImpactDarts: number;
-  opportunities: number;
-  conversions: number;
-  highPressureOpportunities: number;
-  highPressureConversions: number;
-  missedDoubles: CommentaryPlayerNarrative['checkoutPressure']['recentMissedDoubles'];
+  opportunityTurnIds: Set<string>;
+  conversionTurnIds: Set<string>;
+  highPressureOpportunityTurnIds: Set<string>;
+  highPressureConversionTurnIds: Set<string>;
+  unconvertedOneDartFinishes: CommentaryPlayerNarrative['checkoutPressure']['recentUnconvertedOneDartFinishes'];
   currentAverage: number;
   baselineAverage: number;
   currentDartsThrown: number;
@@ -80,11 +80,11 @@ function emptyPlayer(): MutablePlayerMemory {
     bogeys: 0,
     positiveImpactDarts: 0,
     negativeImpactDarts: 0,
-    opportunities: 0,
-    conversions: 0,
-    highPressureOpportunities: 0,
-    highPressureConversions: 0,
-    missedDoubles: [],
+    opportunityTurnIds: new Set(),
+    conversionTurnIds: new Set(),
+    highPressureOpportunityTurnIds: new Set(),
+    highPressureConversionTurnIds: new Set(),
+    unconvertedOneDartFinishes: [],
     currentAverage: 0,
     baselineAverage: 0,
     currentDartsThrown: 0,
@@ -129,21 +129,25 @@ export function buildCommentaryNarrativeMemory(input: {
     const highOpportunity = checkoutOpportunity
       && (event.semanticStakes?.matchWinAvailableThisVisit || opponentThreat);
     if (checkoutOpportunity) {
-      memory.opportunities += 1;
-      if (event.checkedOut) memory.conversions += 1;
+      memory.opportunityTurnIds.add(event.turnId);
       if (highOpportunity) {
-        memory.highPressureOpportunities += 1;
-        if (event.checkedOut) memory.highPressureConversions += 1;
+        memory.highPressureOpportunityTurnIds.add(event.turnId);
+      }
+    }
+    if (event.checkedOut) {
+      memory.conversionTurnIds.add(event.turnId);
+      if (memory.highPressureOpportunityTurnIds.has(event.turnId)) {
+        memory.highPressureConversionTurnIds.add(event.turnId);
       }
     }
     if (isOneDartDoubleLeave(scoreBefore, input.finishRule) && !event.checkedOut) {
-      memory.missedDoubles.push({
+      memory.unconvertedOneDartFinishes.push({
         sequence: event.sequence,
         legNumber: event.legNumber,
         scoreBefore,
         hitSegment: event.segment,
       });
-      memory.missedDoubles = memory.missedDoubles.slice(-3);
+      memory.unconvertedOneDartFinishes = memory.unconvertedOneDartFinishes.slice(-3);
     }
 
     if (isMaterialDartIQConsequence(event.consequence, event.before.projections.length)) {
@@ -206,11 +210,11 @@ export function buildCommentaryNarrativeMemory(input: {
               : 'near_baseline' as const,
         tendencies: tendencies.slice(0, 3),
         checkoutPressure: {
-          opportunities: memory.opportunities,
-          conversions: memory.conversions,
-          highPressureOpportunities: memory.highPressureOpportunities,
-          highPressureConversions: memory.highPressureConversions,
-          recentMissedDoubles: memory.missedDoubles,
+          opportunities: memory.opportunityTurnIds.size,
+          conversions: memory.conversionTurnIds.size,
+          highPressureOpportunities: memory.highPressureOpportunityTurnIds.size,
+          highPressureConversions: memory.highPressureConversionTurnIds.size,
+          recentUnconvertedOneDartFinishes: memory.unconvertedOneDartFinishes,
         },
       };
     }),

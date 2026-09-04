@@ -42,10 +42,10 @@ describe('BroadcastDirector', () => {
     director.direct({ sequence: 10, candidates: [arc('comeback', 0.55)] });
     const direction = director.direct({
       sequence: 14,
-      candidates: [arc('miss_punished', 0.9, { phase: 'payoff' })],
+      candidates: [arc('finish_chance_punished', 0.9, { phase: 'payoff' })],
     });
 
-    expect(direction.activeStoryArc?.kind).toBe('miss_punished');
+    expect(direction.activeStoryArc?.kind).toBe('finish_chance_punished');
     expect(direction.transition).toBe('payoff_due');
   });
 
@@ -59,7 +59,7 @@ describe('BroadcastDirector', () => {
 
     expect(opening.callback).toMatchObject({ trigger: 'match_resolution', status: 'watching' });
     expect(ending.transition).toBe('payoff_due');
-    expect(ending.callback?.instruction).toContain('Pay off');
+    expect(ending.callback).toMatchObject({ trigger: 'match_resolution', status: 'payoff_due' });
     expect(broadcastDirectionInstruction(ending)).toContain('resolve the named active story');
     director.markMentioned(ending);
     const afterPayoff = director.direct({
@@ -78,7 +78,10 @@ describe('BroadcastDirector', () => {
     const ending = director.direct({ sequence: 15, candidates: [comeback], matchWinnerId: 'b' });
 
     expect(ending.transition).toBe('closure_due');
-    expect(ending.callback?.instruction).toContain('did not resolve');
+    expect(ending.callback).toMatchObject({
+      trigger: 'probability_reversal',
+      status: 'closure_due',
+    });
   });
 
   it('budgets repeated promotion of the same active story', () => {

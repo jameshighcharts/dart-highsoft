@@ -19,7 +19,6 @@ export type BroadcastCallbackObligation = {
   arcKey: string;
   trigger: BroadcastCallbackTrigger;
   status: 'watching' | 'payoff_due' | 'closure_due' | 'fulfilled';
-  instruction: string;
 };
 
 export type BroadcastDirection = {
@@ -50,30 +49,13 @@ export function storyArcKey(arc: CommentaryStoryArc) {
 }
 
 function callbackTrigger(kind: CommentaryStoryArcKind): BroadcastCallbackTrigger {
-  if (kind === 'miss_punished' || kind === 'checkout_duel') return 'next_checkout_chance';
+  if (kind === 'finish_chance_punished' || kind === 'checkout_duel') return 'next_checkout_chance';
   if (kind === 'pressure_resilience') return 'next_pressure_conversion';
   if (kind === 'rematch_revenge' || kind === 'underdog_rising') return 'match_resolution';
   if (kind === 'comeback' || kind === 'collapse' || kind === 'seesaw_match') {
     return 'probability_reversal';
   }
   return 'leg_resolution';
-}
-
-function callbackInstruction(arc: CommentaryStoryArc, trigger: BroadcastCallbackTrigger) {
-  const subject = arc.subjectPlayerId ?? 'the match';
-  if (trigger === 'match_resolution') {
-    return `Hold ${arc.kind} as an open story for ${subject}; pay it off or explicitly close it when the match resolves.`;
-  }
-  if (trigger === 'probability_reversal') {
-    return `Watch whether ${subject}'s ${arc.kind} continues or reverses; call the resolution, not every fluctuation.`;
-  }
-  if (trigger === 'next_checkout_chance') {
-    return `Save the callback for the next supplied checkout consequence involving ${subject}.`;
-  }
-  if (trigger === 'next_pressure_conversion') {
-    return `Return to this only when ${subject} gets another supplied high-pressure outcome.`;
-  }
-  return `Resolve this story at the next supplied leg result involving ${subject}.`;
 }
 
 function withMonotonicPhase(previous: CommentaryStoryArc, next: CommentaryStoryArc) {
@@ -143,9 +125,6 @@ export class BroadcastDirector {
         this.callback = {
           ...this.callback,
           status: storySucceeded ? 'payoff_due' : 'closure_due',
-          instruction: storySucceeded
-            ? `Pay off the established ${this.active.arc.kind} story now using the supplied result.`
-            : `Close the established ${this.active.arc.kind} story now: it did not resolve for its subject.`,
         };
       }
     }
@@ -212,9 +191,6 @@ export class BroadcastDirector {
       arcKey: key,
       trigger,
       status: arc.phase === 'payoff' ? 'payoff_due' : 'watching',
-      instruction: arc.phase === 'payoff'
-        ? `Pay off the supplied ${arc.kind} story now.`
-        : callbackInstruction(arc, trigger),
     };
   }
 }
