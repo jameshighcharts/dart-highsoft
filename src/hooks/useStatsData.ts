@@ -42,7 +42,7 @@ async function fetchStatsGlobalData(): Promise<StatsGlobalData> {
       .order('wins', { ascending: false }),
     supabase
       .from('players')
-      .select('id, display_name')
+      .select('id, display_name, avatar_url')
       .eq('is_active', true)
       .order('display_name'),
     supabase

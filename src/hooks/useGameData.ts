@@ -23,6 +23,7 @@ export type GamePlayerData = {
   player_id: string;
   play_order: number;
   display_name: string;
+  avatar_url?: string | null;
 };
 
 export type GameThrowData = {
@@ -43,10 +44,12 @@ const SESSION_COLUMNS = 'id, mode, config, status, winner_player_id, scolia_boar
 const THROW_COLUMNS = 'id, session_id, player_id, round_number, turn_index, dart_index, segment, scored, meta';
 const REFETCH_DEBOUNCE_MS = 150;
 
+type PlayerRelation = { display_name: string; avatar_url?: string | null };
+
 type PlayerRow = {
   player_id: string;
   play_order: number;
-  players: { display_name: string } | { display_name: string }[] | null;
+  players: PlayerRelation | PlayerRelation[] | null;
 };
 
 export function rowToThrowInput(row: GameThrowData): GameThrowInput {
@@ -61,11 +64,14 @@ export function rowToThrowInput(row: GameThrowData): GameThrowInput {
   };
 }
 
-function displayNameFromRow(row: PlayerRow): string {
+function playerRelationFromRow(row: PlayerRow): PlayerRelation | null {
   const rel = row.players;
-  if (!rel) return 'Unknown';
-  if (Array.isArray(rel)) return rel[0]?.display_name ?? 'Unknown';
-  return rel.display_name ?? 'Unknown';
+  if (!rel) return null;
+  return Array.isArray(rel) ? rel[0] ?? null : rel;
+}
+
+function displayNameFromRow(row: PlayerRow): string {
+  return playerRelationFromRow(row)?.display_name ?? 'Unknown';
 }
 
 export function useGameData(gameId: string) {
@@ -83,7 +89,7 @@ export function useGameData(gameId: string) {
         supabase.from('game_sessions').select(SESSION_COLUMNS).eq('id', gameId).maybeSingle(),
         supabase
           .from('game_session_players')
-          .select('player_id, play_order, players(display_name)')
+          .select('player_id, play_order, players(display_name, avatar_url)')
           .eq('session_id', gameId)
           .order('play_order'),
         supabase
@@ -110,6 +116,7 @@ export function useGameData(gameId: string) {
           player_id: row.player_id,
           play_order: row.play_order,
           display_name: displayNameFromRow(row),
+          avatar_url: playerRelationFromRow(row)?.avatar_url ?? null,
         }))
       );
       setThrows((throwsRes.data ?? []) as unknown as GameThrowData[]);

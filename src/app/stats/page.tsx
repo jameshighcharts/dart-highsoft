@@ -16,6 +16,7 @@ import {
   ComparePlayersView,
 } from '@/components/stats';
 import { MAX_COMPARE } from '@/components/stats/ComparePlayerPicker';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 
 type ViewMode = 'traditional' | 'elo' | 'compare';
 
@@ -175,7 +176,10 @@ function StatsPageInner() {
                       <SelectContent>
                         {stats.players.map(player => (
                           <SelectItem key={player.id} value={player.id}>
-                            {player.display_name}
+                            <span className="inline-flex items-center gap-1.5">
+                              <PlayerAvatar player={player} size="xs" />
+                              {player.display_name}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -218,7 +222,10 @@ function StatsPageInner() {
                 <SelectContent>
                   {stats.players.map(player => (
                     <SelectItem key={player.id} value={player.id}>
-                      {player.display_name}
+                      <span className="inline-flex items-center gap-1.5">
+                        <PlayerAvatar player={player} size="xs" />
+                        {player.display_name}
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -10,6 +10,8 @@ import '@highcharts/grid-pro/css/grid-pro.css';
 import { useLeaderboardData } from '@/hooks/useLeaderboardData';
 import { batchEloHistory, batchMultiEloHistory } from '@/utils/eloHistory';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
+import { renderPlayerCellHtml } from '@/lib/avatarStyle';
+import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 
 SparklineRenderer['useHighcharts'](Highcharts);
 
@@ -397,6 +399,7 @@ function compareWinsForm(a: unknown, b: unknown): number {
 type MergedPlayer = {
   player_id: string;
   display_name: string;
+  avatar_url: string | null;
   location: string | null;
   wins: number | null;
   games_played: number | null;
@@ -438,6 +441,7 @@ const MOCK_ELO_TIER_RATINGS = [1000, 1075, 1125, 1175, 1225, 1275, 1350, 1450];
 const MOCK_ELO_PLAYERS: MergedPlayer[] = MOCK_ELO_TIER_NAMES.map((name, i) => ({
   player_id: `${MOCK_PLAYER_ID_PREFIX}${i + 1}`,
   display_name: `Mock ${name}`,
+  avatar_url: null,
   location: LOCATIONS[i % LOCATIONS.length]?.value ?? null,
   wins: 8 - i,
   games_played: 10 + i,
@@ -465,6 +469,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
     recentWinsByPlayer,
     playerGameStats,
     playerLocations,
+    playerAvatarUrls,
     matchActivity,
     weeklyEloClimber,
     loading,
@@ -485,6 +490,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         map.set(id, {
           player_id: id,
           display_name: name,
+          avatar_url: playerAvatarUrls.get(id) ?? null,
           location: playerLocations.get(id) ?? null,
           wins: null,
           games_played: null,
@@ -521,7 +527,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
     }
 
     return Array.from(map.values());
-  }, [leaders, eloLeaders, eloMultiLeaders, playerGameStats, playerLocations, mockEloRows]);
+  }, [leaders, eloLeaders, eloMultiLeaders, playerGameStats, playerLocations, playerAvatarUrls, mockEloRows]);
 
   const filteredMerged = useMemo(() => {
     if (locationFilter === 'all') return merged;
@@ -599,6 +605,11 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
 
   const options = useMemo<GridOptions>(() => {
     const player: string[] = [];
+    // Hidden columns (not in `header`) so the player cell formatter can read
+    // the avatar for its own row via this.row.data, which stays correct
+    // under sorting/filtering unlike a positional lookup.
+    const playerId: string[] = [];
+    const avatarUrl: string[] = [];
     const location: string[] = [];
     const multiEloRaw: (number | null)[] = [];
     const multiEloTrend: string[] = [];
@@ -611,6 +622,8 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
 
     filteredMerged.forEach((row) => {
       player.push(row.display_name);
+      playerId.push(row.player_id);
+      avatarUrl.push(row.avatar_url ?? '');
       const loc = LOCATIONS.find((l) => l.value === row.location);
       location.push(loc?.label ?? '–');
       multiEloRaw.push(row.elo_multi);
@@ -642,6 +655,8 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         columns: {
           idx,
           player,
+          playerId,
+          avatarUrl,
           location,
           multiElo,
           multiEloTrend,
@@ -670,6 +685,15 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         {
           id: 'player',
           header: { format: 'Player' },
+          cells: {
+            formatter: function () {
+              const data = (this.row as unknown as { data?: Record<string, unknown> }).data ?? {};
+              const name = typeof this.value === 'string' ? this.value : String(this.value ?? '');
+              const id = typeof data.playerId === 'string' ? data.playerId : null;
+              const url = typeof data.avatarUrl === 'string' && data.avatarUrl ? data.avatarUrl : null;
+              return renderPlayerCellHtml({ id, display_name: name, avatar_url: url }, 'sm');
+            },
+          },
         },
         {
           id: 'location',
@@ -1566,8 +1590,9 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
             <span className="leaderboard-kpi__label">Biggest climber</span>
             {weeklyEloClimber && <span className="leaderboard-kpi__badge leaderboard-kpi__badge--climber">▲</span>}
           </div>
-          <div className="leaderboard-kpi__headline">
-            {weeklyEloClimber ? weeklyEloClimber.display_name : '–'}
+          <div className="leaderboard-kpi__headline flex items-center gap-2">
+            {weeklyEloClimber && <PlayerAvatarById playerId={weeklyEloClimber.player_id} name={weeklyEloClimber.display_name} size="sm" />}
+            <span className="truncate">{weeklyEloClimber ? weeklyEloClimber.display_name : '–'}</span>
           </div>
           <div className="leaderboard-kpi__subvalue leaderboard-kpi__subvalue--positive">
             {weeklyEloClimber ? `+${weeklyEloClimber.rating_change} Elo` : 'No gain yet'}

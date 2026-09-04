@@ -5,6 +5,7 @@ import { Sparkles } from 'lucide-react';
 import { shanghaiTargetForRound } from '@/lib/games/engines/shanghai';
 import type { GameState, ShanghaiConfig, ShanghaiEvent, ShanghaiPlayerState } from '@/lib/games/types';
 import type { GamePlayerData } from '@/hooks/useGameData';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { cn } from '@/lib/utils';
 
 type ShanghaiBoardProps = {
@@ -57,7 +58,10 @@ export function ShanghaiBoard({ state, players, config, currentPlayerId }: Shang
                     key={player.player_id}
                     className={cn('px-2 py-2 text-center align-bottom', isCurrent && 'bg-accent/40 border-b-2 border-b-primary')}
                   >
-                    <div className="truncate max-w-[9rem] mx-auto font-medium">{player.display_name}</div>
+                    <div className="inline-flex items-center gap-2 max-w-[9rem] font-medium">
+                      <PlayerAvatar player={{ id: player.player_id, display_name: player.display_name, avatar_url: player.avatar_url }} size="sm" />
+                      <span className="truncate">{player.display_name}</span>
+                    </div>
                     <div className={cn('text-xl font-bold leading-tight', ps && !ps.inContention && 'text-muted-foreground line-through')}>
                       {ps?.total ?? 0}
                     </div>

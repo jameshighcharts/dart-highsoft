@@ -1,6 +1,6 @@
 import type { FinishRule } from '@/utils/x01';
 
-export type Player = { id: string; display_name: string; location?: string | null };
+export type Player = { id: string; display_name: string; location?: string | null; avatar_url?: string | null };
 
 export type MatchRecord = {
   id: string;

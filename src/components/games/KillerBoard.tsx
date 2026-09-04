@@ -5,6 +5,7 @@ import { Heart, Skull, Target } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { GameState, KillerConfig, KillerEvent, KillerPlayerState } from '@/lib/games/types';
 import type { GamePlayerData } from '@/hooks/useGameData';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { cn } from '@/lib/utils';
 
 type KillerBoardProps = {
@@ -57,7 +58,10 @@ export function KillerBoard({ state, players, config, currentPlayerId }: KillerB
                 )}
               </div>
             </div>
-            <div className="font-medium truncate">{player.display_name}</div>
+            <div className="flex items-center gap-2 font-medium">
+              <PlayerAvatar player={{ id: player.player_id, display_name: player.display_name, avatar_url: player.avatar_url }} size="sm" />
+              <span className="truncate">{player.display_name}</span>
+            </div>
             <div className="flex items-center gap-1" aria-label={`${ps.lives} of ${config.lives} lives`}>
               {Array.from({ length: config.lives }, (_, index) => {
                 const alive = index < ps.lives;

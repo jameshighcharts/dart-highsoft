@@ -5,6 +5,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useLeaderboardData } from '@/hooks/useLeaderboardData';
 import { LeaderboardSection, EloLeaderboardItem, PlayerSummaryItem, GameModeLeaderboardItem } from '@/components/leaderboard';
 import type { GameModeLeaderboardEntry } from '@/components/leaderboard';
+import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 import { medal, formatLeaderboardDate } from '@/utils/leaderboard';
 import { GAME_MODE_INFO, GAME_MODE_ORDER } from '@/lib/games/labels';
 import type { GameMode } from '@/lib/games/types';
@@ -290,8 +291,9 @@ export default function LeaderboardsPage() {
         >
           {topRoundScores.map((score, idx) => (
             <li key={score.id} className="flex items-center justify-between px-3 py-2">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <span className="w-8 text-lg text-center">{medal(idx)}</span>
+                <PlayerAvatarById playerId={score.player_id} name={score.display_name} size="sm" />
                 <div>
                   <div className="font-medium">{score.display_name}</div>
                   <div className="text-xs text-muted-foreground">{formatLeaderboardDate(score.created_at)}</div>
@@ -314,8 +316,9 @@ export default function LeaderboardsPage() {
         >
           {highestCheckouts.map((score, idx) => (
             <li key={`${score.player_id}-${score.date}`} className="flex items-center justify-between px-3 py-2">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <span className="w-8 text-lg text-center">{medal(idx)}</span>
+                <PlayerAvatarById playerId={score.player_id} name={score.display_name} size="sm" />
                 <div>
                   <div className="font-medium">{score.display_name}</div>
                   <div className="text-xs text-muted-foreground">{formatLeaderboardDate(score.date)}</div>
@@ -340,8 +343,9 @@ export default function LeaderboardsPage() {
         >
           {quickestLegsDouble.map((leg, idx) => (
             <li key={`${leg.player_id}-${leg.date}`} className="flex items-center justify-between px-3 py-2">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <span className="w-8 text-lg text-center">{medal(idx)}</span>
+                <PlayerAvatarById playerId={leg.player_id} name={leg.display_name} size="sm" />
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{leg.display_name}</span>
@@ -374,8 +378,9 @@ export default function LeaderboardsPage() {
         >
           {quickestLegsSingle.map((leg, idx) => (
             <li key={`${leg.player_id}-${leg.date}`} className="flex items-center justify-between px-3 py-2">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <span className="w-8 text-lg text-center">{medal(idx)}</span>
+                <PlayerAvatarById playerId={leg.player_id} name={leg.display_name} size="sm" />
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{leg.display_name}</span>

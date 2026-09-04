@@ -9,6 +9,7 @@ import {
   updateSlackMessage,
 } from './client';
 import { buildSlackDartPollMessage } from './messages';
+import { claimSlackPlayerAtomic, isSlackPlayerLinkConflict } from './playerLinks';
 
 type SlackDartPollRow = {
   id: string;
@@ -166,25 +167,20 @@ async function resolvePlayerId(
     .from('players')
     .select('id')
     .eq('display_name', vote.display_name)
+    .eq('is_active', true)
+    .eq('is_test', false)
     .maybeSingle();
   if (sameName.error) throw new Error(sameName.error.message);
 
   if (sameName.data) {
-    const existingPlayerLink = await supabase
-      .from('slack_player_links')
-      .select('slack_user_id')
-      .eq('team_id', teamId)
-      .eq('player_id', sameName.data.id)
-      .maybeSingle();
-    if (existingPlayerLink.error) throw new Error(existingPlayerLink.error.message);
-    if (!existingPlayerLink.data) {
-      const link = await supabase.from('slack_player_links').insert({
-        team_id: teamId,
-        slack_user_id: vote.slack_user_id,
-        player_id: sameName.data.id,
-      });
-      if (!link.error) return sameName.data.id as string;
-
+    try {
+      return (await claimSlackPlayerAtomic(supabase, {
+        teamId,
+        slackUserId: vote.slack_user_id,
+        playerId: sameName.data.id as string,
+      })).playerId;
+    } catch (error) {
+      if (!isSlackPlayerLinkConflict(error)) throw error;
       const raced = await supabase
         .from('slack_player_links')
         .select('player_id')
@@ -192,39 +188,31 @@ async function resolvePlayerId(
         .eq('slack_user_id', vote.slack_user_id)
         .maybeSingle();
       if (raced.data) return raced.data.player_id as string;
+      if (raced.error) throw new Error(raced.error.message);
     }
   }
 
   const displayName = sameName.data
     ? `${vote.display_name} (${vote.slack_user_id.slice(-4)})`
     : vote.display_name;
-  const inserted = await supabase
-    .from('players')
-    .insert({
-      display_name: displayName,
-    })
-    .select('id')
-    .single();
-  if (inserted.error || !inserted.data) {
-    throw new Error(inserted.error?.message ?? 'Failed to create Slack player');
+  try {
+    return (await claimSlackPlayerAtomic(supabase, {
+      teamId,
+      slackUserId: vote.slack_user_id,
+      displayName,
+    })).playerId;
+  } catch (error) {
+    if (!isSlackPlayerLinkConflict(error)) throw error;
+    const raced = await supabase
+      .from('slack_player_links')
+      .select('player_id')
+      .eq('team_id', teamId)
+      .eq('slack_user_id', vote.slack_user_id)
+      .maybeSingle();
+    if (raced.error) throw new Error(raced.error.message);
+    if (raced.data) return raced.data.player_id as string;
+    throw error;
   }
-
-  const link = await supabase.from('slack_player_links').insert({
-    team_id: teamId,
-    slack_user_id: vote.slack_user_id,
-    player_id: inserted.data.id,
-  });
-  if (!link.error) return inserted.data.id as string;
-
-  await supabase.from('players').delete().eq('id', inserted.data.id);
-  const raced = await supabase
-    .from('slack_player_links')
-    .select('player_id')
-    .eq('team_id', teamId)
-    .eq('slack_user_id', vote.slack_user_id)
-    .maybeSingle();
-  if (raced.data) return raced.data.player_id as string;
-  throw new Error(link.error.message);
 }
 
 async function createSlackMatch(
