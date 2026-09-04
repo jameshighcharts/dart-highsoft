@@ -90,7 +90,7 @@ function renderEloBadgeHtml(value: unknown): string {
   const tier = getEloTierBadgeNumber(rating);
 
   return (
-    `<span class="elo-badge elo-badge--tier-${tier}" style="background-image: url('/elo-badges/tier-${tier}.png')">` +
+    `<span class="elo-badge elo-badge--tier-${tier}">` +
     `<span class="elo-badge__rating">${rating}</span>` +
     `</span>`
   );
@@ -448,6 +448,26 @@ const MOCK_ELO_PLAYERS: MergedPlayer[] = MOCK_ELO_TIER_NAMES.map((name, i) => ({
   elo_1v1: MOCK_ELO_TIER_RATINGS[MOCK_ELO_TIER_RATINGS.length - 1 - i],
 }));
 
+/**
+ * Badge style switch: `?eloStyle=full` shows the filled badge art with black
+ * ratings instead of the default outline frames with white ratings.
+ */
+function useEloBadgeStyle(): 'outline' | 'full' {
+  const [style, setStyle] = useState<'outline' | 'full'>('outline');
+  useEffect(() => {
+    setStyle(new URLSearchParams(window.location.search).get('eloStyle') === 'full' ? 'full' : 'outline');
+  }, []);
+  return style;
+}
+
+const ELO_BADGE_IMAGE_CSS = [1, 2, 3, 4, 5, 6, 7, 8]
+  .map(
+    (tier) =>
+      `.grid-leaderboard .elo-badge--tier-${tier} { background-image: url('/elo-badges/tier-${tier}.png'); }
+        .grid-leaderboard.elo-style-full .elo-badge--tier-${tier} { background-image: url('/elo-badges-full/tier-${tier}.png'); }`,
+  )
+  .join('\n        ');
+
 function useMockEloRows(): boolean {
   const [enabled, setEnabled] = useState(false);
   useEffect(() => {
@@ -471,6 +491,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
   } = useLeaderboardData();
   const [locationFilter, setLocationFilter] = useState<LeaderboardLocationFilter>(loadLeaderboardLocationFilter);
   const mockEloRows = useMockEloRows();
+  const eloBadgeStyle = useEloBadgeStyle();
   const [matchActivityRange, setMatchActivityRange] = useState<MatchActivityRange>('7d');
 
   useEffect(() => {
@@ -857,7 +878,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
   }
 
   return (
-    <div className="grid-leaderboard highcharts-dark">
+    <div className={`grid-leaderboard highcharts-dark${eloBadgeStyle === 'full' ? ' elo-style-full' : ''}`}>
       <div className="leaderboard-header">
         <div className="leaderboard-heading">{headerContent}</div>
       </div>
@@ -1305,6 +1326,11 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
         .grid-leaderboard .elo-badge--tier-2 .elo-badge__rating {
           transform: translateY(1px);
+        }
+        ${ELO_BADGE_IMAGE_CSS}
+        .grid-leaderboard.elo-style-full .elo-badge__rating {
+          color: #0b1020 !important;
+          text-shadow: none;
         }
         .grid-leaderboard .elo-badge-empty {
           color: #94a3b8;
