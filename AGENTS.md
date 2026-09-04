@@ -159,6 +159,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `scolia/types.ts` | Shared Scolia board response types |
 | `slack/dartPollService.ts` | Creates polls, records votes, links Slack users to players, and finalizes matches |
 | `slack/members.ts` | Lists full, active, human workspace members via `users.list` |
+| `slack/playerLinks.ts` | Typed client for atomic Slack identity claim, replacement, and unlink RPCs |
 | `slack/playerImport.ts` | Plans and applies the Slack member → player import with the first-name / `First L` naming rule |
 | `auth/slackWorkspace.ts` | Pure Slack sign-in gate helpers (team id, verified email, allowed domains, admin list) |
 | `auth/requireAdmin.ts` | Session guard for `/api/admin` routes |
@@ -311,10 +312,10 @@ Scolia spectator loads include throw geometry across every leg for per-player wh
 Recent Games card → `/match/:id?spectator=true&history=true` → spectator data load includes every leg and Scolia throw geometry → read-only result hero, whole-match KPIs/player performance/top visits, final-leg score progression, Elo changes, and whole-match heatmaps. Live-only board status, QR code, current-player state, commentary, and winner popup are suppressed.
 
 **Slack dart poll:**
-`/dart HH:MM` → signed `POST /api/slack/darts` → insert poll and its `background_jobs` row atomically → publish a Yes/No Block Kit poll → signed button actions upsert one vote per Slack user → one Supabase Cron job checks for due work every five seconds → `dispatch_due_background_jobs()` atomically claims a batch and makes no HTTP request for an empty batch → authenticated `POST /api/background-jobs` dispatches `slack_dart_poll` → fewer than two Yes votes cancel; otherwise stable Slack identities resolve/create app players → `create_slack_x01_match_atomic` creates a manual 501 double-out match → Slack message links to scoring. See `docs/SLACK_DARTS.md` for setup and Vault configuration.
+`/dart HH:MM` → signed `POST /api/slack/darts` → insert poll and its `background_jobs` row atomically → publish a Yes/No Block Kit poll → signed button actions upsert one vote per Slack user → one Supabase Cron job checks for due work every five seconds → `dispatch_due_background_jobs()` atomically claims a batch and makes no HTTP request for an empty batch → authenticated `POST /api/background-jobs` dispatches `slack_dart_poll` → fewer than two Yes votes cancel; otherwise `claim_slack_player_atomic` resolves or creates each stable Slack identity without exposing a half-created player → `create_slack_x01_match_atomic` creates a manual 501 double-out match → Slack message links to scoring. Self-service claims use the same RPC; admin replacements use `set_slack_player_link_atomic`, so link changes roll back together. See `docs/SLACK_DARTS.md` for setup and Vault configuration.
 
 **Production release gate:**
-Pull request or merge queue → `Tests / test` runs lint, unit tests, a production build, and three Lighthouse samples → GitHub branch protection permits merge only after success → Vercel Deployment Checks hold the production alias for the same commit until `Tests / test` passes.
+Pull request or merge queue → `Tests / test` runs lint, unit tests, a production build, and five Lighthouse samples of the real home page through a loopback-only CI auth bypass → GitHub branch protection permits merge only after success → Vercel Deployment Checks hold the production alias for the same commit until `Tests / test` passes.
 
 Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. A missing acknowledgement resets a stale command for retry; after three attempts it becomes `failed`. Deploy `Dockerfile.scolia-worker` as exactly one always-on worker replica outside Vercel.
 
@@ -322,6 +323,7 @@ Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. 
 - Do not use `ALTER FUNCTION` in Supabase migrations. For function changes, use drop + recreate.
 - Never modify existing Supabase migration files after they are created/committed.
 - Any schema/function/policy change must be done by adding a new migration that supersedes earlier ones.
+- New migrations use unique 14-digit UTC timestamp names. Existing numbered migrations keep their deployed names.
 
 ## Boundaries / Do Not Touch
 - `.env*` files, secrets, production credentials.

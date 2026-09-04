@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 
 import { isGuardResponse, requireUser } from '@/lib/auth/requireAdmin';
-import { findLinkedPlayer, PLAYER_COLUMNS } from '@/lib/server/myPlayer';
+import { PLAYER_COLUMNS } from '@/lib/server/myPlayer';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { claimSlackPlayerAtomic, SlackPlayerLinkError } from '@/lib/slack/playerLinks';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -24,34 +25,37 @@ export async function POST(request: Request) {
 
     const supabase = getSupabaseServerClient();
     const teamId = guard.user.slackTeamId;
-    const existing = await findLinkedPlayer(supabase, teamId, guard.user.slackUserId);
-    if (existing) return NextResponse.json({ error: 'Your account is already linked to a player' }, { status: 409 });
-
-    let playerId: string;
+    let claimInput:
+      | { teamId: string; slackUserId: string; playerId: string }
+      | { teamId: string; slackUserId: string; displayName: string };
     if (typeof body.playerId === 'string') {
       if (!UUID_PATTERN.test(body.playerId)) return NextResponse.json({ error: 'Invalid player id' }, { status: 400 });
-      playerId = body.playerId;
-      const taken = await supabase.from('slack_player_links').select('slack_user_id').eq('team_id', teamId).eq('player_id', playerId).maybeSingle();
-      if (taken.error) throw new Error(taken.error.message);
-      if (taken.data) return NextResponse.json({ error: 'That player already belongs to someone else' }, { status: 409 });
-      const player = await supabase.from('players').select('id').eq('id', playerId).maybeSingle();
-      if (player.error) throw new Error(player.error.message);
-      if (!player.data) return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+      claimInput = { teamId, slackUserId: guard.user.slackUserId, playerId: body.playerId };
     } else {
       const displayName = typeof body.displayName === 'string' ? body.displayName.trim().slice(0, 80) : '';
       if (!displayName) return NextResponse.json({ error: 'displayName or playerId is required' }, { status: 400 });
-      const created = await supabase.from('players').insert({ display_name: displayName }).select('id').single();
-      if (created.error || !created.data) {
-        if (created.error?.code === '23505') return NextResponse.json({ error: 'A player with that name already exists' }, { status: 409 });
-        throw new Error(created.error?.message ?? 'Failed to create player');
-      }
-      playerId = created.data.id as string;
+      claimInput = { teamId, slackUserId: guard.user.slackUserId, displayName };
     }
 
-    const link = await supabase.from('slack_player_links').insert({ team_id: teamId, slack_user_id: guard.user.slackUserId, player_id: playerId });
-    if (link.error) {
-      if (link.error.code === '23505') return NextResponse.json({ error: 'That player was just claimed by someone else' }, { status: 409 });
-      throw new Error(link.error.message);
+    let playerId: string;
+    try {
+      playerId = (await claimSlackPlayerAtomic(supabase, claimInput)).playerId;
+    } catch (error) {
+      if (error instanceof SlackPlayerLinkError) {
+        if (error.message === 'slack_user_already_linked') {
+          return NextResponse.json({ error: 'Your account is already linked to a player' }, { status: 409 });
+        }
+        if (error.message === 'claimable_player_not_found') {
+          return NextResponse.json({ error: 'Player not found or unavailable' }, { status: 404 });
+        }
+        if (error.code === '23505') {
+          const message = 'displayName' in claimInput
+            ? 'A player with that name already exists'
+            : 'That player was just claimed by someone else';
+          return NextResponse.json({ error: message }, { status: 409 });
+        }
+      }
+      throw error;
     }
 
     const player = await supabase.from('players').select(PLAYER_COLUMNS).eq('id', playerId).single();

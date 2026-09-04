@@ -53,10 +53,11 @@ describe('slackWorkspace helpers', () => {
     expect(isAllowedEmailDomain(null, ['highsoft.com'])).toBe(false);
   });
 
-  it('grants admin to everyone when no admin list is configured', () => {
-    expect(isAdminEmail('ada@highsoft.com', [])).toBe(true);
+  it('fails closed when no admin list is configured', () => {
+    expect(isAdminEmail('ada@highsoft.com', [])).toBe(false);
     expect(isAdminEmail('ada@highsoft.com', ['bob@highsoft.com'])).toBe(false);
     expect(isAdminEmail('bob@highsoft.com', ['bob@highsoft.com'])).toBe(true);
+    expect(isAdminEmail('BOB@HIGHSOFT.COM', ['bob@highsoft.com'])).toBe(true);
     expect(isAdminEmail(null, ['bob@highsoft.com'])).toBe(false);
   });
 });

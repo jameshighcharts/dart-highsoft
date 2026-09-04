@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { isGuardResponse, requireAdmin } from '@/lib/auth/requireAdmin';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { setSlackPlayerLinkAtomic, SlackPlayerLinkError } from '@/lib/slack/playerLinks';
 
 const SLACK_USER_ID_PATTERN = /^[UW][A-Z0-9]{2,20}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -28,27 +29,14 @@ export async function PUT(request: Request, { params }: { params: Promise<{ play
     const teamId = guard.user.slackTeamId;
     const supabase = getSupabaseServerClient();
 
-    const player = await supabase.from('players').select('id').eq('id', playerId).maybeSingle();
-    if (player.error) throw new Error(player.error.message);
-    if (!player.data) return NextResponse.json({ error: 'Player not found' }, { status: 404 });
-
-    const clearedPlayer = await supabase
-      .from('slack_player_links')
-      .delete()
-      .eq('team_id', teamId)
-      .eq('player_id', playerId);
-    if (clearedPlayer.error) throw new Error(clearedPlayer.error.message);
-    const clearedSlackUser = await supabase
-      .from('slack_player_links')
-      .delete()
-      .eq('team_id', teamId)
-      .eq('slack_user_id', slackUserId);
-    if (clearedSlackUser.error) throw new Error(clearedSlackUser.error.message);
-
-    const inserted = await supabase
-      .from('slack_player_links')
-      .insert({ team_id: teamId, slack_user_id: slackUserId, player_id: playerId });
-    if (inserted.error) throw new Error(inserted.error.message);
+    try {
+      await setSlackPlayerLinkAtomic(supabase, { teamId, playerId, slackUserId });
+    } catch (error) {
+      if (error instanceof SlackPlayerLinkError && error.message === 'player_not_found') {
+        return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+      }
+      throw error;
+    }
 
     return NextResponse.json({ playerId, slackUserId });
   } catch (error) {
@@ -63,13 +51,12 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
 
   try {
     const { playerId } = await params;
-    const supabase = getSupabaseServerClient();
-    const { error } = await supabase
-      .from('slack_player_links')
-      .delete()
-      .eq('team_id', guard.user.slackTeamId)
-      .eq('player_id', playerId);
-    if (error) throw new Error(error.message);
+    if (!UUID_PATTERN.test(playerId)) return NextResponse.json({ error: 'Invalid player id' }, { status: 400 });
+    await setSlackPlayerLinkAtomic(getSupabaseServerClient(), {
+      teamId: guard.user.slackTeamId,
+      playerId,
+      slackUserId: null,
+    });
     return NextResponse.json({ playerId, slackUserId: null });
   } catch (error) {
     console.error('DELETE /api/admin/players/[playerId]/slack-link error:', error);

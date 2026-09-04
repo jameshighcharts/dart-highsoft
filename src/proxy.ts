@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
-import { isAuthDevBypassEnabled } from '@/lib/auth/devBypass';
+import { isAuthDevBypassEnabled, isAuthPerformanceBypassEnabled } from '@/lib/auth/devBypass';
 
 // The whole app sits behind Sign in with Slack. `/login` is the gate for the
 // game, `/signin` the gate for `/admin` (admin role is checked on the page and
@@ -20,7 +20,9 @@ export default auth((request) => {
   const { pathname, search } = nextUrl;
   // Auth.js can attach an error-shaped object on configuration failures.
   // Require a real, fully identified Slack user so failures fail closed.
-  const isAuthenticated = Boolean(request.auth?.user?.slackUserId) || isAuthDevBypassEnabled();
+  const isAuthenticated = Boolean(request.auth?.user?.slackUserId)
+    || isAuthDevBypassEnabled()
+    || isAuthPerformanceBypassEnabled(request);
 
   if (isPublic(pathname)) {
     if (isAuthenticated && pathname === '/login') return NextResponse.redirect(new URL('/', nextUrl));

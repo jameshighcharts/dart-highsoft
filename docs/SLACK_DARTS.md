@@ -32,7 +32,7 @@ Generate `BACKGROUND_JOB_SECRET` as a random value of at least 32 characters.
 
 The whole app is behind Sign in with Slack. `/login` gates the game (any
 verified member of the Highsoft workspace), `/signin` gates `/admin` (members
-on `AUTH_SLACK_ADMIN_EMAILS`, or everyone when that list is empty). Both pages
+on `AUTH_SLACK_ADMIN_EMAILS`. An empty list grants no admin access. Both pages
 share one light card with a single "Login with Slack" button. Server-to-server
 endpoints stay public and authenticate on their own: `/api/slack/*` (request
 signatures), `/api/background-jobs` (bearer secret) and `/api/auth/*`.
@@ -67,7 +67,7 @@ AUTH_SLACK_ID=                    # Slack app client id
 AUTH_SLACK_SECRET=                # Slack app client secret
 AUTH_SLACK_TEAM_ID=               # Highsoft workspace id (T…)
 AUTH_SLACK_ALLOWED_EMAIL_DOMAINS=highsoft.com
-AUTH_SLACK_ADMIN_EMAILS=          # optional; empty = every workspace member is an admin
+AUTH_SLACK_ADMIN_EMAILS=          # comma-separated admin emails; empty = no admins
 AUTH_TRUST_HOST=true              # only needed outside Vercel
 ```
 

@@ -61,12 +61,7 @@ export function isAllowedEmailDomain(email: string | null, allowedDomains: strin
   return allowedDomains.some((domain) => email.endsWith(`@${domain}`));
 }
 
-/**
- * Admin access. When AUTH_SLACK_ADMIN_EMAILS is empty every signed-in
- * workspace member is an admin; otherwise only the listed emails are.
- */
 export function isAdminEmail(email: string | null, adminEmails: string[]): boolean {
-  if (adminEmails.length === 0) return true;
-  if (!email) return false;
-  return adminEmails.includes(email);
+  if (!email || adminEmails.length === 0) return false;
+  return adminEmails.includes(email.toLowerCase());
 }

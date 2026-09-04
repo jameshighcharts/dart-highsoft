@@ -8,6 +8,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { SlackMember } from './members.ts';
+import { claimSlackPlayerAtomic, isSlackPlayerLinkConflict } from './playerLinks.ts';
 
 export type ExistingPlayer = { id: string; display_name: string };
 export type ExistingLink = { slack_user_id: string; player_id: string };
@@ -108,7 +109,7 @@ export async function importSlackMembersAsPlayers(
   members: SlackMember[],
 ): Promise<ImportResult> {
   const [{ data: players, error: playersError }, { data: links, error: linksError }] = await Promise.all([
-    supabase.from('players').select('id, display_name'),
+    supabase.from('players').select('id, display_name').eq('is_active', true).eq('is_test', false),
     supabase.from('slack_player_links').select('slack_user_id, player_id').eq('team_id', teamId),
   ]);
   if (playersError) throw new Error(playersError.message);
@@ -124,33 +125,30 @@ export async function importSlackMembersAsPlayers(
   let linked = 0;
 
   for (const entry of plan.link) {
-    const { error } = await supabase
-      .from('slack_player_links')
-      .insert({ team_id: teamId, slack_user_id: entry.slackUserId, player_id: entry.playerId });
-    if (error && error.code !== '23505') throw new Error(error.message);
-    if (!error) linked += 1;
+    try {
+      await claimSlackPlayerAtomic(supabase, {
+        teamId,
+        slackUserId: entry.slackUserId,
+        playerId: entry.playerId,
+      });
+      linked += 1;
+    } catch (error) {
+      if (!isSlackPlayerLinkConflict(error)) throw error;
+    }
   }
 
   for (const entry of plan.create) {
-    const inserted = await supabase
-      .from('players')
-      .insert({ display_name: entry.displayName })
-      .select('id')
-      .single();
-    if (inserted.error || !inserted.data) {
-      if (inserted.error?.code === '23505') continue; // name appeared concurrently; next run links it
-      throw new Error(inserted.error?.message ?? 'Failed to create player');
+    try {
+      const result = await claimSlackPlayerAtomic(supabase, {
+        teamId,
+        slackUserId: entry.slackUserId,
+        displayName: entry.displayName,
+      });
+      if (result.created) created += 1;
+      linked += 1;
+    } catch (error) {
+      if (!isSlackPlayerLinkConflict(error)) throw error;
     }
-    const link = await supabase
-      .from('slack_player_links')
-      .insert({ team_id: teamId, slack_user_id: entry.slackUserId, player_id: inserted.data.id });
-    if (link.error) {
-      await supabase.from('players').delete().eq('id', inserted.data.id);
-      if (link.error.code === '23505') continue;
-      throw new Error(link.error.message);
-    }
-    created += 1;
-    linked += 1;
   }
 
   return { ...plan, created, linked };
