@@ -15,6 +15,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `src/workers`: Long-running backend processes (Scolia board WebSocket connections).
 - `scripts`: Local operational and demo harnesses; `commentaryDemo.ts` provisions and drives test-only synthetic Scolia matches.
 - `scripts/workerLoader.mjs` and `scripts/workerResolve.mjs`: Standalone Node TypeScript loader for the worker/demo; resolves repository aliases and server-only imports without temporary files.
+- `scripts/workerLoader.test.mjs`: Native Node runtime checks for the commentary publisher and full worker entry point; startup stops at missing configuration without contacting external services. Worker dependencies must use erasable TypeScript syntax (no constructor parameter properties).
 - `src/test-utils`: Test factories, mock Supabase client.
 - `public`/`favicon`: Static assets.
 - `e2e`: Playwright E2E tests and fixtures.
