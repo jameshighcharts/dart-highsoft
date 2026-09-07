@@ -24,7 +24,6 @@ type Props = {
   turnThrowCounts: Record<string, number>;
   getAvgForPlayer: (playerId: string) => number;
   fairEndingState?: FairEndingState;
-  currentPlayerPresentedElsewhere?: boolean;
   title?: string;
 };
 
@@ -39,11 +38,12 @@ export function SpectatorLiveMatchCard({
   turnThrowCounts,
   getAvgForPlayer,
   fairEndingState,
-  currentPlayerPresentedElsewhere = false,
   title = 'Live Match',
 }: Props) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const previousScores = useRef(new Map<string, { score: number; legId?: string }>());
+  const scoreAnimations = useRef(new Map<string, Animation>());
   const currentPlayerId = spectatorCurrentPlayer?.id;
   const reducedMotion = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -57,6 +57,7 @@ export function SpectatorLiveMatchCard({
     if (el && container) {
       const containerRect = container.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
+      if (elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom) return;
       const offsetTop = elRect.top - containerRect.top + container.scrollTop;
       const target = offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
       container.scrollTo({ top: Math.max(0, target), behavior: reducedMotion ? 'auto' : 'smooth' });
@@ -64,26 +65,54 @@ export function SpectatorLiveMatchCard({
     return;
   }, [currentPlayerId, reducedMotion]);
 
+  // Animate only changed, already-present scores. The canonical value paints immediately;
+  // animation never delays scoring, and corrections replace any unfinished impact.
+  useEffect(() => {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const activeIds = new Set(orderPlayers.map((player) => player.id));
+    for (const [playerId, tile] of Object.entries(itemRefs.current)) {
+      if (!tile || !activeIds.has(playerId)) {
+        previousScores.current.delete(playerId);
+        scoreAnimations.current.get(playerId)?.cancel();
+        scoreAnimations.current.delete(playerId);
+        continue;
+      }
+      const score = Number(tile.dataset.score);
+      const previous = previousScores.current.get(playerId);
+      previousScores.current.set(playerId, { score, legId: currentLegId });
+      if (!previous || previous.score === score || previous.legId !== currentLegId) continue;
+      scoreAnimations.current.get(playerId)?.cancel();
+      const number = tile.querySelector<HTMLElement>('[data-score-number]');
+      if (prefersReducedMotion || !number?.animate) continue;
+      const checkout = score === 0 && fairEndingState?.phase !== 'tiebreak';
+      const animation = number.animate([
+        { transform: 'translateY(7px) scale(0.94)', opacity: 0.55, offset: 0 },
+        { transform: `translateY(-2px) scale(${checkout ? 1.12 : 1.06})`, opacity: 1, offset: 0.4 },
+        { transform: 'translateY(0) scale(1)', opacity: 1, offset: 1 },
+      ], { duration: checkout ? 720 : 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+      scoreAnimations.current.set(playerId, animation);
+    }
+  });
+
+  useEffect(() => {
+    const animations = scoreAnimations.current;
+    return () => {
+      for (const animation of animations.values()) animation.cancel();
+      animations.clear();
+    };
+  }, []);
+
   return (
-    <Card className="xl:col-span-2 xl:row-span-2">
-      <CardHeader>
+    <Card className="min-w-0 gap-4 overflow-hidden xl:max-h-[calc(100dvh-3rem)] xl:self-start xl:col-span-2 xl:row-span-2">
+      <CardHeader className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1.5">
         <CardTitle>{title}</CardTitle>
-        <CardDescription>
-          {match.start_score} • {match.finish.replace('_', ' ')} • Legs to win {match.legs_to_win}
+        <CardDescription className="text-xs">
+          {match.start_score} · {match.finish.replace('_', ' ')} · First to {match.legs_to_win}
         </CardDescription>
+        <span className="ml-auto text-xs font-medium tabular-nums text-muted-foreground">{orderPlayers.length} players</span>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col gap-4">
-          {!currentPlayerPresentedElsewhere && spectatorCurrentPlayer ? (
-            <div className="text-center">
-              <div className="text-lg font-semibold text-muted-foreground">Current Turn</div>
-              <div className="inline-flex items-center justify-center gap-2 text-3xl font-bold text-primary">
-                <PlayerAvatar player={spectatorCurrentPlayer} size="lg" />
-                <span>{spectatorCurrentPlayer.display_name}</span>
-              </div>
-            </div>
-          ) : null}
-
           {/* Checkout suggestions (hidden during tiebreak) */}
           {(() => {
             const isTiebreak = fairEndingState?.phase === 'tiebreak';
@@ -140,7 +169,9 @@ export function SpectatorLiveMatchCard({
           {/* Player scores with inline throw indicators */}
           <div
             ref={listRef}
-            className="grid content-start gap-3 max-h-[70vh] min-h-[40vh] overflow-y-auto overflow-x-hidden pr-1 xl:flex-1 xl:basis-0 xl:max-h-none"
+            role="list"
+            aria-label="Live player scores"
+            className="grid auto-rows-[minmax(13rem,auto)] content-start grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3 max-h-[70vh] min-h-0 overflow-y-auto overflow-x-hidden p-1 -m-1 xl:max-h-[calc(100dvh-9rem)]"
           >
             {orderPlayers.map((player) => {
               const isTiebreak = fairEndingState?.phase === 'tiebreak';
@@ -149,7 +180,7 @@ export function SpectatorLiveMatchCard({
                 ? (fairEndingState.tiebreakScores[player.id] ?? 0)
                 : getSpectatorScore(turns, currentLegId, startScore, turnThrowCounts, player.id);
               const avg = getAvgForPlayer(player.id);
-              const deco = decorateAvg(avg);
+              const averageDecoration = decorateAvg(avg);
               const isCurrent = spectatorCurrentPlayer?.id === player.id;
               const isCheckedOut = fairEndingState?.checkedOutPlayerIds?.includes(player.id);
 
@@ -173,7 +204,6 @@ export function SpectatorLiveMatchCard({
                   displayThrows = (lastTurn as TurnWithThrows).throws || [];
                 }
 
-                displayThrows.sort((a, b) => a.dart_index - b.dart_index);
               }
 
               return (
@@ -182,54 +212,63 @@ export function SpectatorLiveMatchCard({
                   ref={(el) => {
                     itemRefs.current[player.id] = el;
                   }}
-                  className={`p-4 rounded-lg transition-all duration-500 ease-in-out ${
+                  role="listitem"
+                  data-score={score}
+                  data-finished={Boolean(isCheckedOut || (!isTiebreak && score === 0))}
+                  aria-current={isCurrent ? 'true' : undefined}
+                  className={`scoreboard-tile @container relative flex min-h-[clamp(13rem,22dvh,16rem)] min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border p-4 transition-colors duration-300 motion-reduce:transition-none ${
                     isCurrent
-                      ? 'border-2 border-yellow-500 bg-yellow-500/10'
-                      : 'border bg-card hover:bg-accent/30'
+                      ? 'border-lime-300/80 bg-gradient-to-br from-lime-300/20 via-lime-300/5 to-transparent shadow-[inset_0_1px_0_0_rgb(190_242_100/0.25)]'
+                      : isCheckedOut
+                        ? 'border-emerald-400/40 bg-emerald-400/5'
+                        : 'border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.015]'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {isCurrent && <Badge variant="default">Playing</Badge>}
-                      {isCheckedOut && (
-                        <Badge variant="outline" className="border-green-500 text-green-600 dark:text-green-400">Checked out</Badge>
-                      )}
-                      <div className="inline-flex items-center gap-2 font-semibold text-lg">
-                        <PlayerAvatar player={player} size="md" />
-                        <span>{player.display_name}</span>
+                  <span className="scoreboard-sweep" aria-hidden="true" />
+                  <div className="relative flex min-w-0 items-center gap-2.5">
+                    <PlayerAvatar player={player} size="sm" />
+                    <span className="min-w-0 break-words text-xl font-bold leading-tight tracking-tight">{player.display_name}</span>
+                  </div>
+
+                  <div className="my-auto flex flex-col items-start gap-2">
+                    <div>
+                      <div data-score-number className={`origin-left text-[clamp(3.5rem,34cqw,7rem)] font-black leading-none tracking-tighter tabular-nums ${isCurrent ? 'text-lime-300' : isCheckedOut ? 'text-emerald-300' : 'text-foreground'}`}>
+                        {score}
                       </div>
-
-                      {/* Inline throw indicators */}
-                      {displayThrows.length > 0 && (
-                        <ThrowSegmentBadges
-                          throws={displayThrows}
-                          highlightIncomplete={isCurrent}
-                          showCount
-                          placeholder="—"
-                          className="ml-2"
-                        />
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <div className="text-3xl font-mono font-bold">{score}</div>
-                      <div className="flex flex-col items-end gap-1">
-                        <div className={`text-sm font-medium ${isTiebreakPlayer ? 'text-amber-600 dark:text-amber-400' : deco.cls}`}>
-                          {isTiebreakPlayer
-                            ? `Round ${fairEndingState!.tiebreakRound} score`
-                            : `${deco.emoji} ${avg.toFixed(1)} avg`}
-                        </div>
-                        {!isTiebreakPlayer && (() => {
-                          const { lastRoundScore, bestRoundScore } = getLegRoundStats(turns, currentLegId, player.id);
-
-                          return (
-                            <div className="space-y-0.5">
-                              <div className="text-xs text-muted-foreground">Last: {lastRoundScore}</div>
-                              <div className="text-xs text-muted-foreground">Best: {bestRoundScore}</div>
-                            </div>
-                          );
-                        })()}
+                      <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        {isTiebreakPlayer ? `Round ${fairEndingState!.tiebreakRound} score` : 'Remaining'}
                       </div>
                     </div>
+                    <div className="flex flex-wrap items-center gap-2 pb-0.5">
+                      {isCurrent ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-lime-300">
+                          <span className="scoreboard-turn-dot h-1.5 w-1.5 rounded-full bg-lime-300" />On throw
+                        </span>
+                      ) : isCheckedOut ? (
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-300">Checked out</span>
+                      ) : null}
+                      <ThrowSegmentBadges
+                        throws={displayThrows}
+                        highlightIncomplete={isCurrent}
+                        placeholder="·"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-white/10 pt-2.5 text-xs tabular-nums text-muted-foreground">
+                    <span className="inline-flex items-center gap-1">
+                      <span>{averageDecoration.emoji}</span> AVG
+                      <span className={`font-semibold ${averageDecoration.cls}`}>{avg.toFixed(1)}</span>
+                    </span>
+                    {!isTiebreakPlayer && (() => {
+                      const { lastRoundScore, bestRoundScore } = getLegRoundStats(turns, currentLegId, player.id);
+                      return (
+                        <span className="flex gap-3">
+                          <span>Last <span className="font-medium text-foreground">{lastRoundScore}</span></span>
+                          <span>Best <span className="font-medium text-foreground">{bestRoundScore}</span></span>
+                        </span>
+                      );
+                    })()}
                   </div>
                 </div>
               );

@@ -517,7 +517,6 @@ export function MatchSpectatorView({
             turnThrowCounts={turnThrowCounts}
             getAvgForPlayer={getAvgForPlayer}
             fairEndingState={fairEndingState}
-            currentPlayerPresentedElsewhere={Boolean(match.scolia_board_id)}
             title={isHistoryView ? 'Match Summary' : 'Live Match'}
           />
 
