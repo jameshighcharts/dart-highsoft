@@ -9,7 +9,7 @@ import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
 import { formatNicknames } from '@/utils/nicknames';
 
-type Viewer = { name: string; email: string | null; slackUserId: string };
+type Viewer = { name: string; email: string | null; slackUserId: string | null };
 
 const inputClass =
   'h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50';
@@ -57,7 +57,7 @@ export function AdminUsersPanel({ viewer }: { viewer: Viewer }) {
     () => new Set(players.map((player) => player.slack_user_id).filter((id): id is string => Boolean(id))),
     [players],
   );
-  const myPlayer = players.find((player) => player.slack_user_id === viewer.slackUserId) ?? null;
+  const myPlayer = viewer.slackUserId ? players.find((player) => player.slack_user_id === viewer.slackUserId) ?? null : null;
 
   const visiblePlayers = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -211,7 +211,7 @@ export function AdminUsersPanel({ viewer }: { viewer: Viewer }) {
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {!myPlayer ? (
+            {!myPlayer && viewer.slackUserId ? (
               <select
                 aria-label="Link me to a player"
                 className={inputClass}
@@ -219,7 +219,7 @@ export function AdminUsersPanel({ viewer }: { viewer: Viewer }) {
                 disabled={busy !== null}
                 onChange={(event) => {
                   const player = players.find((entry) => entry.id === event.target.value);
-                  if (player) void setSlackLink(player, viewer.slackUserId);
+                  if (player && viewer.slackUserId) void setSlackLink(player, viewer.slackUserId);
                 }}
               >
                 <option value="">Link me to a player…</option>
