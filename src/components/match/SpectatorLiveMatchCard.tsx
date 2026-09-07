@@ -42,6 +42,8 @@ export function SpectatorLiveMatchCard({
 }: Props) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const previousScores = useRef(new Map<string, { score: number; legId?: string }>());
+  const scoreAnimations = useRef(new Map<string, Animation>());
   const currentPlayerId = spectatorCurrentPlayer?.id;
   const reducedMotion = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -62,6 +64,43 @@ export function SpectatorLiveMatchCard({
     }
     return;
   }, [currentPlayerId, reducedMotion]);
+
+  // Animate only changed, already-present scores. The canonical value paints immediately;
+  // animation never delays scoring, and corrections replace any unfinished impact.
+  useEffect(() => {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const activeIds = new Set(orderPlayers.map((player) => player.id));
+    for (const [playerId, tile] of Object.entries(itemRefs.current)) {
+      if (!tile || !activeIds.has(playerId)) {
+        previousScores.current.delete(playerId);
+        scoreAnimations.current.get(playerId)?.cancel();
+        scoreAnimations.current.delete(playerId);
+        continue;
+      }
+      const score = Number(tile.dataset.score);
+      const previous = previousScores.current.get(playerId);
+      previousScores.current.set(playerId, { score, legId: currentLegId });
+      if (!previous || previous.score === score || previous.legId !== currentLegId) continue;
+      scoreAnimations.current.get(playerId)?.cancel();
+      const number = tile.querySelector<HTMLElement>('[data-score-number]');
+      if (prefersReducedMotion || !number?.animate) continue;
+      const checkout = score === 0 && fairEndingState?.phase !== 'tiebreak';
+      const animation = number.animate([
+        { transform: 'translateY(7px) scale(0.94)', opacity: 0.55, offset: 0 },
+        { transform: `translateY(-2px) scale(${checkout ? 1.12 : 1.06})`, opacity: 1, offset: 0.4 },
+        { transform: 'translateY(0) scale(1)', opacity: 1, offset: 1 },
+      ], { duration: checkout ? 720 : 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+      scoreAnimations.current.set(playerId, animation);
+    }
+  });
+
+  useEffect(() => {
+    const animations = scoreAnimations.current;
+    return () => {
+      for (const animation of animations.values()) animation.cancel();
+      animations.clear();
+    };
+  }, []);
 
   return (
     <Card className="min-w-0 gap-4 overflow-hidden xl:max-h-[calc(100dvh-3rem)] xl:self-start xl:col-span-2 xl:row-span-2">
@@ -174,8 +213,10 @@ export function SpectatorLiveMatchCard({
                     itemRefs.current[player.id] = el;
                   }}
                   role="listitem"
+                  data-score={score}
+                  data-finished={Boolean(isCheckedOut || (!isTiebreak && score === 0))}
                   aria-current={isCurrent ? 'true' : undefined}
-                  className={`@container relative flex min-h-[clamp(13rem,22dvh,16rem)] min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border p-4 transition-colors duration-300 motion-reduce:transition-none ${
+                  className={`scoreboard-tile @container relative flex min-h-[clamp(13rem,22dvh,16rem)] min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border p-4 transition-colors duration-300 motion-reduce:transition-none ${
                     isCurrent
                       ? 'border-lime-300/80 bg-gradient-to-br from-lime-300/20 via-lime-300/5 to-transparent shadow-[inset_0_1px_0_0_rgb(190_242_100/0.25)]'
                       : isCheckedOut
@@ -183,14 +224,15 @@ export function SpectatorLiveMatchCard({
                         : 'border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.015]'
                   }`}
                 >
-                  <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="scoreboard-sweep" aria-hidden="true" />
+                  <div className="relative flex min-w-0 items-center gap-2.5">
                     <PlayerAvatar player={player} size="sm" />
                     <span className="min-w-0 break-words text-xl font-bold leading-tight tracking-tight">{player.display_name}</span>
                   </div>
 
                   <div className="my-auto flex flex-col items-start gap-2">
                     <div>
-                      <div className={`text-[clamp(3.5rem,34cqw,7rem)] font-black leading-none tracking-tighter tabular-nums ${isCurrent ? 'text-lime-300' : isCheckedOut ? 'text-emerald-300' : 'text-foreground'}`}>
+                      <div data-score-number className={`origin-left text-[clamp(3.5rem,34cqw,7rem)] font-black leading-none tracking-tighter tabular-nums ${isCurrent ? 'text-lime-300' : isCheckedOut ? 'text-emerald-300' : 'text-foreground'}`}>
                         {score}
                       </div>
                       <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -200,7 +242,7 @@ export function SpectatorLiveMatchCard({
                     <div className="flex flex-wrap items-center gap-2 pb-0.5">
                       {isCurrent ? (
                         <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-lime-300">
-                          <span className="h-1.5 w-1.5 rounded-full bg-lime-300" />On throw
+                          <span className="scoreboard-turn-dot h-1.5 w-1.5 rounded-full bg-lime-300" />On throw
                         </span>
                       ) : isCheckedOut ? (
                         <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-300">Checked out</span>
