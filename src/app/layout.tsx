@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import "./globals.css";
 import Link from "next/link";
-import { Grid3x3, Target, BarChart3, Plus, Radio, Trophy, Users } from "lucide-react";
+import { Grid3x3, Target, BarChart3, Plus, Radio, Trophy, UserRound, Users } from "lucide-react";
 import { Analytics } from "@vercel/analytics/react";
 import { MatchSpectatorHotkey } from "@/components/MatchSpectatorHotkey";
 import { QueryProvider } from "@/components/QueryProvider";
@@ -95,13 +95,13 @@ export default function RootLayout({
                 <Users className="size-5" />
                 <span className="text-xs">Players</span>
               </Link>
-              <Link href="/boards" className="flex flex-col items-center justify-center py-2 gap-1">
-                <Radio className="size-5" />
-                <span className="text-xs">Boards</span>
-              </Link>
               <Link href="/stats" className="flex flex-col items-center justify-center py-2 gap-1">
                 <BarChart3 className="size-5" />
                 <span className="text-xs">Stats</span>
+              </Link>
+              <Link href="/profile" className="flex flex-col items-center justify-center py-2 gap-1">
+                <UserRound className="size-5" />
+                <span className="text-xs">Profile</span>
               </Link>
             </div>
           </nav>
