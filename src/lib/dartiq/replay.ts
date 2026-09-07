@@ -570,7 +570,7 @@ export function transitionDartIQDart(
       tonPlusVisitStreaks[playerId] = 0;
     }
   }
-  if (!isTiebreak && playerLegDartNumber === 9) {
+  if (!isTiebreak && playerLegDartNumber === 9 && visitCompleted) {
     firstNineAverage = (legPoints[playerId] ?? 0) / 3;
   }
   const tonPlusVisitStreak = tonPlusVisitStreaks[playerId] ?? 0;
@@ -607,7 +607,7 @@ export function transitionDartIQDart(
     ? currentFairEnding.winnerId
     : null;
   const standardWinnerId = !input.fairEnding && outcome.finished
-    ? source.leg.winner_player_id ?? playerId
+    ? playerId
     : null;
   const legWinnerId = fairEndingWinnerId ?? standardWinnerId;
   const nextLeg = legWinnerId ? orderedLegs[source.legIndex + 1] : undefined;

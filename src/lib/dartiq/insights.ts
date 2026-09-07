@@ -256,7 +256,7 @@ export function analyzeDartIQTimeline(
   const stolenLegs: DartIQLegStory[] = [];
   const thrownAwayLegs: DartIQLegStory[] = [];
   const commentaryMoments: DartIQCommentaryMoment[] = [];
-  const legRanges = new Map<string, Map<string, { min: number; max: number }>>();
+  const legRanges = new Map<string, Map<string, { min: number; max: number; opening: number; fieldSize: number }>>();
 
   for (const event of timeline) {
     const swing = toSwing(event);
@@ -278,7 +278,9 @@ export function analyzeDartIQTimeline(
     for (const projection of event.before.projections) {
       const afterProbability = projection.legWinProbability
         + (event.legWinProbabilityAdded[projection.id] ?? 0);
-      const current = ranges.get(projection.id) ?? { min: 1, max: 0 };
+      const current = ranges.get(projection.id) ?? {
+        min: 1, max: 0, opening: projection.legWinProbability, fieldSize: event.before.projections.length,
+      };
       current.min = Math.min(current.min, projection.legWinProbability, afterProbability);
       current.max = Math.max(current.max, projection.legWinProbability, afterProbability);
       ranges.set(projection.id, current);
@@ -314,7 +316,12 @@ export function analyzeDartIQTimeline(
     const winnerId = completedLegWinner(event);
     if (winnerId) {
       const winnerRange = ranges.get(winnerId);
-      if (winnerRange && winnerRange.min < stolenThreshold) {
+      // A low opening share in a large field is not itself a comeback. Require
+      // both a field-relative low point and a halving of the opening estimate.
+      const comebackThreshold = winnerRange
+        ? Math.min(stolenThreshold, 0.4 / Math.max(2, winnerRange.fieldSize), winnerRange.opening * 0.5)
+        : 0;
+      if (winnerRange && winnerRange.min < comebackThreshold) {
         stolenLegs.push({
           legId: event.legId,
           legNumber: event.legNumber,

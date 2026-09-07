@@ -6,6 +6,7 @@ export interface ThrowData {
 
 export interface PlayerStats {
   name: string;
+  nicknames?: string[];
   id: string;
   remainingScore: number;
   average: number;

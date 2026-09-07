@@ -12,10 +12,13 @@ vi.mock('@/lib/match/loadMatchData', () => ({ loadMatchData }));
 vi.mock('./dartiqEvidence', () => ({ loadFrozenDartIQEvidence }));
 vi.mock('@/lib/dartiq/replay', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/dartiq/replay')>();
-  return { ...actual, reconstructDartIQTimeline };
+  return { ...actual, reconstructDartIQTimelineWithCheckpoint: (...args: unknown[]) => ({
+    timeline: reconstructDartIQTimeline(...args), checkpoint: null,
+  }) };
 });
 
 import {
+  DartIQTelemetryBatch,
   persistDartIQCompletedLeg,
   persistDartIQLiveReplay,
   persistDartIQLiveThrow,
@@ -102,7 +105,12 @@ type Write = { table: string; operation: 'insert' | 'upsert' | 'update' | 'rpc';
 
 function fakeSupabase(options: { activeLiveProjection?: boolean } = {}) {
   const writes: Write[] = [];
+  const reads: string[] = [];
+  const snapshotRequests: unknown[] = [];
+  let lastSource = '';
+  let revision = 0;
   const from = (table: string) => {
+    reads.push(table);
     let operation: Exclude<Write['operation'], 'rpc'> | 'select' = 'select';
     let payload: unknown;
     const builder = {
@@ -158,10 +166,27 @@ function fakeSupabase(options: { activeLiveProjection?: boolean } = {}) {
     return builder;
   };
   const rpc = async (name: string, payload: unknown) => {
+    if (name === 'load_dartiq_telemetry_snapshot') {
+      snapshotRequests.push(payload);
+      const data = await loadMatchData();
+      const source = JSON.stringify(data);
+      if (lastSource !== source) { revision += 1; lastSource = source; }
+      if ((payload as { p_known_revision: string }).p_known_revision === String(revision)) {
+        return { data: { revision: String(revision), unchanged: true }, error: null };
+      }
+      return { data: {
+        revision: String(revision), unchanged: false, data,
+        population: { id: 11, content_hash: 'population-hash' },
+        players: [
+          { id: 21, player_id: 'a', content_hash: 'a-hash' },
+          { id: 22, player_id: 'b', content_hash: 'b-hash' },
+        ],
+      }, error: null };
+    }
     writes.push({ table: name, operation: 'rpc', payload });
     return { data: [{ source_throw_id: 'dart-1', projection_event_id: 31 }], error: null };
   };
-  return { client: { from, rpc }, writes };
+  return { client: { from, rpc }, writes, reads, snapshotRequests };
 }
 
 describe('persistDartIQCompletedLeg', () => {
@@ -186,6 +211,45 @@ describe('persistDartIQCompletedLeg', () => {
       populationOutcomes: [],
     });
     reconstructDartIQTimeline.mockReturnValue([event()]);
+  });
+
+  it('shares replay in a batch but rebuilds after a canonical correction', async () => {
+    const { client, writes, reads, snapshotRequests } = fakeSupabase();
+    const batch = new DartIQTelemetryBatch();
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', batch);
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', batch);
+    expect(loadMatchData).toHaveBeenCalledTimes(2);
+    expect(reconstructDartIQTimeline).toHaveBeenCalledOnce();
+    expect(loadFrozenDartIQEvidence).toHaveBeenCalledOnce();
+    expect(reads).toEqual(['dartiq_model_versions']);
+    expect(snapshotRequests).toEqual([
+      { p_match_id: 'match-1', p_known_revision: null },
+      { p_match_id: 'match-1', p_known_revision: '1' },
+    ]);
+    expect(writes.filter((write) => write.table === 'capture_dartiq_live_projection_event')).toHaveLength(2);
+
+    const canonical = await loadMatchData.mock.results[0].value;
+    loadMatchData.mockResolvedValue({ ...canonical, match: { ...canonical.match, fair_ending: true } });
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', batch);
+    expect(reconstructDartIQTimeline).toHaveBeenCalledTimes(2);
+    expect(reconstructDartIQTimeline.mock.calls[1][1].cachedPrefix).toBeUndefined();
+    // A separate request cannot inherit cached state.
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', new DartIQTelemetryBatch());
+    expect(reconstructDartIQTimeline).toHaveBeenCalledTimes(3);
+  });
+
+  it('passes verified replay checkpoints forward on appended source rows', async () => {
+    const { client } = fakeSupabase();
+    const batch = new DartIQTelemetryBatch();
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', batch);
+    const firstTimeline = batch.contexts.get('match-1')!.context.timeline;
+    const canonical = await loadMatchData.mock.results[0].value;
+    loadMatchData.mockResolvedValue({ ...canonical, turnsByLeg: {
+      'leg-1': [{ id: 'turn-new', throws: [{ id: 'dart-new', scolia_event_id: 10 }] }],
+    } });
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', batch);
+    expect(reconstructDartIQTimeline.mock.calls[1][1].cachedPrefix).toBe(firstTimeline);
+    expect(loadFrozenDartIQEvidence).toHaveBeenCalledOnce();
   });
 
   it('writes one event batch, the full player vector, and a resolution', async () => {

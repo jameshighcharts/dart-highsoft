@@ -47,6 +47,16 @@ function payload(): CommentaryPayload {
 }
 
 describe('buildCommentaryPrompt DartIQ context', () => {
+  it('gives fallback commentary real aliases and a namesake Special celebration', () => {
+    const input = payload();
+    input.playerName = 'Nikita';
+    input.isNikitaSpecial = true;
+    input.gameContext.allPlayers = [{ id: 'a', name: 'Nikita', nicknames: ['Niki'], remainingScore: 201, average: 35, legsWon: 0, isCurrentPlayer: true }];
+    const { prompt } = buildCommentaryPrompt(input, { persona });
+    expect(prompt).toContain('Nicknames for Nikita: "Niki".');
+    expect(prompt).toContain('Nikita himself');
+    expect(prompt).toContain('no quota');
+  });
   it('bypasses a generic plain line for a significant DartIQ consequence', () => {
     const input = payload();
     input.dartiq = {
@@ -96,6 +106,8 @@ describe('buildCommentaryPrompt DartIQ context', () => {
     const result = buildCommentaryPrompt(input, { persona, random: () => 0 });
     expect(result.plainLine).toBeUndefined();
     expect(result.prompt).toContain('NIKITA SPECIAL');
-    expect(result.prompt).toContain('celebrate the exact 1, 5, 20 visit by name');
+    expect(result.prompt).toContain('Say “Nikita Special” aloud');
+    expect(result.prompt).toContain('explosive 6–16 word celebration');
+    expect(result.prompt).not.toContain('Humor style: wry-quiet');
   });
 });

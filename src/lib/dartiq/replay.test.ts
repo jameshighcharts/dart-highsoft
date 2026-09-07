@@ -204,7 +204,7 @@ describe('reconstructDartIQTimeline', () => {
     expect(timeline.at(-1)?.tonPlusVisitStreak).toBe(1);
   });
 
-  it('reports first-nine scoring after nine physical darts even when an early bust shortened a visit', () => {
+  it('suppresses first-nine scoring when an early bust leaves dart nine inside an unfinished visit', () => {
     const visits = [
       turn('turn-1', 'leg-1', 'a', 1, [
         dart('dart-1-1', 'turn-1', 1, 'T20', 60),
@@ -231,8 +231,7 @@ describe('reconstructDartIQTimeline', () => {
     });
 
     const ninth = timeline.find((event) => event.playerLegDartNumber === 9)!;
-    expect(ninth.firstNineAverage).toBeDefined();
-    expect(ninth.firstNineAverage).toBe(0);
+    expect(ninth.firstNineAverage).toBeUndefined();
   });
 
   it('marks six perfect scoring darts as nine-dart pace', () => {

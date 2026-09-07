@@ -20,6 +20,15 @@ export type DartIQPlayerHistoryProfile = DartIQHistoryProfile & {
 
 export type DartIQPopulationProfile = DartIQHistoryProfile;
 
+export type DartIQHistoricalFact = {
+  kind: 'player_history' | 'matchup_history';
+  subjectPlayerId: string;
+  counterpartPlayerId: string | null;
+  support: number;
+  confidenceTier: 'thin' | 'supported' | 'strong';
+  evidence: Record<string, string | number | boolean>;
+};
+
 export type DartIQPlayerProfileRow = {
   player_id: string;
   finish_rule: FinishRule;

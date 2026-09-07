@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { createBehavioralOutcomeModel, type DartIQLandingForecast } from './model/outcomes';
 
 import type { LegRecord, ThrowRecord, TurnWithThrows } from '@/lib/match/types';
 import { DartIQTracker } from './tracker';
@@ -43,12 +44,32 @@ const base = {
 };
 
 describe('DartIQTracker', () => {
+  it('uses the current pre-dart state for a validated forecast and refreshes after corrections', () => {
+    const forecast: DartIQLandingForecast = { artifactId: 'geometry-1', confidence: 'high', validation: 'passed',
+      segments: [{ segment: 'S20', probability: 0.6 }, { segment: 'S5', probability: 0.4 }] };
+    const predictLanding = vi.fn().mockReturnValue(forecast);
+    const outcomeModels = { a: { ...createBehavioralOutcomeModel(), predictLanding } };
+    const tracker = new DartIQTracker();
+    const opening = tracker.update({ ...base, outcomeModels, turnsByLeg: {} });
+    expect(opening.nextDartForecast?.artifactId).toBe('geometry-1');
+    expect(predictLanding).toHaveBeenLastCalledWith({ currentScore: 301, dartsLeft: 3, finishRule: 'double_out' });
+    const input = { ...base, outcomeModels, turnsByLeg: { 'leg-1': [turn([dart('d1','turn-1',1,'S20',20)])] } };
+    tracker.update(input);
+    expect(predictLanding).toHaveBeenLastCalledWith({ currentScore: 281, dartsLeft: 2, finishRule: 'double_out' });
+    const callCount = predictLanding.mock.calls.length;
+    tracker.update(input);
+    expect(predictLanding).toHaveBeenCalledTimes(callCount);
+    tracker.update({ ...input, turnsByLeg: {} });
+    expect(predictLanding).toHaveBeenLastCalledWith({ currentScore: 301, dartsLeft: 3, finishRule: 'double_out' });
+  });
+
   it('produces the opening state before the first dart', () => {
     const tracker = new DartIQTracker();
     const snapshot = tracker.update({ ...base, turnsByLeg: { 'leg-1': [] } });
 
     expect(snapshot.sequence).toBe(0);
     expect(snapshot.latestEvent).toBeNull();
+    expect(snapshot.nextDartForecast).toBeNull();
     expect(snapshot.state).toMatchObject({
       currentPlayerId: 'a',
       currentVisitStartScore: 301,

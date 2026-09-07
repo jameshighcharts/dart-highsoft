@@ -299,6 +299,21 @@ describe('DartIQ projection', () => {
     expect(result.players.reduce((sum, entry) => sum + entry.legWinProbability, 0)).toBeCloseTo(1);
     expect(result.players.every((entry) => Number.isFinite(entry.matchWinProbability))).toBe(true);
   });
+
+  it.each([59, 60])('respects tiebreak catch-up bounds while retaining a possible tie at %s', (score) => {
+    const result = calculateDartIQProjection({
+      players: [player('a',0), player('b',0)], playOrder: ['a','b'],
+      currentPlayerId: 'b', dartsRemainingInTurn: 1, legsToWin: 1, finishRule: 'double_out',
+      fairEnding: {
+        phase: 'tiebreak', checkedOutPlayerIds: ['a','b'], tiebreakRound: 1,
+        tiebreakPlayerIds: ['a','b'], tiebreakScores: { a: 120, b: score },
+        winnerId: null, pendingPlayerIds: ['b'], tiebreakDartsThrown: { a: 3, b: 2 },
+      },
+    });
+    if (score === 59) expect(result.players[1].legWinProbability).toBe(0);
+    else expect(result.players[1].legWinProbability).toBeGreaterThan(0);
+    expect(result.approximationMode).toBe('fair-ending-weighted');
+  });
 });
 
 describe('DartIQ next-dart analysis', () => {

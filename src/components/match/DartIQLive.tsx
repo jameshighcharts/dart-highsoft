@@ -1,13 +1,15 @@
 "use client";
 
 import { Activity, Crosshair } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import type { Player } from '@/lib/match/types';
 import type { DartIQTrackerSnapshot } from '@/lib/dartiq/tracker';
+import { useDartIQWorker } from '@/hooks/useDartIQWorker';
+import type { DartIQLiveInput, DartIQLiveEvidence } from '@/lib/dartiq/liveWorker';
 
 type Props = {
   orderPlayers: Player[];
@@ -15,7 +17,27 @@ type Props = {
   matchWinnerId: string | null;
   snapshot: DartIQTrackerSnapshot;
   hasPersonalProfiles: boolean;
+  refreshing?: boolean;
 };
+
+/** Model construction and replay run in the worker, never in a render/effect. */
+export function WorkerDartIQLive({ input, evidence, ...props }: Omit<Props, 'snapshot'> & {
+  input: DartIQLiveInput; evidence?: DartIQLiveEvidence;
+}) {
+  const snapshot = useDartIQWorker(input, evidence);
+  const scope = JSON.stringify([input.legs[0]?.match_id, input.playerIds]);
+  const [lastCompleted, setLastCompleted] = useState<{ snapshot: DartIQTrackerSnapshot;
+    evidence: typeof evidence; scope: string } | null>(null);
+  if (snapshot && (lastCompleted?.snapshot !== snapshot || lastCompleted.evidence !== evidence || lastCompleted.scope !== scope)) {
+    setLastCompleted({ snapshot, evidence, scope });
+  }
+  // Retain the last completed analysis, not an obsolete worker reply. Keep the
+  // same card/rail mounted while the next result is pending so layout stays put.
+  const displayed = snapshot ?? (lastCompleted && lastCompleted.evidence === evidence && lastCompleted.scope === scope
+    ? lastCompleted.snapshot : null);
+  return <div aria-busy={!snapshot}>{displayed
+    ? <DartIQLive {...props} snapshot={displayed} refreshing={!snapshot} /> : null}</div>;
+}
 
 function formatProbability(value: number) {
   if (value > 0 && value < 0.005) return '<1%';
@@ -36,8 +58,11 @@ export function DartIQLive({
   matchWinnerId,
   snapshot,
   hasPersonalProfiles,
+  refreshing = false,
 }: Props) {
   const currentPlayerId = snapshot.state.currentPlayerId;
+  const nextDartForecast = !matchWinnerId && currentPlayerId ? snapshot.nextDartForecast : null;
+  const currentPlayer = orderPlayers.find((player) => player.id === currentPlayerId);
   const projection = {
     players: snapshot.state.projections,
     favoritePlayerId: snapshot.state.projections.reduce<string | null>((favoriteId, player) => {
@@ -138,15 +163,15 @@ export function DartIQLive({
                 ) : null}
               </div>
               <p className="hidden text-xs text-muted-foreground sm:block">
-                Recalculated after every dart · score · form · throw order · match position
+                Recalculated after every dart · score · history · throw order · match position
               </p>
             </div>
           </div>
 
           {favorite && favoriteProjection ? (
             <div className="flex shrink-0 items-center gap-4 text-right">
-              {currentPlayerId ? (
-                <div className="hidden border-r border-white/10 pr-4 sm:block">
+              {currentPlayerId && snapshot.state.fairEnding?.phase !== 'tiebreak' ? (
+                <div className={`hidden border-r border-white/10 pr-4 sm:block${refreshing ? ' invisible' : ''}`} aria-hidden={refreshing || undefined}>
                   <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-muted-foreground">On-throw checkout</div>
                   <div className="text-sm font-bold tabular-nums">
                     <span className="text-amber-300">{formatProbability(currentCheckoutProbability)}</span>
@@ -154,7 +179,7 @@ export function DartIQLive({
                 </div>
               ) : null}
               {tension ? (
-                <div className="hidden w-20 border-r border-white/10 pr-4 sm:block">
+                <div className={`hidden w-20 border-r border-white/10 pr-4 sm:block${refreshing ? ' invisible' : ''}`} aria-hidden={refreshing || undefined}>
                   <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Tension</div>
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10" aria-label={`${tension.label} pre-dart opportunity`}>
                     <div className={`h-full rounded-full transition-[width] duration-300 ${tension.color}`} style={{ width: tension.width }} />
@@ -175,6 +200,18 @@ export function DartIQLive({
       </CardHeader>
 
       <CardContent className="space-y-3 px-4 sm:px-5">
+        {nextDartForecast && currentPlayer ? (
+          <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-cyan-300/15 bg-cyan-400/5 px-3 py-2 text-xs${refreshing ? ' invisible' : ''}`} aria-hidden={refreshing || undefined} aria-label="Next dart landing forecast">
+            <span className="text-muted-foreground">{currentPlayer.display_name} · next dart</span>
+            <span className="font-medium">Likely landing</span>
+            {nextDartForecast.segments.map(({ segment, probability }) => (
+              <span key={segment} className="whitespace-nowrap font-mono">
+                {segment}{' '}
+                <span className="text-cyan-300">{formatProbability(probability)}</span>
+              </span>
+            ))}
+          </div>
+        ) : null}
         <div
           className="flex h-2.5 w-full overflow-hidden rounded-full bg-white/5 ring-1 ring-white/10"
           role="img"

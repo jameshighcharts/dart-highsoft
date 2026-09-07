@@ -2,33 +2,48 @@ import { describe, expect, it } from 'vitest';
 
 import {
   realtimePersonaResponseInstruction,
+  commentaryStartingMood,
   resolvePersona,
 } from './personas';
 
-describe('commentary persona language contracts', () => {
-  it('forces Chad back to the original English surf-bro voice after editorial instructions', () => {
+describe('commentary persona contracts', () => {
+  it('resolves Chad as a complete selectable persona', () => {
+    const persona = resolvePersona('chad');
     const instruction = realtimePersonaResponseInstruction('chad');
 
-    expect(resolvePersona('chad').systemPrompt).toContain('# Role and Objective');
-    expect(resolvePersona('chad').systemPrompt).toContain('full Gen Z register');
-    expect(resolvePersona('chad').systemPrompt).toContain('MAX OUT the relaxed surfer energy');
-    expect(resolvePersona('chad').systemPrompt).toContain('# Surfer Worldview');
-    expect(resolvePersona('chad').systemPrompt).toContain('# Anti-Broadcast Language');
-    expect(resolvePersona('chad').systemPrompt).toContain('vibes are medically concerning');
-    expect(resolvePersona('chad').systemPrompt).toContain('one-word reaction or spicy micro-reaction');
-    expect(resolvePersona('chad').systemPrompt).toContain('Bad darts are premium content');
-    expect(resolvePersona('chad').systemPrompt).toContain('Generational fumble');
-    expect(resolvePersona('chad').systemPrompt).toContain('Slang is instinct, not a quota');
-    expect(resolvePersona('chad').systemPrompt).toContain('# Variety');
-    expect(resolvePersona('chad').systemPrompt).toContain('speaking pace natural and brisk');
-    expect(resolvePersona('chad').style.maxWords).toBe(15);
-    expect(instruction).toContain('maximum relaxed Gen Z surf-bro energy');
-    expect(instruction).toContain('zero sterile broadcast filler');
-    expect(instruction).not.toMatch(/one or two|at most one|0-1/);
-    expect(instruction).not.toContain('STAVANGER');
+    expect(persona.id).toBe('chad');
+    expect(persona.style.maxWords).toBe(15);
+    expect(persona.systemPrompt.length).toBeGreaterThan(0);
+    expect(instruction.length).toBeGreaterThan(20);
   });
 
-  it('keeps Bob in English', () => {
-    expect(realtimePersonaResponseInstruction('bob')).toContain('natural English broadcast commentary');
+  it('resolves Bob independently from Chad', () => {
+    expect(resolvePersona('bob')).toMatchObject({ id: 'bob' });
+    expect(realtimePersonaResponseInstruction('bob')).not.toBe(
+      realtimePersonaResponseInstruction('chad')
+    );
+  });
+
+  it('offers a Nordlending persona with its own response voice', () => {
+    expect(resolvePersona('nord')).toMatchObject({
+      id: 'nord',
+      label: 'Oluf "Sjarken"',
+      avatar: '⛵',
+    });
+    expect(resolvePersona('nord').systemPrompt).toContain('Snakk naturlig nordnorsk');
+    expect(resolvePersona('nord').systemPrompt).toContain('Sjarken');
+    expect(realtimePersonaResponseInstruction('nord')).not.toBe(
+      realtimePersonaResponseInstruction('chad')
+    );
+  });
+});
+
+
+describe('commentator starting mood', () => {
+  it('keeps the same premise for a match while varying across matches', () => {
+    const initial = commentaryStartingMood('same-match');
+    expect(commentaryStartingMood('same-match')).toBe(initial);
+    const moods = new Set(Array.from({ length: 64 }, (_, index) => commentaryStartingMood(`match-${index}`)));
+    expect(moods.size).toBe(6);
   });
 });

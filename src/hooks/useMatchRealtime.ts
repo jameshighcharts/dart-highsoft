@@ -26,6 +26,7 @@ import {
 import {
   applyThrowChange as applySpectatorThrowChange,
   applyTurnChange as applySpectatorTurnChange,
+  type ThrowChangePayload,
 } from '@/lib/match/spectatorRealtimeReducer';
 import { incrementRealtimeMetric } from '@/lib/match/realtimeMetrics';
 import type { CommentaryPersonaId } from '@/lib/commentary/types';
@@ -40,6 +41,8 @@ import type {
 import type { DartIQOutcomeModel } from '@/lib/dartiq/model/outcomes';
 import { isNikitaSpecial } from '@/utils/nikitaSpecial';
 import { buildCommentaryNarrativeMemory } from '@/lib/commentary/commentaryNarrative';
+import { computeDartIQCommentary } from '@/hooks/useDartIQWorker';
+import type { DartIQLiveEvidence } from '@/lib/dartiq/liveWorker';
 
 function segmentLabelToKind(label: string): SegmentResult['kind'] {
   if (label === 'Miss') return 'Miss';
@@ -92,6 +95,10 @@ function areTurnsEqual(a: TurnRecord[], b: TurnRecord[]): boolean {
         leftThrow.dart_index !== rightThrow.dart_index ||
         leftThrow.segment !== rightThrow.segment ||
         leftThrow.scored !== rightThrow.scored
+        || leftThrow.impact_x_mm !== rightThrow.impact_x_mm
+        || leftThrow.impact_y_mm !== rightThrow.impact_y_mm
+        || leftThrow.angle_horizontal_deg !== rightThrow.angle_horizontal_deg
+        || leftThrow.angle_vertical_deg !== rightThrow.angle_vertical_deg
       ) {
         return false;
       }
@@ -171,6 +178,7 @@ type UseMatchRealtimeArgs = {
   dartIQEvidenceByPlayerId: ReadonlyMap<string, DartIQPlayerHistoryProfile>;
   dartIQPopulationEvidence?: DartIQPopulationProfile;
   dartIQModelsByPlayerId: ReadonlyMap<string, DartIQOutcomeModel>;
+  dartIQWorkerEvidence?: DartIQLiveEvidence;
 };
 
 export function useMatchRealtime({
@@ -206,6 +214,7 @@ export function useMatchRealtime({
   dartIQEvidenceByPlayerId,
   dartIQPopulationEvidence,
   dartIQModelsByPlayerId,
+  dartIQWorkerEvidence,
 }: UseMatchRealtimeArgs) {
   const spectatorTurnsFetchRef = useRef<Promise<void> | null>(null);
   const spectatorTurnsFetchQueuedRef = useRef(false);
@@ -224,6 +233,8 @@ export function useMatchRealtime({
     }
 
     // Handle throw changes - hot update without full reload
+    let disposed = false;
+    const recoveringTurns = new Map<string, ThrowChangePayload[]>();
     const processThrowChange = async (event: CustomEvent) => {
       // Route to appropriate handler based on mode (use ref to avoid stale closure)
       if (latestStateRef.current.isSpectatorMode) {
@@ -261,6 +272,10 @@ export function useMatchRealtime({
       };
       const legId = getRealtimePayloadLegId(payload);
       const turnId = getRealtimePayloadTurnId(payload);
+      const payloadMatchId = (payload.new as { match_id?: string } | undefined)?.match_id
+        ?? (payload.old as { match_id?: string } | undefined)?.match_id;
+      if (payloadMatchId && payloadMatchId !== matchId) return;
+      if (turnId) recoveringTurns.get(turnId)?.push(payload);
       const { knownLegIds, knownTurnIds, turns } = latestStateRef.current;
 
       // Until initial match state is loaded, ignore throw events entirely.
@@ -279,6 +294,7 @@ export function useMatchRealtime({
         && payload.new?.id
         && turnId
         && typeof payload.new.dart_index === 'number'
+        && !latestStateRef.current.match?.scolia_board_id
       ) {
         realtimeCommentaryRef.current?.observeMatchDart({
           eventId: payload.new.id,
@@ -307,24 +323,12 @@ export function useMatchRealtime({
         }
         if (!hasTurnInState && hasKnownTurns && !knownTurnIds.has(turnId)) {
           pendingThrowBuffer.set(turnId, payload);
-          if (latestStateRef.current.isSpectatorMode && !pendingTurnReconcileRef.current.has(turnId)) {
-            pendingTurnReconcileRef.current.add(turnId);
-            setTimeout(() => {
-              pendingTurnReconcileRef.current.delete(turnId);
-              void reconcileSpectatorTurn(turnId);
-            }, 200);
-          }
+          if (latestStateRef.current.isSpectatorMode) void reconcileSpectatorTurn(turnId);
           return;
         }
         if (!hasTurnInState && !hasKnownTurns) {
           pendingThrowBuffer.set(turnId, payload);
-          if (latestStateRef.current.isSpectatorMode && !pendingTurnReconcileRef.current.has(turnId)) {
-            pendingTurnReconcileRef.current.add(turnId);
-            setTimeout(() => {
-              pendingTurnReconcileRef.current.delete(turnId);
-              void reconcileSpectatorTurn(turnId);
-            }, 200);
-          }
+          if (latestStateRef.current.isSpectatorMode) void reconcileSpectatorTurn(turnId);
         }
       }
 
@@ -349,6 +353,12 @@ export function useMatchRealtime({
         setCommentaryLoading(true);
 
         const { turns: turnsSnapshot, legs: legsSnapshot, players: playersSnapshot, match: matchSnapshot } = snapshot;
+        const realtimeCommentary = realtimeCommentaryRef.current;
+        if (matchSnapshot?.scolia_board_id && realtimeCommentary?.getStatus() === 'ready') {
+          // Direct worker commentary already owns this dart. Skip replay as well as speech.
+          setCommentaryLoading(false);
+          return;
+        }
 
         const startScoreValue = matchSnapshot?.start_score ? parseInt(matchSnapshot.start_score, 10) : 501;
         const legsToWinValue = matchSnapshot?.legs_to_win ?? 3;
@@ -378,6 +388,7 @@ export function useMatchRealtime({
 
         const allPlayersStats = playersSnapshot.map((p) => ({
           name: p.display_name,
+          nicknames: p.nicknames,
           id: p.id,
           remainingScore: computeRemainingScore(turnsSnapshot, p.id, startScoreValue),
           average: computeAverage(p.id),
@@ -442,7 +453,7 @@ export function useMatchRealtime({
             }
             return acc;
           }, {});
-          const dartIQTimeline = reconstructDartIQTimeline({
+          const replayInput = {
             playerIds: playersSnapshot.map((player) => player.id),
             legs: [currentLeg],
             turnsByLeg: {
@@ -452,16 +463,23 @@ export function useMatchRealtime({
             finishRule: matchSnapshot.finish,
             legsToWin: legsToWinValue,
             initialLegsWon,
-            playerProfiles: Object.fromEntries(dartIQEvidenceByPlayerId),
-            populationProfile: dartIQPopulationEvidence,
-            outcomeModels: Object.fromEntries(dartIQModelsByPlayerId),
             fairEnding: Boolean(matchSnapshot.fair_ending),
-          });
-          dartiq = summarizeDartIQForTurn(dartIQTimeline, turn.id, turn.player_id) ?? undefined;
-          narrative = buildCommentaryNarrativeMemory({
-            events: dartIQTimeline,
-            finishRule: matchSnapshot.finish,
-          });
+          };
+          if (latestStateRef.current.isSpectatorMode) {
+            const beforeAnalysis = latestStateRef.current;
+            const analysis = await computeDartIQCommentary(replayInput, dartIQWorkerEvidence, turn.id, turn.player_id);
+            if (disposed || latestStateRef.current.turns !== beforeAnalysis.turns) return;
+            dartiq = analysis?.dartiq ?? undefined;
+            narrative = analysis?.narrative;
+          } else {
+            const dartIQTimeline = reconstructDartIQTimeline({ ...replayInput,
+              playerProfiles: Object.fromEntries(dartIQEvidenceByPlayerId),
+              populationProfile: dartIQPopulationEvidence,
+              outcomeModels: Object.fromEntries(dartIQModelsByPlayerId),
+            });
+            dartiq = summarizeDartIQForTurn(dartIQTimeline, turn.id, turn.player_id) ?? undefined;
+            narrative = buildCommentaryNarrativeMemory({ events: dartIQTimeline, finishRule: matchSnapshot.finish });
+          }
         }
 
         const context: CommentaryContext = {
@@ -500,17 +518,6 @@ export function useMatchRealtime({
             consecutiveLowScores: lowStreak,
           },
         };
-
-        const realtimeCommentary = realtimeCommentaryRef.current;
-        if (
-          matchSnapshot?.scolia_board_id
-          && realtimeCommentary?.getStatus() === 'ready'
-        ) {
-          // The worker already injected this accepted hardware throw directly into
-          // the same session; do not announce it again after Supabase Realtime.
-          setCommentaryLoading(false);
-          return;
-        }
 
         if (realtimeCommentary?.commentate(context)) {
           setCommentaryLoading(false);
@@ -577,12 +584,12 @@ export function useMatchRealtime({
           .from('turns')
           .select(`
                 id, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round, created_at,
-                throws:throws(id, turn_id, dart_index, segment, scored)
+                throws:throws(id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)
               `)
           .eq('leg_id', currentLeg.id)
           .order('turn_number', { ascending: true });
 
-        if (!updatedTurns) return;
+        if (disposed || !updatedTurns) return;
 
         const nextTurns = updatedTurns as unknown as TurnRecord[];
         publishTurnsForLeg(currentLeg.id, nextTurns);
@@ -612,45 +619,48 @@ export function useMatchRealtime({
     };
 
     const reconcileSpectatorTurn = async (turnId: string) => {
+      if (disposed || recoveringTurns.has(turnId)) return;
+      const intervening: ThrowChangePayload[] = [];
+      recoveringTurns.set(turnId, intervening);
+      const turnAtRequest = latestStateRef.current.turns.find((turn) => turn.id === turnId);
       incrementRealtimeMetric(matchId, 'reconcileTurnCalls');
       try {
         const supabase = await getSupabaseClient();
-        const { data: fetchedTurns } = await supabase
+        const { data: fetchedTurns, error } = await supabase
           .from('turns')
           .select(
             `
             id, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round, created_at,
-            throws:throws(id, turn_id, dart_index, segment, scored)
+            throws:throws(id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)
           `
           )
           .eq('id', turnId)
+          .eq('match_id', matchId)
           .limit(1);
+        if (disposed) return;
+        if (error) throw error;
         const turn = (fetchedTurns as TurnWithThrows[] | null)?.[0];
-        if (!turn) {
-          await reconcileSpectatorCurrentLeg();
-          return;
-        }
+        if (!turn) return;
 
         const legsSnapshot = latestStateRef.current.legs;
         const currentLeg = legsSnapshot.find((l) => !l.winner_player_id) ?? legsSnapshot[legsSnapshot.length - 1];
-        if (currentLeg && turn.leg_id !== currentLeg.id) return;
+        if (!currentLeg || turn.leg_id !== currentLeg.id) return;
 
         const existingTurns = latestStateRef.current.turns as TurnWithThrows[];
+        const liveTurn = existingTurns.find((candidate) => candidate.id === turnId);
+        const recoveredTurn = liveTurn && liveTurn !== turnAtRequest
+          ? { ...turn, ...liveTurn, throws: turn.throws } : turn;
         const existing = existingTurns.filter((t) => t.id !== turn.id);
-        let nextTurns = [...existing, turn].sort((a, b) => a.turn_number - b.turn_number);
+        let nextTurns = [...existing, recoveredTurn].sort((a, b) => a.turn_number - b.turn_number);
         let nextCounts: Record<string, number> = {
           ...latestStateRef.current.turnThrowCounts,
           [turn.id]: (turn.throws ?? []).length,
         };
 
         const pending = pendingThrowBufferRef.current.take(turnId);
-        if (pending) {
+        for (const change of [...(pending ? [pending as ThrowChangePayload] : []), ...intervening]) {
           const result = applySpectatorThrowChange(
-            pending as {
-              eventType?: 'INSERT' | 'UPDATE' | 'DELETE';
-              new?: Partial<ThrowRecord>;
-              old?: Partial<ThrowRecord>;
-            },
+            change,
             {
               currentLegId: currentLeg?.id,
               turns: nextTurns as TurnWithThrows[],
@@ -671,7 +681,9 @@ export function useMatchRealtime({
           turnThrowCounts: nextCounts,
         };
       } catch {
-        void reconcileSpectatorCurrentLeg();
+        if (!disposed) void reconcileSpectatorCurrentLeg();
+      } finally {
+        recoveringTurns.delete(turnId);
       }
     };
 
@@ -694,13 +706,7 @@ export function useMatchRealtime({
           pendingThrowBufferRef.current.set(payloadTurnId, payload);
           if (latestStateRef.current.knownTurnIds.has(payloadTurnId)) {
             await reconcileSpectatorTurn(payloadTurnId);
-          } else if (!pendingTurnReconcileRef.current.has(payloadTurnId)) {
-            pendingTurnReconcileRef.current.add(payloadTurnId);
-            setTimeout(() => {
-              pendingTurnReconcileRef.current.delete(payloadTurnId);
-              void reconcileSpectatorTurn(payloadTurnId);
-            }, 200);
-          }
+          } else void reconcileSpectatorTurn(payloadTurnId);
         }
         return;
       }
@@ -728,13 +734,7 @@ export function useMatchRealtime({
             pendingThrowBufferRef.current.set(payloadTurnId, payload);
             if (latestStateRef.current.knownTurnIds.has(payloadTurnId)) {
               await reconcileSpectatorTurn(payloadTurnId);
-            } else if (!pendingTurnReconcileRef.current.has(payloadTurnId)) {
-              pendingTurnReconcileRef.current.add(payloadTurnId);
-              setTimeout(() => {
-                pendingTurnReconcileRef.current.delete(payloadTurnId);
-                void reconcileSpectatorTurn(payloadTurnId);
-              }, 200);
-            }
+            } else void reconcileSpectatorTurn(payloadTurnId);
           }
           return;
         }
@@ -1237,6 +1237,7 @@ export function useMatchRealtime({
 
     // Cleanup function
     return () => {
+      disposed = true;
       pendingThrowBuffer.clear();
       pendingTurnReconcileRef.current.clear();
       if (matchTurnsDebounceTimerRef.current) {
@@ -1282,5 +1283,6 @@ export function useMatchRealtime({
     dartIQEvidenceByPlayerId,
     dartIQPopulationEvidence,
     dartIQModelsByPlayerId,
+    dartIQWorkerEvidence,
   ]);
 }

@@ -9,8 +9,9 @@ import {
   DartIQReportExplorer,
   type DartIQReportEvent,
 } from '@/components/match/DartIQReportExplorer';
+import { buildBroadcastStoryTimeline } from '@/lib/commentary/broadcastDirector';
 import { analyzeDartIQTimeline } from '@/lib/dartiq/insights';
-import { createBehavioralOutcomeModel } from '@/lib/dartiq/model/outcomes';
+import { createAdaptiveDartIQModel } from '@/lib/dartiq/model/training';
 import { reconstructDartIQTimeline, type DartIQDartEvent } from '@/lib/dartiq/replay';
 import { loadMatchData } from '@/lib/match/loadMatchData';
 import type { TurnWithThrows } from '@/lib/match/types';
@@ -61,7 +62,9 @@ export default async function DartIQReportPage({
   );
   const outcomeModels = Object.fromEntries(playerIds.map((playerId) => [
     playerId,
-    createBehavioralOutcomeModel({
+    createAdaptiveDartIQModel({
+      playerId,
+      deployment: evidence?.modelDeployment,
       personal: personalOutcomes.get(playerId),
       population: evidence?.populationOutcomes,
     }),
@@ -79,6 +82,38 @@ export default async function DartIQReportPage({
     fairEnding: Boolean(data.match.fair_ending),
   });
   const insights = analyzeDartIQTimeline(timeline);
+  let rematch: { previousWinnerId: string | null; revengePlayerIds: string[] } | null = null;
+  if (data.match.rematch_of_match_id) {
+    const { data: previousMatch, error: previousMatchError } = await supabase
+      .from('matches')
+      .select('winner_player_id')
+      .eq('id', data.match.rematch_of_match_id)
+      .maybeSingle();
+    if (previousMatchError) throw new Error(previousMatchError.message);
+    if (previousMatch) {
+      const previousWinnerId = previousMatch.winner_player_id as string | null;
+      rematch = {
+        previousWinnerId,
+        revengePlayerIds: previousWinnerId
+          ? playerIds.filter((playerId) => playerId !== previousWinnerId)
+          : [],
+      };
+    }
+  }
+  const storyBeats = buildBroadcastStoryTimeline({
+    events: timeline,
+    finishRule: data.match.finish,
+    rematch,
+  }).map((beat) => ({
+    dartId: beat.dartId,
+    legNumber: beat.legNumber,
+    kind: beat.arc.kind,
+    phase: beat.arc.phase,
+    transition: beat.transition,
+    subjectPlayerId: beat.arc.subjectPlayerId,
+    counterpartPlayerId: beat.arc.counterpartPlayerId,
+    evidence: beat.arc.evidence,
+  }));
   const reportTimeline: DartIQReportEvent[] = timeline.map((event) => ({
     dartId: event.dartId,
     legNumber: event.legNumber,
@@ -113,7 +148,7 @@ export default async function DartIQReportPage({
       ? `The biggest turn came in leg ${turningPoint.legNumber}, when ${names.get(turningPoint.playerId) ?? 'a player'} hit ${turningPoint.segment} and moved their match chance from ${percent(turningPoint.beforeMatchProbability)} to ${percent(turningPoint.afterMatchProbability)}.`
       : null,
     insights.stolenLegs.length > 0
-      ? `${insights.stolenLegs.length} ${insights.stolenLegs.length === 1 ? 'leg was' : 'legs were'} won from a 20% chance or lower.`
+      ? `${insights.stolenLegs.length} ${insights.stolenLegs.length === 1 ? 'leg was' : 'legs were'} won after falling below half the opening chance and the field-adjusted comeback threshold.`
       : null,
     insights.thrownAwayLegs.length > 0
       ? `${insights.thrownAwayLegs.length} ${insights.thrownAwayLegs.length === 1 ? 'leg was' : 'legs were'} lost after reaching at least 80%.`
@@ -184,15 +219,6 @@ export default async function DartIQReportPage({
         </div>
       </div>
 
-      {!evidence ? (
-        <Card className="border-amber-300 bg-amber-50/50 dark:bg-amber-950/10">
-          <CardContent className="py-4 text-sm">
-            This match predates frozen DartIQ evidence. The report uses conservative fallback inputs
-            and is labelled as uncalibrated.
-          </CardContent>
-        </Card>
-      ) : null}
-
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="flex items-center gap-3 py-5">
@@ -237,6 +263,7 @@ export default async function DartIQReportPage({
         players={data.players}
         playerIds={playerIds}
         timeline={reportTimeline}
+        storyBeats={storyBeats}
         turnsByLeg={data.turnsByLeg as Record<string, TurnWithThrows[]>}
       >
         <section className="space-y-3">

@@ -1,10 +1,12 @@
 import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { DARTIQ_TRAINING_VERSION, type DartIQModelDeployment } from '@/lib/dartiq/model/training';
 
 import {
   normalizeDartIQPlayerProfile,
   normalizeDartIQPopulationProfile,
+  type DartIQHistoricalFact,
   type DartIQPlayerHistoryProfile,
   type DartIQPlayerProfileRow,
   type DartIQPopulationProfile,
@@ -17,15 +19,26 @@ import {
 } from '@/lib/dartiq/model/outcomes';
 
 type FrozenRawEvidence = {
+  modelDeployment?: DartIQModelDeployment;
   profile: DartIQPlayerProfileRow | DartIQPopulationProfileRow | null;
   outcomes: DartIQOutcomeObservationRow[];
+  historicalFacts?: DartIQHistoricalFact[];
+  historicalFactsCutoffAt?: string;
+};
+
+export type FrozenDartIQEvidenceRows = {
+  population: { raw_evidence: FrozenRawEvidence } | null;
+  players: Array<{ player_id: string; raw_evidence: FrozenRawEvidence }>;
 };
 
 export type FrozenDartIQEvidence = {
+  modelDeployment?: DartIQModelDeployment;
   playerProfiles: DartIQPlayerHistoryProfile[];
   populationProfile?: DartIQPopulationProfile;
   playerOutcomes: Array<DartIQOutcomeObservation & { playerId: string }>;
   populationOutcomes: DartIQOutcomeObservation[];
+  historicalFacts: DartIQHistoricalFact[];
+  historicalFactsCutoffAt: string | null;
 };
 
 export async function captureDartIQMatchEvidence(
@@ -40,9 +53,13 @@ export async function captureDartIQMatchEvidence(
 
 export async function loadFrozenDartIQEvidence(
   supabase: SupabaseClient,
-  matchId: string
+  matchId: string,
+  rows?: FrozenDartIQEvidenceRows,
 ): Promise<FrozenDartIQEvidence | null> {
-  const [populationResult, playersResult] = await Promise.all([
+  const [populationResult, playersResult] = rows ? [
+    { data: rows.population, error: null },
+    { data: rows.players, error: null },
+  ] : await Promise.all([
     supabase
       .from('dartiq_population_evidence')
       .select('raw_evidence')
@@ -76,11 +93,26 @@ export async function loadFrozenDartIQEvidence(
   }
 
   return {
+    modelDeployment: population.modelDeployment?.artifact.version === DARTIQ_TRAINING_VERSION
+      ? population.modelDeployment : undefined,
     playerProfiles,
     populationProfile: population.profile
       ? normalizeDartIQPopulationProfile(population.profile as DartIQPopulationProfileRow)
       : undefined,
     playerOutcomes,
     populationOutcomes: (population.outcomes ?? []).map(normalizeDartIQOutcomeObservation),
+    historicalFacts: (population.historicalFacts ?? []).filter((fact) => (
+      (fact.kind === 'player_history' || fact.kind === 'matchup_history')
+      && typeof fact.subjectPlayerId === 'string'
+      && (fact.counterpartPlayerId === null || typeof fact.counterpartPlayerId === 'string')
+      && Number.isFinite(fact.support)
+      && ['thin', 'supported', 'strong'].includes(fact.confidenceTier)
+      && fact.evidence !== null
+      && typeof fact.evidence === 'object'
+      && !Array.isArray(fact.evidence)
+    )),
+    historicalFactsCutoffAt: typeof population.historicalFactsCutoffAt === 'string'
+      ? population.historicalFactsCutoffAt
+      : null,
   };
 }

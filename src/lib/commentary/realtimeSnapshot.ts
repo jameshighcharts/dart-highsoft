@@ -9,12 +9,13 @@ import {
 } from './commentaryNarrative.ts';
 import {
   createDartIQSkillModel,
+  type DartIQHistoricalFact,
 } from '../dartiq/evidence.ts';
 import { reconstructDartIQTimeline } from '../dartiq/replay.ts';
 import type { TurnWithThrows } from '../match/types.ts';
 import {
-  createBehavioralOutcomeModel,
-} from '../dartiq/model/outcomes.ts';
+  createAdaptiveDartIQModel,
+} from '../dartiq/model/training.ts';
 import { loadFrozenDartIQEvidence } from '../server/dartiqEvidence';
 
 type SnapshotTurn = {
@@ -42,6 +43,7 @@ export type RealtimeCommentarySnapshot = {
   players: Array<{
     id: string;
     name: string;
+    nicknames?: string[];
     playOrder: number;
     score: number;
     legsWon: number;
@@ -56,6 +58,8 @@ export type RealtimeCommentarySnapshot = {
   };
   matchWinnerId: string | null;
   rematch: CommentaryRematchContext | null;
+  historicalFacts: DartIQHistoricalFact[];
+  historicalFactsCutoffAt: string | null;
   narrative: CommentaryNarrativeMemory;
 };
 
@@ -66,7 +70,7 @@ export async function loadRealtimeCommentarySnapshot(
   const [playersResult, legsResult, frozenEvidence] = await Promise.all([
     supabase
       .from('match_players')
-      .select('player_id, play_order, players:player_id(display_name)')
+      .select('player_id, play_order, players:player_id(display_name, nicknames)')
       .eq('match_id', match.id)
       .order('play_order'),
     supabase
@@ -83,7 +87,7 @@ export async function loadRealtimeCommentarySnapshot(
   const playerRows = (playersResult.data ?? []) as unknown as Array<{
     player_id: string;
     play_order: number;
-    players: { display_name: string } | null;
+    players: { display_name: string; nicknames?: string[] } | null;
   }>;
   const playerIds = playerRows.map((row) => row.player_id);
   const playerIdSet = new Set(playerIds);
@@ -103,7 +107,9 @@ export async function loadRealtimeCommentarySnapshot(
   }
   const outcomeModels = Object.fromEntries(playerRows.map((row) => [
     row.player_id,
-    createBehavioralOutcomeModel({
+    createAdaptiveDartIQModel({
+      playerId: row.player_id,
+      deployment: frozenEvidence?.modelDeployment,
       personal: personalOutcomes.get(row.player_id),
       population: populationOutcomes,
     }),
@@ -226,6 +232,7 @@ export async function loadRealtimeCommentarySnapshot(
     players: playerRows.map((row) => ({
       id: row.player_id,
       name: row.players?.display_name ?? 'Player',
+      nicknames: row.players?.nicknames ?? [],
       playOrder: row.play_order,
       score: scores[row.player_id] ?? startScore,
       legsWon: legsWon[row.player_id] ?? 0,
@@ -243,6 +250,8 @@ export async function loadRealtimeCommentarySnapshot(
     } : null,
     matchWinnerId: match.winner_player_id,
     rematch,
+    historicalFacts: frozenEvidence?.historicalFacts ?? [],
+    historicalFactsCutoffAt: frozenEvidence?.historicalFactsCutoffAt ?? null,
     narrative,
   };
 }

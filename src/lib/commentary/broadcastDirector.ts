@@ -1,4 +1,10 @@
-import type { CommentaryStoryArc, CommentaryStoryArcKind } from './storyArcDirector.ts';
+import type { DartIQDartEvent } from '@/lib/dartiq/replay';
+import type { FinishRule } from '@/utils/x01';
+import {
+  rankCommentaryStoryArcs,
+  type CommentaryStoryArc,
+  type CommentaryStoryArcKind,
+} from './storyArcDirector.ts';
 
 export type BroadcastArcTransition =
   | 'none'
@@ -18,7 +24,7 @@ export type BroadcastCallbackTrigger =
 export type BroadcastCallbackObligation = {
   arcKey: string;
   trigger: BroadcastCallbackTrigger;
-  status: 'watching' | 'payoff_due' | 'closure_due' | 'fulfilled';
+  status: 'watching' | 'payoff_due' | 'closure_due' | 'response_completed';
 };
 
 export type BroadcastDirection = {
@@ -29,6 +35,25 @@ export type BroadcastDirection = {
   transition: BroadcastArcTransition;
   callback: BroadcastCallbackObligation | null;
   shouldPromote: boolean;
+  lifecycleEvents: BroadcastArcLifecycleEvent[];
+};
+
+export type BroadcastArcLifecycleEvent = {
+  type: 'opened' | 'switched_in' | 'payoff_due' | 'closure_due' | 'closed';
+  arcKey: string;
+  arc: CommentaryStoryArc;
+  callbackTrigger: BroadcastCallbackTrigger;
+  closeReason?: 'superseded' | 'unsupported';
+};
+
+export type BroadcastStoryBeat = {
+  sequence: number;
+  dartId: string;
+  legNumber: number;
+  arcKey: string;
+  arc: CommentaryStoryArc;
+  transition: Extract<BroadcastArcTransition, 'started' | 'switched' | 'payoff_due' | 'closure_due'>;
+  callbackTrigger: BroadcastCallbackTrigger | null;
 };
 
 type ActiveStory = {
@@ -48,7 +73,7 @@ export function storyArcKey(arc: CommentaryStoryArc) {
   return `${arc.kind}:${arc.subjectPlayerId ?? 'match'}:${arc.counterpartPlayerId ?? 'none'}`;
 }
 
-function callbackTrigger(kind: CommentaryStoryArcKind): BroadcastCallbackTrigger {
+export function callbackTriggerForArcKind(kind: CommentaryStoryArcKind): BroadcastCallbackTrigger {
   if (kind === 'finish_chance_punished' || kind === 'checkout_duel') return 'next_checkout_chance';
   if (kind === 'pressure_resilience') return 'next_pressure_conversion';
   if (kind === 'rematch_revenge' || kind === 'underdog_rising') return 'match_resolution';
@@ -76,14 +101,20 @@ export class BroadcastDirector {
     sequence: number;
     candidates: readonly CommentaryStoryArc[];
     matchWinnerId?: string | null;
+    observedTriggers?: readonly BroadcastCallbackTrigger[];
+    triggerPlayerId?: string | null;
   }): BroadcastDirection {
     const candidates = input.candidates.slice(0, 3);
     const proposal = candidates[0] ?? null;
     let transition: BroadcastArcTransition = 'none';
+    let activatedThisCall = false;
+    const lifecycleEvents: BroadcastArcLifecycleEvent[] = [];
 
     if (!this.active && proposal) {
       this.activate(proposal, input.sequence);
+      activatedThisCall = true;
       transition = 'started';
+      lifecycleEvents.push(this.lifecycle('opened'));
     } else if (this.active) {
       const supported = candidates.find((arc) => storyArcKey(arc) === this.active?.key);
       if (supported) {
@@ -102,10 +133,14 @@ export class BroadcastDirector {
           )
           || this.active.unsupportedEvents >= UNSUPPORTED_GRACE_DARTS;
         if (challengerEarnedSwitch) {
+          lifecycleEvents.push(this.lifecycle('closed', 'superseded'));
           this.activate(proposal, input.sequence);
+          activatedThisCall = true;
           transition = 'switched';
+          lifecycleEvents.push(this.lifecycle('switched_in'));
         }
       } else if (!proposal && this.active.unsupportedEvents >= UNSUPPORTED_GRACE_DARTS) {
+        lifecycleEvents.push(this.lifecycle('closed', 'unsupported'));
         this.active = null;
         this.callback = null;
       }
@@ -114,12 +149,20 @@ export class BroadcastDirector {
     }
 
     const winnerId = input.matchWinnerId ?? null;
+    const callbackObserved = Boolean(
+      !activatedThisCall
+      && this.callback
+      && input.observedTriggers?.includes(this.callback.trigger)
+    );
     if (
       this.active
-      && this.callback?.status !== 'fulfilled'
-      && (this.active.arc.phase === 'payoff' || winnerId)
+      && this.callback?.status !== 'response_completed'
+      && (this.active.arc.phase === 'payoff' || winnerId || callbackObserved)
     ) {
-      const storySucceeded = !winnerId || winnerId === this.active.arc.subjectPlayerId;
+      const resolvingPlayerId = winnerId ?? input.triggerPlayerId ?? null;
+      const storySucceeded = !resolvingPlayerId
+        || !this.active.arc.subjectPlayerId
+        || resolvingPlayerId === this.active.arc.subjectPlayerId;
       transition = storySucceeded ? 'payoff_due' : 'closure_due';
       if (this.callback) {
         this.callback = {
@@ -127,6 +170,7 @@ export class BroadcastDirector {
           status: storySucceeded ? 'payoff_due' : 'closure_due',
         };
       }
+      lifecycleEvents.push(this.lifecycle(storySucceeded ? 'payoff_due' : 'closure_due'));
     }
 
     const activeArc = this.active?.arc ?? null;
@@ -161,6 +205,7 @@ export class BroadcastDirector {
       transition,
       callback: this.callback,
       shouldPromote,
+      lifecycleEvents,
     };
   }
 
@@ -168,12 +213,21 @@ export class BroadcastDirector {
     const arc = direction.activeStoryArc;
     if (!arc) return;
     this.lastMentionAt.set(storyArcKey(arc), direction.sequence);
-    if (
-      this.callback
-      && (direction.transition === 'payoff_due' || direction.transition === 'closure_due')
-    ) {
-      this.callback = { ...this.callback, status: 'fulfilled' };
+  }
+
+  /** Stops retrying a due callback after the provider produced a completed transcript. */
+  markResponseCompleted(direction: BroadcastDirection) {
+    this.markMentioned(direction);
+    const completedArcKey = direction.activeStoryArc
+      ? storyArcKey(direction.activeStoryArc)
+      : null;
+    const completedCurrentCallback = Boolean(this.callback?.arcKey === completedArcKey && (
+      direction.transition === 'payoff_due' || direction.transition === 'closure_due'
+    ));
+    if (completedCurrentCallback && this.callback) {
+      this.callback = { ...this.callback, status: 'response_completed' };
     }
+    return completedCurrentCallback;
   }
 
   reset(seed?: { sequence: number; candidates: readonly CommentaryStoryArc[] }) {
@@ -186,22 +240,110 @@ export class BroadcastDirector {
   private activate(arc: CommentaryStoryArc, sequence: number) {
     const key = storyArcKey(arc);
     this.active = { arc, key, startedAtSequence: sequence, unsupportedEvents: 0 };
-    const trigger = callbackTrigger(arc.kind);
+    const trigger = callbackTriggerForArcKind(arc.kind);
     this.callback = {
       arcKey: key,
       trigger,
       status: arc.phase === 'payoff' ? 'payoff_due' : 'watching',
     };
   }
+
+  private lifecycle(
+    type: BroadcastArcLifecycleEvent['type'],
+    closeReason?: BroadcastArcLifecycleEvent['closeReason']
+  ): BroadcastArcLifecycleEvent {
+    if (!this.active || !this.callback) throw new Error('Cannot emit a story lifecycle without an active story');
+    return {
+      type,
+      arcKey: this.active.key,
+      arc: this.active.arc,
+      callbackTrigger: this.callback.trigger,
+      ...(closeReason ? { closeReason } : {}),
+    };
+  }
+}
+
+/**
+ * Replays the same director over canonical match events for the report. This
+ * is intentionally report-only: prefix ranking is quadratic and never runs
+ * on the live dart path.
+ */
+export function buildBroadcastStoryTimeline(input: {
+  events: readonly DartIQDartEvent[];
+  finishRule: FinishRule;
+  rematch?: Parameters<typeof rankCommentaryStoryArcs>[0]['rematch'];
+}): BroadcastStoryBeat[] {
+  const director = new BroadcastDirector();
+  const prefix: DartIQDartEvent[] = [];
+  const beats: BroadcastStoryBeat[] = [];
+  for (const event of input.events) {
+    prefix.push(event);
+    const winnerId = event.legResolution?.matchWon
+      ? event.legResolution.winnerPlayerId
+      : null;
+    const direction = director.direct({
+      sequence: event.sequence,
+      candidates: rankCommentaryStoryArcs({
+        events: prefix,
+        finishRule: input.finishRule,
+        rematch: input.rematch,
+      }),
+      matchWinnerId: winnerId,
+      observedTriggers: observedBroadcastTriggers(event),
+      triggerPlayerId: event.legResolution?.winnerPlayerId ?? event.playerId,
+    });
+    if (
+      direction.activeStoryArc
+      && (
+        direction.transition === 'started'
+        || direction.transition === 'switched'
+        || direction.transition === 'payoff_due'
+        || direction.transition === 'closure_due'
+      )
+    ) {
+      beats.push({
+        sequence: event.sequence,
+        dartId: event.dartId,
+        legNumber: event.legNumber,
+        arcKey: storyArcKey(direction.activeStoryArc),
+        arc: direction.activeStoryArc,
+        transition: direction.transition,
+        callbackTrigger: direction.callback?.trigger ?? null,
+      });
+    }
+    if (direction.shouldPromote) director.markResponseCompleted(direction);
+  }
+  return beats;
+}
+
+export function observedBroadcastTriggers(event: Pick<
+  DartIQDartEvent,
+  'checkedOut' | 'legResolution' | 'semanticStakes' | 'before' | 'after'
+>): BroadcastCallbackTrigger[] {
+  const triggers = new Set<BroadcastCallbackTrigger>();
+  const favorite = (state: DartIQDartEvent['before']) => state.projections.reduce(
+    (best, player) => player.matchWinProbability > best.probability
+      ? { id: player.id, probability: player.matchWinProbability }
+      : best,
+    { id: '', probability: -1 }
+  ).id;
+  if (favorite(event.before) !== favorite(event.after)) triggers.add('probability_reversal');
+  if (event.checkedOut || event.semanticStakes.oneDartFinishAvailable) {
+    triggers.add('next_checkout_chance');
+  }
+  if (event.checkedOut) triggers.add('next_pressure_conversion');
+  if (event.legResolution) triggers.add('leg_resolution');
+  if (event.legResolution?.matchWon) triggers.add('match_resolution');
+  return [...triggers];
 }
 
 export function broadcastDirectionInstruction(direction: BroadcastDirection | null | undefined) {
   if (!direction?.activeStoryArc) return '';
   if (direction.transition === 'payoff_due' || direction.transition === 'closure_due') {
-    return 'Story: resolve the named active story in the latest match brief now.';
+    return 'Pay off the supplied earlier thread with this new result.';
   }
   if (!direction.shouldPromote) {
-    return 'Story: keep the named active story in memory for this call.';
+    return '';
   }
-  return 'Story: connect this moment to the named active story in the latest match brief.';
+  return 'Use the newly supplied match pattern once, in fresh natural language.';
 }

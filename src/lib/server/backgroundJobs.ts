@@ -3,11 +3,13 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { finalizeSlackDartPollById } from '@/lib/slack/dartPollService';
+import { runDartIQCalibration, runDartIQTraining } from './dartiqCalibration';
 import {
   persistDartIQCompletedLeg,
   persistDartIQLiveReplay,
   persistDartIQLiveThrow,
   supersedeDartIQLiveThrow,
+  type DartIQTelemetryBatch,
 } from './dartiqTelemetry';
 
 type BackgroundJobStatus = 'pending' | 'dispatching' | 'completed' | 'failed';
@@ -76,8 +78,24 @@ async function runJob(
   supabase: SupabaseClient,
   job: BackgroundJobRow,
   appOrigin: string,
+  batch?: DartIQTelemetryBatch,
 ): Promise<void> {
   switch (job.job_type) {
+    case 'dartiq_training': {
+      const windowEnd = requiredPayloadId(job.payload, 'windowEnd', job.job_type);
+      if (!Number.isFinite(Date.parse(windowEnd))) throw new PermanentJobError('Invalid training window');
+      await runDartIQTraining(supabase, windowEnd);
+      return;
+    }
+    case 'dartiq_calibration': {
+      const modelVersionId = requiredPayloadId(job.payload, 'modelVersionId', job.job_type);
+      const windowEnd = requiredPayloadId(job.payload, 'windowEnd', job.job_type);
+      if (!/^\d+$/.test(modelVersionId) || !Number.isFinite(Date.parse(windowEnd))) {
+        throw new PermanentJobError('dartiq_calibration requires a numeric modelVersionId and valid windowEnd');
+      }
+      await runDartIQCalibration(supabase, modelVersionId, windowEnd);
+      return;
+    }
     case 'slack_dart_poll':
       await finalizeSlackDartPollById({
         supabase,
@@ -89,7 +107,8 @@ async function runJob(
       await persistDartIQLiveThrow(
         supabase,
         requiredPayloadId(job.payload, 'matchId', job.job_type),
-        requiredPayloadId(job.payload, 'throwId', job.job_type)
+        requiredPayloadId(job.payload, 'throwId', job.job_type),
+        ...batch ? [batch] as const : [],
       );
       return;
     case 'dartiq_live_replay': {
@@ -104,7 +123,8 @@ async function runJob(
       await persistDartIQLiveReplay(
         supabase,
         matchId,
-        requiredPayloadId(job.payload, 'legId', job.job_type)
+        requiredPayloadId(job.payload, 'legId', job.job_type),
+        ...batch ? [batch] as const : [],
       );
       return;
     }
@@ -112,7 +132,8 @@ async function runJob(
       await persistDartIQCompletedLeg(
         supabase,
         requiredPayloadId(job.payload, 'matchId', job.job_type),
-        requiredPayloadId(job.payload, 'legId', job.job_type)
+        requiredPayloadId(job.payload, 'legId', job.job_type),
+        ...batch ? [batch] as const : [],
       );
       return;
     default:
@@ -216,6 +237,7 @@ export async function processBackgroundJob(options: {
   supabase: SupabaseClient;
   jobId: string;
   appOrigin: string;
+  batch?: DartIQTelemetryBatch;
 }): Promise<BackgroundJobResult> {
   const { data, error } = await options.supabase
     .from('background_jobs')
@@ -245,7 +267,7 @@ export async function processBackgroundJob(options: {
   if (job.status !== 'dispatching') return { id: job.id, status: 'skipped' };
 
   try {
-    await runJob(options.supabase, job, options.appOrigin);
+    await runJob(options.supabase, job, options.appOrigin, options.batch);
     const { error: updateError } = await options.supabase
       .from('background_jobs')
       .update({

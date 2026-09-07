@@ -57,9 +57,9 @@ const PRIORITY_RANK: Record<DartIQEventPriority, number> = {
 
 const DEFAULT_COOLDOWNS: Record<DartIQEventPriority, number> = {
   silent: 0,
-  ordinary: 12_000,
-  notable: 5_000,
-  marquee: 1_500,
+  ordinary: 1_200,
+  notable: 600,
+  marquee: 0,
   terminal: 0,
 };
 
@@ -76,6 +76,14 @@ const SIGNAL_ORDER: readonly DartIQEventSignal[] = [
   'ton_plus_streak',
   'first_nine',
   'one_eighty',
+  'back_to_back_t20',
+  'one_dart_finish_created',
+  'one_dart_finish_unconverted',
+  'opponent_checkout_threat',
+  'low_scoring_dart',
+  'treble_hit',
+  'double_hit',
+  'missed_board',
   'nikita_special',
   'story_arc',
   'bust',
@@ -108,13 +116,17 @@ export class CommentaryPolicy {
   private ordinaryVisitsSinceSpeech = 0;
   private activePriority: DartIQEventPriority | null = null;
   private epoch = 0;
+  private lastWalkOnAtMs: number | null = null;
+  private lastIdleCallAtMs: number | null = null;
 
   constructor(options: CommentaryPolicyOptions = {}) {
     this.cooldownMs = { ...DEFAULT_COOLDOWNS, ...options.cooldownMs };
-    this.rapidDartWindowMs = options.rapidDartWindowMs ?? 650;
+    // This only catches duplicate machine bursts; significant human-paced
+    // darts may still interrupt a line that is playing.
+    this.rapidDartWindowMs = options.rapidDartWindowMs ?? 180;
     this.repeatWindowMs = options.repeatWindowMs ?? 90_000;
-    this.ordinaryEveryVisits = Math.max(1, options.ordinaryEveryVisits ?? 3);
-    this.ordinaryQuietWindowMs = options.ordinaryQuietWindowMs ?? 20_000;
+    this.ordinaryEveryVisits = Math.max(1, options.ordinaryEveryVisits ?? 1);
+    this.ordinaryQuietWindowMs = options.ordinaryQuietWindowMs ?? 10_000;
     this.majorCheckoutMinimum = options.majorCheckoutMinimum ?? 100;
   }
 
@@ -139,17 +151,6 @@ export class CommentaryPolicy {
     if (event.priority === 'silent') {
       return this.reject(event.priority, observationKey, 'silent-priority');
     }
-    const earnedMidVisitReaction = event.priority === 'notable'
-      && (event.signals.includes('large_swing') || event.signals.includes('first_nine'));
-    if (
-      (event.priority === 'ordinary' || event.priority === 'notable')
-      && event.dartIndex < 3
-      && !event.checkedOut
-      && !event.busted
-      && !earnedMidVisitReaction
-    ) {
-      return this.reject(event.priority, observationKey, 'visit-in-progress');
-    }
     if (rapid && PRIORITY_RANK[event.priority] <= PRIORITY_RANK.notable) {
       return this.reject(event.priority, observationKey, 'rapid-sequence');
     }
@@ -169,10 +170,24 @@ export class CommentaryPolicy {
       return this.reject(event.priority, observationKey, 'active-higher-priority');
     }
 
+    const significant = PRIORITY_RANK[event.priority] >= PRIORITY_RANK.marquee
+      || (event.priority === 'notable' && event.signals.some((signal) => [
+        'large_swing', 'bust', 'one_dart_finish_created',
+        'one_dart_finish_unconverted', 'back_to_back_t20',
+      ].includes(signal)));
+    // Routine speech has a playback-length cooldown, not a replacement queue.
+    if (this.activePriority && !significant) {
+      return this.reject(event.priority, observationKey, 'cooldown');
+    }
+
     if (event.priority === 'ordinary') {
       const hasBeenQuiet = this.lastSpokenAtMs === null
         || nowMs - this.lastSpokenAtMs >= this.ordinaryQuietWindowMs;
-      if (!hasBeenQuiet && this.ordinaryVisitsSinceSpeech < this.ordinaryEveryVisits) {
+      if (
+        this.ordinaryEveryVisits > 1
+        && !hasBeenQuiet
+        && this.ordinaryVisitsSinceSpeech < this.ordinaryEveryVisits
+      ) {
         return this.reject(event.priority, observationKey, 'ordinary-sampling');
       }
     }
@@ -182,6 +197,34 @@ export class CommentaryPolicy {
 
   responseFinished() {
     this.activePriority = null;
+  }
+
+  /** Walk-up banter fills a quiet gap; it never displaces a live reaction. */
+  canStartAmbientCall(nowMs = Date.now()) {
+    return this.activePriority === null
+      && (this.lastSpokenAtMs === null || nowMs - this.lastSpokenAtMs >= this.ordinaryQuietWindowMs);
+  }
+
+  /** Takeout supplies a real gap: occasional score-bearing walk-ons fit here. */
+  canStartWalkOn(nowMs = Date.now()) {
+    return this.activePriority === null
+      && (this.lastSpokenAtMs === null || nowMs - this.lastSpokenAtMs >= 2_500)
+      && (this.lastWalkOnAtMs === null || nowMs - this.lastWalkOnAtMs >= 25_000);
+  }
+
+  recordWalkOn(nowMs = Date.now()) {
+    this.lastWalkOnAtMs = nowMs;
+    this.recordAmbientCall(nowMs, true);
+  }
+
+  canStartIdleCall(nowMs = Date.now()) {
+    return this.canStartAmbientCall(nowMs)
+      && (this.lastIdleCallAtMs === null || nowMs - this.lastIdleCallAtMs >= 60_000);
+  }
+
+  recordIdleCall(nowMs = Date.now()) {
+    this.lastIdleCallAtMs = nowMs;
+    this.recordAmbientCall(nowMs, true);
   }
 
   /** Seeds cadence after a non-dart opening call without inventing an observation. */
@@ -197,6 +240,8 @@ export class CommentaryPolicy {
     this.lastSpokenAtByPriority.clear();
     this.observations.clear();
     this.lastDartAtMs = null;
+    this.lastWalkOnAtMs = null;
+    this.lastIdleCallAtMs = null;
     this.lastSpokenAtMs = null;
     this.ordinaryVisitsSinceSpeech = 0;
     this.activePriority = null;
@@ -246,6 +291,15 @@ export class CommentaryPolicy {
       || signal === 'leg_win'
       || signal === 'checkout'
       || signal === 'one_eighty'
+      || signal === 'back_to_back_t20'
+      || signal === 'one_dart_finish_created'
+      || signal === 'one_dart_finish_unconverted'
+      || signal === 'low_scoring_dart'
+      || signal === 'treble_hit'
+      || signal === 'double_hit'
+      || signal === 'missed_board'
+      || signal === 'opponent_checkout_threat'
+      || signal === 'bust'
       || signal === 'nine_dart_pace'
       || signal === 'nine_darter'
       || signal === 'bogey_created'
@@ -254,8 +308,10 @@ export class CommentaryPolicy {
     }
     if (signal === 'story_arc') return `story_arc:${event.storyKey ?? event.playerId}`;
     if (signal) return `${signal}:${event.playerId}`;
-    if (event.busted) return `bust:${event.playerId}`;
-    return `ordinary:${event.playerId}:${Math.round(event.turnScore / 10) * 10}`;
+    if (event.busted) return `bust:${event.eventId}`;
+    return event.dartIndex < 3
+      ? `ordinary-dart:${event.eventId}`
+      : `ordinary:${event.turnId}`;
   }
 
   private pruneObservations(nowMs: number) {
@@ -267,15 +323,15 @@ export class CommentaryPolicy {
 
 export function priorityInstruction(priority: DartIQEventPriority) {
   if (priority === 'terminal') {
-    return 'Moment: match ending. Name the winner and land the strongest supplied payoff.';
+    return 'name the supplied winner · strongest payoff';
   }
   if (priority === 'marquee') {
-    return 'Moment: marquee. React immediately and make the stakes feel big.';
+    return 'big moment · react immediately';
   }
   if (priority === 'notable') {
-    return 'Moment: notable. Call what changed with personality.';
+    return 'fresh meaningful reaction';
   }
-  return 'Moment: ordinary. Drop a casual reaction; a fresh joke matters more than formal analysis.';
+  return 'optional quick reaction';
 }
 
 export function visitScopeInstruction(input: {
@@ -287,7 +343,7 @@ export function visitScopeInstruction(input: {
 }) {
   const endedVisit = input.dartIndex >= 3 || input.checkedOut || input.busted;
   if (endedVisit) {
-    return 'Scope: react to the completed visit as one beat. Focus on the final dart only when it caused the checkout, bust, or decisive leave.';
+    return 'completed visit';
   }
-  return 'Scope: react to this decisive dart; the visit is still underway.';
+  return 'mid-visit';
 }

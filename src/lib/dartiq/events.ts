@@ -6,7 +6,7 @@ import type {
 } from '@/lib/dartiq/replay';
 import type { DartIQProjectionApproximationMode } from '@/lib/dartiq/projection';
 
-export const DARTIQ_POLICY_VERSION = 'broadcast-1' as const;
+export const DARTIQ_POLICY_VERSION = 'broadcast-2' as const;
 
 export function dartIQConsequenceFloors(playerCount: number) {
   if (playerCount <= 2) return { leg: 0.08, match: 0.04 } as const;
@@ -34,6 +34,14 @@ export type DartIQEventSignal =
   | 'tiebreak_lead_change'
   | 'tiebreak_tied'
   | 'one_eighty'
+  | 'back_to_back_t20'
+  | 'one_dart_finish_created'
+  | 'one_dart_finish_unconverted'
+  | 'opponent_checkout_threat'
+  | 'low_scoring_dart'
+  | 'treble_hit'
+  | 'double_hit'
+  | 'missed_board'
   | 'big_fish'
   | 'ton_plus_checkout'
   | 'bull_checkout'
@@ -78,6 +86,7 @@ export type DartIQDartPacket = {
   tonPlusStreakReached?: boolean;
   legResolution?: DartIQDartEvent['legResolution'];
   nextOpponentThreat?: DartIQDartEvent['nextOpponentThreat'];
+  nextPlayer?: { playerId: string; scoreRemaining: number };
   fairEnding?: {
     enabled: true;
     phase: 'normal' | 'completing_round' | 'tiebreak' | 'resolved';
@@ -178,8 +187,8 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
   if (matchWin) signals.push('match_win');
   if (fairLegResolved || (!fairAfter && event.checkedOut)) signals.push('leg_win');
   if (event.checkedOut) signals.push('checkout');
-  if (event.checkedOut && scoreBefore === 170) signals.push('big_fish');
-  else if (event.checkedOut && scoreBefore >= 100) signals.push('ton_plus_checkout');
+  if (event.checkedOut && event.turnScoreAfter === 170) signals.push('big_fish');
+  else if (event.checkedOut && event.turnScoreAfter >= 100) signals.push('ton_plus_checkout');
   if (event.checkedOut && event.segment === 'DB') signals.push('bull_checkout');
   if (event.legResolution?.wonAgainstThrow) signals.push('break_of_throw');
   if (
@@ -220,8 +229,66 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     signals.push('tiebreak_lead_change');
   }
   if (event.dartIndex === 3 && event.turnScoreAfter === 180) signals.push('one_eighty');
+  if (
+    event.dartIndex === 2
+    && event.turnScoreAfter === 120
+    && event.segment === 'T20'
+    && !event.busted
+    && !event.checkedOut
+  ) signals.push('back_to_back_t20');
+  const oneDartFinishBefore = event.finishRule
+    ? hasCheckoutRoute(scoreBefore, 1, event.finishRule)
+    : false;
+  const oneDartFinishAfter = event.finishRule
+    ? hasCheckoutRoute(scoreAfter, 1, event.finishRule)
+    : false;
+  if (
+    event.dartIndex < 3
+    && !event.busted
+    && !event.checkedOut
+    && !oneDartFinishBefore
+    && oneDartFinishAfter
+  ) signals.push('one_dart_finish_created');
+  if (
+    event.dartIndex < 3
+    && !event.busted
+    && !event.checkedOut
+    && event.semanticStakes.oneDartFinishUnconverted
+  ) signals.push('one_dart_finish_unconverted');
+  if (
+    event.dartIndex < 3
+    && !event.busted
+    && !event.checkedOut
+    && scoreBefore > 170
+    && event.scored <= 5
+  ) signals.push('low_scoring_dart');
+  if (
+    event.dartIndex < 3
+    && !event.busted
+    && !event.checkedOut
+    && event.segment.startsWith('T')
+  ) signals.push('treble_hit');
+  if (
+    event.dartIndex < 3
+    && !event.busted
+    && !event.checkedOut
+    && (event.segment.startsWith('D') || event.segment === 'DB')
+  ) signals.push('double_hit');
+  if (
+    event.dartIndex < 3
+    && !event.busted
+    && !event.checkedOut
+    && event.scored === 0
+  ) signals.push('missed_board');
   if (event.busted) signals.push('bust');
   const visitCompleted = event.dartIndex >= 3 || event.busted || event.checkedOut;
+  if (
+    visitCompleted
+    && !event.checkedOut
+    && event.nextOpponentThreat
+    && event.nextOpponentThreat.scoreRemaining <= 170
+    && event.nextOpponentThreat.checkoutProbabilityNextVisit >= 0.15
+  ) signals.push('opponent_checkout_threat');
   if (
     visitCompleted
     && (event.semanticStakes.unconvertedMatchFinishChancesInVisit ?? 0) >= 2
@@ -254,9 +321,17 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     || signals.includes('match_finish_chances_unconverted')
     || signals.includes('break_of_throw')
     || signals.includes('ton_plus_streak')
+    || signals.includes('back_to_back_t20')
+    || signals.includes('one_dart_finish_created')
+    || signals.includes('one_dart_finish_unconverted')
+    || signals.includes('opponent_checkout_threat')
+    || signals.includes('low_scoring_dart')
+    || signals.includes('treble_hit')
+    || signals.includes('double_hit')
+    || signals.includes('missed_board')
   ) {
     priority = 'notable';
-  } else if (event.dartIndex >= 3) priority = 'ordinary';
+  } else priority = 'ordinary';
 
   return {
     schemaVersion: 2,
@@ -286,6 +361,17 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     tonPlusStreakReached: event.tonPlusStreakReached,
     legResolution: event.legResolution,
     nextOpponentThreat: event.nextOpponentThreat,
+    ...(visitCompleted
+      && !crossedLegBoundary
+      && event.after.currentPlayerId
+      && event.after.currentPlayerId !== event.playerId
+      ? {
+          nextPlayer: {
+            playerId: event.after.currentPlayerId,
+            scoreRemaining: event.after.scores[event.after.currentPlayerId] ?? 0,
+          },
+        }
+      : {}),
     ...(fairAfter ? {
       fairEnding: {
         enabled: true as const,
@@ -322,6 +408,6 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
     checkout: event.checkout,
     signals,
     priority,
-    shouldSpeak: priority !== 'silent',
+    shouldSpeak: true,
   };
 }

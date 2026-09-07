@@ -335,11 +335,7 @@ export function calculateDartIQNextDartAnalysis(
   const candidates: DartIQCandidateImpact[] = [];
   const approximationModes = new Set<DartIQProjectionApproximationMode>();
   if (continuations.approximationMode !== 'exact') {
-    approximationModes.add(continuations.approximationMode === 'truncated-tail'
-      ? 'truncated-tail'
-      : continuations.approximationMode === 'no-finish-fallback'
-        ? 'no-finish-fallback'
-        : 'large-field-bounded');
+    approximationModes.add('large-field-bounded');
   }
 
   for (const dart of distribution.outcomes) {
@@ -398,7 +394,8 @@ export function calculateDartIQNextDartAnalysis(
       exactStateSampleSize: distribution.exactStateSampleSize,
       eligibleForCommentary: distribution.confidenceTier !== 'fallback'
         && distribution.outcomeBackoffLevel === 'exact'
-        && distribution.exactStateSampleSize >= DARTIQ_OUTCOME_CONFIGURATION.exactOutcomeThreshold,
+        && distribution.exactStateSampleSize >= DARTIQ_OUTCOME_CONFIGURATION.exactOutcomeThreshold
+        && approximationModes.size === 0,
       approximationModes: [...approximationModes],
     },
     candidates,
@@ -538,10 +535,15 @@ function fairEndingLegProbabilities(
 
   if (fairEnding.phase === 'tiebreak') {
     const eligible = new Set(fairEnding.tiebreakPlayerIds);
+    const highestRecorded = Math.max(...players.filter((player) => eligible.has(player.id))
+      .map((player) => fairEnding.tiebreakScores[player.id] ?? 0));
     const expectedTotals = players.map((player) => {
       if (!eligible.has(player.id)) return Number.NEGATIVE_INFINITY;
       const dartsThrown = clamp(fairEnding.tiebreakDartsThrown[player.id] ?? 0, 0, 3);
       const currentScore = fairEnding.tiebreakScores[player.id] ?? 0;
+      // Weighted forecasts must still respect physical impossibility. Equality
+      // remains eligible because a tied round can advance to another round.
+      if (currentScore + (3 - dartsThrown) * 60 < highestRecorded) return Number.NEGATIVE_INFINITY;
       return currentScore + (3 - dartsThrown) * (player.adjustedAverage / 3);
     });
     const bestExpected = Math.max(...expectedTotals);

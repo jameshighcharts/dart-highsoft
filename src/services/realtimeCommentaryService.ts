@@ -19,13 +19,20 @@ import {
 } from '@/lib/commentary/commentaryVisitTiming';
 import type { CommentaryContext } from '@/services/commentaryService';
 import type { VoiceOption } from '@/services/ttsService';
-import { BroadcastDirector } from '@/lib/commentary/broadcastDirector';
+import {
+  BroadcastDirector,
+  storyArcKey,
+  type BroadcastCallbackTrigger,
+  type BroadcastDirection,
+} from '@/lib/commentary/broadcastDirector';
 import { DARTIQ_POLICY_VERSION, isMaterialDartIQConsequence } from '@/lib/dartiq/events';
 import {
   RealtimeNarrativeWireState,
   renderManualRealtimeEvent,
   renderRealtimeSnapshot,
 } from '@/lib/commentary/realtimeWireFormat';
+import { RealtimePlayback, hasRealtimeAudioOutput } from '../lib/commentary/realtimePlayback.ts';
+import { RealtimeResponseQueue } from '@/lib/commentary/realtimeResponseQueue';
 
 export type RealtimeCommentaryStatus = 'idle' | 'connecting' | 'ready' | 'failed';
 
@@ -37,9 +44,17 @@ type RealtimeServerEvent = {
   response?: {
     id?: string;
     status?: string;
+    output?: { content?: { type?: string }[] }[];
+    metadata?: Record<string, string>;
     status_details?: { error?: { message?: string }; reason?: string };
   };
-  error?: { message?: string };
+  error?: { message?: string; event_id?: string };
+};
+
+type PendingStoryResponse = {
+  sourceEventId: string;
+  turnId?: string;
+  direction: BroadcastDirection;
 };
 
 type RealtimeCommentaryCallbacks = {
@@ -86,9 +101,17 @@ export class RealtimeCommentaryService {
   private personaId: CommentaryPersonaId = 'chad';
   private epoch = 0;
   private transcript = '';
-  private activeResponseId: string | null = null;
-  private responseInFlight = false;
+  private readonly playback = new RealtimePlayback();
+  private readonly responseQueue = new RealtimeResponseQueue<Record<string, unknown>>({
+    eventId: (event) => typeof event.event_id === 'string' ? event.event_id : null,
+    onTimeout: () => {
+      this.sendProviderCancellation();
+      void this.closeTransport(true).then(() => this.setStatus('failed'));
+    },
+  });
   private openingResponseInFlight = false;
+  private readonly pendingStoryResponses = new Map<string, PendingStoryResponse>();
+  private activeStoryResponse: (PendingStoryResponse & { responseId: string }) | null = null;
   private readonly discardedResponseIds = new Set<string>();
   private status: RealtimeCommentaryStatus = 'idle';
   private readonly policy = new CommentaryPolicy();
@@ -227,11 +250,22 @@ export class RealtimeCommentaryService {
     const resolvedWinnerId = context.dartiq?.legResolution?.matchWon
       ? context.dartiq.legResolution.winnerPlayerId
       : null;
+    const observedTriggers: BroadcastCallbackTrigger[] = [
+      ...(context.dartiq?.changedMatchFavorite ? ['probability_reversal' as const] : []),
+      ...(context.dartiq?.checkedOut || context.dartiq?.oneDartFinishAvailable
+        ? ['next_checkout_chance' as const]
+        : []),
+      ...(context.dartiq?.checkedOut ? ['next_pressure_conversion' as const] : []),
+      ...(context.dartiq?.legResolution ? ['leg_resolution' as const] : []),
+      ...(context.dartiq?.legResolution?.matchWon ? ['match_resolution' as const] : []),
+    ];
     const direction = context.narrative
       ? this.broadcastDirector.direct({
           sequence: context.narrative.sequence,
           candidates: context.narrative.storyArcCandidates,
           matchWinnerId: resolvedWinnerId,
+          observedTriggers,
+          triggerPlayerId: context.dartiq?.legResolution?.winnerPlayerId ?? context.playerId,
         })
       : null;
     const directedContext: CommentaryContext = direction && context.narrative
@@ -261,14 +295,14 @@ export class RealtimeCommentaryService {
         }],
       },
     })) return false;
+    if (direction) this.recordArcLifecycle(direction, eventId, context.turnId);
 
     const policyEvent = this.manualPolicyEvent(eventId, directedContext);
     const timingObservation = this.visitTiming.observeDart({
       ...policyEvent,
       guaranteed: false,
     });
-    if (timingObservation.cancelActiveSpeech || timingObservation.suppressedPendingSpeech) {
-      if (timingObservation.cancelActiveSpeech) this.clearProviderSpeech();
+    if (timingObservation.suppressedPendingSpeech) {
       this.policy.responseFinished();
     }
     const decision = this.policy.evaluate(policyEvent);
@@ -287,12 +321,23 @@ export class RealtimeCommentaryService {
     this.visitTiming.schedule(timingEvent, () => {
       this.transcript = '';
       this.callbacks.onPlaying?.(true);
-      const sent = this.send({
+      const storyToken = direction?.shouldPromote && direction.activeStoryArc
+        ? `${this.epoch}:${eventId}:${storyArcKey(direction.activeStoryArc)}`
+        : null;
+      if (storyToken && direction) {
+        this.pendingStoryResponses.set(storyToken, {
+          sourceEventId: eventId,
+          ...(context.turnId ? { turnId: context.turnId } : {}),
+          direction,
+        });
+      }
+      const sent = this.enqueueProviderResponse({
         event_id: `commentary-response-${eventId}`,
         type: 'response.create',
         response: {
           output_modalities: ['audio'],
           instructions: buildRealtimeResponseInstructions({
+            eventId,
             personaId: this.personaId,
             priority: decision.priority,
             dartIndex: policyEvent.dartIndex,
@@ -305,12 +350,20 @@ export class RealtimeCommentaryService {
             nikitaSpecial: directedContext.isNikitaSpecial,
             legResolved: Boolean(directedContext.dartiq?.legResolution),
             nextLegAvailable: Boolean(directedContext.dartiq?.legResolution?.nextLeg),
+            nextPlayerAvailable: Boolean(directedContext.dartiq?.nextOpponentThreat),
           }),
-          metadata: { source: 'browser', epoch: String(this.epoch), priority: decision.priority },
+          metadata: {
+            source: 'browser',
+            epoch: String(this.epoch),
+            priority: decision.priority,
+            ...(storyToken ? { story_token: storyToken } : {}),
+          },
         },
       });
-      if (sent) this.responseInFlight = true;
-      if (sent && direction?.shouldPromote) this.broadcastDirector.markMentioned(direction);
+      if (!sent && storyToken) this.pendingStoryResponses.delete(storyToken);
+      if (sent && direction?.shouldPromote) {
+        this.broadcastDirector.markMentioned(direction);
+      }
       return sent;
     });
     return true;
@@ -329,8 +382,7 @@ export class RealtimeCommentaryService {
       priority: 'silent',
       guaranteed: false,
     });
-    if (observation.cancelActiveSpeech) this.clearProviderSpeech();
-    if (observation.cancelActiveSpeech || observation.suppressedPendingSpeech) {
+    if (observation.suppressedPendingSpeech) {
       this.policy.responseFinished();
     }
   }
@@ -395,7 +447,7 @@ export class RealtimeCommentaryService {
   }
 
   private requestOpeningCall() {
-    const sent = this.send({
+    const sent = this.enqueueProviderResponse({
       event_id: `commentary-opening-${crypto.randomUUID()}`,
       type: 'response.create',
       response: {
@@ -405,7 +457,6 @@ export class RealtimeCommentaryService {
       },
     });
     if (sent) {
-      this.responseInFlight = true;
       this.openingResponseInFlight = true;
       this.policy.recordAmbientCall(Date.now(), true);
       this.callbacks.onPlaying?.(true);
@@ -461,9 +512,18 @@ export class RealtimeCommentaryService {
 
     if (event.type === 'response.created') {
       const responseId = event.response?.id ?? null;
-      if (responseId && this.discardedResponseIds.has(responseId)) return;
-      this.activeResponseId = responseId;
-      this.responseInFlight = true;
+      this.playback.created(responseId);
+      const cancellation = this.responseQueue.markCreated(responseId);
+      if (cancellation.discardedResponseId) {
+        this.rememberDiscardedResponse(cancellation.discardedResponseId);
+      }
+      if (cancellation.shouldCancel) this.sendProviderCancellation();
+      const storyToken = event.response?.metadata?.story_token;
+      const pendingStory = storyToken ? this.pendingStoryResponses.get(storyToken) : undefined;
+      if (storyToken) this.pendingStoryResponses.delete(storyToken);
+      this.activeStoryResponse = responseId && pendingStory
+        ? { ...pendingStory, responseId }
+        : null;
       this.transcript = '';
       this.callbacks.onTranscript?.('');
       this.callbacks.onPlaying?.(true);
@@ -472,14 +532,14 @@ export class RealtimeCommentaryService {
 
     if (event.type === 'response.output_audio_transcript.delta' && event.delta) {
       if (event.response_id && this.discardedResponseIds.has(event.response_id)) return;
-      if (event.response_id && event.response_id !== this.activeResponseId) return;
+      if (event.response_id && event.response_id !== this.responseQueue.responseId) return;
       this.transcript += event.delta;
       this.callbacks.onTranscript?.(this.transcript.trimStart());
       return;
     }
     if (event.type === 'response.output_audio_transcript.done' && event.transcript) {
       if (event.response_id && this.discardedResponseIds.has(event.response_id)) return;
-      if (event.response_id && event.response_id !== this.activeResponseId) return;
+      if (event.response_id && event.response_id !== this.responseQueue.responseId) return;
       this.transcript = event.transcript;
       this.callbacks.onTranscript?.(event.transcript);
       return;
@@ -490,19 +550,23 @@ export class RealtimeCommentaryService {
     }
     if (event.type === 'response.done') {
       const responseId = event.response?.id;
-      if (responseId && this.discardedResponseIds.delete(responseId)) return;
-      if (responseId && responseId !== this.activeResponseId) return;
+      const completion = this.responseQueue.complete(responseId);
+      if (!completion.handled) return;
+      if (responseId) this.discardedResponseIds.delete(responseId);
       const completed = isSuccessfulRealtimeResponse(event.response?.status);
+      this.playback.generationFinished(responseId, completed && !completion.discarded
+        && hasRealtimeAudioOutput(event.response));
       const completedTranscript = this.transcript.trim();
-      this.activeResponseId = null;
-      this.responseInFlight = false;
       this.openingResponseInFlight = false;
-      this.policy.responseFinished();
-      this.visitTiming.responseFinished();
-      this.callbacks.onPlaying?.(false);
-      if (completed && completedTranscript) {
+      if (!completion.discarded && completed && completedTranscript) {
+        if (this.activeStoryResponse && this.activeStoryResponse.responseId === responseId) {
+          this.broadcastDirector.markResponseCompleted(
+            this.activeStoryResponse.direction
+          );
+          this.recordArcResponseCompleted(this.activeStoryResponse, completedTranscript);
+        }
         this.callbacks.onTranscriptComplete?.(completedTranscript);
-      } else if (!completed) {
+      } else if (!completion.discarded && !completed) {
         this.transcript = '';
         this.callbacks.onTranscript?.('');
         if (event.response?.status !== 'cancelled') {
@@ -510,13 +574,39 @@ export class RealtimeCommentaryService {
           this.callbacks.onError?.(new Error(detail ?? `Realtime commentary response ${event.response?.status ?? 'failed'}`));
         }
       }
+      this.activeStoryResponse = null;
+      this.transcript = '';
+      if (completion.next && this.send(completion.next)) {
+        this.callbacks.onPlaying?.(true);
+      } else {
+        if (completion.next) this.responseQueue.sendFailed();
+        if (completion.next || !this.playback.busy) {
+          this.policy.responseFinished();
+          this.callbacks.onPlaying?.(false);
+        }
+      }
       return;
     }
-    if (event.type === 'output_audio_buffer.stopped') {
-      this.callbacks.onPlaying?.(false);
+    if (event.type === 'output_audio_buffer.stopped' || event.type === 'output_audio_buffer.cleared') {
+      if (this.playback.stopped(event.response_id) && !this.responseQueue.busy) {
+        this.policy.responseFinished();
+        this.callbacks.onPlaying?.(false);
+      }
       return;
     }
     if (event.type === 'error') {
+      const rejection = this.responseQueue.reject(event.error?.event_id);
+      if (rejection.handled) {
+        if (!rejection.next) this.pendingStoryResponses.clear();
+        this.activeStoryResponse = null;
+        this.transcript = '';
+        this.openingResponseInFlight = false;
+        if (!rejection.next || !this.send(rejection.next)) {
+          if (rejection.next) this.responseQueue.sendFailed();
+          this.policy.responseFinished();
+          this.callbacks.onPlaying?.(false);
+        }
+      }
       this.callbacks.onError?.(new Error(event.error?.message ?? 'OpenAI Realtime error'));
     }
   }
@@ -561,9 +651,11 @@ export class RealtimeCommentaryService {
     this.policy.reset(0);
     this.visitTiming.reset();
     this.broadcastDirector.reset();
-    this.activeResponseId = null;
-    this.responseInFlight = false;
+    this.responseQueue.reset();
+    this.playback.reset();
     this.openingResponseInFlight = false;
+    this.pendingStoryResponses.clear();
+    this.activeStoryResponse = null;
     this.discardedResponseIds.clear();
   }
 
@@ -574,25 +666,37 @@ export class RealtimeCommentaryService {
   }
 
   private clearProviderSpeech() {
-    if (this.activeResponseId) {
-      this.rememberDiscardedResponse(this.activeResponseId);
+    this.playback.reset();
+    const cancellation = this.responseQueue.requestCancellation();
+    if (cancellation.discardedResponseId) {
+      this.rememberDiscardedResponse(cancellation.discardedResponseId);
     }
-    if (this.responseInFlight) {
-      this.send({
-        event_id: `commentary-cancel-${crypto.randomUUID()}`,
-        type: 'response.cancel',
-      });
-    }
+    if (cancellation.shouldCancel) this.sendProviderCancellation();
     this.send({
       event_id: `commentary-audio-clear-${crypto.randomUUID()}`,
       type: 'output_audio_buffer.clear',
     });
-    this.activeResponseId = null;
-    this.responseInFlight = false;
+    this.pendingStoryResponses.clear();
+    this.activeStoryResponse = null;
     this.openingResponseInFlight = false;
     this.transcript = '';
     this.callbacks.onTranscript?.('');
     this.callbacks.onPlaying?.(false);
+  }
+
+  private enqueueProviderResponse(event: Record<string, unknown>) {
+    const immediate = this.responseQueue.enqueue(event);
+    if (!immediate) return true;
+    if (this.send(immediate)) return true;
+    this.responseQueue.sendFailed();
+    return false;
+  }
+
+  private sendProviderCancellation() {
+    this.send({
+      event_id: `commentary-cancel-${crypto.randomUUID()}`,
+      type: 'response.cancel',
+    });
   }
 
   private rememberDiscardedResponse(responseId: string) {
@@ -693,6 +797,57 @@ export class RealtimeCommentaryService {
       }
     }).catch(() => {
       // Commentary remains available if optional calibration telemetry fails.
+    });
+  }
+
+  private recordArcLifecycle(direction: BroadcastDirection, sourceEventId: string, turnId?: string) {
+    for (const lifecycle of direction.lifecycleEvents) {
+      this.recordArcEvent({
+        sourceEventId,
+        ...(turnId ? { turnId } : {}),
+        sequence: direction.sequence,
+        arc: lifecycle.arc,
+        lifecycleEvent: lifecycle.type,
+        ...(lifecycle.closeReason ? { closeReason: lifecycle.closeReason } : {}),
+      });
+    }
+  }
+
+  private recordArcResponseCompleted(
+    story: PendingStoryResponse & { responseId: string },
+    transcript: string
+  ) {
+    const arc = story.direction.activeStoryArc;
+    if (!arc) return;
+    this.recordArcEvent({
+      sourceEventId: story.sourceEventId,
+      ...(story.turnId ? { turnId: story.turnId } : {}),
+      sequence: story.direction.sequence,
+      arc,
+      lifecycleEvent: 'response_completed',
+      providerResponseId: story.responseId,
+      transcript,
+    });
+  }
+
+  private recordArcEvent(event: Record<string, unknown>) {
+    if (!this.sessionId || !this.matchId) return;
+    void fetch(SESSION_URL, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'arc_event',
+        sessionId: this.sessionId,
+        matchId: this.matchId,
+        epoch: this.epoch,
+        occurredAt: new Date().toISOString(),
+        ...event,
+      }),
+      keepalive: true,
+    }).then((response) => {
+      if (!response.ok) console.warn('Could not record commentary story lifecycle', response.status);
+    }).catch(() => {
+      // Story telemetry is optional and never blocks commentary.
     });
   }
 

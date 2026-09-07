@@ -43,7 +43,7 @@ describe('loadRealtimeCommentarySnapshot', () => {
     };
     const snapshot = await loadRealtimeCommentarySnapshot(mockSupabase({
       match_players: [
-        { match_id: 'match', player_id: 'a', play_order: 0, players: { display_name: 'A' } },
+        { match_id: 'match', player_id: 'a', play_order: 0, players: { display_name: 'A', nicknames: ['Ace', 'The Hammer'] } },
         { match_id: 'match', player_id: 'b', play_order: 1, players: { display_name: 'B' } },
       ],
       legs: [
@@ -75,6 +75,12 @@ describe('loadRealtimeCommentarySnapshot', () => {
             checkout_rate: 0.12,
           },
           outcomes: [],
+          historicalFactsCutoffAt: '2026-01-01T00:00:00.000Z',
+          historicalFacts: [{
+            kind: 'matchup_history', subjectPlayerId: 'a', counterpartPlayerId: 'b',
+            support: 3, confidenceTier: 'supported',
+            evidence: { sharedMatches: 3, subjectWins: 1, counterpartWins: 2 },
+          }],
         },
       }],
       matches: [{ id: 'previous', winner_player_id: 'b' }],
@@ -98,7 +104,13 @@ describe('loadRealtimeCommentarySnapshot', () => {
         previousWinnerId: 'b',
         revengePlayerIds: ['a'],
       },
+      historicalFacts: [{
+        kind: 'matchup_history', subjectPlayerId: 'a', counterpartPlayerId: 'b', support: 3,
+      }],
+      historicalFactsCutoffAt: '2026-01-01T00:00:00.000Z',
       narrative: { schemaVersion: 1, rematch: { previousMatchId: 'previous' } },
     });
+    expect(snapshot.players[0].nicknames).toEqual(['Ace', 'The Hammer']);
+    expect(snapshot.players[1].nicknames).toEqual([]);
   });
 });

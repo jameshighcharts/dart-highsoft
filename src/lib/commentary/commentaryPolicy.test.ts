@@ -40,8 +40,29 @@ describe('CommentaryPolicy', () => {
     const policy = new CommentaryPolicy({ ordinaryEveryVisits: 3, ordinaryQuietWindowMs: 20_000 });
     policy.recordAmbientCall(1_000);
 
-    expect(policy.evaluate(event({ eventId: 'first-visit' }), 5_000).reason)
+    expect(policy.evaluate(event({ eventId: 'first-visit' }), 1_500).reason)
       .toBe('cooldown');
+  });
+
+  it('gives every completed office visit a fresh editorial chance by default', () => {
+    const policy = new CommentaryPolicy();
+    expect(policy.evaluate(event({ eventId: 'visit-1', turnId: 'turn-1' }), 1_000).shouldSpeak)
+      .toBe(true);
+    policy.responseFinished();
+    expect(policy.evaluate(event({ eventId: 'visit-2', turnId: 'turn-2' }), 6_000).shouldSpeak)
+      .toBe(true);
+  });
+
+  it('gives every human-paced ordinary dart its own editorial chance by default', () => {
+    const policy = new CommentaryPolicy();
+    expect(policy.evaluate(event({ eventId: 'dart-1', dartIndex: 1 }), 1_000).shouldSpeak)
+      .toBe(true);
+    policy.responseFinished();
+    expect(policy.evaluate(event({ eventId: 'dart-2', dartIndex: 2 }), 3_200).shouldSpeak)
+      .toBe(true);
+    policy.responseFinished();
+    expect(policy.evaluate(event({ eventId: 'dart-3', dartIndex: 3 }), 5_400).shouldSpeak)
+      .toBe(true);
   });
 
   it('uses independent cooldowns per priority', () => {
@@ -51,7 +72,7 @@ describe('CommentaryPolicy', () => {
     expect(policy.evaluate(event({ eventId: 'notable', priority: 'notable', signals: ['large_swing'] }), 11_000).shouldSpeak)
       .toBe(true);
     policy.responseFinished();
-    expect(policy.evaluate(event({ eventId: 'notable-2', priority: 'notable', signals: ['favorite_change'] }), 12_000).reason)
+    expect(policy.evaluate(event({ eventId: 'notable-2', priority: 'notable', signals: ['favorite_change'] }), 11_400).reason)
       .toBe('cooldown');
   });
 
@@ -63,21 +84,22 @@ describe('CommentaryPolicy', () => {
     expect(policy.evaluate({ ...first, eventId: 'dart-2' }, 3_000).reason).toBe('duplicate-observation');
   });
 
-  it('deduplicates ordinary busts by player rather than unique dart id', () => {
+  it('lets a later bust earn a fresh roast', () => {
     const policy = new CommentaryPolicy({ cooldownMs: { notable: 0 } });
     const bust = event({ priority: 'notable', busted: true, signals: ['bust'] });
     const first = policy.evaluate(bust, 1_000);
     expect(first.shouldSpeak).toBe(true);
     expect(first.guaranteed).toBe(false);
     policy.responseFinished();
-    expect(policy.evaluate({ ...bust, eventId: 'dart-2' }, 3_000).reason)
-      .toBe('duplicate-observation');
+    expect(policy.evaluate({ ...bust, eventId: 'dart-2' }, 3_000).shouldSpeak)
+      .toBe(true);
   });
 
-  it('does not prime the commentator to repeat a generic turning-point label', () => {
-    expect(priorityInstruction('notable').toLowerCase()).not.toContain('turning point');
-    expect(priorityInstruction('notable')).toContain('Call what changed');
-    expect(priorityInstruction('ordinary')).toContain('fresh joke');
+  it('turns internal priority into delivery guidance instead of speakable labels', () => {
+    expect(priorityInstruction('notable')).toContain('meaningful reaction');
+    expect(priorityInstruction('ordinary')).toContain('optional');
+    expect(priorityInstruction('notable')).not.toMatch(/notable|turning point/i);
+    expect(priorityInstruction('ordinary')).not.toContain('ordinary');
   });
 
   it('deduplicates the same directed story while allowing a new arc', () => {
@@ -93,25 +115,19 @@ describe('CommentaryPolicy', () => {
   it('stays silent on routine darts during a rapid sequence', () => {
     const policy = new CommentaryPolicy();
     policy.evaluate(event({ eventId: 'dart-1', dartIndex: 1, priority: 'silent' }), 1_000);
-    expect(policy.evaluate(event({ eventId: 'dart-2', dartIndex: 3 }), 1_400).reason).toBe('rapid-sequence');
+    expect(policy.evaluate(event({ eventId: 'dart-2', dartIndex: 3 }), 1_100).reason).toBe('rapid-sequence');
   });
 
-  it('holds non-terminal notable observations until the visit is complete', () => {
+  it('lets a notable dart react immediately mid-visit', () => {
     const policy = new CommentaryPolicy();
     expect(policy.evaluate(event({
       dartIndex: 1,
       priority: 'notable',
       signals: ['favorite_change'],
-    }), 1_000).reason).toBe('visit-in-progress');
-    expect(policy.evaluate(event({
-      eventId: 'dart-3',
-      dartIndex: 3,
-      priority: 'notable',
-      signals: ['favorite_change'],
-    }), 5_000).shouldSpeak).toBe(true);
+    }), 1_000).shouldSpeak).toBe(true);
   });
 
-  it('reacts immediately to a genuinely large single-dart swing', () => {
+  it('lets even a probability-only swing become a live micro-reaction', () => {
     const policy = new CommentaryPolicy();
     const decision = policy.evaluate(event({
       dartIndex: 2,
@@ -122,7 +138,28 @@ describe('CommentaryPolicy', () => {
     expect(decision.shouldSpeak).toBe(true);
   });
 
-  it('can announce a first-nine stat on the ninth physical dart', () => {
+  it.each([
+    'back_to_back_t20',
+    'one_dart_finish_created',
+    'one_dart_finish_unconverted',
+    'low_scoring_dart',
+    'treble_hit',
+    'double_hit',
+    'missed_board',
+  ] as const)(
+    'reacts mid-visit to %s',
+    (signal) => {
+      const policy = new CommentaryPolicy();
+      const decision = policy.evaluate(event({
+        eventId: signal, dartIndex: 2, priority: 'notable', signals: [signal],
+      }), 1_000);
+
+      expect(decision.shouldSpeak).toBe(true);
+      expect(decision.reason).toBe('speak');
+    }
+  );
+
+  it('can react to a supplied first-nine signal immediately', () => {
     const policy = new CommentaryPolicy();
     const decision = policy.evaluate(event({
       eventId: 'first-nine',
@@ -147,7 +184,7 @@ describe('CommentaryPolicy', () => {
       ],
     });
 
-    expect(instruction).toContain('completed visit as one beat');
+    expect(instruction).toBe('completed visit');
     expect(instruction).not.toContain('140');
     expect(instruction).not.toContain('T20');
   });
@@ -199,6 +236,58 @@ describe('CommentaryPolicy', () => {
     expect(policy.evaluate(first, 1_000).shouldSpeak).toBe(true);
     policy.responseFinished();
     expect(policy.evaluate({ ...first, eventId: 'bogey-2' }, 2_000).shouldSpeak).toBe(true);
+  });
+
+  it.each(['ordinary', 'notable'] as const)('does not queue a routine %s observation behind speech', (priority) => {
+    const policy = new CommentaryPolicy();
+    policy.evaluate(event(), 1_000);
+    expect(policy.evaluate(event({ eventId: 'routine', priority, signals: ['treble_hit'] }), 5_000))
+      .toMatchObject({ shouldSpeak: false, interrupt: false, reason: 'cooldown' });
+    policy.responseFinished();
+    expect(policy.evaluate(event({ eventId: 'fresh', turnId: 'fresh-turn', priority }), 6_000).shouldSpeak).toBe(true);
+  });
+
+  it.each(['large_swing', 'bust', 'one_dart_finish_created', 'one_dart_finish_unconverted'] as const)(
+    'lets significant %s interrupt immediately during intense play', (signal) => {
+      const policy = new CommentaryPolicy();
+      policy.evaluate(event({ priority: 'notable', signals: ['treble_hit'] }), 1_000);
+      expect(policy.evaluate(event({ eventId: 'urgent', priority: 'notable', signals: [signal] }), 3_200))
+        .toMatchObject({ shouldSpeak: true, interrupt: true });
+    }
+  );
+
+  it('allows walk-up banter only in a quiet gap, never over a playing line', () => {
+    const policy = new CommentaryPolicy();
+    policy.recordAmbientCall(1_000, true);
+    expect(policy.canStartAmbientCall(20_000)).toBe(false);
+    policy.responseFinished();
+    expect(policy.canStartAmbientCall(5_000)).toBe(false);
+    expect(policy.canStartAmbientCall(11_000)).toBe(true);
+  });
+
+  it('spaces walk-ons independently of ordinary dart reactions and resets on correction', () => {
+    const policy = new CommentaryPolicy();
+    policy.recordAmbientCall(1_000, true);
+    expect(policy.canStartWalkOn(5_800)).toBe(false);
+    policy.responseFinished();
+    expect(policy.canStartWalkOn(2_000)).toBe(false);
+    expect(policy.canStartWalkOn(5_800)).toBe(true);
+    policy.recordWalkOn(5_800);
+    policy.responseFinished();
+    expect(policy.canStartWalkOn(19_500)).toBe(false);
+    expect(policy.canStartWalkOn(30_800)).toBe(true);
+    policy.reset();
+    expect(policy.canStartWalkOn(31_000)).toBe(true);
+  });
+
+  it('limits idle nudges to one per minute without displacing speech', () => {
+    const policy = new CommentaryPolicy();
+    expect(policy.canStartIdleCall(1_000)).toBe(true);
+    policy.recordIdleCall(1_000);
+    expect(policy.canStartIdleCall(70_000)).toBe(false);
+    policy.responseFinished();
+    expect(policy.canStartIdleCall(30_000)).toBe(false);
+    expect(policy.canStartIdleCall(61_000)).toBe(true);
   });
 
   it('clears invalid narrative memory when the epoch advances', () => {

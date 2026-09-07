@@ -1,10 +1,193 @@
 /**
- * Pure, offline calibration analysis. This module deliberately has no database
+ * Pure calibration analysis, shared by scheduled and offline evaluation. No database
  * or model-registry write path: a passing result is a recommendation for human
  * review, never permission to promote a model automatically.
  */
 
 export const DARTIQ_CALIBRATION_EVALUATOR_VERSION = 'calibration-evaluator-v1';
+
+export const DARTIQ_CONTINUOUS_CONFIGURATION = Object.freeze({
+  version: 'continuous-calibration-v2',
+  temperatures: [0.85, 0.95, 1, 1.05, 1.15] as readonly number[],
+  minimumTrainingMatches: 30,
+  trainingFraction: 0.6,
+});
+
+export type DartIQContinuousObservation = {
+  id: string;
+  matchId: string;
+  matchCreatedAt: string;
+  completedAt: string;
+  recordedAt: string;
+  evidenceCutoff: string;
+  winnerPlayerId: string;
+  probabilities: Readonly<Record<string, number>>;
+  slices: DartIQCalibrationSlices;
+  geometryAvailable?: boolean;
+  approximationModes?: readonly string[];
+};
+
+export type DartIQFrozenCalibrationCandidate = {
+  reportId: string;
+  frozenAt: string;
+  family: 'temperature_scaling';
+  temperature: number;
+  sourceFingerprint: string;
+};
+
+/** Fixed before these matches began; transformed later, not emitted live shadow predictions. */
+export function evaluateDartIQFrozenCandidate(
+  rows: readonly DartIQContinuousObservation[],
+  candidate: DartIQFrozenCalibrationCandidate,
+) {
+  const frozenAt = finiteDate(candidate.frozenAt, 'frozenAt');
+  if (candidate.family !== 'temperature_scaling'
+    || !DARTIQ_CONTINUOUS_CONFIGURATION.temperatures.includes(candidate.temperature)
+    || candidate.temperature === 1 || !candidate.reportId || !candidate.sourceFingerprint) {
+    throw new Error('Invalid frozen calibration candidate');
+  }
+  const eligible = rows.filter((row) => finiteDate(row.matchCreatedAt, 'matchCreatedAt') > frozenAt);
+  // Validate provenance and full vectors without fitting another candidate.
+  validateContinuousObservations(eligible);
+  const comparison = eligible.length === 0 ? null : compareDartIQCalibrationCandidate(eligible.map((row) => ({
+    id: row.id, matchId: row.matchId, outcomeKind: 'match', occurredAt: row.matchCreatedAt,
+    winnerPlayerId: row.winnerPlayerId, slices: row.slices,
+    validation: { method: 'held_out', trainingCutoff: candidate.frozenAt },
+    baselineProbabilities: row.probabilities,
+    candidateProbabilities: temperatureScaleDartIQ(row.probabilities, candidate.temperature),
+  })));
+  const baseline = matchBalancedLoss(eligible, 1);
+  const transformed = matchBalancedLoss(eligible, candidate.temperature);
+  const balancedPass = baseline.brier - transformed.brier >= DEFAULT_DARTIQ_CANDIDATE_GATES.minimumBrierImprovement
+    && transformed.logLoss <= baseline.logLoss;
+  return {
+    candidate,
+    validationMode: 'frozen_candidate_followup' as const,
+    predictionsEmittedLive: false as const,
+    promotionEnabled: false as const,
+    eventCount: eligible.length,
+    matchCount: new Set(eligible.map((row) => row.matchId)).size,
+    excludedEventCount: rows.length - eligible.length,
+    geometryEventCount: eligible.filter((row) => row.geometryAvailable === true).length,
+    comparison,
+    matchBalancedValidation: { baseline, candidate: transformed },
+    recommendation: comparison === null ? 'insufficient_data' as const
+      : comparison.recommendation === 'recommend_for_review' && !balancedPass ? 'reject' as const : comparison.recommendation,
+  };
+}
+
+/** A bounded, zero-preserving calibration transform, never applied to live play here. */
+export function temperatureScaleDartIQ(probabilities: Readonly<Record<string, number>>, temperature: number) {
+  if (!Number.isFinite(temperature) || temperature <= 0) throw new Error('Invalid calibration temperature');
+  const entries = Object.entries(probabilities);
+  if (entries.length < 2 || entries.some(([, p]) => !Number.isFinite(p) || p < 0 || p > 1)) {
+    throw new Error('Invalid probability vector');
+  }
+  const weights = entries.map(([, probability]) => probability ** (1 / temperature));
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  if (!(total > 0) || !Number.isFinite(total)) throw new Error('Invalid probability vector');
+  return Object.fromEntries(entries.map(([id], index) => [id, weights[index] / total]));
+}
+
+function matchBalancedLoss(rows: readonly DartIQContinuousObservation[], temperature: number) {
+  const matches = new Map<string, { brier: number; logLoss: number; count: number }>();
+  for (const row of rows) {
+    const probabilities = temperatureScaleDartIQ(row.probabilities, temperature);
+    const aggregate = matches.get(row.matchId) ?? { brier: 0, logLoss: 0, count: 0 };
+    aggregate.brier += Object.entries(probabilities).reduce((sum, [id, value]) =>
+      sum + (value - (id === row.winnerPlayerId ? 1 : 0)) ** 2, 0);
+    aggregate.logLoss -= Math.log(Math.max(1e-15, probabilities[row.winnerPlayerId]));
+    aggregate.count += 1;
+    matches.set(row.matchId, aggregate);
+  }
+  const values = [...matches.values()];
+  return {
+    brier: values.reduce((sum, value) => sum + value.brier / value.count, 0) / Math.max(1, values.length),
+    logLoss: values.reduce((sum, value) => sum + value.logLoss / value.count, 0) / Math.max(1, values.length),
+  };
+}
+
+function validateContinuousObservations(rows: readonly DartIQContinuousObservation[]) {
+  const matchTimes = new Map<string, { created: number; completed: number; winner: string }>();
+  const ids = new Set<string>();
+  const observations: DartIQCalibrationObservation[] = rows.map((row) => {
+    if (ids.has(row.id)) throw new Error(`Duplicate continuous observation ${row.id}`);
+    ids.add(row.id);
+    const created = finiteDate(row.matchCreatedAt, 'matchCreatedAt');
+    const completed = finiteDate(row.completedAt, 'completedAt');
+    const recorded = finiteDate(row.recordedAt, 'recordedAt');
+    const cutoff = finiteDate(row.evidenceCutoff, 'evidenceCutoff');
+    if (recorded < created || recorded >= completed || cutoff > created || recorded <= cutoff) {
+      throw new Error('Continuous calibration requires predictions recorded before resolution and frozen earlier evidence');
+    }
+    const previous = matchTimes.get(row.matchId);
+    if (previous && (previous.created !== created || previous.completed !== completed || previous.winner !== row.winnerPlayerId)) {
+      throw new Error('Inconsistent match metadata');
+    }
+    matchTimes.set(row.matchId, { created, completed, winner: row.winnerPlayerId });
+    return {
+      id: row.id, matchId: row.matchId, outcomeKind: 'match', occurredAt: row.recordedAt,
+      winnerPlayerId: row.winnerPlayerId, probabilities: row.probabilities, slices: row.slices,
+      validation: { method: 'walk_forward', fold: 1, trainingCutoff: row.evidenceCutoff },
+    };
+  });
+  const monitoring = { ...evaluateDartIQCalibration(observations), outcomeKind: 'match' as const };
+  return { matchTimes, monitoring };
+}
+
+/** Chronological match-level holdout. Monitoring runs immediately; recommendations need evidence. */
+export function evaluateDartIQContinuousWindow(rows: readonly DartIQContinuousObservation[]) {
+  const { matchTimes, monitoring } = validateContinuousObservations(rows);
+  const orderedMatches = [...matchTimes].sort((a, b) => a[1].completed - b[1].completed || a[0].localeCompare(b[0]));
+  const trainingIds = new Set(orderedMatches.slice(0, Math.floor(orderedMatches.length * DARTIQ_CONTINUOUS_CONFIGURATION.trainingFraction)).map(([id]) => id));
+  const training = rows.filter((row) => trainingIds.has(row.matchId));
+  const trainingCutoff = Math.max(0, ...orderedMatches.filter(([id]) => trainingIds.has(id)).map(([, times]) => times.completed));
+  // A match that started before the training outcomes were known is not held out,
+  // even if it happened to finish later. Never split darts from one match.
+  const validation = rows.filter((row) => !trainingIds.has(row.matchId) && Date.parse(row.matchCreatedAt) > trainingCutoff);
+  const validationMatches = new Set(validation.map((row) => row.matchId)).size;
+  const base = {
+    version: DARTIQ_CONTINUOUS_CONFIGURATION.version,
+    promotionEnabled: false as const,
+    candidateFamily: 'temperature_scaling' as const,
+    validationMode: 'chronological_holdout' as const,
+    geometryModelEnabled: false as const,
+    geometryEventCount: rows.filter((row) => row.geometryAvailable === true).length,
+    geometryMatchCount: new Set(rows.filter((row) => row.geometryAvailable === true).map((row) => row.matchId)).size,
+    approximatedEventCount: rows.filter((row) => (row.approximationModes?.length ?? 0) > 0).length,
+    monitoring,
+    matchBalancedMonitoring: matchBalancedLoss(rows, 1),
+    trainingMatches: trainingIds.size,
+    validationMatches,
+    overlappingMatchesExcluded: orderedMatches.length - trainingIds.size - validationMatches,
+    trainingCutoff: new Date(trainingCutoff).toISOString(),
+  };
+  if (trainingIds.size < DARTIQ_CONTINUOUS_CONFIGURATION.minimumTrainingMatches || validation.length === 0) {
+    return { ...base, recommendation: 'insufficient_data' as const, temperature: 1, comparison: null };
+  }
+  let temperature = 1;
+  let trainingLoss = matchBalancedLoss(training, 1).brier;
+  for (const candidate of DARTIQ_CONTINUOUS_CONFIGURATION.temperatures) {
+    const loss = matchBalancedLoss(training, candidate).brier;
+    if (loss < trainingLoss - 1e-12) { trainingLoss = loss; temperature = candidate; }
+  }
+  const comparison = compareDartIQCalibrationCandidate(validation.map((row) => ({
+    id: row.id, matchId: row.matchId, outcomeKind: 'match', occurredAt: row.matchCreatedAt,
+    winnerPlayerId: row.winnerPlayerId, slices: row.slices,
+    validation: { method: 'held_out', trainingCutoff: base.trainingCutoff },
+    baselineProbabilities: row.probabilities,
+    candidateProbabilities: temperatureScaleDartIQ(row.probabilities, temperature),
+  })));
+  const baseline = matchBalancedLoss(validation, 1);
+  const candidate = matchBalancedLoss(validation, temperature);
+  const balancedPass = baseline.brier - candidate.brier >= DEFAULT_DARTIQ_CANDIDATE_GATES.minimumBrierImprovement
+    && candidate.logLoss <= baseline.logLoss;
+  return {
+    ...base, temperature, comparison, matchBalancedValidation: { baseline, candidate },
+    recommendation: comparison.recommendation === 'recommend_for_review' && !balancedPass
+      ? 'reject' as const : comparison.recommendation,
+  };
+}
 
 export type DartIQCalibrationSlices = {
   finishRule: string;

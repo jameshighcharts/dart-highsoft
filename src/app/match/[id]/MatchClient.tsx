@@ -62,6 +62,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   // Commentary state (persona-driven)
   const {
     commentaryEnabled,
+    realtimeCommentaryStatus,
+    toggleQuickCommentary,
     audioEnabled,
     voice,
     personaId,
@@ -124,7 +126,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   } = useMatchData(matchId);
   const finishRule: FinishRule = useMemo(() => (match?.finish ?? 'double_out'), [match?.finish]);
   const dartIQPlayerIds = useMemo(() => players.map((player) => player.id), [players]);
-  const dartIQ = useDartIQ(matchId, dartIQPlayerIds, finishRule);
+  const dartIQ = useDartIQ(matchId, dartIQPlayerIds, finishRule, !isSpectatorMode);
 
   const ongoingTurnRef = useRef<{
     turnId: string;
@@ -251,6 +253,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     dartIQEvidenceByPlayerId: dartIQ.profilesByPlayerId,
     dartIQPopulationEvidence: dartIQ.populationProfile,
     dartIQModelsByPlayerId: dartIQ.outcomeModelsByPlayerId,
+    dartIQWorkerEvidence: dartIQ.workerEvidence,
   });
 
   // Check for spectator mode from URL params
@@ -560,6 +563,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           onHome={() => router.push('/')}
           onToggleSpectatorMode={toggleSpectatorMode}
           commentaryEnabled={commentaryEnabled}
+          realtimeCommentaryStatus={realtimeCommentaryStatus}
+          onToggleQuickCommentary={toggleQuickCommentary}
           audioEnabled={audioEnabled}
           voice={voice}
           personaId={personaId}
@@ -579,9 +584,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           eloChanges={eloChanges}
           eloChangesLoading={eloChangesLoading}
           fairEndingState={fairEndingState}
-          dartIQEvidenceByPlayerId={dartIQ.profilesByPlayerId}
-          dartIQPopulationEvidence={dartIQ.populationProfile}
-          dartIQModelsByPlayerId={dartIQ.outcomeModelsByPlayerId}
+          dartIQWorkerEvidence={dartIQ.workerEvidence}
           hasPersonalDartIQEvidence={dartIQ.hasPersonalProfiles}
           isHistoryView={historyParam}
           onBackToGames={backToGames}

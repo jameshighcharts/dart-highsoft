@@ -72,8 +72,8 @@ export function SpectatorLiveMatchCard({
           {match.start_score} • {match.finish.replace('_', ' ')} • Legs to win {match.legs_to_win}
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
+      <CardContent className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
           {!currentPlayerPresentedElsewhere && spectatorCurrentPlayer ? (
             <div className="text-center">
               <div className="text-lg font-semibold text-muted-foreground">Current Turn</div>
@@ -140,7 +140,7 @@ export function SpectatorLiveMatchCard({
           {/* Player scores with inline throw indicators */}
           <div
             ref={listRef}
-            className="grid gap-3 max-h-[70vh] min-h-[40vh] overflow-y-auto overflow-x-hidden pr-1"
+            className="grid content-start gap-3 max-h-[70vh] min-h-[40vh] overflow-y-auto overflow-x-hidden pr-1 xl:flex-1 xl:basis-0 xl:max-h-none"
           >
             {orderPlayers.map((player) => {
               const isTiebreak = fairEndingState?.phase === 'tiebreak';

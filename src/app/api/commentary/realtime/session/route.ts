@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { resolvePersona } from '@/lib/commentary/personas';
+import { callbackTriggerForArcKind, storyArcKey } from '@/lib/commentary/broadcastDirector';
 import { buildRealtimeSessionInstructions } from '@/lib/commentary/realtimePrompt';
 import {
   isUuid,
+  BROADCAST_DIRECTOR_VERSION,
   REALTIME_COMMENTARY_MODEL,
   resolveRealtimeVoice,
+  type RealtimeCommentaryArcEventRequest,
   type RealtimeCommentaryCorrectionRequest,
   type RealtimeCommentaryPolicyDecisionRequest,
   type RealtimeCommentarySessionControl,
@@ -211,13 +214,14 @@ async function updateSession(request: NextRequest, close: boolean) {
 }
 
 export async function PATCH(request: NextRequest) {
-  let candidate: Partial<RealtimeCommentaryPolicyDecisionRequest> | null = null;
+  let body: Record<string, unknown> | null = null;
   try {
-    candidate = await request.clone().json() as Partial<RealtimeCommentaryPolicyDecisionRequest>;
+    body = await request.clone().json() as Record<string, unknown>;
   } catch {
     // The heartbeat handler below owns the ordinary invalid-body response.
   }
-  if (candidate?.action === 'policy_decision') {
+  if (body?.action === 'policy_decision') {
+    const candidate = body as Partial<RealtimeCommentaryPolicyDecisionRequest>;
     if (!hasTrustedOrigin(request)) return noStoreJson({ error: 'Invalid request origin' }, 403);
     const priorities = new Set(['silent', 'ordinary', 'notable', 'marquee', 'terminal']);
     const reasons = new Set([
@@ -282,6 +286,104 @@ export async function PATCH(request: NextRequest) {
         ignoreDuplicates: true,
       });
     if (inserted.error) return noStoreJson({ error: 'Could not record policy decision' }, 500);
+    return noStoreJson({ ok: true });
+  }
+  if (body?.action === 'arc_event') {
+    if (!hasTrustedOrigin(request)) return noStoreJson({ error: 'Invalid request origin' }, 403);
+    const candidate = body as Partial<RealtimeCommentaryArcEventRequest>;
+    const arcKinds = new Set([
+      'comeback', 'collapse', 'underdog_rising', 'seesaw_match',
+      'finish_chance_punished', 'checkout_duel', 'pressure_resilience',
+      'rematch_revenge', 'dominance',
+    ]);
+    const lifecycleEvents = new Set([
+      'opened', 'switched_in', 'payoff_due', 'closure_due', 'response_completed', 'closed',
+    ]);
+    const closeReasons = new Set(['superseded', 'unsupported']);
+    const phases = new Set(['developing', 'established', 'payoff']);
+    const treatments = new Set(['analysis', 'light_sass', 'narrative_callback', 'match_closing']);
+    const evidence = candidate.arc?.evidence;
+    const isResponseCompletion = candidate.lifecycleEvent === 'response_completed';
+    if (
+      !candidate.matchId || !isUuid(candidate.matchId)
+      || !candidate.sessionId || !isUuid(candidate.sessionId)
+      || (candidate.throwId !== undefined && !isUuid(candidate.throwId))
+      || (candidate.turnId !== undefined && !isUuid(candidate.turnId))
+      || typeof candidate.sourceEventId !== 'string' || candidate.sourceEventId.length === 0
+      || candidate.sourceEventId.length > 200
+      || !Number.isSafeInteger(candidate.epoch) || Number(candidate.epoch) < 0
+      || !Number.isSafeInteger(candidate.sequence) || Number(candidate.sequence) < 0
+      || !candidate.arc || !arcKinds.has(candidate.arc.kind)
+      || !phases.has(candidate.arc.phase) || !treatments.has(candidate.arc.treatment)
+      || !Number.isFinite(candidate.arc.strength) || candidate.arc.strength < 0 || candidate.arc.strength > 1
+      || (candidate.arc.subjectPlayerId !== null && !isUuid(candidate.arc.subjectPlayerId))
+      || (candidate.arc.counterpartPlayerId !== null && !isUuid(candidate.arc.counterpartPlayerId))
+      || !evidence || Array.isArray(evidence) || typeof evidence !== 'object'
+      || JSON.stringify(evidence).length > 10_000
+      || !candidate.lifecycleEvent || !lifecycleEvents.has(candidate.lifecycleEvent)
+      || (candidate.lifecycleEvent === 'closed') !== Boolean(candidate.closeReason)
+      || (candidate.closeReason !== undefined && !closeReasons.has(candidate.closeReason))
+      || typeof candidate.occurredAt !== 'string' || !Number.isFinite(Date.parse(candidate.occurredAt))
+      || (isResponseCompletion && (
+        typeof candidate.providerResponseId !== 'string' || candidate.providerResponseId.length === 0
+        || candidate.providerResponseId.length > 200
+        || typeof candidate.transcript !== 'string' || candidate.transcript.trim().length === 0
+        || candidate.transcript.length > 10_000
+      ))
+    ) return noStoreJson({ error: 'Invalid commentary arc event' }, 400);
+
+    const supabase = getSupabaseServerClient();
+    const [activeSession, matchPlayers] = await Promise.all([
+      supabase
+        .from('commentary_realtime_sessions')
+        .select('id')
+        .eq('id', candidate.sessionId)
+        .eq('match_id', candidate.matchId)
+        .eq('epoch', candidate.epoch)
+        .eq('status', 'active')
+        .maybeSingle(),
+      supabase.from('match_players').select('player_id').eq('match_id', candidate.matchId),
+    ]);
+    if (activeSession.error) return noStoreJson({ error: 'Could not verify realtime session' }, 500);
+    if (matchPlayers.error) return noStoreJson({ error: 'Could not verify story players' }, 500);
+    if (!activeSession.data) return noStoreJson({ error: 'Realtime session is not active' }, 409);
+    const playerIds = new Set((matchPlayers.data ?? []).map((row) => row.player_id as string));
+    if (
+      (candidate.arc.subjectPlayerId && !playerIds.has(candidate.arc.subjectPlayerId))
+      || (candidate.arc.counterpartPlayerId && !playerIds.has(candidate.arc.counterpartPlayerId))
+    ) return noStoreJson({ error: 'Story player is not in this match' }, 400);
+    const derivedArcKey = storyArcKey(candidate.arc);
+    const derivedTrigger = callbackTriggerForArcKind(candidate.arc.kind);
+
+    const inserted = await supabase.from('dartiq_commentary_arc_events').upsert({
+      session_id: candidate.sessionId,
+      match_id: candidate.matchId,
+      throw_id: candidate.throwId ?? null,
+      turn_id: candidate.turnId ?? null,
+      source_event_id: candidate.sourceEventId,
+      epoch: candidate.epoch,
+      sequence: candidate.sequence,
+      channel: 'browser',
+      director_version: BROADCAST_DIRECTOR_VERSION,
+      arc_key: derivedArcKey,
+      arc_kind: candidate.arc.kind,
+      subject_player_id: candidate.arc.subjectPlayerId,
+      counterpart_player_id: candidate.arc.counterpartPlayerId,
+      lifecycle_event: candidate.lifecycleEvent,
+      close_reason: candidate.closeReason ?? null,
+      phase: candidate.arc.phase,
+      treatment: candidate.arc.treatment,
+      strength: candidate.arc.strength,
+      callback_trigger: derivedTrigger,
+      evidence,
+      provider_response_id: candidate.providerResponseId ?? null,
+      transcript: candidate.transcript ?? null,
+      occurred_at: candidate.occurredAt,
+    }, {
+      onConflict: 'session_id,epoch,source_event_id,arc_key,lifecycle_event',
+      ignoreDuplicates: true,
+    });
+    if (inserted.error) return noStoreJson({ error: 'Could not record commentary arc event' }, 500);
     return noStoreJson({ ok: true });
   }
   return updateSession(request, false);

@@ -75,7 +75,6 @@ export function rankCommentaryStoryArcs(input: {
 }): CommentaryStoryArc[] {
   if (input.events.length === 0) return [];
   const first = input.events[0];
-  const latest = input.events.at(-1)!;
   const playerIds = first.before.projections.map((projection) => projection.id);
   const candidates: ArcCandidate[] = [];
   const initial = new Map(playerIds.map((id) => [id, probability(first.before, id)]));
@@ -84,19 +83,36 @@ export function rankCommentaryStoryArcs(input: {
   const checkoutConversions = new Map<string, number>();
   const highPressure = new Map<string, { chanceTurns: Set<string>; conversionTurns: Set<string> }>();
   const lastUnconvertedFinish = new Map<string, { sequence: number; score: number }>();
+  const dominantCompletedVisits = new Map<string, number>();
+  let completedVisits = 0;
+  let latestCompletedState: DartIQReplayState | null = null;
   let favoriteChanges = 0;
   let previousFavorite = favoriteId(first.before);
+  const favoritePlayerIds = new Set<string>();
+  if (previousFavorite) favoritePlayerIds.add(previousFavorite);
   let punishment: { winner: string; chanceLeftBy: string; gap: number; score: number } | null = null;
 
   for (const event of input.events) {
-    for (const playerId of playerIds) {
-      const after = probability(event.after, playerId);
-      minima.set(playerId, Math.min(minima.get(playerId) ?? after, after));
-      maxima.set(playerId, Math.max(maxima.get(playerId) ?? after, after));
+    const visitCompleted = event.dartIndex >= 3 || event.busted || event.checkedOut;
+    if (visitCompleted) {
+      completedVisits += 1;
+      latestCompletedState = event.after;
+      for (const playerId of playerIds) {
+        const after = probability(event.after, playerId);
+        minima.set(playerId, Math.min(minima.get(playerId) ?? after, after));
+        maxima.set(playerId, Math.max(maxima.get(playerId) ?? after, after));
+        if (after >= 0.75) {
+          dominantCompletedVisits.set(
+            playerId,
+            (dominantCompletedVisits.get(playerId) ?? 0) + 1
+          );
+        }
+      }
+      const nextFavorite = favoriteId(event.after);
+      if (previousFavorite && nextFavorite && previousFavorite !== nextFavorite) favoriteChanges += 1;
+      if (nextFavorite) favoritePlayerIds.add(nextFavorite);
+      previousFavorite = nextFavorite;
     }
-    const nextFavorite = favoriteId(event.after);
-    if (previousFavorite && nextFavorite && previousFavorite !== nextFavorite) favoriteChanges += 1;
-    previousFavorite = nextFavorite;
 
     const scoreBefore = event.before.scores[event.playerId] ?? 0;
     if (isOneDartDoubleLeave(scoreBefore, input.finishRule) && !event.checkedOut) {
@@ -132,14 +148,22 @@ export function rankCommentaryStoryArcs(input: {
     }
   }
 
-  const current = new Map(playerIds.map((id) => [id, probability(latest.after, id)]));
+  const currentState = latestCompletedState ?? first.before;
+  const current = new Map(playerIds.map((id) => [id, probability(currentState, id)]));
   const lockedWinner = playerIds.find((id) => current.get(id) === 1) ?? null;
   for (const playerId of playerIds) {
     const currentProbability = current.get(playerId) ?? 0;
     const initialProbability = initial.get(playerId) ?? 0;
     const rise = currentProbability - (minima.get(playerId) ?? currentProbability);
     const fall = (maxima.get(playerId) ?? currentProbability) - currentProbability;
-    if (initialProbability <= 0.3 && currentProbability >= 0.4 && currentProbability - initialProbability >= 0.15) {
+    if (
+      completedVisits >= 4
+      // In a large office field, everyone can start below 30%. Being unlikely
+      // in absolute terms does not by itself make someone the underdog.
+      && initialProbability <= Math.min(0.3, 0.75 / playerIds.length)
+      && currentProbability >= 0.4
+      && currentProbability - initialProbability >= 0.15
+    ) {
       candidates.push(candidate({
         kind: 'underdog_rising', score: 0.76 + clamp(currentProbability - initialProbability) * 0.12,
         phase: lockedWinner === playerId ? 'payoff' : currentProbability >= 0.6 ? 'established' : 'developing',
@@ -148,7 +172,12 @@ export function rankCommentaryStoryArcs(input: {
         subjectPlayerId: playerId, counterpartPlayerId: previousFavorite === playerId ? null : previousFavorite,
         evidence: { initialProbability, currentProbability },
       }));
-    } else if (rise >= 0.18 && currentProbability >= 0.3) {
+    } else if (
+      completedVisits >= 4
+      && rise >= 0.18
+      && currentProbability >= Math.max(0.5, initialProbability)
+      && (minima.get(playerId) ?? currentProbability) <= initialProbability - 0.12
+    ) {
       candidates.push(candidate({
         kind: 'comeback', score: 0.72 + clamp(rise) * 0.15,
         phase: lockedWinner === playerId ? 'payoff' : rise >= 0.3 ? 'established' : 'developing',
@@ -158,7 +187,7 @@ export function rankCommentaryStoryArcs(input: {
         evidence: { lowProbability: minima.get(playerId) ?? 0, currentProbability, recovered: rise },
       }));
     }
-    if (fall >= 0.2 && (maxima.get(playerId) ?? 0) >= 0.55) {
+    if (completedVisits >= 4 && fall >= 0.2 && (maxima.get(playerId) ?? 0) >= 0.55) {
       candidates.push(candidate({
         kind: 'collapse', score: 0.7 + clamp(fall) * 0.14,
         phase: currentProbability <= 0.2 ? 'established' : 'developing', treatment: 'light_sass',
@@ -189,11 +218,25 @@ export function rankCommentaryStoryArcs(input: {
     }));
   }
   if (favoriteChanges >= 3) {
+    const checkoutContenders = Object.values(currentState.scores)
+      .filter((score) => hasCheckoutRoute(score, 3, input.finishRule))
+      .length;
     candidates.push(candidate({
       kind: 'seesaw_match', score: 0.7 + Math.min(0.12, favoriteChanges * 0.02),
-      phase: favoriteChanges >= 5 ? 'established' : 'developing', treatment: 'narrative_callback',
-      strength: clamp(favoriteChanges / 6), subjectPlayerId: previousFavorite,
-      counterpartPlayerId: null, evidence: { favoriteChanges },
+      phase: favoriteChanges >= 5 || favoritePlayerIds.size >= 3 ? 'established' : 'developing',
+      treatment: 'narrative_callback',
+      strength: clamp((favoriteChanges + Math.max(0, favoritePlayerIds.size - 2)) / 7),
+      // A seesaw belongs to the field, not whichever player happens to lead now.
+      // Keeping the key match-scoped also prevents every favorite change from
+      // opening a supposedly new story and demanding another callback.
+      subjectPlayerId: null,
+      counterpartPlayerId: null,
+      evidence: {
+        favoriteChanges,
+        distinctFavorites: favoritePlayerIds.size,
+        checkoutContenders,
+        playerCount: playerIds.length,
+      },
     }));
   }
   const checkoutPlayers = [...checkoutConversions.entries()].filter(([, count]) => count > 0);
@@ -221,8 +264,10 @@ export function rankCommentaryStoryArcs(input: {
       }
     }
   }
-  const dominant = [...current.entries()].find(([, value]) => value >= 0.82);
-  if (dominant && input.events.length >= 9) {
+  const dominant = [...current.entries()].find(([playerId, value]) =>
+    value >= 0.82 && (dominantCompletedVisits.get(playerId) ?? 0) >= 3
+  );
+  if (dominant) {
     candidates.push(candidate({
       kind: 'dominance', score: 0.58 + dominant[1] * 0.12,
       phase: lockedWinner === dominant[0] ? 'payoff' : 'established',

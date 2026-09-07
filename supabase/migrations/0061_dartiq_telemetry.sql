@@ -285,6 +285,71 @@ create index dartiq_commentary_policy_decisions_turn_idx
   on public.dartiq_commentary_policy_decisions (turn_id)
   where turn_id is not null;
 
+create table public.dartiq_commentary_arc_events (
+  id bigint generated always as identity primary key,
+  session_id uuid not null,
+  match_id uuid not null references public.matches(id) on delete cascade,
+  throw_id uuid references public.throws(id) on delete set null,
+  turn_id uuid references public.turns(id) on delete set null,
+  source_event_id text not null,
+  epoch bigint not null check (epoch >= 0),
+  sequence integer not null check (sequence >= 0),
+  channel text not null check (channel in ('browser', 'scolia_worker')),
+  director_version text not null,
+  arc_key text not null,
+  arc_kind text not null check (arc_kind in (
+    'comeback', 'collapse', 'underdog_rising', 'seesaw_match',
+    'finish_chance_punished', 'checkout_duel', 'pressure_resilience',
+    'rematch_revenge', 'dominance'
+  )),
+  subject_player_id uuid references public.players(id) on delete set null,
+  counterpart_player_id uuid references public.players(id) on delete set null,
+  lifecycle_event text not null check (lifecycle_event in (
+    'opened', 'switched_in', 'payoff_due', 'closure_due', 'response_completed', 'closed'
+  )),
+  close_reason text check (close_reason in ('superseded', 'unsupported')),
+  phase text not null check (phase in ('developing', 'established', 'payoff')),
+  treatment text not null check (treatment in (
+    'analysis', 'light_sass', 'narrative_callback', 'match_closing'
+  )),
+  strength double precision not null check (strength >= 0 and strength <= 1),
+  callback_trigger text not null check (callback_trigger in (
+    'probability_reversal', 'next_checkout_chance', 'next_pressure_conversion',
+    'leg_resolution', 'match_resolution'
+  )),
+  evidence jsonb not null default '{}'::jsonb check (jsonb_typeof(evidence) = 'object'),
+  provider_response_id text check (provider_response_id is null or length(provider_response_id) <= 200),
+  transcript text check (transcript is null or length(transcript) <= 10000),
+  occurred_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  foreign key (session_id, match_id)
+    references public.commentary_realtime_sessions(id, match_id) on delete cascade,
+  check (
+    (lifecycle_event = 'closed' and close_reason is not null)
+    or (lifecycle_event <> 'closed' and close_reason is null)
+  ),
+  check (
+    lifecycle_event <> 'response_completed'
+    or (provider_response_id is not null and transcript is not null and length(trim(transcript)) > 0)
+  ),
+  unique (session_id, epoch, source_event_id, arc_key, lifecycle_event)
+);
+
+create index dartiq_commentary_arc_events_match_sequence_idx
+  on public.dartiq_commentary_arc_events (match_id, session_id, epoch, sequence, id);
+
+create index dartiq_commentary_arc_events_evaluation_idx
+  on public.dartiq_commentary_arc_events (director_version, arc_kind, lifecycle_event)
+  include (callback_trigger, occurred_at);
+
+create index dartiq_commentary_arc_events_throw_idx
+  on public.dartiq_commentary_arc_events (throw_id)
+  where throw_id is not null;
+
+create index dartiq_commentary_arc_events_turn_idx
+  on public.dartiq_commentary_arc_events (turn_id)
+  where turn_id is not null;
+
 alter table public.dartiq_model_versions enable row level security;
 alter table public.dartiq_population_evidence enable row level security;
 alter table public.dartiq_player_evidence enable row level security;
@@ -293,6 +358,7 @@ alter table public.dartiq_player_projections enable row level security;
 alter table public.dartiq_projection_resolutions enable row level security;
 alter table public.dartiq_projection_divergences enable row level security;
 alter table public.dartiq_commentary_policy_decisions enable row level security;
+alter table public.dartiq_commentary_arc_events enable row level security;
 
 revoke all on public.dartiq_model_versions from anon, authenticated;
 revoke all on public.dartiq_population_evidence from anon, authenticated;
@@ -302,6 +368,7 @@ revoke all on public.dartiq_player_projections from anon, authenticated;
 revoke all on public.dartiq_projection_resolutions from anon, authenticated;
 revoke all on public.dartiq_projection_divergences from anon, authenticated;
 revoke all on public.dartiq_commentary_policy_decisions from anon, authenticated;
+revoke all on public.dartiq_commentary_arc_events from anon, authenticated;
 
 grant all on public.dartiq_model_versions to service_role;
 grant all on public.dartiq_population_evidence to service_role;
@@ -311,6 +378,7 @@ grant all on public.dartiq_player_projections to service_role;
 grant all on public.dartiq_projection_resolutions to service_role;
 grant all on public.dartiq_projection_divergences to service_role;
 grant all on public.dartiq_commentary_policy_decisions to service_role;
+grant all on public.dartiq_commentary_arc_events to service_role;
 
 revoke all on sequence public.dartiq_model_versions_id_seq from anon, authenticated;
 revoke all on sequence public.dartiq_population_evidence_id_seq from anon, authenticated;
@@ -318,6 +386,7 @@ revoke all on sequence public.dartiq_player_evidence_id_seq from anon, authentic
 revoke all on sequence public.dartiq_projection_events_id_seq from anon, authenticated;
 revoke all on sequence public.dartiq_projection_resolutions_id_seq from anon, authenticated;
 revoke all on sequence public.dartiq_commentary_policy_decisions_id_seq from anon, authenticated;
+revoke all on sequence public.dartiq_commentary_arc_events_id_seq from anon, authenticated;
 
 grant usage, select on sequence public.dartiq_model_versions_id_seq to service_role;
 grant usage, select on sequence public.dartiq_population_evidence_id_seq to service_role;
@@ -325,6 +394,7 @@ grant usage, select on sequence public.dartiq_player_evidence_id_seq to service_
 grant usage, select on sequence public.dartiq_projection_events_id_seq to service_role;
 grant usage, select on sequence public.dartiq_projection_resolutions_id_seq to service_role;
 grant usage, select on sequence public.dartiq_commentary_policy_decisions_id_seq to service_role;
+grant usage, select on sequence public.dartiq_commentary_arc_events_id_seq to service_role;
 
 comment on table public.dartiq_model_versions is
   'Immutable DartIQ implementation and configuration registry.';
@@ -351,7 +421,10 @@ comment on table public.dartiq_projection_divergences is
   'Server-only comparison of each active reconstructed projection against its live predecessor.';
 
 comment on table public.dartiq_commentary_policy_decisions is
-  'Versioned per-listener deterministic speak/skip decisions; does not measure provider or audio latency.';
+  'Versioned per-listener deterministic speak/skip decisions.';
+
+comment on table public.dartiq_commentary_arc_events is
+  'Append-only listener story lifecycle; response completion requires a provider response and non-empty transcript.';
 
 -- Add rematch lineage to atomic X01 creation and freeze DartIQ evidence in a
 -- single database statement before the first dart can be accepted.
@@ -462,14 +535,326 @@ as $$
 declare
   v_finish public.finish_rule;
   v_cutoff timestamptz := statement_timestamp();
+  v_historical_facts_cutoff timestamptz;
   v_population jsonb;
+  v_historical_facts jsonb;
   v_population_id bigint;
   v_player record;
   v_player_evidence jsonb;
 begin
-  select m.finish into strict v_finish
+  select m.finish, m.created_at into strict v_finish, v_historical_facts_cutoff
   from public.matches m
   where m.id = p_match_id;
+
+  -- Freeze compact, speakable history for only the players in this match.
+  -- The current match's creation time is the walk-forward cutoff, so an old
+  -- match backfilled later cannot see results that happened after it began.
+  with current_players as (
+    select mp.player_id
+    from public.match_players mp
+    where mp.match_id = p_match_id
+  ), eligible_matches as (
+    select
+      m.id,
+      m.completed_at,
+      m.winner_player_id,
+      m.start_score::text::int as start_score,
+      m.finish,
+      m.legs_to_win,
+      count(mp.player_id)::integer as player_count
+    from public.matches m
+    join public.match_players mp on mp.match_id = m.id
+    where m.id <> p_match_id
+      and m.mode = 'x01'
+      and m.finish = v_finish
+      and m.ended_early = false
+      and m.winner_player_id is not null
+      and m.completed_at is not null
+      and m.completed_at < v_historical_facts_cutoff
+      and not exists (
+        select 1
+        from public.match_players test_mp
+        join public.players test_player on test_player.id = test_mp.player_id
+        where test_mp.match_id = m.id
+          and test_player.is_test = true
+      )
+    group by m.id
+  ), player_matches as (
+    select
+      cp.player_id,
+      em.id as match_id,
+      em.completed_at,
+      em.winner_player_id,
+      em.start_score,
+      em.legs_to_win,
+      row_number() over (
+        partition by cp.player_id
+        order by em.completed_at desc, em.id
+      ) as recency
+    from current_players cp
+    join public.match_players mp on mp.player_id = cp.player_id
+    join eligible_matches em on em.id = mp.match_id
+  ), player_match_runs as (
+    select
+      pm.*,
+      coalesce(sum((pm.winner_player_id <> pm.player_id)::integer) over (
+        partition by pm.player_id
+        order by pm.recency
+        rows between unbounded preceding and 1 preceding
+      ), 0) as prior_non_wins
+    from player_matches pm
+  ), eligible_turns as (
+    select
+      tu.id,
+      tu.leg_id,
+      tu.player_id,
+      tu.turn_number,
+      tu.total_scored,
+      tu.busted,
+      count(th.id)::integer as darts_in_turn,
+      l.match_id,
+      l.winner_player_id as leg_winner_player_id,
+      em.start_score,
+      em.legs_to_win
+    from eligible_matches em
+    join public.legs l on l.match_id = em.id
+    join public.turns tu on tu.leg_id = l.id
+    join current_players cp on cp.player_id = tu.player_id
+    join public.throws th on th.turn_id = tu.id
+    where tu.tiebreak_round is null
+    group by tu.id, l.id, l.match_id, l.winner_player_id,
+      em.start_score, em.legs_to_win
+  ), player_visit_states as (
+    select
+      et.*,
+      et.start_score - sum(case when et.busted then 0 else et.total_scored end) over (
+        partition by et.leg_id, et.player_id
+        order by et.turn_number
+        rows between unbounded preceding and current row
+      ) as remaining_after,
+      row_number() over (
+        partition by et.leg_id, et.player_id
+        order by et.turn_number desc
+      ) as reverse_visit
+    from eligible_turns et
+  ), player_visit_stats as (
+    select
+      pvs.player_id,
+      count(*)::integer as visits,
+      count(*) filter (where not pvs.busted and pvs.total_scored >= 100)::integer as ton_plus_visits,
+      count(*) filter (where not pvs.busted and pvs.total_scored = 180)::integer as one_eighties,
+      count(*) filter (where pvs.busted)::integer as busts,
+      count(*) filter (
+        where v_finish = 'double_out'
+          and not pvs.busted
+          and pvs.remaining_after in (1, 159, 162, 163, 165, 166, 168, 169)
+      )::integer as bogey_leaves,
+      max(pvs.total_scored) filter (
+        where pvs.player_id = pvs.leg_winner_player_id
+          and pvs.reverse_visit = 1
+          and not pvs.busted
+      )::integer as highest_checkout
+    from player_visit_states pvs
+    group by pvs.player_id
+  ), winning_legs as (
+    select
+      et.player_id,
+      et.leg_id,
+      sum(et.darts_in_turn)::integer as darts
+    from eligible_turns et
+    where et.player_id = et.leg_winner_player_id
+    group by et.player_id, et.leg_id
+  ), fastest_legs as (
+    select wl.player_id, min(wl.darts)::integer as fastest_winning_leg_darts
+    from winning_legs wl
+    group by wl.player_id
+  ), final_match_scores as (
+    select
+      pm.player_id,
+      pm.match_id,
+      pm.winner_player_id,
+      pm.legs_to_win,
+      pm.start_score - coalesce(sum(
+        case when et.busted then 0 else et.total_scored end
+      ), 0)::integer as remaining
+    from player_matches pm
+    left join eligible_turns et
+      on et.match_id = pm.match_id
+      and et.player_id = pm.player_id
+    group by pm.player_id, pm.match_id, pm.winner_player_id,
+      pm.legs_to_win, pm.start_score
+  ), checkout_ready_losses as (
+    select
+      fms.player_id,
+      count(*)::integer as checkout_ready_losses,
+      min(fms.remaining)::integer as closest_loss_score
+    from final_match_scores fms
+    where fms.legs_to_win = 1
+      and fms.winner_player_id <> fms.player_id
+      and (
+        (v_finish = 'single_out' and fms.remaining between 1 and 180)
+        or (
+          v_finish = 'double_out'
+          and fms.remaining between 2 and 170
+          and fms.remaining not in (159, 162, 163, 165, 166, 168, 169)
+        )
+      )
+    group by fms.player_id
+  ), player_rollups as (
+    select
+      cp.player_id,
+      count(pmr.match_id)::integer as matches_played,
+      count(pmr.match_id) filter (where pmr.winner_player_id = cp.player_id)::integer as matches_won,
+      count(pmr.match_id) filter (
+        where pmr.winner_player_id = cp.player_id and pmr.prior_non_wins = 0
+      )::integer as current_win_streak,
+      pvs.visits,
+      pvs.ton_plus_visits,
+      pvs.one_eighties,
+      pvs.busts,
+      pvs.bogey_leaves,
+      pvs.highest_checkout,
+      fl.fastest_winning_leg_darts,
+      crl.checkout_ready_losses,
+      crl.closest_loss_score
+    from current_players cp
+    left join player_match_runs pmr on pmr.player_id = cp.player_id
+    left join player_visit_stats pvs on pvs.player_id = cp.player_id
+    left join fastest_legs fl on fl.player_id = cp.player_id
+    left join checkout_ready_losses crl on crl.player_id = cp.player_id
+    group by cp.player_id, pvs.visits, pvs.ton_plus_visits,
+      pvs.one_eighties, pvs.busts, pvs.bogey_leaves, pvs.highest_checkout,
+      fl.fastest_winning_leg_darts, crl.checkout_ready_losses,
+      crl.closest_loss_score
+  ), participant_pairs as (
+    select left_player.player_id as subject_player_id,
+      right_player.player_id as counterpart_player_id
+    from current_players left_player
+    join current_players right_player
+      on left_player.player_id::text < right_player.player_id::text
+  ), pair_meetings as (
+    select
+      pair.subject_player_id,
+      pair.counterpart_player_id,
+      em.id as match_id,
+      em.completed_at,
+      em.winner_player_id,
+      em.player_count,
+      row_number() over (
+        partition by pair.subject_player_id, pair.counterpart_player_id
+        order by em.completed_at desc, em.id
+      ) as recency,
+      first_value(em.winner_player_id) over (
+        partition by pair.subject_player_id, pair.counterpart_player_id
+        order by em.completed_at desc, em.id
+      ) as latest_winner_player_id
+    from participant_pairs pair
+    join public.match_players subject_entry
+      on subject_entry.player_id = pair.subject_player_id
+    join public.match_players counterpart_entry
+      on counterpart_entry.match_id = subject_entry.match_id
+      and counterpart_entry.player_id = pair.counterpart_player_id
+    join eligible_matches em on em.id = subject_entry.match_id
+  ), pair_runs as (
+    select
+      pm.*,
+      coalesce(sum((pm.winner_player_id <> pm.latest_winner_player_id)::integer) over (
+        partition by pm.subject_player_id, pm.counterpart_player_id
+        order by pm.recency
+        rows between unbounded preceding and 1 preceding
+      ), 0) as prior_different_winners
+    from pair_meetings pm
+  ), pair_rollups as (
+    select
+      pair.subject_player_id,
+      pair.counterpart_player_id,
+      count(pr.match_id)::integer as shared_matches,
+      count(pr.match_id) filter (where pr.winner_player_id = pair.subject_player_id)::integer as subject_wins,
+      count(pr.match_id) filter (where pr.winner_player_id = pair.counterpart_player_id)::integer as counterpart_wins,
+      count(pr.match_id) filter (
+        where pr.winner_player_id not in (pair.subject_player_id, pair.counterpart_player_id)
+      )::integer as other_winner_matches,
+      count(pr.match_id) filter (where pr.player_count = 2)::integer as two_player_matches,
+      (array_agg(pr.latest_winner_player_id order by pr.recency)
+        filter (where pr.match_id is not null))[1] as latest_winner_player_id,
+      max(pr.completed_at) as last_met_at,
+      count(pr.match_id) filter (
+        where pr.winner_player_id = pr.latest_winner_player_id
+          and pr.prior_different_winners = 0
+      )::integer as current_winner_streak
+    from participant_pairs pair
+    left join pair_runs pr
+      on pr.subject_player_id = pair.subject_player_id
+      and pr.counterpart_player_id = pair.counterpart_player_id
+    group by pair.subject_player_id, pair.counterpart_player_id
+  ), personal_facts as (
+    select
+      1 as fact_order,
+      pr.matches_played as support,
+      jsonb_build_object(
+        'kind', 'player_history',
+        'subjectPlayerId', pr.player_id,
+        'counterpartPlayerId', null,
+        'support', pr.matches_played,
+        'confidenceTier', case
+          when pr.matches_played >= 10 then 'strong'
+          when pr.matches_played >= 3 then 'supported'
+          else 'thin'
+        end,
+        'evidence', jsonb_strip_nulls(jsonb_build_object(
+          'matchesPlayed', pr.matches_played,
+          'matchesWon', pr.matches_won,
+          'currentWinStreak', pr.current_win_streak,
+          'visits', pr.visits,
+          'tonPlusVisits', pr.ton_plus_visits,
+          'oneEighties', pr.one_eighties,
+          'busts', pr.busts,
+          'bogeyLeaves', pr.bogey_leaves,
+          'highestCheckout', pr.highest_checkout,
+          'fastestWinningLegDarts', pr.fastest_winning_leg_darts,
+          'checkoutReadyLosses', pr.checkout_ready_losses,
+          'closestLossScore', pr.closest_loss_score
+        ))
+      ) as fact
+    from player_rollups pr
+    where pr.matches_played > 0
+  ), matchup_facts as (
+    select
+      0 as fact_order,
+      pr.shared_matches as support,
+      jsonb_build_object(
+        'kind', 'matchup_history',
+        'subjectPlayerId', pr.subject_player_id,
+        'counterpartPlayerId', pr.counterpart_player_id,
+        'support', pr.shared_matches,
+        'confidenceTier', case
+          when pr.shared_matches >= 10 then 'strong'
+          when pr.shared_matches >= 3 then 'supported'
+          else 'thin'
+        end,
+        'evidence', jsonb_strip_nulls(jsonb_build_object(
+          'sharedMatches', pr.shared_matches,
+          'subjectWins', pr.subject_wins,
+          'counterpartWins', pr.counterpart_wins,
+          'otherWinnerMatches', pr.other_winner_matches,
+          'twoPlayerMatches', pr.two_player_matches,
+          'latestWinnerPlayerId', pr.latest_winner_player_id,
+          'currentWinnerStreak', pr.current_winner_streak,
+          'lastMetAt', pr.last_met_at
+        ))
+      ) as fact
+    from pair_rollups pr
+    where pr.shared_matches > 0
+  ), all_facts as (
+    select * from matchup_facts
+    union all
+    select * from personal_facts
+  )
+  select coalesce(
+    jsonb_agg(af.fact order by af.fact_order, af.support desc),
+    '[]'::jsonb
+  ) into v_historical_facts
+  from all_facts af;
 
   select jsonb_build_object(
     'profile', (
@@ -481,7 +866,9 @@ begin
       select jsonb_agg(to_jsonb(outcome) order by outcome.current_score, outcome.darts_left, outcome.score_delta, outcome.is_double)
       from public.dartiq_population_outcomes outcome
       where outcome.finish_rule = v_finish
-    ), '[]'::jsonb)
+    ), '[]'::jsonb),
+    'historicalFacts', v_historical_facts,
+    'historicalFactsCutoffAt', v_historical_facts_cutoff
   ) into v_population;
 
   insert into public.dartiq_population_evidence (

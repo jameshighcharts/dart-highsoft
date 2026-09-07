@@ -82,6 +82,28 @@ function facts(overrides: Partial<ScoliaRealtimeDartFacts> = {}): ScoliaRealtime
 }
 
 describe('classifyScoliaRealtimeDart', () => {
+  it('loads an earlier dart without leaking later visit darts or the eventual winner', async () => {
+    const supabase = supabaseWithRows({
+      matches: [{ id: 'match', winner_player_id: 'a', start_score: '40', finish: 'double_out', legs_to_win: 1, fair_ending: false }],
+      match_players: [{ match_id: 'match', player_id: 'a', play_order: 0 }, { match_id: 'match', player_id: 'b', play_order: 1 }],
+      legs: [{ id: 'leg', match_id: 'match', leg_number: 1, starting_player_id: 'a', winner_player_id: 'a' }],
+      players: [{ id: 'a', display_name: 'A' }, { id: 'b', display_name: 'B' }],
+      turns: [{ id: 'turn', leg_id: 'leg', player_id: 'a', turn_number: 1, total_scored: 40, busted: false, tiebreak_round: null }],
+      throws: [
+        { id: 'first', turn_id: 'turn', dart_index: 1, segment: 'S20', scored: 20 },
+        { id: 'finish', turn_id: 'turn', dart_index: 2, segment: 'D10', scored: 20 },
+      ],
+    });
+    const cache = new ScoliaDartIQEventCache();
+    const earlier = await loadScoliaRealtimeDartEvent(supabase, 'match', 'first', cache);
+    expect(earlier).toMatchObject({
+      turnScore: 20, checkedOut: false, matchWon: false, isLatestDart: false,
+      visitDarts: [{ dartIndex: 1, segment: 'S20', scored: 20 }],
+      narrative: { sequence: 1 },
+    });
+    const latest = await loadScoliaRealtimeDartEvent(supabase, 'match', 'finish', cache);
+    expect(latest).toMatchObject({ turnScore: 40, checkedOut: true, matchWon: true, isLatestDart: true, narrative: { sequence: 2 } });
+  });
   it('feeds early darts silently', () => {
     expect(classifyScoliaRealtimeDart(facts())).toMatchObject({
       priority: 'silent',

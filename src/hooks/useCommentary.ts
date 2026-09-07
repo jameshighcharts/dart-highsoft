@@ -8,7 +8,7 @@ import type {
   CommentaryPersonaId,
   CommentaryTranscriptEntry,
 } from '@/lib/commentary/types';
-import type { RealtimeCommentaryService } from '@/services/realtimeCommentaryService';
+import type { RealtimeCommentaryService, RealtimeCommentaryStatus } from '@/services/realtimeCommentaryService';
 import { getTTSService, type VoiceOption } from '@/services/ttsService';
 import { useRealtimeCommentary } from '@/hooks/useRealtimeCommentary';
 import { appendCommentaryTranscript } from '@/lib/commentary/transcriptLog';
@@ -27,6 +27,8 @@ type UseCommentaryResult = {
   ttsServiceRef: MutableRefObject<ReturnType<typeof getTTSService>>;
   realtimeCommentaryRef: MutableRefObject<RealtimeCommentaryService | null>;
   realtimeCommentaryReady: boolean;
+  realtimeCommentaryStatus: RealtimeCommentaryStatus;
+  toggleQuickCommentary: () => void;
   setCurrentCommentary: (value: string | null) => void;
   recordCompletedCommentary: (value: string) => void;
   clearCommentaryTranscriptLog: () => void;
@@ -94,6 +96,23 @@ export function useCommentary(matchId: string): UseCommentaryResult {
   const handlePersonaChange = useCallback((nextPersona: CommentaryPersonaId) => {
     setPersonaId(nextPersona);
   }, []);
+
+  const toggleQuickCommentary = useCallback(() => {
+    if (commentaryEnabled && audioEnabled) {
+      realtimeCommentaryRef.current?.skip();
+      ttsServiceRef.current.clearQueue();
+      setCommentaryPlaying(false);
+      setAudioEnabled(false);
+      setCommentaryEnabled(false);
+      return;
+    }
+    // Unlock during the gesture; separate toggle handlers see pre-click state.
+    void realtimeCommentaryRef.current?.unlock();
+    void ttsServiceRef.current.unlock();
+    setVoice('verse');
+    setAudioEnabled(true);
+    setCommentaryEnabled(true);
+  }, [commentaryEnabled, audioEnabled, realtimeCommentaryRef]);
 
   const skipCommentary = useCallback(() => {
     realtimeCommentaryRef.current?.skip();
@@ -196,6 +215,8 @@ export function useCommentary(matchId: string): UseCommentaryResult {
     ttsServiceRef,
     realtimeCommentaryRef,
     realtimeCommentaryReady: realtimeCommentaryStatus === 'ready',
+    realtimeCommentaryStatus,
+    toggleQuickCommentary,
     setCurrentCommentary,
     recordCompletedCommentary,
     clearCommentaryTranscriptLog,

@@ -93,7 +93,7 @@ describe('analyzeDartIQTimeline', () => {
   });
 
   it('identifies stolen and thrown-away legs from probability extremes', () => {
-    const lowPoint = event(1, state(0.15, 0.3), state(0.1, 0.25));
+    const lowPoint = event(1, state(0.3, 0.3), state(0.1, 0.25));
     const comeback = event(2, state(0.1, 0.25), state(1, 1, 1, 0), { checkedOut: true });
     const insights = analyzeDartIQTimeline([lowPoint, comeback]);
 
@@ -112,6 +112,25 @@ describe('analyzeDartIQTimeline', () => {
     expect(insights.commentaryMoments.map((moment) => moment.kind)).toContain('lead_change');
     expect(insights.commentaryMoments.map((moment) => moment.kind)).toContain('pressure_bust');
     expect(insights.commentaryMoments.map((moment) => moment.kind)).not.toContain('surge');
+  });
+
+  it.each([0.16, 0.01])('distinguishes an ordinary six-player win from a comeback at %s', (low) => {
+    const multiplayerState = (chance: number, won = false) => {
+      const base = state(chance, chance, won ? 1 : 0);
+      return { ...base, projections: ['a','b','c','d','e','f'].map((id) => ({
+        ...base.projections[id === 'a' ? 0 : 1], id,
+        legWinProbability: id === 'a' ? chance : (1 - chance) / 5,
+        matchWinProbability: id === 'a' ? chance : (1 - chance) / 5,
+      })) };
+    };
+    const first = event(1, multiplayerState(1 / 6), multiplayerState(low));
+    const win = event(2, multiplayerState(low), multiplayerState(1, true), { checkedOut: true });
+    expect(analyzeDartIQTimeline([first, win]).stolenLegs).toHaveLength(low === 0.01 ? 1 : 0);
+  });
+
+  it('does not call an underdog win a comeback without a further fall', () => {
+    const win = event(1, state(0.05, 0.05), state(1, 1, 1, 0), { checkedOut: true });
+    expect(analyzeDartIQTimeline([win]).stolenLegs).toEqual([]);
   });
 
   it('returns an empty summary for an empty timeline', () => {

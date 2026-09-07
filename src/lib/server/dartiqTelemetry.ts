@@ -5,17 +5,16 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { hasCheckoutRoute } from '@/lib/dartiq/checkout';
 import {
-  createBehavioralOutcomeModel,
   DARTIQ_OUTCOME_CONFIGURATION,
   DARTIQ_OUTCOME_MODEL_VERSION,
   type DartIQOutcomeModel,
 } from '@/lib/dartiq/model/outcomes';
 import { DARTIQ_PROJECTION_CONFIGURATION } from '@/lib/dartiq/projection';
-import { reconstructDartIQTimeline, type DartIQDartEvent } from '@/lib/dartiq/replay';
-import { loadMatchData } from '@/lib/match/loadMatchData';
+import { createAdaptiveDartIQModel, type DartIQModelDeployment } from '@/lib/dartiq/model/training';
+import { reconstructDartIQTimelineWithCheckpoint, type DartIQDartEvent, type DartIQReplayCheckpoint } from '@/lib/dartiq/replay';
 import type { FinishRule } from '@/utils/x01';
-import type { TurnWithThrows } from '@/lib/match/types';
-import { loadFrozenDartIQEvidence } from './dartiqEvidence';
+import type { MatchRecord, LegRecord, TurnWithThrows } from '@/lib/match/types';
+import { loadFrozenDartIQEvidence, type FrozenDartIQEvidenceRows } from './dartiqEvidence';
 
 const MODEL_KEY = 'dartiq';
 const IMPLEMENTATION_MANIFEST = Object.freeze({
@@ -35,7 +34,19 @@ const DEPLOYMENT_REVISION = process.env.VERCEL_GIT_COMMIT_SHA
   ?? 'development';
 
 type EvidenceRow = { id: number; player_id?: string; content_hash: string };
-type LoadedMatchData = Awaited<ReturnType<typeof loadMatchData>>;
+type LoadedMatchData = {
+  match: MatchRecord;
+  players: Array<{ id: string }>;
+  legs: LegRecord[];
+  turnsByLeg: Record<string, TurnWithThrows[]>;
+};
+type TelemetrySnapshot = {
+  revision: string;
+  unchanged: false;
+  data: LoadedMatchData;
+  population: (NonNullable<FrozenDartIQEvidenceRows['population']> & EvidenceRow) | null;
+  players: Array<FrozenDartIQEvidenceRows['players'][number] & EvidenceRow>;
+};
 
 type DartIQTelemetryContext = {
   data: Omit<LoadedMatchData, 'match'> & { match: NonNullable<LoadedMatchData['match']> };
@@ -48,6 +59,19 @@ type DartIQTelemetryContext = {
   timeline: DartIQDartEvent[];
   cohortByThrowId: Map<string, 'manual' | 'scolia'>;
 };
+
+/** Request-scoped only; every reuse checks the transactional database source revision. */
+export class DartIQTelemetryBatch {
+  readonly contexts = new Map<string, {
+    revision: string;
+    evidenceSignature: string;
+    replaySignature: string;
+    checkpoint: DartIQReplayCheckpoint | null;
+    context: DartIQTelemetryContext;
+  }>();
+  modelVersionId?: Promise<number>;
+  readonly trainedModelVersionIds = new Map<string, Promise<number>>();
+}
 
 function hash(value: unknown) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -104,12 +128,14 @@ function outcomeDistribution(
   });
 }
 
-async function loadModelVersionId(supabase: SupabaseClient) {
+async function loadModelVersionId(supabase: SupabaseClient, deployment?: DartIQModelDeployment) {
   const implementationHash = hash({
     manifest: IMPLEMENTATION_MANIFEST,
     deploymentRevision: DEPLOYMENT_REVISION,
   });
-  const configurationHash = hash(MODEL_CONFIGURATION);
+  const configuration = deployment ? { ...MODEL_CONFIGURATION, trainedArtifactId: deployment.id,
+    trainingVersion: deployment.artifact.version } : MODEL_CONFIGURATION;
+  const configurationHash = hash(configuration);
   const existing = await supabase
     .from('dartiq_model_versions')
     .select('id')
@@ -124,7 +150,7 @@ async function loadModelVersionId(supabase: SupabaseClient) {
     .insert({
       model_key: MODEL_KEY,
       implementation_hash: implementationHash,
-      configuration: MODEL_CONFIGURATION,
+      configuration,
       configuration_hash: configurationHash,
       outcome_model_version: DARTIQ_OUTCOME_MODEL_VERSION,
       evidence_schema_version: 1,
@@ -147,34 +173,59 @@ async function loadModelVersionId(supabase: SupabaseClient) {
 
 async function loadDartIQTelemetryContext(
   supabase: SupabaseClient,
-  matchId: string
+  matchId: string,
+  batch?: DartIQTelemetryBatch,
 ): Promise<{ context: DartIQTelemetryContext | null; skipped: string | null }> {
-  const [data, evidence, populationEvidenceResult, playerEvidenceResult, modelVersionId] =
-    await Promise.all([
-      loadMatchData(supabase, matchId, { includeTurnsByLegThrows: true }),
-      loadFrozenDartIQEvidence(supabase, matchId),
-      supabase
-        .from('dartiq_population_evidence')
-        .select('id, content_hash')
-        .eq('match_id', matchId)
-        .maybeSingle(),
-      supabase
-        .from('dartiq_player_evidence')
-        .select('id, player_id, content_hash')
-        .eq('match_id', matchId),
-      loadModelVersionId(supabase),
-    ]);
-  if (populationEvidenceResult.error) throw new Error(populationEvidenceResult.error.message);
-  if (playerEvidenceResult.error) throw new Error(playerEvidenceResult.error.message);
-  if (!data.match || !evidence || !populationEvidenceResult.data) {
+  const cached = batch?.contexts.get(matchId);
+  const snapshotResult = await supabase.rpc('load_dartiq_telemetry_snapshot', {
+    p_match_id: matchId,
+    p_known_revision: cached?.revision ?? null,
+  });
+  if (snapshotResult.error) throw new Error(snapshotResult.error.message);
+  const snapshot = snapshotResult.data as TelemetrySnapshot | { revision: string; unchanged: true } | null;
+  if (snapshot?.unchanged) {
+    if (!cached || cached.revision !== snapshot.revision) throw new Error('Invalid unchanged DartIQ snapshot');
+    return { context: cached.context, skipped: null };
+  }
+  if (!snapshot) {
+    batch?.contexts.delete(matchId);
     return { context: null, skipped: 'evidence_missing' };
+  }
+  const { data } = snapshot;
+  const evidenceSignature = hash([snapshot.population, snapshot.players]);
+  const reuseEvidence = cached?.evidenceSignature === evidenceSignature;
+  const evidence = reuseEvidence ? cached.context.evidence : await loadFrozenDartIQEvidence(supabase, matchId, {
+    population: snapshot.population,
+    players: snapshot.players,
+  });
+  if (!evidence || !snapshot.population) {
+    batch?.contexts.delete(matchId);
+    return { context: null, skipped: 'evidence_missing' };
+  }
+  const artifactId = evidence.modelDeployment?.id;
+  const modelPromise = (artifactId ? batch?.trainedModelVersionIds.get(artifactId) : batch?.modelVersionId)
+    ?? loadModelVersionId(supabase, evidence.modelDeployment);
+  if (batch) {
+    if (artifactId) batch.trainedModelVersionIds.set(artifactId, modelPromise);
+    else batch.modelVersionId = modelPromise;
+  }
+  let modelVersionId: number;
+  try {
+    modelVersionId = await modelPromise;
+  } catch (error) {
+    if (batch) {
+      if (artifactId) batch.trainedModelVersionIds.delete(artifactId);
+      else batch.modelVersionId = undefined;
+    }
+    throw error;
   }
 
   const playerIds = data.players.map((player) => player.id);
   const evidenceByPlayer = new Map(
-    ((playerEvidenceResult.data ?? []) as EvidenceRow[]).map((row) => [row.player_id!, row])
+    snapshot.players.map((row) => [row.player_id, row])
   );
   if (playerIds.some((playerId) => !evidenceByPlayer.has(playerId))) {
+    batch?.contexts.delete(matchId);
     return { context: null, skipped: 'player_evidence_missing' };
   }
   const personalOutcomes = new Map<string, typeof evidence.populationOutcomes>();
@@ -183,14 +234,24 @@ async function loadDartIQTelemetryContext(
     values.push(observation);
     personalOutcomes.set(observation.playerId, values);
   }
-  const models = Object.fromEntries(playerIds.map((playerId) => [
+  const models = reuseEvidence && playerIds.every((id) => cached.context.models[id])
+    ? cached.context.models : Object.fromEntries(playerIds.map((playerId) => [
     playerId,
-    createBehavioralOutcomeModel({
+    createAdaptiveDartIQModel({
+      playerId,
+      deployment: evidence.modelDeployment,
       personal: personalOutcomes.get(playerId),
       population: evidence.populationOutcomes,
     }),
   ]));
-  const timeline = reconstructDartIQTimeline({
+  // A metadata/model change invalidates the checkpoint. The replay engine itself
+  // verifies every source dart, so edits/deletions cannot reuse an obsolete prefix.
+  const replaySignature = hash([
+    evidenceSignature, modelVersionId, playerIds, data.legs,
+    data.match.start_score, data.match.finish, data.match.legs_to_win, data.match.fair_ending,
+  ]);
+  const reusable = cached?.replaySignature === replaySignature ? cached : undefined;
+  const replay = reconstructDartIQTimelineWithCheckpoint({
     playerIds,
     legs: data.legs,
     turnsByLeg: data.turnsByLeg as Record<string, TurnWithThrows[]>,
@@ -201,7 +262,8 @@ async function loadDartIQTelemetryContext(
     populationProfile: evidence.populationProfile,
     outcomeModels: models,
     fairEnding: Boolean(data.match.fair_ending),
-  });
+  }, { cachedPrefix: reusable?.context.timeline, cachedCheckpoint: reusable?.checkpoint });
+  const timeline = replay.timeline;
   const cohortByThrowId = new Map<string, 'manual' | 'scolia'>();
   for (const turns of Object.values(data.turnsByLeg as Record<string, TurnWithThrows[]>)) {
     for (const turn of turns) {
@@ -211,20 +273,21 @@ async function loadDartIQTelemetryContext(
     }
   }
 
-  return {
-    skipped: null,
-    context: {
-      data: { ...data, match: data.match },
-      evidence,
-      populationEvidence: populationEvidenceResult.data as EvidenceRow,
-      evidenceByPlayer,
-      modelVersionId,
-      playerIds,
-      models,
-      timeline,
-      cohortByThrowId,
-    },
+  const context: DartIQTelemetryContext = {
+    data,
+    evidence,
+    populationEvidence: snapshot.population,
+    evidenceByPlayer,
+    modelVersionId,
+    playerIds,
+    models,
+    timeline,
+    cohortByThrowId,
   };
+  batch?.contexts.set(matchId, {
+    revision: snapshot.revision, evidenceSignature, replaySignature, checkpoint: replay.checkpoint, context,
+  });
+  return { skipped: null, context };
 }
 
 async function replaceResolutions(
@@ -321,6 +384,7 @@ function liveProjectionPayload(
     approximation_modes: [...new Set([
       event.before.approximationMode,
       event.after.approximationMode,
+      ...(event.opportunity?.approximationModes ?? []),
     ].filter((mode) => mode !== 'standard'))],
     leg_opportunity: event.opportunity?.leg ?? null,
     match_opportunity: event.opportunity?.match ?? null,
@@ -407,9 +471,10 @@ async function refreshResolvedLiveProjection(
 export async function persistDartIQLiveThrow(
   supabase: SupabaseClient,
   matchId: string,
-  throwId: string
+  throwId: string,
+  batch?: DartIQTelemetryBatch,
 ) {
-  const loaded = await loadDartIQTelemetryContext(supabase, matchId);
+  const loaded = await loadDartIQTelemetryContext(supabase, matchId, batch);
   if (!loaded.context) return { persisted: false, skipped: loaded.skipped };
   const event = loaded.context.timeline.find((candidate) => candidate.dartId === throwId);
   if (!event) return { persisted: false, skipped: 'throw_not_found' };
@@ -427,9 +492,10 @@ export async function persistDartIQLiveThrow(
 export async function persistDartIQLiveReplay(
   supabase: SupabaseClient,
   matchId: string,
-  legId: string
+  legId: string,
+  batch?: DartIQTelemetryBatch,
 ) {
-  const loaded = await loadDartIQTelemetryContext(supabase, matchId);
+  const loaded = await loadDartIQTelemetryContext(supabase, matchId, batch);
   if (!loaded.context) return { persisted: 0, skipped: loaded.skipped };
   const events = loaded.context.timeline.filter((event) => event.legId === legId);
   if (events.length > 0) {
@@ -488,9 +554,10 @@ export async function supersedeDartIQLiveThrow(
 export async function persistDartIQCompletedLeg(
   supabase: SupabaseClient,
   matchId: string,
-  legId: string
+  legId: string,
+  batch?: DartIQTelemetryBatch,
 ) {
-  const loaded = await loadDartIQTelemetryContext(supabase, matchId);
+  const loaded = await loadDartIQTelemetryContext(supabase, matchId, batch);
   if (!loaded.context) return { persisted: 0, skipped: loaded.skipped };
   const {
     data,
@@ -551,6 +618,7 @@ export async function persistDartIQCompletedLeg(
       approximation_modes: [...new Set([
         event.before.approximationMode,
         event.after.approximationMode,
+        ...(event.opportunity?.approximationModes ?? []),
       ].filter((mode) => mode !== 'standard'))],
       actual_score_delta: event.scored,
       actual_is_double: event.segment === 'DB' || event.segment.startsWith('D'),

@@ -53,7 +53,7 @@ export async function loadMatchData(
 
   const [{ data: currentLegTurns, error: currentLegTurnsError }, { data: allTurns, error: allTurnsError }] =
     await Promise.all([
-      currentLeg
+      currentLeg && !includeTurnsByLegThrows
         ? supabase
             .from('turns')
             .select(
@@ -74,7 +74,9 @@ export async function loadMatchData(
   if (allTurnsError) throw allTurnsError;
 
   const turns = currentLeg
-    ? (((currentLegTurns ?? []) as TurnWithThrows[]).sort((a, b) => a.turn_number - b.turn_number) as unknown as TurnRecord[])
+    ? (((includeTurnsByLegThrows
+      ? ((allTurns ?? []) as TurnWithThrows[]).filter((turn) => turn.leg_id === currentLeg.id)
+      : currentLegTurns ?? []) as TurnWithThrows[]).sort((a, b) => a.turn_number - b.turn_number) as unknown as TurnRecord[])
     : ([] as TurnRecord[]);
 
   const turnThrowCounts: Record<string, number> = {};

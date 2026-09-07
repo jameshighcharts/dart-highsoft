@@ -24,6 +24,17 @@ export type DartIQReportEvent = {
   matchProbabilitiesAfter: Record<string, number>;
 };
 
+export type DartIQReportStoryBeat = {
+  dartId: string;
+  legNumber: number;
+  kind: string;
+  phase: string;
+  transition: 'started' | 'switched' | 'payoff_due' | 'closure_due';
+  subjectPlayerId: string | null;
+  counterpartPlayerId: string | null;
+  evidence: Record<string, string | number | boolean>;
+};
+
 const SERIES_COLORS = ['#22c55e', '#38bdf8', '#f59e0b', '#f43f5e', '#a78bfa', '#14b8a6'];
 const CHART_WIDTH = 1_000;
 const CHART_HEIGHT = 340;
@@ -43,6 +54,10 @@ function points(value: number) {
 
 function playerProbability(event: DartIQReportEvent, playerId: string) {
   return event.matchProbabilitiesAfter[playerId] ?? 0;
+}
+
+function words(value: string) {
+  return value.replaceAll('_', ' ');
 }
 
 function MatchPulse({
@@ -192,6 +207,7 @@ export function DartIQReportExplorer({
   initialSelectedDartId,
   players,
   turnsByLeg,
+  storyBeats,
   children,
 }: {
   timeline: DartIQReportEvent[];
@@ -201,6 +217,7 @@ export function DartIQReportExplorer({
   initialSelectedDartId?: string;
   players: Player[];
   turnsByLeg: Record<string, TurnWithThrows[]>;
+  storyBeats: DartIQReportStoryBeat[];
   children?: ReactNode;
 }) {
   const initialIndex = Math.max(0, timeline.findIndex((event) => event.dartId === initialSelectedDartId));
@@ -280,6 +297,45 @@ export function DartIQReportExplorer({
           )}
         </CardContent>
       </Card>
+
+      {storyBeats.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>How the story moved</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              The factual arcs DartIQ opened, changed, and paid off as the match developed.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {storyBeats.map((beat, index) => {
+              const subject = beat.subjectPlayerId ? names[beat.subjectPlayerId] ?? 'Player' : 'The match';
+              const counterpart = beat.counterpartPlayerId
+                ? names[beat.counterpartPlayerId] ?? 'the opponent'
+                : null;
+              const selected = beat.dartId === selectedDartId;
+              return (
+                <button
+                  className={`flex w-full items-start justify-between gap-4 rounded-lg border p-3 text-left transition-colors ${selected ? 'border-violet-400 bg-violet-400/10' : 'hover:bg-muted/50'}`}
+                  key={`${beat.dartId}:${beat.kind}:${beat.transition}:${index}`}
+                  onClick={() => selectDart(beat.dartId)}
+                  type="button"
+                >
+                  <span>
+                    <span className="font-medium capitalize">{words(beat.kind)}</span>
+                    <span className="block text-sm text-muted-foreground">
+                      {subject}{counterpart ? ` against ${counterpart}` : ''} · {words(beat.phase)}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right text-xs text-muted-foreground">
+                    <span className="block capitalize">{words(beat.transition)}</span>
+                    <span>Leg {beat.legNumber}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {children}
 

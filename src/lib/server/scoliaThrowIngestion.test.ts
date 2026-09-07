@@ -8,6 +8,7 @@ import { ingestScoliaThrowEvent, type StoredScoliaEvent } from './scoliaThrowIng
 import {
   createSupabaseMock,
   filterValue,
+  rowsHandler,
   type MockOp,
   type MockRow,
   type RpcHandler,
@@ -142,6 +143,43 @@ function statusUpdate(supabase: ReturnType<typeof createSupabaseMock>) {
 }
 
 describe('ingestScoliaThrowEvent dispatch', () => {
+  it('settles against fresh post-insert rows and retains idempotent retry after a concurrent correction', async () => {
+    const match = activeMatchRow();
+    const leg = { id: 'leg-1', match_id: match.id, leg_number: 1, starting_player_id: PLAYER_A, winner_player_id: null };
+    const turns: MockRow[] = [{
+      id: 'turn-1', leg_id: leg.id, player_id: PLAYER_A, turn_number: 1,
+      total_scored: 0, busted: false, tiebreak_round: null,
+    }];
+    const darts: MockRow[] = [1, 2].map((index) => ({
+      id: `dart-${index}`, turn_id: 'turn-1', dart_index: index, segment: 'S20', scored: 20, scolia_event_id: null,
+    }));
+    const supabase = createSupabaseMock({
+      matches: [match], game_sessions: [], game_throws: [], legs: [leg],
+      turns: (op) => op.type === 'select'
+        ? rowsHandler(turns.map((turn) => ({ ...turn, throws: darts.filter((dart) => dart.turn_id === turn.id) })))(op)
+        : rowsHandler(turns)(op),
+      throws: (op) => {
+        const result = rowsHandler(darts)(op);
+        if (op.type === 'insert') Object.assign(darts[0], { segment: 'S5', scored: 5 });
+        return result;
+      },
+      scolia_events: scoliaEventsTable(),
+    }, {
+      load_scolia_match_snapshot: () => ({ data: structuredClone({
+        match, leg, playerIds: ORDER,
+        turns: turns.map((turn) => ({ ...turn, throws: darts.filter((dart) => dart.turn_id === turn.id) })),
+      }), error: null }),
+    });
+    const result = await ingestScoliaThrowEvent(supabase as never, throwEvent());
+    expect(result.status).toBe('processed');
+    expect(turns[0].total_scored).toBe(85); // 5 + 20 + 60, not the pre-insert 20 + 20 + 60.
+    expect(supabase.rpcFor('load_scolia_match_snapshot').map((op) => op.args.p_turn_id)).toEqual([null, 'turn-1']);
+    expect(supabase.opsFor('throws', 'insert')).toHaveLength(1);
+    await expect(ingestScoliaThrowEvent(supabase as never, throwEvent())).resolves.toEqual(result);
+    expect(supabase.opsFor('throws', 'insert')).toHaveLength(1);
+    expect(turns[0].total_scored).toBe(85);
+  });
+
   it('ignores an event with an invalid payload', async () => {
     const supabase = createSupabaseMock({ scolia_events: scoliaEventsTable() });
     const result = await ingestScoliaThrowEvent(supabase as never, throwEvent({ payload: { sector: 'T20' } }));
@@ -331,16 +369,15 @@ describe('ingestScoliaThrowEvent dispatch', () => {
       game_sessions: [],
       legs: [],
       scolia_events: scoliaEventsTable(),
-    });
+    }, { load_scolia_match_snapshot: () => ({ data: null, error: null }) });
 
     const result = await ingestScoliaThrowEvent(supabase as never, throwEvent());
 
-    // No open leg in this fixture, so the X01 path stops early. That is enough
-    // to prove the dispatch: the legs table is only consulted for matches.
+    // No open leg in this fixture, so the X01 snapshot stops early.
     expect(result).toEqual({ status: 'ignored', reason: 'The assigned match has no active leg' });
-    const legQueries = supabase.opsFor('legs', 'select');
-    expect(legQueries).toHaveLength(1);
-    expect(filterValue(legQueries[0]!, 'match_id')).toBe('match-1');
+    expect(supabase.rpcFor('load_scolia_match_snapshot')).toEqual([
+      { name: 'load_scolia_match_snapshot', args: { p_match_id: 'match-1', p_leg_id: null, p_turn_id: null } },
+    ]);
     expect(supabase.opsFor('game_throws', 'insert')).toHaveLength(0);
     expect(supabase.opsFor('game_session_players')).toHaveLength(0);
   });

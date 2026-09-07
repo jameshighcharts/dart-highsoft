@@ -11,11 +11,14 @@ import {
   ingestScoliaThrowEvent,
   type StoredScoliaEvent,
 } from '../lib/server/scoliaThrowIngestion.ts';
+import { findActiveScoliaBoardTarget } from '../lib/server/scoliaBoardTarget.ts';
 import {
   staleCommandAction,
   staleCommandCutoff,
+  SCOLIA_COMMAND_ACK_TIMEOUT_MS,
 } from '../lib/scolia/commandRecovery.ts';
 import { ScoliaRealtimeCommentaryPublisher } from '../services/scoliaRealtimeCommentaryPublisher.ts';
+import { OrderedWorkQueue, WorkerNotifications } from '../lib/scolia/orderedWorkQueue.ts';
 
 type AccountBoard = {
   name: string;
@@ -29,8 +32,8 @@ const SCOLIA_REST_BASE_URL = 'https://game.scoliadarts.com';
 const SCOLIA_WEBSOCKET_URL = 'wss://game.scoliadarts.com/api/v1/social';
 const BOARD_SYNC_INTERVAL_MS = 30_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
-const COMMAND_POLL_INTERVAL_MS = 500;
-const COMMENTARY_RETRY_INTERVAL_MS = 2_000;
+const COMMAND_POLL_INTERVAL_MS = 15_000;
+const COMMENTARY_RETRY_INTERVAL_MS = 15_000;
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -66,8 +69,11 @@ class BoardConnection {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
   private stopped = false;
-  private messageQueue: Promise<void> = Promise.resolve();
+  private readonly messageQueue: OrderedWorkQueue;
+  private readonly commentaryQueue: OrderedWorkQueue;
   private flushingCommands = false;
+  private commandRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  private latestAcceptedThrowId: string | null = null;
 
   constructor(
     board: StoredBoard,
@@ -79,14 +85,25 @@ class BoardConnection {
     this.accessToken = accessToken;
     this.supabase = supabase;
     this.commentaryPublisher = commentaryPublisher;
+    this.messageQueue = new OrderedWorkQueue((error) => {
+      console.error(`[scolia] ${this.board.name}: retrying queued event`, error);
+    });
+    this.commentaryQueue = new OrderedWorkQueue((error) => {
+      console.warn(`[commentary] ${this.board.name}: retrying delivery`, error);
+    }, 2_000, 3);
   }
 
   start() {
     void this.connect();
   }
 
+  get boardId() { return this.board.id; }
+
   async stop() {
     this.stopped = true;
+    this.messageQueue.stop();
+    this.commentaryQueue.stop();
+    if (this.commandRecoveryTimer) clearTimeout(this.commandRecoveryTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     const socket = this.socket;
@@ -142,6 +159,7 @@ class BoardConnection {
   async heartbeat() {
     if (this.stopped) return;
     await this.updateBoard({ worker_heartbeat_at: new Date().toISOString() });
+    if (this.messageQueue.idle) this.enqueue(() => this.processPendingThrows());
   }
 
   async flushCommands() {
@@ -183,6 +201,12 @@ class BoardConnection {
               ? { payload: command.payload }
               : {}),
           }));
+          if (!this.commandRecoveryTimer) {
+            this.commandRecoveryTimer = setTimeout(() => {
+              this.commandRecoveryTimer = null;
+              void this.flushCommands().catch((error) => console.error('[scolia] command recovery failed', error));
+            }, SCOLIA_COMMAND_ACK_TIMEOUT_MS + 50);
+          }
         } catch (sendError) {
           await this.supabase
             .from('scolia_commands')
@@ -234,10 +258,7 @@ class BoardConnection {
   }
 
   private enqueue(work: () => Promise<void>) {
-    const run = this.messageQueue.then(work, work);
-    this.messageQueue = run.catch((error) => {
-      console.error(`[scolia] ${this.board.name}: queued event failed`, error);
-    });
+    this.messageQueue.enqueue(work);
   }
 
   private async processPendingThrows() {
@@ -254,7 +275,7 @@ class BoardConnection {
       if (result.status === 'processed') {
         console.info(`[scolia] ${this.board.name}: recovered throw ${event.message_id}`);
         if (result.target.kind === 'match') {
-          await this.publishCommentary(result.target.id, result.throwId);
+          this.publishCommentary(result.target.id, result.throwId);
         }
       }
     }
@@ -297,13 +318,30 @@ class BoardConnection {
     await this.handleCommandResponse(message, now);
 
     const processingStatus = storedEvent.processing_status as string;
+    if (
+      processingStatus !== 'processed'
+      && processingStatus !== 'ignored'
+      && message.type === 'TAKEOUT_FINISHED'
+      && message.payload?.falseTakeout !== true
+    ) {
+      const target = await findActiveScoliaBoardTarget(this.supabase, this.board.id);
+      if (target?.kind === 'match') {
+        const sourceThrowId = this.latestAcceptedThrowId;
+        this.commentaryQueue.enqueue(async () => {
+          await this.commentaryPublisher.publishTakeoutFinished(
+            target.id, message.id, () => this.latestAcceptedThrowId === sourceThrowId
+          );
+        });
+      }
+    }
+
     if (processingStatus === 'processed' || processingStatus === 'ignored') return;
     if (message.type === 'THROW_DETECTED') {
       const result = await ingestScoliaThrowEvent(this.supabase, storedEvent as StoredScoliaEvent);
       if (result.status === 'processed') {
         console.info(`[scolia] ${this.board.name}: scored throw ${message.id}`);
         if (result.target.kind === 'match') {
-          await this.publishCommentary(result.target.id, result.throwId);
+          this.publishCommentary(result.target.id, result.throwId);
         }
       } else {
         console.info(`[scolia] ${this.board.name}: ignored throw ${message.id}: ${result.reason}`);
@@ -318,13 +356,11 @@ class BoardConnection {
     if (ignoreError) throw new Error(ignoreError.message);
   }
 
-  private async publishCommentary(matchId: string, throwId: string) {
-    try {
-      await this.commentaryPublisher.publishAcceptedThrow(matchId, throwId);
-    } catch (error) {
-      // Commentary must never make an already-accepted dart fail its scoring queue.
-      console.warn(`[commentary] ${this.board.name}: could not publish throw ${throwId}`, error);
-    }
+  private publishCommentary(matchId: string, throwId: string) {
+    this.latestAcceptedThrowId = throwId;
+    this.commentaryQueue.enqueue(async () => {
+      await this.commentaryPublisher.publishAcceptedThrow(matchId, throwId, () => this.latestAcceptedThrowId === throwId);
+    });
   }
 
   private async handleCommandResponse(message: ScoliaMessage, now: string) {
@@ -376,6 +412,28 @@ async function startScoliaWorker() {
   let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   let commandInterval: ReturnType<typeof setInterval> | null = null;
   let commentaryInterval: ReturnType<typeof setInterval> | null = null;
+  const notificationWork = new WorkerNotifications(({ boardIds, sessionIds, full }) => {
+    if (stopping) return;
+    void Promise.all([
+      ...[...connections.values()]
+        .filter((connection) => full || boardIds.includes(connection.boardId))
+        .map((connection) => connection.flushCommands()),
+      ...(full || sessionIds.length ? [commentaryPublisher.flushPending(full ? undefined : sessionIds)] : []),
+    ]).catch((error) => console.error('[scolia] notification reconciliation failed', error));
+  });
+  const notifications = supabase.channel('scolia-worker-work')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'scolia_commands' }, (payload) => {
+      notificationWork.change('commands', payload);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'commentary_realtime_sessions' }, (payload) => {
+      notificationWork.change('sessions', payload);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'commentary_realtime_deliveries' }, (payload) => {
+      notificationWork.change('deliveries', payload);
+    })
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') notificationWork.reconnect();
+    });
 
   const syncBoards = async () => {
     if (stopping || syncRunning) return;
@@ -445,6 +503,8 @@ async function startScoliaWorker() {
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     if (commandInterval) clearInterval(commandInterval);
     if (commentaryInterval) clearInterval(commentaryInterval);
+    notificationWork.stop();
+    await supabase.removeChannel(notifications);
     await Promise.all([...connections.values()].map((connection) => connection.stop()));
     commentaryPublisher.close();
     process.exit(0);

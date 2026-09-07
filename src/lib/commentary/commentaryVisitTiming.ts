@@ -10,7 +10,6 @@ export type CommentaryTimingEvent = {
 };
 
 export type CommentaryTimingObservation = {
-  cancelActiveSpeech: boolean;
   suppressedPendingSpeech: boolean;
   nextPlayerAlreadyThrowing: boolean;
 };
@@ -32,21 +31,30 @@ export class CommentaryVisitTiming {
   private readonly ordinaryHoldMs: number;
   private lastDart: Pick<CommentaryTimingEvent, 'eventId' | 'turnId' | 'dartIndex'> | null = null;
   private pending: PendingResponse | null = null;
-  private active: CommentaryTimingEvent | null = null;
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private idleVersion = 0;
+  private speech: { event: CommentaryTimingEvent; startedAt: number; expire: () => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
   constructor(options: CommentaryVisitTimingOptions = {}) {
-    this.ordinaryHoldMs = Math.max(0, options.ordinaryHoldMs ?? 850);
+    this.ordinaryHoldMs = Math.max(0, options.ordinaryHoldMs ?? 300);
   }
 
   observeDart(event: CommentaryTimingEvent): CommentaryTimingObservation {
     if (this.lastDart?.eventId === event.eventId) {
       return {
-        cancelActiveSpeech: false,
         suppressedPendingSpeech: false,
         nextPlayerAlreadyThrowing: false,
       };
     }
 
+    this.clearIdle();
+    const speech = this.speech;
+    if (speech && speech.event.eventId !== event.eventId
+      && speech.event.priority !== 'terminal' && speech.event.priority !== 'marquee'
+      && (speech.event.turnId !== event.turnId || Date.now() - speech.startedAt >= 2_000)) {
+      this.finishSpeech();
+      speech.expire();
+    }
     const nextPlayerAlreadyThrowing = Boolean(
       this.lastDart
       && this.lastDart.turnId !== event.turnId
@@ -57,19 +65,15 @@ export class CommentaryVisitTiming {
     );
     if (suppressedPendingSpeech) this.clearPending();
 
-    const cancelActiveSpeech = Boolean(
-      this.active
-      && this.active.priority === 'ordinary'
-      && this.active.eventId !== event.eventId
-    );
-    if (cancelActiveSpeech) this.active = null;
+    // Fresh audible reactions retain their gap. Aged routine speech was
+    // discarded above; the policy additionally owns significant interruption.
 
     this.lastDart = {
       eventId: event.eventId,
       turnId: event.turnId,
       dartIndex: event.dartIndex,
     };
-    return { cancelActiveSpeech, suppressedPendingSpeech, nextPlayerAlreadyThrowing };
+    return { suppressedPendingSpeech, nextPlayerAlreadyThrowing };
   }
 
   schedule(event: CommentaryTimingEvent, deliver: () => boolean): 'held' | 'immediate' {
@@ -78,24 +82,55 @@ export class CommentaryVisitTiming {
       const timer = setTimeout(() => {
         if (this.pending?.event.eventId !== event.eventId) return;
         this.pending = null;
-        if (deliver()) this.active = event;
+        deliver();
       }, this.ordinaryHoldMs);
       this.pending = { event, timer };
       return 'held';
     }
 
     this.clearPending();
-    if (deliver()) this.active = event;
+    deliver();
     return 'immediate';
   }
 
-  responseFinished() {
-    this.active = null;
+  /** One nudge per real takeout; no repeating timer or queued idle commentary. */
+  scheduleIdle(deliver: (isCurrent: () => boolean) => void, delayMs = 20_000) {
+    this.clearIdle();
+    const version = this.idleVersion;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      if (version === this.idleVersion) deliver(() => version === this.idleVersion);
+    }, delayMs);
+  }
+
+  private clearIdle() {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+    this.idleVersion += 1;
   }
 
   cancelSpeech() {
+    this.finishSpeech();
+    this.clearIdle();
     this.clearPending();
-    this.active = null;
+  }
+
+  /** Bound the entire request-to-playback window, including queued generation. */
+  trackSpeech(event: CommentaryTimingEvent, expire: () => void) {
+    this.finishSpeech();
+    const maximumAgeMs = event.priority === 'terminal' ? 12_000
+      : event.priority === 'marquee' ? 8_000 : event.dartIndex < 3 ? 3_000 : 6_000;
+    const timer = setTimeout(() => {
+      if (this.speech?.timer !== timer) return;
+      this.finishSpeech();
+      expire();
+    }, maximumAgeMs);
+    this.speech = { event, startedAt: Date.now(), expire, timer };
+  }
+
+  finishSpeech() {
+    if (this.speech) clearTimeout(this.speech.timer);
+    this.speech = null;
   }
 
   reset() {
@@ -114,13 +149,10 @@ export function visitTimingInstruction(input: {
   nextPlayerAlreadyThrowing: boolean;
 }) {
   if (input.priority === 'terminal' || input.priority === 'marquee') {
-    return 'Timing: speak immediately.';
+    return 'now';
   }
   if (input.nextPlayerAlreadyThrowing) {
-    return 'Timing: the next player is throwing; finish within 10 words.';
+    return 'next player throwing';
   }
-  if (input.priority === 'ordinary') {
-    return 'Timing: use the natural visit pause.';
-  }
-  return 'Timing: finish before the next dart.';
+  return '';
 }

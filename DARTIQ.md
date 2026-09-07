@@ -150,7 +150,7 @@ The first foundations are in place:
 5. A server-rendered `/match/[id]/report` surface with a multiplayer Match Pulse, leg boundaries,
    summary facts, and a clickable ranked-dart list linked from completed X01 games.
 
-Historical inputs are frozen atomically when a match is created. A player's eligible completed X01 history and the installation-wide finish-rule population become immutable match evidence, so later games cannot leak backward into a replay or calibration run. The browser fetches that compact evidence rather than raw historical matches.
+Historical inputs are frozen atomically when a match is created. A player's eligible completed X01 history and the installation-wide finish-rule population become immutable match evidence, so later games cannot leak backward into a replay or calibration run. The same snapshot carries a bounded generalized `historicalFacts` list: one supported personal-history record per participant and one shared-history record per participant pair. These facts cover scoring shape, bust and bogey patterns, win streaks, fastest winning legs, high checkouts, 180s, checkout-ready single-leg losses, shared wins, latest winner, and pair streaks without downloading raw historical matches. Fact eligibility has its own explicit cutoff at the current match's creation time, while the evidence row retains its actual capture timestamp. Direct 1v1 records are explicitly distinguished from multiplayer meetings where a third player may have won.
 
 ### Forward plan
 
@@ -216,7 +216,7 @@ Never preserve a FIFO queue of stale spoken commentary. Assign each event a prio
 - A match win interrupts everything.
 - Superseded commentary is discarded rather than queued behind newer play.
 
-Feed dart one and dart two silently into the persistent session, and normally issue `response.create` only when commentary policy chooses to speak. This gives the model the entire visit as it unfolds without putting prompt construction or session establishment on the third-dart critical path.
+Feed every dart into the persistent session and let policy open short mid-visit reaction windows when the fact is concrete. For Scolia, dart three completes the scoring context but does not introduce the next player: the worker waits for the board's authoritative `TAKEOUT_FINISHED` event, updates visit-opening context and optionally fills a quiet gap with walk-up banter, and leaves the physical walk-up before the next first dart.
 
 #### Performance targets and instrumentation
 
@@ -289,9 +289,9 @@ For every accepted dart:
 
 1. The normal match flow persists or accepts the throw. For Scolia, this completes inside `ingestScoliaThrowEvent()` in the persistent worker; it does not wait for Supabase Realtime.
 2. The worker reloads canonical post-ingestion rows, reconstructs the matching `DartIQDartPacket`, and creates an idempotent delivery for every active listener session. Manual scoring currently derives the same context in the browser.
-3. The commentary policy enriches the packet with display names and lightweight narrative state, then decides `silent`, `ordinary`, `notable`, `marquee`, or `terminal` handling.
+3. The commentary policy enriches the packet with display names, lightweight narrative state, and at most four factual editorial candidates, then decides `silent`, `ordinary`, `notable`, `marquee`, or `terminal` handling.
 4. For Scolia, the worker sends the event as an `input_text` conversation item over an authenticated OpenAI sideband WebSocket attached to the browser's WebRTC call. Manual scoring uses the browser data channel. Silent events still enter context.
-5. If the policy chooses speech, it first applies the latest-wins interruption rules and then emits `response.create` with moment-specific brevity and delivery instructions.
+5. If the policy chooses speech, it first preserves routine active speech and applies latest-wins interruption for significant events and then emits `response.create` with moment-specific brevity and delivery instructions.
 6. WebRTC delivers generated audio as a remote media stream. Transcript delta events update `CommentaryDisplay` while the call is being spoken.
 7. `response.done`, cancellation, timeout, or transport failure closes the local response lifecycle.
 
@@ -303,12 +303,16 @@ Do not wait for Supabase Realtime when the scoring browser already has the accep
 - `RealtimeCommentaryService` owns an output-only `RTCPeerConnection`, remote audio track, streamed transcripts, cancellation, and a user-gesture-resumed `AudioContext`. No microphone or complete audio blob is involved.
 - The consolidated `0056_realtime_commentary_sessions.sql` adds server-only active-session,
   correction-epoch, and idempotent per-throw delivery tables.
-- `ScoliaRealtimeCommentaryPublisher` attaches an authenticated worker WebSocket to each active browser call, feeds every accepted dart, retries pending sends, and applies latest-wins interruption before `response.create`.
+- `ScoliaRealtimeCommentaryPublisher` attaches an authenticated worker WebSocket to each active browser call, feeds every accepted dart, retries pending sends, applies latest-wins interruption before `response.create`, and optionally emits a next-player opening after a real non-false `TAKEOUT_FINISHED` event when no line is generating/playing and the last call began at least 2.5 seconds ago and the previous walk-on was at least 25 seconds ago.
+- `RealtimePlayback` distinguishes generation completion from audible buffer drain in browser and worker. Old stop events cannot release a newer interrupted-in response.
 - `CommentaryPolicy` is shared by browser and worker for category cooldowns, repeat memory, visit timing, rapid-sequence silence, ordinary sampling, guaranteed calls, and latest-wins interruption.
-- `CommentaryVisitTiming` runs after policy selection in both paths. It holds ordinary completed-visit calls for an 850 ms natural gap, suppresses them if another dart arrives, clears routine audio that runs into the next visit, tightens notable calls when play is moving, and never delays marquee or terminal speech.
+- The speech boundary gives the Realtime model a tiny set of true candidate angles plus its own recent calls. The model chooses how to perform the freshest angle; policy still owns whether speech is allowed, and ordinary calls alone may decline when nothing new is worth saying.
+- `CommentaryVisitTiming` runs after policy selection in both paths. It holds ordinary calls for a 300 ms beat, suppresses stale speech when another dart arrives, clears routine audio that runs into newer play, and never delays marquee or terminal speech. Scolia's physical takeout event, rather than dart three, owns the next-player handoff.
 - The exact order-independent 1 + 5 + 20 “Nikita special” is an explicit guaranteed marquee signal. The old global two-second commentary debouncer has been removed; policy now owns pacing without delaying accepted completed visits.
 - `commentaryNarrative` now turns the full deterministic DartIQ replay into bounded story memory: recurring tendencies, recent exact-double non-conversions, checkout results under high pressure, the largest match-WPA swing, rematch/revenge stakes, and current average versus the shrunk historical baseline. Snapshots carry the same memory across reconnects and corrections. The model is instructed to use at most one relevant thread per call and deliver it playfully with light sass.
-- `storyArcDirector` ranks comeback, collapse, underdog, seesaw, punished-miss, checkout-duel, pressure-resilience, revenge, and dominance candidates. Listener-local `BroadcastDirector` commits to one primary angle, retains two reserves, requires a material challenger plus a minimum commitment window before switching, prevents phase regression, budgets story introductions, creates future callback obligations, and forces factual payoff or closure at resolution. Only a started, switched, or resolving arc promotes routine context to notable speech.
+- `BroadcastDirector` emits an explicit story lifecycle. Listener-local `opened`, `switched_in`, payoff/closure-due, provider-completed, and closed events are append-only and correction-epoch scoped. A callback stops retrying only after a successful provider response with a non-empty transcript; dispatch, cancellation, and interruption do not count. `response_completed` proves that a directed line was produced, not that the model semantically honored the callback; transcript evaluation remains separate.
+- The match report independently rebuilds its “How the story moved” timeline from the corrected canonical replay. It never depends on commentary being enabled, a particular listener, or provider telemetry.
+- `storyArcDirector` ranks comeback, collapse, underdog, seesaw, punished-miss, checkout-duel, pressure-resilience, revenge, and dominance candidates. Multiplayer favorite churn becomes one match-scoped field carousel with distinct-favorite and checkout-contender evidence, so each new temporary favorite escalates the same ending instead of reopening a player-scoped story. Listener-local `BroadcastDirector` commits to one primary angle, retains two reserves, requires a material challenger plus a minimum commitment window before switching, prevents phase regression, budgets story introductions, creates future callback obligations, and forces factual payoff or closure at resolution. Only a started, switched, or resolving arc promotes routine context to notable speech.
 - `loadScoliaRealtimeDartEvent()` reconstructs the accepted dart's personalized DartIQ packet directly from canonical rows and profile aggregates, including fair-ending checkout-waiting and tiebreak darts.
 - Manual matches use the browser Realtime data channel at completed-turn granularity. Scolia matches use the worker sideband for both ordinary and fair-ending play. The old text plus buffered-TTS waterfall remains available whenever the persistent session is unavailable.
 - `npm run commentary:demo` provides a local-only end-to-end broadcast harness. It provisions test players plus a synthetic Scolia board/match, refuses non-loopback Supabase hosts, persists realistic `THROW_DETECTED` payloads, runs canonical ingestion, and calls the production worker-side publisher only after a browser Realtime listener is active. Its valid 301 script exercises the Nikita special, opposing/comeback 180s, a missed double leave, and a bull-checkout story payoff.
@@ -607,8 +611,9 @@ Policy refinements:
 - A priority alone does not guarantee a good call. Deduplicate overlapping signals into one moment—for example, a checkout that is also a favorite change remains one marquee response.
 - Add per-category cooldowns, not one global debounce. Routine visits may be spaced out while marquee moments always pass.
 - Suppress numerical probability narration for tiny movements even if the score itself is worth mentioning.
-- Prefer the most consequential fact in a crowded packet using a stable ordering: match win, authoritative leg resolution, checkout, 180, semantic bust/missed-match-dart sequence, material match/leg consequence, setup/bogey, routine visit.
-- Avoid repeated phrasing by sending a bounded list of recent committed transcript summaries in checkpoints, not by letting unlimited raw conversation accumulate.
+- Present at most four true candidate angles for a crowded packet. Let the model choose among them using the recent conversation, while the deterministic layer continues to own cadence, guarantees, interruption, and factual anchoring.
+- Ordinary responses may decline with no speech when every candidate is stale. Marquee and terminal responses may not decline.
+- Avoid repeated phrasing using the bounded Realtime conversation and candidate facts; rotate or summarize the conversation before it can grow without limit.
 - If a new dart arrives while ordinary speech is nearly finished, it may complete; if the speech has become factually stale or blocks a higher priority, cancel it.
 
 Thresholds must remain centralized in the provider-neutral policy and covered by fixtures. They should be tunable from observed match cadence, not buried in prompts.
@@ -1168,7 +1173,10 @@ These are intrinsic reproducibility fields, not user-facing product generations.
 
 **`dartiq_population_evidence`** — one small content-hashed snapshot per match and finish rule:
 raw population sufficient statistics at the creation cutoff, population eligibility rule/version,
-eligible-player count, and historical cutoff timestamp.
+eligible-player count, historical cutoff timestamp, and bounded match-participant `historicalFacts`.
+Each fact carries kind, subject/counterpart IDs, support count, confidence tier, and structured evidence;
+the speech boundary resolves names and phrasing. The fact query uses the new match's `created_at` as its
+walk-forward cutoff and includes only completed, non-test, non-ended X01 matches under the same finish rule.
 
 **`dartiq_player_evidence`** — one raw sufficient-statistics snapshot per match/player/finish rule,
 referencing the population evidence. Keep raw evidence separate from parameters so later models can
@@ -1304,15 +1312,18 @@ this PR measures DartIQ correctness and calibration rather than optimizing an un
    and narrative diffs. Retain envelope schema/version fields because Railway worker and Vercel
    browser deployments can overlap.
 10. **Bust and visit semantics — shipped** — ordinary busts default to notable; direct checkout or
-    match-stake busts become marquee. Repeated one-dart match finishes left unconverted accumulate
-    on the visit and emit one neutral notable fact only when that visit completes. They are not
-    labelled attempted or missed match darts without observed aim evidence. Observation
-    deduplication remains player/semantic scoped rather than unique-dart scoped.
+    match-stake busts become marquee. A newly created one-dart finish or a finish left unconverted
+    with darts still in hand can earn one short, neutral live reaction. Repeated one-dart match
+    finishes still accumulate into one completed-visit fact. None are labelled attempted or missed
+    targets without observed aim evidence. Observation deduplication remains player/semantic scoped.
 10a. **Broadcast anticipation and native vocabulary — shipped** — the live strip renders a
     provisional opportunity band, each listener can receive one persisted snapshot-anchored
     pre-match opener, and the leg-win call may bridge to the supplied next starter. Breaks of throw,
     nine-dart pace/nine-darters, first-nine average, and three consecutive ton-plus visits are
-    deterministic facts available to both browser and Scolia commentary.
+    deterministic facts available to both browser and Scolia commentary. Back-to-back T20s create
+    an anticipatory dart-three beat; very low early-visit darts may earn an affectionate factual
+    roast; and the visit gap can tee up the next named player and score. Probability-only
+    intra-visit wobble stays silent, while trend stories use completed-visit checkpoints.
 
 #### D. Frozen evidence and telemetry
 
@@ -1387,6 +1398,84 @@ The PR is mergeable only when:
 
 ### Evidence and claim gates
 
+The intended end state is **automatic training and appropriate automatic use of both behavioural
+and geometry models**, not a permanent human-review workflow. Daily jobs should train bounded
+candidates, validate on later data, and activate qualifying immutable artifacts for new matches.
+Match creation must freeze artifact identity/configuration so an update never changes an ongoing
+match or historical replay. Geometry supplements behavioural where support and measured quality
+justify it; manual scoring and sparse positional evidence keep behavioural fallback. Regression
+monitoring supports automatic fallback/rollback. Migration `0065` implements this initial loop
+for empirical behavioural counts and a limited scoring-only spatial model. The separate
+temperature reports below remain observation-only.
+
+Daily training samples at most 400 completed non-test matches over 180 days, with 60 deterministic
+darts per match (24,000 maximum). Pre-dart states are reconstructed before sampling. At least
+30 matches / 500 darts fit an immutable pending artifact. It must then collect at least 30
+matches / 500 darts from matches started after its persistence timestamp. Replacements require
+match-balanced next-dart Brier improvement of 0.001, no log-loss regression, and supported-player
+regression checks. The first fitted behavioural artifact is checked against the same training
+counts, so passing that gate does not prove improvement over the legacy all-history model.
+
+The initial spatial model is a compact 5mm-smoothed empirical landing distribution above score
+170. It uses actual coordinates and rejects coordinate/segment contradictions, but does not infer
+aim. Geometry contributes half of outcome probability only for individually qualified
+player/finish-rule/darts-left contexts: 100 training impacts and 100 later validation darts from
+20 matches, with improved segment and outcome losses. Lower scores and unsupported contexts
+retain behavioural transitions. This is not the latent-aim `geometry-v1` roadmap described above.
+
+Activation uses a generation-checked registry transaction. Match evidence pins the active
+artifact only if activation predates match creation. The UI, report, worker and telemetry use
+the same interpreter; personal artifact data is scoped to match participants. Supported
+post-activation regressions retire the active artifact for new matches without rewriting old
+evidence. Pending candidates expire after 90 days, then subsequent daily runs can fit a fresh
+candidate. No training runs in the live scoring path. Next-dart validation is not independent
+proof of match-win calibration; the probability telemetry loop remains a separate check.
+
+The live next-dart surface is wired through the existing tracker via an optional trained-model
+`predictLanding` capability. It shows up to three canonical landing segments and their original
+probabilities only for a passed-validation artifact with high context confidence. It does not
+equate a concentrated prediction or mere coordinate coverage with confidence, infer a target from
+the last hit, or show warnings/placeholders while unavailable. Legacy behavioural models supply
+no landing forecast; qualified adaptive artifacts populate this capability automatically.
+
+The loop now retains the first qualifying temperature artifact per model/evaluator version and
+evaluates it against matches started strictly after the artifact's report was saved. Later fits
+cannot silently replace that candidate. Follow-up metrics are separate from the original
+chronological holdout, and artifact identity participates in deduplication. These are fixed-config
+follow-up predictions transformed in the daily job, not claims of emitted live shadow predictions.
+
+The continuous evaluation foundation now uses the existing background queue once daily, not
+per dart. Migration `0064` selects at most four recent model versions independently, with a
+90-day / 200-match / 40-prediction-per-match cap. Only complete, active live vectors recorded
+before a normally completed, non-test match's result qualify. One database snapshot supplies
+the bounded sample; unchanged source/configuration fingerprints skip evaluation and report writes.
+
+The first candidate family is bounded temperature scaling. Fit on the oldest 60% of whole
+matches, exclude validation matches that started before training outcomes were available, and
+evaluate the remainder with full-vector Brier/log-loss/reliability, slice gates, and equal-match
+loss weighting. This is retrospective chronological holdout, not prospective shadow validation.
+Small datasets produce monitoring reports without a candidate recommendation. Daily monitoring
+is automatic; temperature promotion is not. The separate trained-outcome registry in `0065`
+owns guarded activation and runtime pinning.
+
+Geometry enters this foundation as observed-coordinate coverage, not an aim label or a new
+predictor. The intended next experiment compares behavioural-only, geometry-only, and combined
+candidates on the same held-out Scolia matches. A combined candidate should retain uncertainty
+over intended target and fall back to behavioural evidence when positional support is sparse
+or scoring is manual. Its spatial prediction would be a probability distribution over landing
+locations, not a claimed exact next-dart location. The initial scoring-only model now supplies
+segment forecasts; aim inference and full spatial-density forecasting remain future work.
+
+Calibration status and approximation provenance remain internal; the live strip and report
+intentionally omit calibration disclaimers and thin-evidence warnings. Sparse outcome pools no
+longer reuse an observation at global, score-class, and exact-state levels, and personal history
+is removed from the installation population before applying personal layers. The configuration
+records `evidencePartition: disjoint-state-v1`. Exact-state personal support, not total career
+darts, determines established outcome confidence. Stolen-leg classification requires both a
+field-adjusted low point and a fall below half the opening leg probability; tiebreak weighting
+respects physical catch-up bounds but remains an approximation. These are correctness and
+claim-quality improvements, not evidence that predictive accuracy has been validated.
+
 Merging the machinery does not authorize calibration marketing or automatic tuning:
 
 - Do not call predictions calibrated, publish uncertainty bands, or auto-tune thresholds until the
@@ -1404,3 +1493,45 @@ latent-aim inference, action-conditioned transitions, target optimization, deadl
 and route/setup advice. Probability uncertainty bands are deferred separately, on evidence rather
 than modelling. Their interfaces and evidence/version axes land now so they can be added without
 corrupting historical evaluation.
+
+Live commentary surfaces personal context ahead of generic probability candidates: recorded pre-match checkout bests at any score, supported personal first-nine comparisons, and relevant shared history at finish pressure. These remain frozen historical comparisons rather than claims of a new all-time record. Underdog classification uses a field-size-adjusted initial threshold so an equal six-player field is not labeled six underdogs.
+
+Listening pass two confirmed a voice regression despite fewer captured cutoffs. Per-call Realtime instructions replace session instructions; all response builders now retain the complete shared contract before the brief. Chad’s compact voice contract restores audible reactions, affectionate roasting, and chaos while explicitly rejecting coaching and explanatory follow-up. This voice fix requires a fresh listening test.
+
+Walk-ons name the incoming player and remaining score after takeout, without interrupting generation or playback. Their 25-second spacing is independent of dart reactions; a 2.5-second gap from the latest call permits natural takeout timing. Between-dart briefs favor performed sounds or single words (0–2 words); completed visits retain room for meaningful remaining-score context.
+
+After a real takeout, Scolia may offer one optional pause reaction if no dart arrives for 20 seconds (at most one idle call per minute). A new dart, correction, teardown, or fresh takeout invalidates that timer, including in-flight database checks. The worker verifies the match/listener remain active and speech is idle before sending; it never queues or interrupts for a pause nudge. The voice may wonder aloud, but invents no off-board whereabouts. Walk-ons permit affectionate ridicule, while emotional escalation follows actual match events.
+
+Each match snapshot includes one explicitly fictional commentator starting premise, selected deterministically from the match ID by `commentaryStartingMood()` in `personas.ts`. It remains stable across listeners, reconnects and correction epochs. Shared response instructions let the mood develop through actual game events and prior conversation, without repeating the premise or inventing facts about players. No additional database fields or model calls are required.
+
+Emotional direction emphasizes continuity rather than constant volume: Chad may become invested in a comeback, let repeated failures change amusement into mock despair, and release that tension at a verified payoff. Delivery should perform feeling through sounds, fragments, pauses and outbursts, without explaining the emotion or manufacturing player drama.
+
+The once-claimed startup opening introduces both the persona and the game in one brief entrance. The starting mood may colour the voice or a personal aside; it is not a biography, full roster or rules recital. Reconnects continue the existing character rather than introducing it again.
+
+Payoff listening feedback: continuity felt better, but reaction labels were spoken aloud. Briefs now request actual nonverbal audio rather than enumerate sound names as delivery options; the shared contract explicitly forbids reading reaction labels and permits a short emotional interjection instead. Payoffs prefer answering an earlier emotional reaction or running joke over adding an unrelated metaphor, and Chad may be the target of his own joke. This remains a listening-test question, not something transcript checks can prove.
+
+The next listening pass confirmed the sounds and short reactions felt good. Keep that delivery and pacing. The next refinement gives Chad occasional sincere fondness, concern, sheepishness after his own roast, and relief for a struggling player, without requiring a punchline or a sentimental speech. These are the commentator's feelings about verified darts, never assertions about a player's inner state. This softer direction still needs listening validation.
+
+Comic fiction may also include the players: occasional petty mock feuds, imaginary office stakes, and betrayals of the commentator's allegiance. Absurdity or conditional framing establishes the bit; later darts and walk-ons may develop it without repeated disclaimers. Real match history remains authoritative, and invented past incidents or private-life claims must not be presented as facts.
+
+Chad has a light Gen Z influence through dry understatement, self-aware overreaction, and sudden sincerity. Slang is optional and sparse, with no phrase bank; recent conversation should discourage repeated terms and sentence templates while allowing factual running jokes to develop. Sounds, timing, and emotional warmth retain their existing direction.
+
+Subsequent direction increases that influence to noticeable conversational irreverence and more freely used slang when it sharpens a reaction. The per-call voice reminder reinforces fresh phrasing and avoids recycled catchphrases. No phrase bank or slang quota is introduced; sincere attachment and grounded historical connections remain part of the voice.
+
+The next full listen supported the stronger Gen Z tone but exposed repeated first-nine comparison templates and spoken reaction-planning preambles. Refinement keeps that tone, asks for more precise verbs/images and occasional pointed profanity, explicitly forbids narrating the commentary process, and directs historical comparisons to develop a different angle across players rather than swap names into the same sentence. Vocabulary is not supplied as a phrase bank.
+
+To prevent trailing speech in busy finishes, the Scolia sideband now expires routine speech on a new dart once its request is two seconds old, or immediately when the turn changes. Request-to-playback lifetimes are bounded at three seconds for between-dart reactions, six for completed visits/ambient calls, eight for marquee calls, and twelve for terminal calls. Expiry cancels generation, clears provider audio, and discards any queued replacement even if the new dart does not earn a spoken response. Completion, correction, teardown, and replacement clear the old timer. Marquee/terminal speech retains its priority interruption rules and is exempt from routine new-dart expiry. These limits require listening validation; incomplete sideband audio events cannot establish the exact user-heard backlog.
+
+The next listening direction asks for wider audible emotional range through pitch, pace, breath, and intensity: near-whispered concern through unrestrained laughter and shouted relief. Ordinary moments stay conversational; actual game events motivate the extremes. Short-call limits and interruption behavior remain unchanged, and listening must establish how far the selected voice can perform this direction.
+
+The six-player history listening run exposed two factual delivery errors: treating reduced X01 remaining scores as setbacks, and attributing a winner's redemption to another player's missed finishes. Shared instructions explicitly preserve countdown semantics and player ownership of payoffs. Further vocal escalation is on hold pending evidence that prompting improves the selected voice.
+
+The capture also showed six personal-average comparisons and three matchup-history candidates reaching the model without clear historical connections in the spoken calls. On a third-dart call with a relevant historical candidate, the Scolia response brief now explicitly selects that connection and permits 6–12 words. It uses the same candidate builder as the factual event text, so no separate inference invents the angle. Other short reactions retain their existing limits. Snapshot summaries prioritize supplied tendencies and repeated close losses before best-checkout/fastest-leg records; records remain available for live milestone comparisons. This editorial change still needs listening validation.
+
+Behavioral inference now aggregates outcome counts by finish rule, score class, and exact state once, then subtracts narrower pools when constructing disjoint backoff layers. Per-state work scales with physical outcomes rather than the historical row count. On the seeded six-player fixture, 5,400 uncached distributions fell from 5.17s to 0.72s with identical full probability vectors and confidence metadata. This is a Node inference benchmark, not a measured browser page-load time; evidence transfer and synchronous spectator replay remain separate performance concerns.
+
+Playback ownership recognizes both GA assistant `output_audio` content and legacy `audio`. A successful `response.done` with audio keeps speech busy and its expiry timer armed until the matching audio buffer drains; generation completion alone must not admit another routine call. Browser regression tests cover both content forms and ignore late stop events from interrupted responses. The September 7 demo exposed a format mismatch consistent with accumulated audio followed by priority-driven clears; the fix still needs a listening pass.
+
+Player nicknames accompany canonical names in Realtime session snapshots and fallback turn/recap prompts. They are optional aliases, never separate players, behavioral evidence, or instructions; use remains varied and identity stays explicit. Nickname edits reach Realtime on the next snapshot (new session, reconnect, or correction), without adding per-dart profile queries.
+
+The exact 1/5/20 Nikita Special has a leading celebration candidate, mandatory named delivery, and a 6–16 word emotional burst. A canonical display name beginning with the full name Nikita receives the namesake signature-moment treatment; aliases and substring matches do not establish that identity. Ordinary low-score deadpan guidance is removed for this event in fallback prompts. Scoring detection and interruption priorities are unchanged.

@@ -9,8 +9,10 @@ import {
 } from './dartiqTelemetry';
 
 import { processBackgroundJob } from './backgroundJobs';
+import { runDartIQCalibration, runDartIQTraining } from './dartiqCalibration';
 
 vi.mock('server-only', () => ({}));
+vi.mock('./dartiqCalibration', () => ({ runDartIQCalibration: vi.fn(), runDartIQTraining: vi.fn() }));
 vi.mock('@/lib/slack/dartPollService', () => ({
   finalizeSlackDartPollById: vi.fn(),
 }));
@@ -79,10 +81,27 @@ const dispatchingJob: JobFixture = {
 
 describe('processBackgroundJob', () => {
   beforeEach(() => {
+    vi.mocked(runDartIQCalibration).mockReset();
+    vi.mocked(runDartIQTraining).mockReset();
     vi.mocked(finalizeSlackDartPollById).mockReset();
     vi.mocked(persistDartIQCompletedLeg).mockReset();
     vi.mocked(persistDartIQLiveReplay).mockReset();
     vi.mocked(persistDartIQLiveThrow).mockReset();
+  });
+
+  it('dispatches calibration through the existing retryable background queue', async () => {
+    const test = createSupabase({ ...dispatchingJob, job_type: 'dartiq_calibration',
+      payload: { modelVersionId: '1', windowEnd: '2026-09-01T12:00:00Z' } });
+    await expect(processBackgroundJob({ supabase: test.supabase, jobId: 'job-1', appOrigin: 'https://darts.example' }))
+      .resolves.toEqual({ id: 'job-1', status: 'completed' });
+    expect(runDartIQCalibration).toHaveBeenCalledWith(test.supabase, '1', '2026-09-01T12:00:00Z');
+  });
+
+  it('dispatches daily training independently of telemetry', async () => {
+    const test = createSupabase({ ...dispatchingJob, job_type: 'dartiq_training', payload: { windowEnd: '2026-01-01T00:00:00Z' } });
+    await expect(processBackgroundJob({ supabase: test.supabase, jobId: 'job-1', appOrigin: 'https://darts.example' }))
+      .resolves.toEqual({ id: 'job-1', status: 'completed' });
+    expect(runDartIQTraining).toHaveBeenCalledWith(test.supabase, '2026-01-01T00:00:00Z');
   });
 
   it('processes DartIQ capture outside the scoring request', async () => {

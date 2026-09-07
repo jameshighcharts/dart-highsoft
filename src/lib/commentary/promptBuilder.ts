@@ -1,5 +1,7 @@
 import type { CommentaryPersona, CommentaryPayload, MatchRecapPayload } from './types';
 import { computeDartIQ, humorStyleFromScore } from './insights';
+import { commentaryNicknameInstruction, renderPlayerNicknames } from './playerNicknames';
+import { nikitaSpecialMoment } from './nikitaSpecial';
 
 interface PromptBuildOptions {
   persona: CommentaryPersona;
@@ -76,7 +78,7 @@ export function buildCommentaryPrompt(
 
   let resultPrefix = '';
   if (payload.isNikitaSpecial) {
-    resultPrefix = 'NIKITA SPECIAL: exactly 1 + 5 + 20! Treat this as a beloved absurd marquee event. ';
+    resultPrefix = `${nikitaSpecialMoment(payload.playerName)} `;
   } else if (payload.busted) {
     resultPrefix = 'BUST! ';
   } else if (payload.is180) {
@@ -150,7 +152,7 @@ export function buildCommentaryPrompt(
     ? JSON.stringify(payload.narrative)
     : 'none yet';
 
-  const allowSlang = persona.id === 'chad' || rng() < style.slangUseProbability;
+  const allowSlang = persona.id === 'chad' || persona.id === 'nord' || rng() < style.slangUseProbability;
   const humorStyle = humorStyleFromScore(payload.totalScore);
 
   const ordinalPosition = formatOrdinal(gameContext.positionInMatch);
@@ -158,34 +160,40 @@ export function buildCommentaryPrompt(
 
   const slangTermLabel = style.maxSlangPerLine === 1 ? 'term' : 'terms';
 
-  const deliveryDirection = persona.id === 'chad'
-    ? `Write ONE concise, deadpan line (≤ ${style.maxWords} words) in Chad's original California surf-bro voice.`
-    : `Write ONE concise line (≤ ${style.maxWords} words).`;
+  const deliveryDirection = payload.isNikitaSpecial
+    ? 'Write one explosive 6–16 word celebration in your persona. Name the Nikita Special; let the joy be comically disproportionate.'
+    : persona.id === 'chad'
+      ? `Write ONE concise, deadpan line (≤ ${style.maxWords} words) in Chad's original California surf-bro voice.`
+    : persona.id === 'nord'
+      ? `Skriv ÉN kort replikk (maks ${style.maxWords} ord) med Olufs tørre, frittalende nordnorske energi.`
+      : `Write ONE concise line (≤ ${style.maxWords} words).`;
 
   const prompt = `
 ${payload.playerName}: ${throwsDescription} = ${payload.totalScore} pts. ${resultPrefix}${payload.remainingScore} left.
 ${positionLine}
 Recent: ${recentTurnsStr || 'First turn'}.${streakInfo}
 Standings: ${standingsStr || 'No standings available.'}
+${renderPlayerNicknames(gameContext.allPlayers)}
 
 IQ hints: ${iqHints.length ? iqHints.join(' ') : 'none'}
 DartIQ: ${dartIQHints.length ? dartIQHints.join(' ') : 'no DartIQ data'}
 Compact narrative memory: ${narrativeMemory}
-Special event: ${payload.isNikitaSpecial ? 'Nikita special — celebrate the exact 1, 5, 20 visit by name.' : 'none'}
+Special event: ${payload.isNikitaSpecial ? 'Let delighted disbelief override the usual deadpan delivery: explosive joy, affectionate ridicule, and no dry scoring recap.' : 'none'}
 
 ${deliveryDirection}
-Use ${payload.playerName}'s name and reference their ${payload.totalScore}-point turn or current checkout situation.
+Use ${payload.playerName}'s name or a supplied nickname and reference their ${payload.totalScore}-point turn or current checkout situation.
+${commentaryNicknameInstruction}
 Keep it playful and lightly sassy. Tease the darts or the emerging story, never the person's identity or appearance.
 
-Humor style: ${humorStyle}.
+${payload.isNikitaSpecial ? 'Humor style: ecstatic, affectionate signature-move celebration.' : `Humor style: ${humorStyle}.
 Tone guide:
 - hype-lite: impressed but calm
 - confident-dry: composed credit
 - neutral-dry: matter-of-fact
 - roast-lite: gentle ribbing, not mean
-- wry-quiet: minimal, resigned humor
+- wry-quiet: minimal, resigned humor`}
 
-Slang policy: ${persona.id === 'chad'
+Slang policy: ${persona.id === 'chad' || persona.id === 'nord'
     ? 'let the persona and the moment decide naturally; do not follow a numeric slang quota.'
     : allowSlang ? `optional (≤${style.maxSlangPerLine} natural ${slangTermLabel}).` : 'avoid all slang this line.'}
 Stay clear of hashtags, emojis, or filler catchphrases.
@@ -193,7 +201,7 @@ Prioritize dart intelligence (bogeys, checkout pressure, doubles, busts, setup l
 When DartIQ data is present, explain the consequence accurately. DartIQ is the situation; call the result clutch only when the player gained probability.
 Use at most one relevant narrative-memory thread. Build continuity without reciting the memory object or forcing history into every call.
 When broadcastDirection is present, follow its activeStoryArc as the committed angle, ignore backgroundStoryArcs, and honor payoff_due or closure_due callbacks. Otherwise use activeStoryArc. Never invent evidence beyond it.
-Be informative first, witty second. Output only the one-liner.`;
+${payload.isNikitaSpecial ? 'Make the celebration the point; no extra analysis.' : 'Be informative first, witty second.'} Output only the one-liner.`;
 
   return { prompt, allowSlang, humorStyle };
 }
@@ -243,6 +251,7 @@ ${finalThrowsInfo}
 
 Final Standings:
 ${finalStandings}
+${renderPlayerNicknames(context.allPlayers)}
 ${context.matchDuration ? `Duration: ${context.matchDuration}` : ''}
 `.trim();
 
@@ -250,6 +259,7 @@ ${context.matchDuration ? `Duration: ${context.matchDuration}` : ''}
 ${matchStats}
 
 MATCH ENDED. Write an enthusiastic, entertaining match recap and winner announcement.
+${commentaryNicknameInstruction}
 
 Requirements:
 - 2-4 sentences total (60-80 words max)

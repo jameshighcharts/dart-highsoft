@@ -53,7 +53,34 @@ export type DartIQOutcomeDistribution = {
 export type DartIQOutcomeModel = {
   version: typeof DARTIQ_OUTCOME_MODEL_VERSION;
   distribution(context: DartIQOutcomeContext): DartIQOutcomeDistribution;
+  /** Optional capability supplied only by a frozen, trained geometry/combined artifact. */
+  predictLanding?: (context: DartIQOutcomeContext) => DartIQLandingForecast | null;
 };
+
+export type DartIQLandingForecast = {
+  artifactId: string;
+  validation: 'pending' | 'passed' | 'failed';
+  confidence: 'low' | 'high';
+  /** Full mutually exclusive landing-segment vector, not intended targets. */
+  segments: readonly { segment: string; probability: number }[];
+};
+
+/** Confidence comes from trained-artifact validation, never from a peaked vector alone. */
+export function selectDartIQNextDartForecast(forecast: DartIQLandingForecast | null | undefined) {
+  if (!forecast || !forecast.artifactId || forecast.validation !== 'passed' || forecast.confidence !== 'high') return null;
+  const seen = new Set<string>();
+  let total = 0;
+  for (const { segment, probability } of forecast.segments) {
+    if (!/^(?:[SDT](?:[1-9]|1[0-9]|20)|SB|DB|Miss)$/.test(segment)
+      || seen.has(segment) || !Number.isFinite(probability) || probability < 0 || probability > 1) return null;
+    seen.add(segment);
+    total += probability;
+  }
+  if (Math.abs(total - 1) > 1e-6) return null;
+  const leading = forecast.segments.filter((entry) => entry.probability > 0)
+    .slice().sort((a, b) => b.probability - a.probability || a.segment.localeCompare(b.segment)).slice(0, 3);
+  return { artifactId: forecast.artifactId, segments: leading };
+}
 
 type WeightedOutcome = Omit<DartIQDartOutcome, 'probability'> & { weight: number };
 
@@ -67,6 +94,7 @@ type BehavioralOutcomeModelInput = {
 export const DARTIQ_OUTCOME_CONFIGURATION = Object.freeze({
   priorStrength: 24,
   exactOutcomeThreshold: 40,
+  evidencePartition: 'disjoint-state-v1',
 });
 
 export function normalizeDartIQOutcomeObservation(
@@ -252,10 +280,12 @@ function familyPosterior(
   return normalized;
 }
 
+type ObservationPool = Map<string, DartIQOutcomeObservation>;
+
 type ObservationIndex = {
-  byRule: Map<FinishRule, DartIQOutcomeObservation[]>;
-  byClass: Map<string, DartIQOutcomeObservation[]>;
-  byExact: Map<string, DartIQOutcomeObservation[]>;
+  byRule: Map<FinishRule, ObservationPool>;
+  byClass: Map<string, ObservationPool>;
+  byExact: Map<string, ObservationPool>;
   samplesByRule: Map<FinishRule, number>;
 };
 
@@ -274,22 +304,40 @@ function indexObservations(observations: DartIQOutcomeObservation[]): Observatio
     byExact: new Map(),
     samplesByRule: new Map(),
   };
+  const add = <Key>(index: Map<Key, ObservationPool>, key: Key, row: DartIQOutcomeObservation) => {
+    let pool = index.get(key);
+    if (!pool) {
+      pool = new Map();
+      index.set(key, pool);
+    }
+    const outcome = outcomeKey(row);
+    const existing = pool.get(outcome);
+    if (existing) existing.count += row.count;
+    else pool.set(outcome, { ...row });
+  };
   for (const observation of observations) {
-    const ruleRows = index.byRule.get(observation.finishRule) ?? [];
-    ruleRows.push(observation);
-    index.byRule.set(observation.finishRule, ruleRows);
-    const classRows = index.byClass.get(classKey(observation)) ?? [];
-    classRows.push(observation);
-    index.byClass.set(classKey(observation), classRows);
-    const exactRows = index.byExact.get(exactKey(observation)) ?? [];
-    exactRows.push(observation);
-    index.byExact.set(exactKey(observation), exactRows);
+    add(index.byRule, observation.finishRule, observation);
+    add(index.byClass, classKey(observation), observation);
+    add(index.byExact, exactKey(observation), observation);
     index.samplesByRule.set(
       observation.finishRule,
       (index.samplesByRule.get(observation.finishRule) ?? 0) + Math.max(0, observation.count)
     );
   }
   return index;
+}
+
+/** Each pool is bounded by physical outcomes, independent of historical dart count.
+ * Subtract the more specific pool so every observation still contributes once.
+ */
+function excludingPool(pool?: ObservationPool, excluded?: ObservationPool): DartIQOutcomeObservation[] {
+  if (!pool) return [];
+  const rows: DartIQOutcomeObservation[] = [];
+  for (const [key, row] of pool) {
+    const count = row.count - (excluded?.get(key)?.count ?? 0);
+    if (count > 0) rows.push({ ...row, count });
+  }
+  return rows;
 }
 
 function updatePosterior(
@@ -324,7 +372,21 @@ export function createBehavioralOutcomeModel(
     input.exactOutcomeThreshold ?? DARTIQ_OUTCOME_CONFIGURATION.exactOutcomeThreshold
   );
   const personalIndex = indexObservations(personal);
-  const populationIndex = indexObservations(population);
+  // Installation population includes the player's observations. Remove that
+  // overlap before applying the population and personal layers independently.
+  const personalCounts = new Map<string, number>();
+  const evidenceKey = (row: DartIQOutcomeObservation) => `${exactKey(row)}:${outcomeKey(row)}`;
+  for (const row of personal) {
+    const key = evidenceKey(row);
+    personalCounts.set(key, (personalCounts.get(key) ?? 0) + row.count);
+  }
+  const remainingPersonal = new Map(personalCounts);
+  const populationIndex = indexObservations(population.map((row) => {
+    const key = evidenceKey(row);
+    const overlap = Math.min(row.count, remainingPersonal.get(key) ?? 0);
+    remainingPersonal.set(key, (remainingPersonal.get(key) ?? 0) - overlap);
+    return { ...row, count: row.count - overlap };
+  }));
   const distributionCache = new Map<string, DartIQOutcomeDistribution>();
 
   return {
@@ -337,18 +399,19 @@ export function createBehavioralOutcomeModel(
         level: DartIQOutcomeBackoffLevel;
         observations: DartIQOutcomeObservation[];
       }> = [
-        { level: 'population_global', observations: populationIndex.byRule.get(context.finishRule) ?? [] },
-        { level: 'player_global', observations: personalIndex.byRule.get(context.finishRule) ?? [] },
-        { level: 'population_score_class', observations: populationIndex.byClass.get(classKey(context)) ?? [] },
-        { level: 'player_score_class', observations: personalIndex.byClass.get(classKey(context)) ?? [] },
-        { level: 'population_exact', observations: populationIndex.byExact.get(exactKey(context)) ?? [] },
-        { level: 'player_exact', observations: personalIndex.byExact.get(exactKey(context)) ?? [] },
+        // Do not count the same samples as global, class, and exact evidence.
+        // Each pool contributes once, with the most relevant pool applied last.
+        { level: 'population_global', observations: excludingPool(populationIndex.byRule.get(context.finishRule), populationIndex.byClass.get(classKey(context))) },
+        { level: 'player_global', observations: excludingPool(personalIndex.byRule.get(context.finishRule), personalIndex.byClass.get(classKey(context))) },
+        { level: 'population_score_class', observations: excludingPool(populationIndex.byClass.get(classKey(context)), populationIndex.byExact.get(exactKey(context))) },
+        { level: 'player_score_class', observations: excludingPool(personalIndex.byClass.get(classKey(context)), personalIndex.byExact.get(exactKey(context))) },
+        { level: 'population_exact', observations: excludingPool(populationIndex.byExact.get(exactKey(context))) },
+        { level: 'player_exact', observations: excludingPool(personalIndex.byExact.get(exactKey(context))) },
       ];
 
       let outcomes = createFallbackPrior(context);
       let stateBackoffLevel: DartIQOutcomeBackoffLevel = 'fallback';
       let outcomeBackoffLevel: 'family' | 'exact' = 'family';
-      let appliedSamples = 0;
       let exactStateSampleSize = 0;
       for (const layer of layers) {
         const updated = updatePosterior(
@@ -359,7 +422,6 @@ export function createBehavioralOutcomeModel(
         );
         if (updated.sampleSize === 0) continue;
         outcomes = updated.outcomes;
-        appliedSamples += updated.sampleSize;
         stateBackoffLevel = layer.level;
         outcomeBackoffLevel = updated.outcomeBackoffLevel;
         if (layer.level === 'population_exact' || layer.level === 'player_exact') {
@@ -369,7 +431,9 @@ export function createBehavioralOutcomeModel(
 
       const personalSamples = personalIndex.samplesByRule.get(context.finishRule) ?? 0;
       const populationSamples = populationIndex.samplesByRule.get(context.finishRule) ?? 0;
-      const confidenceTier = personalSamples >= 120
+      const exactPersonalSamples = [...(personalIndex.byExact.get(exactKey(context))?.values() ?? [])].reduce((sum, row) => sum + row.count, 0);
+      // A large scoring history is not established evidence for this checkout state.
+      const confidenceTier = exactPersonalSamples >= exactOutcomeThreshold
         ? 'player_established'
         : personalSamples > 0
           ? 'player_sparse'
@@ -382,7 +446,7 @@ export function createBehavioralOutcomeModel(
         stateBackoffLevel,
         outcomeBackoffLevel,
         confidenceTier,
-        sampleSize: appliedSamples,
+        sampleSize: personalSamples + populationSamples,
         exactStateSampleSize,
       };
       distributionCache.set(cacheKey, result);

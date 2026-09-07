@@ -1,4 +1,5 @@
 import { estimateCheckoutProbability } from './checkout';
+import { selectDartIQNextDartForecast, type DartIQDartsLeft } from './model/outcomes';
 import {
   calculateDartIQNextDartAnalysis,
   calculateDartIQProjection,
@@ -16,6 +17,7 @@ export type DartIQTrackerSnapshot = {
   state: DartIQReplayState;
   currentCheckoutProbability: number;
   currentOpportunity: DartIQOpportunity | null;
+  nextDartForecast?: ReturnType<typeof selectDartIQNextDartForecast>;
   latestEvent: DartIQDartEvent | null;
   sequence: number;
 };
@@ -176,7 +178,17 @@ function snapshotFromState(
       }, { players: state.projections })?.opportunity ?? null
     : null;
 
-  return { state, currentCheckoutProbability, currentOpportunity, latestEvent, sequence };
+  const nextDartForecast = currentPlayerId && state.fairEnding?.phase !== 'tiebreak'
+    && state.dartsRemainingInTurn >= 1 && state.dartsRemainingInTurn <= 3
+    && state.scores[currentPlayerId] > 0
+    ? selectDartIQNextDartForecast(input.outcomeModels?.[currentPlayerId]?.predictLanding?.({
+        currentScore: state.scores[currentPlayerId],
+        dartsLeft: state.dartsRemainingInTurn as DartIQDartsLeft,
+        finishRule: input.finishRule,
+      }))
+    : null;
+
+  return { state, currentCheckoutProbability, currentOpportunity, nextDartForecast, latestEvent, sequence };
 }
 
 /**

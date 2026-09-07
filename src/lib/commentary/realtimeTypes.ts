@@ -2,9 +2,12 @@ import type { CommentaryPersonaId } from '@/lib/commentary/types';
 import type { VoiceOption } from '@/services/ttsService';
 import type { RealtimeCommentarySnapshot } from './realtimeSnapshot';
 import type { CommentaryPolicyDecision, CommentaryPolicyEvent } from './commentaryPolicy';
+import type { BroadcastArcLifecycleEvent } from './broadcastDirector';
+import type { CommentaryStoryArc } from './storyArcDirector';
 
 export const REALTIME_COMMENTARY_MODEL =
   process.env.OPENAI_REALTIME_COMMENTARY_MODEL?.trim() || 'gpt-realtime-2.1';
+export const BROADCAST_DIRECTOR_VERSION = 'broadcast-director-1';
 
 export type RealtimeCommentarySessionRequest = {
   matchId: string;
@@ -41,6 +44,21 @@ export type RealtimeCommentaryPolicyDecisionRequest = RealtimeCommentarySessionC
   interrupt: CommentaryPolicyDecision['interrupt'];
   reason: CommentaryPolicyDecision['reason'];
   evaluatedAt: string;
+};
+
+export type RealtimeCommentaryArcEventRequest = RealtimeCommentarySessionControl & {
+  action: 'arc_event';
+  sourceEventId: string;
+  throwId?: string;
+  turnId?: string;
+  epoch: number;
+  sequence: number;
+  arc: CommentaryStoryArc;
+  lifecycleEvent: BroadcastArcLifecycleEvent['type'] | 'response_completed';
+  closeReason?: BroadcastArcLifecycleEvent['closeReason'];
+  providerResponseId?: string;
+  transcript?: string;
+  occurredAt: string;
 };
 
 export type RealtimeCommentaryCorrectionReason = 'throw_updated' | 'throw_deleted';

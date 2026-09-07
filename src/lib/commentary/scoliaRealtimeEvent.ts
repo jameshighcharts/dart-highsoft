@@ -11,8 +11,8 @@ import { DartIQTracker } from '../dartiq/tracker.ts';
 import type { FinishRule } from '../../utils/x01.ts';
 import { isNikitaSpecial } from '../../utils/nikitaSpecial.ts';
 import {
-  createBehavioralOutcomeModel,
-} from '../dartiq/model/outcomes.ts';
+  createAdaptiveDartIQModel,
+} from '../dartiq/model/training.ts';
 import { loadFrozenDartIQEvidence } from '../server/dartiqEvidence';
 import {
   buildCommentaryNarrativeMemory,
@@ -60,6 +60,7 @@ export type ScoliaRealtimeDartEvent = {
   dartiq?: DartIQDartPacket;
   priority: DartIQEventPriority;
   shouldSpeak: boolean;
+  isLatestDart?: boolean;
   narrative?: CommentaryNarrativeMemory;
 };
 
@@ -165,9 +166,10 @@ export async function loadScoliaRealtimeDartEvent(
     dartIQCache
   );
   const narrativeTimeline = dartIQCache?.timeline(matchId);
+  const sourceIndex = narrativeTimeline?.findIndex((event) => event.dartId === throwId) ?? -1;
   const narrative = narrativeTimeline
     ? buildCommentaryNarrativeMemory({
-        events: narrativeTimeline,
+        events: narrativeTimeline.slice(0, sourceIndex + 1),
         finishRule: match.finish as FinishRule,
       })
     : undefined;
@@ -183,25 +185,30 @@ export async function loadScoliaRealtimeDartEvent(
     dartIndex: dart.dart_index as number,
     segment: dart.segment as string,
     scored: dart.scored as number,
-    turnScore: turn.total_scored as number,
+    turnScore: dartiq?.turnScoreAfter ?? turn.total_scored as number,
     visitDarts: ((turn as {
       throws?: Array<{ dart_index: number; segment: string; scored: number }>;
     }).throws ?? [])
       .slice()
+      .filter((visitDart) => visitDart.dart_index <= dart.dart_index)
       .sort((a, b) => a.dart_index - b.dart_index)
       .map((visitDart) => ({
         dartIndex: visitDart.dart_index,
         segment: visitDart.segment,
         scored: visitDart.scored,
       })),
-    busted: turn.busted as boolean,
+    busted: dartiq?.busted ?? turn.busted as boolean,
     checkedOut: dartiq?.checkedOut ?? leg.winner_player_id === turn.player_id,
-    matchWon: match.winner_player_id === turn.player_id,
+    matchWon: dartiq
+      ? Boolean(dartiq.legResolution?.matchWon && dartiq.legResolution.winnerPlayerId === turn.player_id)
+      : match.winner_player_id === turn.player_id,
     nikitaSpecial: isNikitaSpecial(
-      ((turn as { throws?: Array<{ scored: number }> }).throws ?? [])
+      ((turn as { throws?: Array<{ scored: number; dart_index: number }> }).throws ?? [])
+        .filter((visitDart) => visitDart.dart_index <= dart.dart_index)
     ),
     dartiq,
     narrative,
+    isLatestDart: narrativeTimeline ? sourceIndex >= 0 && sourceIndex === narrativeTimeline.length - 1 : undefined,
   });
 }
 
@@ -316,7 +323,9 @@ async function loadDartIQPacket(
   }
   const outcomeModels = Object.fromEntries(playerIds.map((playerId) => [
     playerId,
-    createBehavioralOutcomeModel({
+    createAdaptiveDartIQModel({
+      playerId,
+      deployment: frozenEvidence?.modelDeployment,
       personal: personalOutcomes.get(playerId),
       population: populationOutcomes,
     }),

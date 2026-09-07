@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { processBackgroundJob } from '@/lib/server/backgroundJobs';
+import { DartIQTelemetryBatch } from '@/lib/server/dartiqTelemetry';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
 type DispatchBody = { jobIds: string[] };
@@ -30,9 +31,10 @@ export async function POST(request: NextRequest) {
   const appOrigin = (process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin).replace(/\/$/, '');
   const supabase = getSupabaseServerClient();
   const results = [];
+  const batch = new DartIQTelemetryBatch();
   for (const jobId of body.jobIds) {
     try {
-      results.push(await processBackgroundJob({ supabase, jobId, appOrigin }));
+      results.push(await processBackgroundJob({ supabase, jobId, appOrigin, batch }));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown dispatch failure';
       console.error(`Could not process background job ${jobId}:`, error);
