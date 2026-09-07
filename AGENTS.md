@@ -120,7 +120,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `useMatchActions.ts` | Player actions: `handleBoardClick`, `undoLastThrow`, `endLegAndMaybeMatch`, rematch, player management. Serializes concurrent throws via queue. |
 | `useMatchRealtime.ts` | Connects Supabase realtime events to state; uses spectator reducer for incremental updates |
 | `useRealtime.ts` | Low-level Supabase channel subscription, DOM custom events, connection lifecycle |
-| `useCommentary.ts` | Commentary state, persona selection, TTS, preferences and completed-call history; one-tap Verse audio activation with synchronous gesture unlock and actual Realtime status |
+| `useCommentary.ts` | Commentary state, persona selection, TTS, preferences and bounded, deduplicated completed-call history; one-tap Verse audio activation with synchronous gesture unlock and actual Realtime status |
 | `useRealtimeCommentary.ts` | Owns the persistent output-only browser WebRTC commentary connection and fallback lifecycle |
 | `useMatchEloChanges.ts` | Fetches Elo changes after match completion |
 | `useScoliaBoardRealtime.ts` | Pushes sanitized board status and match-occupancy changes into board UIs |
@@ -170,7 +170,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `games/segment.ts` | Converts canonical dart segments into scores and multipliers |
 | `games/labels.ts` | Party-game labels, configuration controls, and UI defaults |
 | `games/engines/*.ts` | Pure replay engines for Cricket, Killer, Shanghai, and Around the Clock |
-| `commentary/personas.ts` | AI commentary persona definitions |
+| `commentary/personas.ts` | AI commentary personas and shared voice instructions for nicknames and signature-event celebrations |
 | `commentary/promptBuilder.ts` | Builds LLM prompts from game context |
 | `commentary/realtimePrompt.ts` | Builds compact labeled Realtime session prompts and per-call briefs |
 | `commentary/realtimePlayback.ts` | Tracks generation separately from audible playback, recognizes GA `output_audio` and legacy `audio` content, and ignores stale stop events after interruptions |
@@ -183,10 +183,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/commentaryDemoScenario.ts` | Deterministic six-player 301 double-out office broadcast demo with scrappy scoring, isolated trebles/doubles, clustered finish tension, and a D16 payoff |
 | `commentary/realtimeTypes.ts` | Shared Realtime session/correction-envelope contracts, model default, UUID validation, and legacy-to-Realtime voice mapping |
 | `commentary/realtimeSnapshot.ts` | Builds compact authoritative match snapshots for new, reconnected, and rotated Realtime sessions |
-| `commentary/playerNicknames.ts` | Bounded nickname-to-player context and natural alias-use guidance shared by Realtime and fallback commentary |
-| `commentary/nikitaSpecial.ts` | Signature-event celebration brief, with namesake hype based on Nikita's canonical display name |
 | `commentary/scoliaRealtimeEvent.ts` | Loads an accepted Scolia throw from canonical rows, attaches its deterministic DartIQ packet, and classifies speech priority without waiting for Supabase Realtime |
-| `commentary/transcriptLog.ts` | Pure completed-call transcript append, consecutive-deduplication, and bounded-history helper |
+| `avatars.ts` | Shared avatar sizes, initials, colors, escaped grid HTML, and storage URL parsing |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
 | `supabaseServer.ts` | Server-side Supabase client (API routes) |
 | `apiClient.ts` | Typed fetch wrapper: `apiRequest<T>()` |
@@ -231,6 +229,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `games/ShanghaiBoard.tsx` | Shanghai targets, rounds, and scores display |
 | `games/ClockBoard.tsx` | Around the Clock progress display |
 | `leaderboard/GameModeLeaderboardItem.tsx` | Player row for party-mode leaderboard statistics |
+| `PlayerAvatar.tsx` | Shared avatar rendering with initials fallback |
+| `PlayerAvatarById.tsx` | Avatar lookup for ID-only rows, with one shared cached player query |
 | `Dartboard.tsx` | SVG interactive dartboard (desktop) |
 | `MobileKeypad.tsx` | Touch number pad (mobile) |
 | `GridLeaderboard.tsx` | Home page leaderboard grid |

@@ -1,7 +1,6 @@
 import type { CommentaryPersona, CommentaryPayload, MatchRecapPayload } from './types';
 import { computeDartIQ, humorStyleFromScore } from './insights';
-import { commentaryNicknameInstruction, renderPlayerNicknames } from './playerNicknames';
-import { nikitaSpecialMoment } from './nikitaSpecial';
+import { commentaryNicknameInstruction, renderPlayerNicknames, nikitaSpecialMoment } from './personas';
 
 interface PromptBuildOptions {
   persona: CommentaryPersona;

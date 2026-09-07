@@ -4,6 +4,7 @@ import {
   realtimePersonaResponseInstruction,
   commentaryStartingMood,
   resolvePersona,
+  nikitaSpecialMoment,
 } from './personas';
 
 describe('commentary persona contracts', () => {
@@ -45,5 +46,15 @@ describe('commentator starting mood', () => {
     expect(commentaryStartingMood('same-match')).toBe(initial);
     const moods = new Set(Array.from({ length: 64 }, (_, index) => commentaryStartingMood(`match-${index}`)));
     expect(moods.size).toBe(6);
+  });
+});
+
+describe('Nikita Special identity', () => {
+  it.each(['Nikita', ' nikita ', 'Nikita Hansen'])('gives %s the namesake celebration', (name) => {
+    expect(nikitaSpecialMoment(name)).toContain('Nikita himself');
+  });
+  it.each(['Ken', 'Anikita', 'NikitaFan'])('keeps the shared celebration without misidentifying %s', (name) => {
+    expect(nikitaSpecialMoment(name)).toContain('office cult classic');
+    expect(nikitaSpecialMoment(name)).not.toContain('Nikita himself');
   });
 });

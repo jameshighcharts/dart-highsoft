@@ -1,9 +1,8 @@
 import type { DartIQEventPriority } from '@/lib/dartiq/events';
-import { commentaryNicknameInstruction } from './playerNicknames.ts';
 
 import { broadcastDirectionInstruction, type BroadcastDirection } from './broadcastDirector.ts';
 import { priorityInstruction, visitScopeInstruction } from './commentaryPolicy.ts';
-import { realtimePersonaResponseInstruction, resolvePersona } from './personas.ts';
+import { commentaryNicknameInstruction, realtimePersonaResponseInstruction, resolvePersona } from './personas.ts';
 import { visitTimingInstruction } from './commentaryVisitTiming.ts';
 import type { CommentaryPersona, CommentaryPersonaId } from './types';
 
