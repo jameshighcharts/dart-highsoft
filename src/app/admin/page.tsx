@@ -9,12 +9,12 @@ export const dynamic = 'force-dynamic';
 
 export default async function AdminPage() {
   const session = await getAuthenticatedSession();
-  if (!session?.user.slackUserId) redirect('/signin?callbackUrl=%2Fadmin');
+  if (!session) redirect('/signin?callbackUrl=%2Fadmin');
 
   const viewer = {
     name: session.user.name ?? session.user.email ?? 'You',
     email: session.user.email ?? null,
-    slackUserId: session.user.slackUserId,
+    slackUserId: session.user.slackUserId ?? null,
   };
 
   return (

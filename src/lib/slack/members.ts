@@ -95,3 +95,24 @@ export async function listSlackMembers(): Promise<SlackMember[]> {
 
   return members.sort((a, b) => a.realName.localeCompare(b.realName));
 }
+
+/**
+ * Slack user id for a work email via users.lookupByEmail (bot scope
+ * users:read.email). Returns null when not found; throws on config/API errors.
+ */
+export async function lookupSlackUserIdByEmail(email: string): Promise<string | null> {
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) return null;
+  const response = await fetch('https://slack.com/api/users.lookupByEmail', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ email }).toString(),
+  });
+  const result = (await response.json()) as { ok: boolean; error?: string; user?: { id?: string; deleted?: boolean } };
+  if (!response.ok || !result.ok) {
+    if (result.error === 'users_not_found') return null;
+    throw new Error(`Slack users.lookupByEmail failed: ${result.error ?? response.status}`);
+  }
+  const id = result.user?.id?.trim();
+  return id && !result.user?.deleted ? id : null;
+}
