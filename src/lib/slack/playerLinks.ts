@@ -15,11 +15,14 @@ type ClaimSlackPlayerInput =
     };
 
 export class SlackPlayerLinkError extends Error {
+  readonly code: string | undefined;
+
   constructor(
     message: string,
-    readonly code: string | undefined,
+    code: string | undefined,
   ) {
     super(message);
+    this.code = code;
     this.name = 'SlackPlayerLinkError';
   }
 }
