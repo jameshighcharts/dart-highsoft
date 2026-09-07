@@ -88,7 +88,7 @@ export default function RootLayout({
             </div>
           </nav>
           <nav className="lg:hidden fixed bottom-0 left-0 right-0 border-t bg-card">
-            <div className="grid grid-cols-6">
+            <div className="grid grid-cols-5">
               <Link href="/" className="flex flex-col items-center justify-center py-2 gap-1">
                 <Home className="size-5" />
                 <span className="text-xs">Home</span>
@@ -101,17 +101,13 @@ export default function RootLayout({
                 <Users className="size-5" />
                 <span className="text-xs">Players</span>
               </Link>
-              <Link href="/boards" className="flex flex-col items-center justify-center py-2 gap-1">
-                <Radio className="size-5" />
-                <span className="text-xs">Boards</span>
-              </Link>
               <Link href="/stats" className="flex flex-col items-center justify-center py-2 gap-1">
                 <BarChart3 className="size-5" />
                 <span className="text-xs">Stats</span>
               </Link>
               <Link href="/profile" className="flex flex-col items-center justify-center py-2 gap-1">
                 <UserCircle className="size-5" />
-                <span className="text-xs">Me</span>
+                <span className="text-xs">Profile</span>
               </Link>
             </div>
           </nav>
