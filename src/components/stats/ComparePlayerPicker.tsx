@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getPlayerColor } from '@/lib/stats/playerColors';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import type { PlayerRow } from '@/lib/stats/types';
 
 export const MIN_COMPARE = 2;
@@ -59,7 +60,10 @@ export function ComparePlayerPicker({ players, selectedIds, onChange }: CompareP
                 className="inline-block w-2 h-2 rounded-full"
                 style={{ backgroundColor: getPlayerColor(i) }}
               />
-              {player.display_name}
+              <span className="inline-flex items-center gap-1.5">
+                <PlayerAvatar player={player} size="xs" />
+                {player.display_name}
+              </span>
               <Button
                 type="button"
                 variant="ghost"
@@ -82,7 +86,10 @@ export function ComparePlayerPicker({ players, selectedIds, onChange }: CompareP
             <SelectContent>
               {available.map(p => (
                 <SelectItem key={p.id} value={p.id}>
-                  {p.display_name}
+                  <span className="inline-flex items-center gap-1.5">
+                    <PlayerAvatar player={p} size="xs" />
+                    {p.display_name}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>

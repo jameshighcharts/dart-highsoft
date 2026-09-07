@@ -20,6 +20,7 @@ export type PlayerGameStats = {
 type PlayerLocationRow = {
   id: string;
   location: string | null;
+  avatar_url: string | null;
   created_at: string;
   is_active: boolean;
 };
@@ -223,6 +224,7 @@ type LeaderboardData = {
   recentWinsByPlayer: Map<string, number[]>;
   playerGameStats: Map<string, PlayerGameStats>;
   playerLocations: Map<string, string | null>;
+  playerAvatarUrls: Map<string, string | null>;
   activePlayerCount: number;
   newPlayersThisWeek: number;
   matchesThisWeek: number;
@@ -264,7 +266,7 @@ async function fetchLeaderboardData(limit?: number): Promise<LeaderboardData> {
     getMultiEloLeaderboard(limit),
     supabase
       .from('players')
-      .select('id, location, created_at, is_active'),
+      .select('id, location, avatar_url, created_at, is_active'),
     supabase
       .from('player_recent_form')
       .select('player_id, last_10_results'),
@@ -284,9 +286,11 @@ async function fetchLeaderboardData(limit?: number): Promise<LeaderboardData> {
   ]);
 
   const locMap = new Map<string, string | null>();
+  const avatarMap = new Map<string, string | null>();
   const players = (locData as unknown as PlayerLocationRow[]) ?? [];
   for (const row of players) {
     locMap.set(row.id, row.location);
+    avatarMap.set(row.id, row.avatar_url ?? null);
   }
   const activePlayers = players.filter((row) => row.is_active);
   const newPlayersThisWeek = activePlayers.filter((row) =>
@@ -321,6 +325,7 @@ async function fetchLeaderboardData(limit?: number): Promise<LeaderboardData> {
     recentWinsByPlayer: buildRecentWinsByPlayer((recentFormData as unknown as RecentFormRow[]) ?? []),
     playerGameStats: buildGameStatsByPlayer((gameStatsData as unknown as MatchParticipationRow[]) ?? []),
     playerLocations: locMap,
+    playerAvatarUrls: avatarMap,
     activePlayerCount: activePlayers.length,
     newPlayersThisWeek,
     matchesThisWeek: matchActivity.sevenDayTotal,
@@ -337,6 +342,7 @@ async function fetchLeaderboardData(limit?: number): Promise<LeaderboardData> {
 const emptyRecentWinsByPlayer = new Map<string, number[]>();
 const emptyPlayerGameStats = new Map<string, PlayerGameStats>();
 const emptyPlayerLocations = new Map<string, string | null>();
+const emptyPlayerAvatarUrls = new Map<string, string | null>();
 const emptyMatchActivity: MatchActivity = {
   sevenDayCounts: [0, 0, 0, 0, 0, 0, 0],
   sevenDayTotal: 0,
@@ -360,6 +366,7 @@ export function useLeaderboardData(limit?: number) {
     recentWinsByPlayer: data?.recentWinsByPlayer ?? emptyRecentWinsByPlayer,
     playerGameStats: data?.playerGameStats ?? emptyPlayerGameStats,
     playerLocations: data?.playerLocations ?? emptyPlayerLocations,
+    playerAvatarUrls: data?.playerAvatarUrls ?? emptyPlayerAvatarUrls,
     activePlayerCount: data?.activePlayerCount ?? 0,
     newPlayersThisWeek: data?.newPlayersThisWeek ?? 0,
     matchesThisWeek: data?.matchesThisWeek ?? 0,

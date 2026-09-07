@@ -1,3 +1,4 @@
+import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 import { getEloTier, type EloLeaderboardEntry } from '@/utils/eloRating';
 import { type MultiEloLeaderboardEntry } from '@/utils/eloRatingMultiplayer';
 import { medal } from '@/utils/leaderboard';
@@ -11,8 +12,9 @@ export function EloLeaderboardItem({ entry, index }: EloLeaderboardItemProps) {
   const tier = getEloTier(entry.current_rating);
   return (
     <li className="flex items-center justify-between px-3 py-2">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <span className="w-8 text-lg text-center">{medal(index)}</span>
+        <PlayerAvatarById playerId={entry.player_id} name={entry.display_name} size="sm" />
         <div>
           <div>{entry.display_name}</div>
           <div className={`text-xs ${tier.color}`}>

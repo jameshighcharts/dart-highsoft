@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import Dartboard from '@/components/Dartboard';
 import MobileKeypad from '@/components/MobileKeypad';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { MatchPlayersCard } from '@/components/match/MatchPlayersCard';
 import { EditPlayersModal } from '@/components/match/EditPlayersModal';
 import { EditThrowsModal, type EditableThrow } from '@/components/match/EditThrowsModal';
@@ -211,7 +212,10 @@ export function MatchScoringView({
           <div className="md:hidden space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="font-medium">{currentPlayer?.display_name ?? '—'}</div>
+                <div className="inline-flex items-center gap-2 font-medium">
+                  {currentPlayer ? <PlayerAvatar player={currentPlayer} size="md" /> : null}
+                  <span>{currentPlayer?.display_name ?? '—'}</span>
+                </div>
                 {currentPlayer && fairEndingState?.phase === 'tiebreak' && fairEndingState.tiebreakScores[currentPlayer.id] != null ? (
                   <span className="rounded-full border border-purple-400/60 bg-purple-50 px-3 py-1 text-sm font-mono text-purple-700 shadow-sm dark:border-purple-700/60 dark:bg-purple-900/30 dark:text-purple-200">
                     {fairEndingState.tiebreakScores[currentPlayer.id]} scored
@@ -456,8 +460,12 @@ export function MatchScoringView({
                     <span className="text-3xl animate-bounce">🏆</span>
                     <div>
                       <div className="text-xs uppercase tracking-wide text-green-700 dark:text-green-300">Winner</div>
-                      <div className="text-2xl font-extrabold">
-                        {players.find((p) => p.id === matchWinnerId)?.display_name}
+                      <div className="inline-flex items-center gap-2 text-2xl font-extrabold">
+                        {(() => {
+                          const winner = players.find((p) => p.id === matchWinnerId);
+                          return winner ? <PlayerAvatar player={winner} size="md" /> : null;
+                        })()}
+                        <span>{players.find((p) => p.id === matchWinnerId)?.display_name}</span>
                       </div>
                       <div className="text-sm text-green-700/80 dark:text-green-200/80">wins the match!</div>
                     </div>
@@ -486,7 +494,10 @@ export function MatchScoringView({
         <div className="space-y-4 md:col-start-1 md:row-start-1">
           {/* Desktop: current player header - above sidebar */}
           <div className="hidden md:flex items-center gap-3 mb-2">
-            <div className="text-lg font-medium">{currentPlayer?.display_name ?? '—'}</div>
+            <div className="inline-flex items-center gap-2 text-lg font-medium">
+              {currentPlayer ? <PlayerAvatar player={currentPlayer} size="lg" /> : null}
+              <span>{currentPlayer?.display_name ?? '—'}</span>
+            </div>
             {currentPlayer && fairEndingState?.phase === 'tiebreak' && fairEndingState.tiebreakScores[currentPlayer.id] != null ? (
               <span className="rounded-full border border-purple-400/60 bg-purple-50 px-3 py-1 text-sm font-mono text-purple-700 shadow-sm dark:border-purple-700/60 dark:bg-purple-900/30 dark:text-purple-200">
                 {fairEndingState.tiebreakScores[currentPlayer.id]} scored
@@ -558,15 +569,20 @@ export function MatchScoringView({
                       <div key={l.id} className="flex items-center justify-between rounded border px-3 py-2">
                         <div className="flex items-center gap-2">
                           <span className="text-sm text-muted-foreground">Leg {l.leg_number}</span>
-                          {winner && <span>🏆 {winner.display_name}</span>}
+                          {winner && (
+                            <span className="inline-flex items-center gap-1.5">
+                              🏆 <PlayerAvatar player={winner} size="xs" /> {winner.display_name}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-4 text-sm">
                           {orderPlayers.map((p) => {
                             const s = byPlayer[p.id] ?? { total: 0, turns: 0 };
                             const avg = s.turns > 0 ? (s.total / s.turns).toFixed(2) : '0.00';
                             return (
-                              <span key={p.id} className="text-muted-foreground">
-                                {p.display_name}: {avg}
+                              <span key={p.id} className="inline-flex items-center gap-1.5 text-muted-foreground">
+                                <PlayerAvatar player={p} size="xs" />
+                                <span>{p.display_name}: {avg}</span>
                               </span>
                             );
                           })}

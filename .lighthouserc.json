@@ -2,12 +2,15 @@
   "ci": {
     "collect": {
       "url": ["http://localhost:3000/"],
-      "startServerCommand": "npm start",
+      "startServerCommand": "CI=true AUTH_LHCI_BYPASS=1 npm start",
       "startServerReadyPattern": "Ready",
       "startServerReadyTimeout": 30000,
       "numberOfRuns": 5,
       "settings": {
-        "chromeFlags": "--headless --no-sandbox --disable-dev-shm-usage"
+        "chromeFlags": "--headless --no-sandbox --disable-dev-shm-usage",
+        "extraHeaders": {
+          "x-hsdart-lighthouse": "enabled"
+        }
       }
     },
     "assert": {
@@ -17,6 +20,7 @@
           "error",
           { "minScore": 0.6, "aggregationMethod": "median" }
         ],
+        "redirects": "error",
         "first-contentful-paint": [
           "error",
           { "maxNumericValue": 1500, "aggregationMethod": "median" }

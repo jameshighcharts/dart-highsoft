@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import type { TournamentMatchRecord } from '@/lib/tournament/types';
+import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 
 type Props = {
   tm: TournamentMatchRecord;
@@ -32,12 +33,14 @@ export function BracketMatchCard({ tm, playerName, onMatchClick }: Props) {
       ) : (
         <div className="space-y-0.5">
           <PlayerRow
+            playerId={tm.player1_id}
             name={playerName(tm.player1_id)}
             isWinner={tm.winner_id === tm.player1_id && !!tm.winner_id}
             isEmpty={!tm.player1_id}
           />
           <div className="border-t border-dashed" />
           <PlayerRow
+            playerId={tm.player2_id}
             name={playerName(tm.player2_id)}
             isWinner={tm.winner_id === tm.player2_id && !!tm.winner_id}
             isEmpty={!tm.player2_id}
@@ -53,10 +56,21 @@ export function BracketMatchCard({ tm, playerName, onMatchClick }: Props) {
   );
 }
 
-function PlayerRow({ name, isWinner, isEmpty }: { name: string; isWinner: boolean; isEmpty: boolean }) {
+function PlayerRow({
+  playerId,
+  name,
+  isWinner,
+  isEmpty,
+}: {
+  playerId: string | null;
+  name: string;
+  isWinner: boolean;
+  isEmpty: boolean;
+}) {
   return (
-    <div className={`truncate ${isWinner ? 'font-bold' : ''} ${isEmpty ? 'text-muted-foreground italic' : ''}`}>
-      {name}
+    <div className={`flex items-center gap-1.5 ${isWinner ? 'font-bold' : ''} ${isEmpty ? 'text-muted-foreground italic' : ''}`}>
+      {playerId && <PlayerAvatarById playerId={playerId} name={name} size="xs" />}
+      <span className="truncate">{name}</span>
     </div>
   );
 }

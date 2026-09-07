@@ -1,4 +1,4 @@
-export type PlayerRow = { id: string; display_name: string };
+export type PlayerRow = { id: string; display_name: string; avatar_url?: string | null };
 export type SummaryRow = { player_id: string; display_name: string; wins: number; avg_per_turn: number };
 export type LegRow = { id: string; match_id: string; leg_number: number; created_at: string; winner_player_id: string | null };
 export type TurnRow = { id: string; leg_id: string; player_id: string; total_scored: number; busted: boolean; turn_number: number; created_at: string };

@@ -3,7 +3,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { TournamentRecord, TournamentMatchRecord, TournamentPlayerRecord } from '@/lib/tournament/types';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 
-type PlayerInfo = { id: string; display_name: string };
+type PlayerInfo = { id: string; display_name: string; avatar_url?: string | null };
 type TournamentPlayerRow = TournamentPlayerRecord & { players: PlayerInfo };
 
 export function useTournamentData(tournamentId: string) {
@@ -31,7 +31,7 @@ export function useTournamentData(tournamentId: string) {
           .order('position'),
         supabase
           .from('tournament_players')
-          .select('*, players!inner(id, display_name)')
+          .select('*, players!inner(id, display_name, avatar_url)')
           .eq('tournament_id', tournamentId)
           .order('seed'),
       ]);

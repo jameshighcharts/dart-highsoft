@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Play, Eye, Trophy, Clock, Users, Swords, Trash2 } from 'lucide-react';
 import Link from 'next/link';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { GAME_MODE_INFO, gameModeName } from '@/lib/games/labels';
 import {
   GAME_SESSION_STATUSES,
@@ -30,6 +31,7 @@ type MatchWithDetails = {
   players: Array<{
     id: string;
     display_name: string;
+    avatar_url?: string | null;
     play_order: number;
   }>;
   legs: Array<{
@@ -48,6 +50,7 @@ type GameSessionWithDetails = {
   players: Array<{
     id: string;
     display_name: string;
+    avatar_url?: string | null;
     play_order: number;
   }>;
   winner_name?: string;
@@ -106,7 +109,8 @@ export default function GamesPage() {
               play_order,
               players!inner (
                 id,
-                display_name
+                display_name,
+                avatar_url
               )
             ),
             legs (
@@ -128,7 +132,8 @@ export default function GamesPage() {
               play_order,
               players!inner (
                 id,
-                display_name
+                display_name,
+                avatar_url
               )
             )
           `)
@@ -139,13 +144,14 @@ export default function GamesPage() {
 
       type PlayerRelation = Array<{
         play_order: number;
-        players: { id: string; display_name: string };
+        players: { id: string; display_name: string; avatar_url?: string | null };
       }>;
       const mapPlayers = (relation: PlayerRelation) =>
         relation
           .map((mp) => ({
             id: mp.players.id,
             display_name: mp.players.display_name,
+            avatar_url: mp.players.avatar_url ?? null,
             play_order: mp.play_order,
           }))
           .sort((a, b) => a.play_order - b.play_order);
@@ -351,7 +357,8 @@ export default function GamesPage() {
           </div>
           <div className="flex flex-wrap gap-1">
             {game.players.map((player) => (
-              <Badge key={player.id} variant="outline" className="text-xs">
+              <Badge key={player.id} variant="outline" className="text-xs gap-1.5">
+                <PlayerAvatar player={player} size="xs" />
                 {player.display_name}
               </Badge>
             ))}
@@ -392,8 +399,9 @@ export default function GamesPage() {
                 <Badge
                   key={player.id}
                   variant={player.id === game.winner_player_id ? "default" : "outline"}
-                  className="text-xs"
+                  className="text-xs gap-1.5"
                 >
+                  <PlayerAvatar player={player} size="xs" />
                   {player.display_name}
                   {player.id === game.winner_player_id && ' 🏆'}
                 </Badge>
@@ -408,6 +416,9 @@ export default function GamesPage() {
             ) : (
               <div className="font-semibold text-green-700 flex items-center gap-1">
                 <Trophy className="h-4 w-4" />
+                {game.winner_player_id && (
+                  <PlayerAvatar player={game.players.find((p) => p.id === game.winner_player_id) ?? { id: game.winner_player_id }} size="xs" />
+                )}
                 {game.winner_name ?? 'No winner'}
               </div>
             )}
@@ -527,7 +538,8 @@ export default function GamesPage() {
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {match.players.map((player) => (
-                        <Badge key={player.id} variant="outline" className="text-xs">
+                        <Badge key={player.id} variant="outline" className="text-xs gap-1.5">
+                          <PlayerAvatar player={player} size="xs" />
                           {player.display_name}
                         </Badge>
                       ))}
@@ -615,8 +627,9 @@ export default function GamesPage() {
                           <Badge 
                             key={player.id} 
                             variant={player.id === match.winner_player_id ? "default" : "outline"}
-                            className="text-xs"
+                            className="text-xs gap-1.5"
                           >
+                            <PlayerAvatar player={player} size="xs" />
                             {player.display_name}
                             {player.id === match.winner_player_id && ' 🏆'}
                           </Badge>
@@ -630,6 +643,7 @@ export default function GamesPage() {
                       {match.winner_name ? (
                         <div className="font-semibold text-green-700 flex items-center gap-1">
                           <Trophy className="h-4 w-4" />
+                          <PlayerAvatar player={match.players.find((p) => p.id === match.winner_player_id) ?? { id: match.winner_player_id }} size="xs" />
                           {match.winner_name}
                         </div>
                       ) : (

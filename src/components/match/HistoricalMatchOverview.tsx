@@ -3,6 +3,7 @@
 import { Activity, Crown, Flame, Sparkles, Target, TrendingDown, TrendingUp, Trophy, Zap } from 'lucide-react';
 import { useMemo } from 'react';
 
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { ThrowSegmentBadges } from '@/components/ThrowSegmentBadges';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -181,9 +182,12 @@ export function HistoricalMatchOverview({
                     </span>
                   ) : null}
                 </div>
-                <h2 className="mt-2 bg-gradient-to-r from-white via-cyan-100 to-amber-200 bg-clip-text text-5xl font-black tracking-[-0.055em] text-transparent sm:text-7xl">
-                  {winner.display_name}
-                </h2>
+                <div className="mt-2 flex items-center gap-3">
+                  <PlayerAvatar player={winner} size="xl" className="ring-2 ring-white/20" />
+                  <h2 className="bg-gradient-to-r from-white via-cyan-100 to-amber-200 bg-clip-text text-5xl font-black tracking-[-0.055em] text-transparent sm:text-7xl">
+                    {winner.display_name}
+                  </h2>
+                </div>
               </>
             ) : (
               <h2 className="text-4xl font-black tracking-tight sm:text-6xl">Match ended early</h2>
@@ -197,7 +201,10 @@ export function HistoricalMatchOverview({
                     : 'border-white/10 bg-white/5 px-3 py-1 text-white/70'}
                   variant="outline"
                 >
-                  {player.player.display_name} · {player.legsWon} leg{player.legsWon === 1 ? '' : 's'}
+                  <span className="inline-flex items-center gap-1.5">
+                    <PlayerAvatar player={player.player} size="xs" />
+                    <span>{player.player.display_name} · {player.legsWon} leg{player.legsWon === 1 ? '' : 's'}</span>
+                  </span>
                 </Badge>
               ))}
             </div>
@@ -254,7 +261,10 @@ export function HistoricalMatchOverview({
                     <div className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground">
                       {player.player.id === matchWinnerId ? 'Winner' : `Place ${index + 1}`}
                     </div>
-                    <h3 className="mt-1 text-2xl font-black tracking-tight">{player.player.display_name}</h3>
+                    <h3 className="mt-1 inline-flex items-center gap-2 text-2xl font-black tracking-tight">
+                      <PlayerAvatar player={player.player} size="md" />
+                      <span>{player.player.display_name}</span>
+                    </h3>
                   </div>
                   <div className="font-mono text-4xl font-black text-primary">{player.threeDartAverage.toFixed(1)}</div>
                 </div>
@@ -314,8 +324,12 @@ export function HistoricalMatchOverview({
                     {index + 1}
                   </div>
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-bold">
-                      {players.find((player) => player.id === turn.player_id)?.display_name ?? 'Player'}
+                    <div className="flex items-center gap-1.5 truncate text-sm font-bold">
+                      {(() => {
+                        const turnPlayer = players.find((player) => player.id === turn.player_id);
+                        return turnPlayer ? <PlayerAvatar player={turnPlayer} size="xs" /> : null;
+                      })()}
+                      <span className="truncate">{players.find((player) => player.id === turn.player_id)?.display_name ?? 'Player'}</span>
                     </div>
                     <ThrowSegmentBadges throws={turn.throws ?? []} className="mt-1" />
                   </div>

@@ -42,8 +42,9 @@ import {
   loadStoredBoardId,
   storeBoardId,
 } from "@/components/games/BoardPicker";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 
-type Player = { id: string; display_name: string; location: string | null };
+type Player = { id: string; display_name: string; location: string | null; avatar_url?: string | null };
 
 type StartScore = "201" | "301" | "501";
 
@@ -583,6 +584,7 @@ export default function NewMatchPage() {
                   checked={checked}
                   onChange={() => toggle(p.id)}
                 />
+                <PlayerAvatar player={p} size="md" />
                 <span className="truncate">{p.display_name}</span>
                 {loc && (
                   <span className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
