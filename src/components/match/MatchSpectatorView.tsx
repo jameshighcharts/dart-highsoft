@@ -5,28 +5,38 @@ import { TurnRow } from '@/components/TurnRow';
 import { SpectatorLiveMatchCard } from '@/components/match/SpectatorLiveMatchCard';
 import CommentaryDisplay from '@/components/CommentaryDisplay';
 import CommentarySettings from '@/components/CommentarySettings';
+import { CommentaryQuickToggle } from '@/components/match/CommentaryQuickToggle';
+import type { RealtimeCommentaryStatus } from '@/services/realtimeCommentaryService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { EloChangesDisplay } from '@/components/match/EloChangesDisplay';
 import { HistoricalMatchOverview } from '@/components/match/HistoricalMatchOverview';
 import { LiveScoliaBoard } from '@/components/match/LiveScoliaBoard';
+import { WorkerDartIQLive } from '@/components/match/DartIQLive';
 import { ScoliaMatchHeatmaps } from '@/components/match/ScoliaMatchHeatmaps';
 import type { MatchEloChange } from '@/hooks/useMatchEloChanges';
 import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
-import type { CommentaryPersona, CommentaryPersonaId } from '@/lib/commentary/types';
-import type { LegRecord, MatchRecord, Player, TurnRecord } from '@/lib/match/types';
+import type {
+  CommentaryPersona,
+  CommentaryPersonaId,
+  CommentaryTranscriptEntry,
+} from '@/lib/commentary/types';
+import type { LegRecord, MatchRecord, Player, TurnRecord, TurnWithThrows } from '@/lib/match/types';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { VoiceOption } from '@/services/ttsService';
 import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { DartIQLiveEvidence, DartIQLiveInput } from '@/lib/dartiq/liveWorker';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 
 const ScoreProgressChart = dynamic(
   () => import('@/components/ScoreProgressChart').then((module) => module.ScoreProgressChart),
   { loading: () => <div className="h-[300px] w-full animate-pulse rounded-md bg-muted/30" /> }
 );
+const DeferredScoreProgressChart = memo(ScoreProgressChart);
+const DeferredHeatmaps = memo(ScoliaMatchHeatmaps);
 
 type CelebrationState = {
   score: number;
@@ -58,6 +68,8 @@ type Props = {
   onHome: () => void;
   onToggleSpectatorMode: () => void;
   commentaryEnabled: boolean;
+  realtimeCommentaryStatus: RealtimeCommentaryStatus;
+  onToggleQuickCommentary: () => void;
   audioEnabled: boolean;
   voice: VoiceOption;
   personaId: CommentaryPersonaId;
@@ -66,6 +78,8 @@ type Props = {
   onVoiceChange: (voice: VoiceOption) => void;
   onPersonaChange: (personaId: CommentaryPersonaId) => void;
   currentCommentary: string | null;
+  commentaryTranscriptLog: CommentaryTranscriptEntry[];
+  onClearCommentaryTranscriptLog: () => void;
   commentaryLoading: boolean;
   commentaryPlaying: boolean;
   onSkipCommentary: () => void;
@@ -75,6 +89,8 @@ type Props = {
   eloChanges: MatchEloChange[];
   eloChangesLoading: boolean;
   fairEndingState?: FairEndingState;
+  dartIQWorkerEvidence?: DartIQLiveEvidence;
+  hasPersonalDartIQEvidence: boolean;
   isHistoryView?: boolean;
   onBackToGames: () => void;
 };
@@ -158,6 +174,8 @@ export function MatchSpectatorView({
   onHome,
   onToggleSpectatorMode,
   commentaryEnabled,
+  realtimeCommentaryStatus,
+  onToggleQuickCommentary,
   audioEnabled,
   voice,
   personaId,
@@ -166,6 +184,8 @@ export function MatchSpectatorView({
   onVoiceChange,
   onPersonaChange,
   currentCommentary,
+  commentaryTranscriptLog,
+  onClearCommentaryTranscriptLog,
   commentaryLoading,
   commentaryPlaying,
   onSkipCommentary,
@@ -175,12 +195,46 @@ export function MatchSpectatorView({
   eloChanges,
   eloChangesLoading,
   fairEndingState,
+  dartIQWorkerEvidence,
+  hasPersonalDartIQEvidence,
   isHistoryView = false,
   onBackToGames,
 }: Props) {
   const [winnerModalOpen, setWinnerModalOpen] = useState(false);
   const [scoliaBoardPhase, setScoliaBoardPhase] = useState<string | null | undefined>(undefined);
   const scoliaBoardId = match.scolia_board_id;
+  const chartInput = useMemo(() => ({ players: orderPlayers, turns, turnsByLeg, currentLegId, startScore }),
+    [orderPlayers, turns, turnsByLeg, currentLegId, startScore]);
+  const deferredChartInput = useDeferredValue(chartInput);
+  const dartIQInput = useMemo<DartIQLiveInput>(() => {
+    const canonicalTurnsByLeg = Object.fromEntries(
+      Object.entries(turnsByLeg).map(([legId, legTurns]) => [
+        legId,
+        legTurns as TurnWithThrows[],
+      ])
+    );
+    if (currentLegId) canonicalTurnsByLeg[currentLegId] = turns as TurnWithThrows[];
+
+    return {
+      playerIds: players.map((player) => player.id),
+      legs,
+      turnsByLeg: canonicalTurnsByLeg,
+      startScore,
+      finishRule,
+      legsToWin: match.legs_to_win,
+      fairEnding: Boolean(match.fair_ending),
+    };
+  }, [
+    currentLegId,
+    finishRule,
+    legs,
+    match.fair_ending,
+    match.legs_to_win,
+    players,
+    startScore,
+    turns,
+    turnsByLeg,
+  ]);
 
   const loadScoliaBoardPhase = useCallback(async () => {
     if (!scoliaBoardId || isHistoryView) return;
@@ -435,8 +489,9 @@ export function MatchSpectatorView({
             eloChangesLoading={eloChangesLoading}
           />
         ) : (
-        /* Cards Row - responsive layout */
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+          <>
+            {/* Cards Row - responsive layout */}
+            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
           {match.scolia_board_id && !isHistoryView ? (
             <LiveScoliaBoard
               turns={turns}
@@ -444,6 +499,11 @@ export function MatchSpectatorView({
               currentPlayerName={spectatorCurrentPlayer?.display_name}
               playerById={playerById}
               boardPhase={scoliaBoardPhase}
+              actions={<CommentaryQuickToggle
+                enabled={commentaryEnabled && audioEnabled}
+                status={realtimeCommentaryStatus}
+                onToggle={onToggleQuickCommentary}
+              />}
             />
           ) : null}
           <SpectatorLiveMatchCard
@@ -554,10 +614,22 @@ export function MatchSpectatorView({
               </div>
             </CardContent>
           </Card>
-        </div>
+            </div>
+          </>
         )}
 
-        {/* Score Progress Chart - Second Row */}
+        {!isHistoryView ? (
+          <WorkerDartIQLive
+            evidence={dartIQWorkerEvidence}
+            orderPlayers={orderPlayers}
+            legsToWin={match.legs_to_win}
+            matchWinnerId={matchWinnerId}
+            input={dartIQInput}
+            hasPersonalProfiles={hasPersonalDartIQEvidence}
+          />
+        ) : null}
+
+        {/* Score Progress Chart */}
         <Card className="w-full">
           <CardHeader>
             <CardTitle>{isHistoryView ? 'Final Leg Score Progress' : 'Score Progress'}</CardTitle>
@@ -566,20 +638,20 @@ export function MatchSpectatorView({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ScoreProgressChart
-              players={orderPlayers}
-              turns={turns}
-              startScore={parseInt(match.start_score)}
-              currentLegId={currentLegId}
+            <DeferredScoreProgressChart
+              players={deferredChartInput.players}
+              turns={deferredChartInput.turns}
+              startScore={deferredChartInput.startScore}
+              currentLegId={deferredChartInput.currentLegId}
             />
           </CardContent>
         </Card>
 
         {match.scolia_board_id ? (
-          <ScoliaMatchHeatmaps
-            players={orderPlayers}
-            turns={turns}
-            turnsByLeg={turnsByLeg}
+          <DeferredHeatmaps
+            players={deferredChartInput.players}
+            turns={deferredChartInput.turns}
+            turnsByLeg={deferredChartInput.turnsByLeg}
           />
         ) : null}
 
@@ -633,6 +705,8 @@ export function MatchSpectatorView({
               onAudioEnabledChange={onAudioEnabledChange}
               onVoiceChange={onVoiceChange}
               onPersonaChange={onPersonaChange}
+              transcriptLog={commentaryTranscriptLog}
+              onClearTranscriptLog={onClearCommentaryTranscriptLog}
             />
           ) : null}
         </div>

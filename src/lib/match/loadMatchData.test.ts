@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { loadMatchData } from './loadMatchData';
 
+it('uses all-leg rows for the current leg instead of querying its throws twice', async () => {
+  const log: string[] = [];
+  const result = await loadMatchData(createSupabaseMock(log) as never, 'match-1', { includeTurnsByLegThrows: true });
+  expect(log.filter((entry) => entry === 'turns')).toHaveLength(1);
+  expect(result.turns).toEqual(result.turnsByLeg['leg-1']);
+  expect(result.turnThrowCounts['turn-any']).toBe(1);
+});
+
 type QueryResult = { data: unknown; error: unknown };
 
 function createSupabaseMock(log: string[]) {

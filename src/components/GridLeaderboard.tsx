@@ -10,7 +10,7 @@ import '@highcharts/grid-pro/css/grid-pro.css';
 import { useLeaderboardData } from '@/hooks/useLeaderboardData';
 import { batchEloHistory, batchMultiEloHistory } from '@/utils/eloHistory';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
-import { renderPlayerCellHtml } from '@/lib/avatarStyle';
+import { renderPlayerCellHtml } from '@/lib/avatars';
 import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 
 SparklineRenderer['useHighcharts'](Highcharts);

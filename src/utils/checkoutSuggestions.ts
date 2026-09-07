@@ -1,5 +1,5 @@
-import { getDoubleOutCheckout } from '@/utils/checkoutTable';
-import type { FinishRule } from '@/utils/x01';
+import { getDoubleOutCheckout } from './checkoutTable.ts';
+import type { FinishRule } from './x01.ts';
 
 type Option = { label: string; scored: number; isDouble: boolean };
 

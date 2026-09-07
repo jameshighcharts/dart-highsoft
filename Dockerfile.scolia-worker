@@ -8,6 +8,7 @@ RUN npm ci --omit=dev
 
 COPY --chown=node:node tsconfig.json ./
 COPY --chown=node:node src ./src
+COPY --chown=node:node scripts/workerLoader.mjs scripts/workerResolve.mjs ./scripts/
 
 USER node
 

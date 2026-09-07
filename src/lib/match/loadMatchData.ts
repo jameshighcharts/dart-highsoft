@@ -48,18 +48,18 @@ export async function loadMatchData(
   const currentLeg = legs.find((l) => !l.winner_player_id) || legs[legs.length - 1] || null;
   const legIds = includeTurnsByLegSummary || includeTurnsByLegThrows ? legs.map((l) => l.id) : [];
   const allTurnsSelection = includeTurnsByLegThrows
-    ? '*, throws:throws(id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)'
+    ? '*, throws:throws(id, turn_id, dart_index, segment, scored, scolia_event_id, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)'
     : '*';
 
   const [{ data: currentLegTurns, error: currentLegTurnsError }, { data: allTurns, error: allTurnsError }] =
     await Promise.all([
-      currentLeg
+      currentLeg && !includeTurnsByLegThrows
         ? supabase
             .from('turns')
             .select(
               `
             *,
-            throws:throws(id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)
+            throws:throws(id, turn_id, dart_index, segment, scored, scolia_event_id, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)
           `
             )
             .eq('leg_id', currentLeg.id)
@@ -74,7 +74,9 @@ export async function loadMatchData(
   if (allTurnsError) throw allTurnsError;
 
   const turns = currentLeg
-    ? (((currentLegTurns ?? []) as TurnWithThrows[]).sort((a, b) => a.turn_number - b.turn_number) as unknown as TurnRecord[])
+    ? (((includeTurnsByLegThrows
+      ? ((allTurns ?? []) as TurnWithThrows[]).filter((turn) => turn.leg_id === currentLeg.id)
+      : currentLegTurns ?? []) as TurnWithThrows[]).sort((a, b) => a.turn_number - b.turn_number) as unknown as TurnRecord[])
     : ([] as TurnRecord[]);
 
   const turnThrowCounts: Record<string, number> = {};

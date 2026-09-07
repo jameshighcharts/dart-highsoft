@@ -13,6 +13,7 @@ type TurnInput = {
   tiebreak_round?: number | null;
   throw_count?: number;
   throws_total?: number;
+  completed?: boolean;
 };
 
 const playerA = { id: 'a' };
@@ -500,6 +501,21 @@ describe('Fair Ending Logic', () => {
       const state = computeFairEndingState(turns, [playerA, playerB], 101, true);
       expect(state.phase).toBe('resolved');
       expect(state.winnerId).toBe('a');
+    });
+
+    it('explicitly incomplete incremental turn is not closed by a provisional non-zero score', () => {
+      const turns = [
+        makeTurn('a', 60),
+        makeTurn('b', 45),
+        makeTurn('a', 41),
+        {
+          player_id: 'b', total_scored: 20, busted: false, tiebreak_round: null,
+          throw_count: 1, completed: false,
+        },
+      ];
+      const state = computeFairEndingState(turns, [playerA, playerB], 101, true);
+      expect(state.phase).toBe('completing_round');
+      expect(getNextFairEndingPlayer(state, [playerA, playerB], turns)).toBe('b');
     });
 
     it('All-misses turn during completing_round is counted correctly', () => {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import { Card, CardContent } from '@/components/ui/card';
 import type { ThrowRecord, TurnRecord, TurnWithThrows } from '@/lib/match/types';
@@ -114,7 +115,7 @@ function throwPresentation(segment: string) {
 
 function ThrowReadout({ dart, index }: { dart?: ThrowRecord; index: number }) {
   if (!dart) {
-    return <div className="min-h-36" aria-hidden="true" />;
+    return <div className="h-[clamp(3rem,12dvh,9rem)]" aria-hidden="true" />;
   }
 
   const presentation = throwPresentation(dart.segment);
@@ -124,7 +125,7 @@ function ThrowReadout({ dart, index }: { dart?: ThrowRecord; index: number }) {
     ?? dart.segment.toUpperCase();
   return (
     <div
-      className={`throw-readout relative flex min-h-36 items-center justify-center overflow-visible ${presentation.card}`}
+      className={`throw-readout relative flex h-[clamp(3rem,12dvh,9rem)] items-center justify-center overflow-visible ${presentation.card}`}
       style={{ animationDelay: `${index * 70}ms` }}
       aria-label={`Dart ${index + 1}: ${presentation.label} ${dart.segment}, ${dart.scored} points`}
     >
@@ -145,12 +146,14 @@ export function LiveScoliaBoard({
   currentPlayerName,
   playerById,
   boardPhase,
+  actions,
 }: {
   turns: TurnRecord[];
   currentLegId?: string;
   currentPlayerName?: string;
   playerById?: Record<string, { display_name: string }>;
   boardPhase?: string | null;
+  actions?: ReactNode;
 }) {
   const latestVisit = useMemo(() => {
     let latest: TurnWithThrows | undefined;
@@ -204,12 +207,13 @@ export function LiveScoliaBoard({
   }), []);
 
   return (
-    <Card className="xl:col-span-2 overflow-visible">
-      <CardContent className="grid justify-items-center gap-6 py-6 min-[1900px]:min-h-[650px] min-[1900px]:grid-cols-[650px_minmax(0,1fr)] min-[1900px]:items-center min-[1900px]:justify-items-stretch min-[1900px]:py-0">
+    <Card className="live-board-card relative h-[calc(100dvh-3rem)] min-h-0 self-start overflow-hidden py-4 xl:col-span-2">
+      {actions ? <div className="absolute right-3 top-3 z-10">{actions}</div> : null}
+      <CardContent className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] justify-items-center gap-3 px-4 py-0 min-[1900px]:grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)] min-[1900px]:grid-rows-[minmax(0,1fr)] min-[1900px]:items-center">
         <h2 className="sr-only">Live Board</h2>
         <svg
           viewBox={`${VIEWBOX_INSET} ${VIEWBOX_INSET} ${SIZE - VIEWBOX_INSET * 2} ${SIZE - VIEWBOX_INSET * 2}`}
-          className="aspect-square w-full max-w-[650px] shrink-0 drop-shadow-xl"
+          className="h-full min-h-0 w-full min-w-0 drop-shadow-xl"
           role="img"
           aria-label="Live Scolia dartboard"
         >
@@ -321,7 +325,7 @@ export function LiveScoliaBoard({
         </svg>
         <div
           key={visitWasTakenOut ? `next-${clearedVisitId}-${currentPlayerName}` : `visit-${currentVisit?.id ?? 'empty'}`}
-          className={`relative flex w-full flex-col justify-center min-[1900px]:min-h-[600px] ${visitWasTakenOut ? 'next-player-stage' : ''}`}
+          className={`relative flex min-h-0 w-full min-w-0 flex-col justify-center ${visitWasTakenOut ? 'next-player-stage' : ''}`}
           aria-label="Current visit throws"
         >
           {displayedPlayerName ? (
@@ -329,7 +333,7 @@ export function LiveScoliaBoard({
               <div className="text-[10px] font-black uppercase tracking-[0.42em] text-cyan-500/70 sm:text-xs">
                 Current player
               </div>
-              <div className="mt-1 bg-gradient-to-r from-cyan-300 via-white to-sky-400 bg-clip-text text-4xl font-black uppercase italic leading-none tracking-[-0.04em] text-transparent drop-shadow-[0_0_18px_rgba(56,189,248,0.32)] sm:text-5xl min-[1900px]:text-6xl">
+              <div className="mt-1 truncate bg-gradient-to-r from-cyan-300 via-white to-sky-400 bg-clip-text text-[clamp(1.25rem,5dvh,3.75rem)] font-black uppercase italic leading-none tracking-[-0.04em] text-transparent drop-shadow-[0_0_18px_rgba(56,189,248,0.32)]" title={displayedPlayerName}>
                 {displayedPlayerName}
               </div>
             </div>
@@ -338,7 +342,7 @@ export function LiveScoliaBoard({
               Waiting for player
             </div>
           )}
-          <div className="throw-readout-grid grid grid-cols-1 gap-3 sm:grid-cols-3" role="list">
+          <div className="throw-readout-grid grid grid-cols-3 gap-3" role="list">
             {Array.from({ length: 3 }, (_, index) => (
               <div key={currentThrows[index]?.id ?? `empty-${index}`} role="listitem">
                 <ThrowReadout dart={currentThrows[index]} index={index} />
@@ -348,12 +352,15 @@ export function LiveScoliaBoard({
           {currentThrows.length > 0 ? (
             <div key={`${currentVisit?.id}-${visitTotal}`} className="visit-total mt-1 flex items-baseline justify-center gap-3 font-mono font-black italic text-white/85">
               <span className="text-2xl text-white/25">=</span>
-              <span className="text-5xl tracking-[-0.08em]">{visitTotal}</span>
+              <span className="text-[clamp(1.5rem,5dvh,3rem)] tracking-[-0.08em]">{visitTotal}</span>
             </div>
           ) : null}
         </div>
       </CardContent>
       <style jsx global>{`
+        .live-board-card .throw-score {
+          font-size: clamp(2rem, min(7vw, 10dvh), 8rem);
+        }
         .throw-readout {
           animation: throw-enter .52s cubic-bezier(.12,.9,.2,1.25) both;
         }

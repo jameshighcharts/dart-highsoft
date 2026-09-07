@@ -30,6 +30,7 @@ Optional environment variables for AI commentary / TTS:
 OPENAI_API_KEY=
 COMMENTARY_PERSONA=
 COMMENTARY_MODEL=
+OPENAI_REALTIME_COMMENTARY_MODEL=gpt-realtime-2.1
 ```
 
 Sign in with Slack gates the whole app (`/login`) and the `/admin` user panel
@@ -70,7 +71,7 @@ Make sure you have:
 - A GitHub account
 - A Vercel account
 - A Supabase account
-- Node.js 22+ installed (the Scolia worker uses Node's built-in WebSocket client)
+- Node.js 22+ installed
 - `npm install` already run in this repo
 
 If you want the easy GitHub-based deployment flow, put the repo in your own GitHub account first.
@@ -175,6 +176,7 @@ SUPABASE_SERVICE_ROLE_KEY=service_role key
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
+OPENAI_API_KEY=... # optional for scoring; required for direct Scolia Realtime commentary
 ```
 
 8. If you want commentary and TTS, also add:
@@ -242,17 +244,67 @@ SUPABASE_SERVICE_ROLE_KEY=...
 
 ### Railway
 
+The worker remains one Node 22 process started by `npm run scolia:worker`.
+The script imports `scripts/workerLoader.mjs` to resolve the shared DartIQ/commentary
+TypeScript imports (`@/` aliases and extensionless paths) outside Next.js. The
+Dockerfile includes this loader; no extra Railway service or build dependency is
+needed. Local launches use the same script and require Node 22.15 or newer.
+
+Apply migrations `0062_scolia_worker_notifications.sql` and
+`0063_worker_snapshots.sql` along with the preceding commentary migrations before
+deploying this version of the app and worker. The worker calls the new snapshot
+RPCs, so deploying code before the schema will stop scoring until it is migrated.
+The notification migration adds service-role
+Realtime wake-ups for outbound corrections and commentary work without granting
+browser access to those tables. A 15-second reconciliation poll recovers missed
+notifications; incoming darts still arrive directly over the Scolia WebSocket.
+Snapshot RPCs retain fresh post-insert scoring reads and return unchanged telemetry
+revisions without downloading history. Source-row triggers invalidate revisions
+on scoring, corrections, player order, configuration, and evidence changes.
+
+Migration `0064_continuous_dartiq_calibration.sql` adds daily background evaluation
+at 02:17 (UTC with the default pg_cron timezone). Deploy the app's
+`dartiq_calibration` job handler alongside this migration. It uses the existing
+`/api/background-jobs` dispatcher: Supabase Vault must contain
+`background_jobs_app_url` and `background_jobs_secret`, and the app's
+`BACKGROUND_JOB_SECRET` must match. No new Railway service is needed. Missing
+dispatcher configuration leaves jobs queued rather than running calibration.
+The evaluator writes private reports only; it neither promotes models nor changes
+live predictions. It checks at most four recent model versions per day, with a
+90-day / 200-match / 40-prediction-per-match cap, and skips unchanged reports.
+This report-only temperature evaluator records geometry coverage; the separate
+training job below owns fitted geometry and automatic activation.
+The first qualifying temperature report becomes a frozen follow-up candidate for
+its model/evaluator version; subsequent daily jobs evaluate only matches started
+after that report was saved. This adds no live scoring writes or extra service.
+Migration `0065_dartiq_model_training.sql` adds automatic behavioural/spatial
+training at 02:27 UTC (default pg_cron timezone), through the same dispatcher and
+secrets. Deploy the `dartiq_training` handler with it. No extra Railway service,
+dependency, or per-dart job is needed. The registry starts empty: 30 matches / 500
+darts fit a candidate; at least 30 further matches / 500 darts are needed before
+automatic activation. Geometry has additional per-context validation gates.
+New matches pin activated artifacts; existing matches retain their frozen model.
+Supported regressions disable the active artifact for future matches automatically.
+The first geometry version only covers scoring above 170; checkout aim inference
+is not implemented. These thresholds can leave geometry hidden for weeks at low
+office volume, which is expected rather than a worker failure.
+
 1. Create another service in the Railway project from this GitHub repository.
 2. Configure it to build with `Dockerfile.scolia-worker`.
-3. Add the three worker environment variables above.
+3. Add the worker environment variables above. Include `OPENAI_API_KEY` when using Realtime commentary.
 4. Keep the service private; it does not need a public domain or inbound port.
 5. Set the replica count to exactly **one** and disable sleeping/serverless scaling.
+
+Deploy between matches when possible. The new worker retries failed scoring
+events in order; commentary delivery runs on a separate queue so provider delays
+do not hold up the next dart. Persisted pending darts are recovered on reconnect
+and while the worker is idle.
 
 ### Render
 
 1. Create a **Background Worker** from this GitHub repository.
 2. Use `npm ci` as the build command and `npm run scolia:worker` as the start command, or build `Dockerfile.scolia-worker`.
-3. Add the three worker environment variables above.
+3. Add the worker environment variables above. Include `OPENAI_API_KEY` when using Realtime commentary.
 4. Run exactly **one** instance.
 
 The one-replica rule is important: every worker instance attempts one WebSocket per board, and Scolia rejects competing connections to the same board.

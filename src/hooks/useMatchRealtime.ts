@@ -18,6 +18,7 @@ import {
   PendingThrowBuffer,
   getRealtimePayloadLegId,
   getRealtimePayloadTurnId,
+  replaceRealtimeLegTurns,
   shouldClearLocalOngoingTurn,
   shouldIgnoreRealtimePayload,
   type RealtimePayload,
@@ -25,11 +26,23 @@ import {
 import {
   applyThrowChange as applySpectatorThrowChange,
   applyTurnChange as applySpectatorTurnChange,
+  type ThrowChangePayload,
 } from '@/lib/match/spectatorRealtimeReducer';
 import { incrementRealtimeMetric } from '@/lib/match/realtimeMetrics';
-import type { CommentaryDebouncer } from '@/services/commentaryService';
 import type { CommentaryPersonaId } from '@/lib/commentary/types';
+import type { RealtimeCommentaryService } from '@/services/realtimeCommentaryService';
 import type { SegmentResult } from '@/utils/dartboard';
+import { summarizeDartIQForTurn } from '@/lib/dartiq/insights';
+import { reconstructDartIQTimeline } from '@/lib/dartiq/replay';
+import type {
+  DartIQPlayerHistoryProfile,
+  DartIQPopulationProfile,
+} from '@/lib/dartiq/evidence';
+import type { DartIQOutcomeModel } from '@/lib/dartiq/model/outcomes';
+import { isNikitaSpecial } from '@/utils/nikitaSpecial';
+import { buildCommentaryNarrativeMemory } from '@/lib/commentary/commentaryNarrative';
+import { computeDartIQCommentary } from '@/hooks/useDartIQWorker';
+import type { DartIQLiveEvidence } from '@/lib/dartiq/liveWorker';
 
 function segmentLabelToKind(label: string): SegmentResult['kind'] {
   if (label === 'Miss') return 'Miss';
@@ -82,6 +95,10 @@ function areTurnsEqual(a: TurnRecord[], b: TurnRecord[]): boolean {
         leftThrow.dart_index !== rightThrow.dart_index ||
         leftThrow.segment !== rightThrow.segment ||
         leftThrow.scored !== rightThrow.scored
+        || leftThrow.impact_x_mm !== rightThrow.impact_x_mm
+        || leftThrow.impact_y_mm !== rightThrow.impact_y_mm
+        || leftThrow.angle_horizontal_deg !== rightThrow.angle_horizontal_deg
+        || leftThrow.angle_vertical_deg !== rightThrow.angle_vertical_deg
       ) {
         return false;
       }
@@ -97,12 +114,6 @@ type CelebrationState = {
   level: 'info' | 'good' | 'excellent' | 'godlike' | 'max' | 'bust' | 'nikita';
   throws: { segment: string; scored: number; dart_index: number }[];
 } | null;
-
-function isNikitaSpecial(throws: { scored: number }[]): boolean {
-  if (throws.length !== 3) return false;
-  const sorted = throws.map((t) => t.scored).sort((a, b) => a - b);
-  return sorted[0] === 1 && sorted[1] === 5 && sorted[2] === 20;
-}
 
 type RealtimeApi = {
   isConnected: boolean;
@@ -126,6 +137,7 @@ type UseMatchRealtimeArgs = {
     playerById: Record<string, Player>;
     turnThrowCounts: Record<string, number>;
     turns: TurnRecord[];
+    turnsByLeg: Record<string, TurnRecord[]>;
     legs: LegRecord[];
     players: Player[];
     match: MatchRecord | null;
@@ -135,6 +147,9 @@ type UseMatchRealtimeArgs = {
   pendingThrowBufferRef: React.MutableRefObject<PendingThrowBuffer>;
   pendingTurnReconcileRef: React.MutableRefObject<Set<string>>;
   setTurns: (value: TurnRecord[] | ((prev: TurnRecord[]) => TurnRecord[])) => void;
+  setTurnsByLeg: (
+    value: Record<string, TurnRecord[]> | ((prev: Record<string, TurnRecord[]>) => Record<string, TurnRecord[]>)
+  ) => void;
   setTurnThrowCounts: (value: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => void;
   setMatch: (value: MatchRecord | null) => void;
   ongoingTurnRef: React.MutableRefObject<{
@@ -148,15 +163,22 @@ type UseMatchRealtimeArgs = {
   celebratedTurns: React.MutableRefObject<Set<string>>;
   commentaryEnabled: boolean;
   personaId: CommentaryPersonaId;
-  commentaryDebouncer: React.MutableRefObject<CommentaryDebouncer>;
   setCommentaryLoading: (value: boolean) => void;
   setCommentaryPlaying: (value: boolean) => void;
   setCurrentCommentary: (value: string | null) => void;
+  recordCompletedCommentary: (value: string) => void;
   ttsServiceRef: React.MutableRefObject<{
     getSettings: () => { enabled: boolean; voice: VoiceOption };
     queueCommentary: (input: { text: string; personaId: CommentaryPersonaId; excitement: ReturnType<typeof getExcitementLevel> }) => Promise<void>;
     getIsPlaying: () => boolean;
+    skipCurrent: () => void;
+    clearQueue: () => void;
   }>;
+  realtimeCommentaryRef: React.MutableRefObject<RealtimeCommentaryService | null>;
+  dartIQEvidenceByPlayerId: ReadonlyMap<string, DartIQPlayerHistoryProfile>;
+  dartIQPopulationEvidence?: DartIQPopulationProfile;
+  dartIQModelsByPlayerId: ReadonlyMap<string, DartIQOutcomeModel>;
+  dartIQWorkerEvidence?: DartIQLiveEvidence;
 };
 
 export function useMatchRealtime({
@@ -174,6 +196,7 @@ export function useMatchRealtime({
   pendingThrowBufferRef,
   pendingTurnReconcileRef,
   setTurns,
+  setTurnsByLeg,
   setTurnThrowCounts,
   setMatch,
   ongoingTurnRef,
@@ -182,11 +205,16 @@ export function useMatchRealtime({
   celebratedTurns,
   commentaryEnabled,
   personaId,
-  commentaryDebouncer,
   setCommentaryLoading,
   setCommentaryPlaying,
   setCurrentCommentary,
+  recordCompletedCommentary,
   ttsServiceRef,
+  realtimeCommentaryRef,
+  dartIQEvidenceByPlayerId,
+  dartIQPopulationEvidence,
+  dartIQModelsByPlayerId,
+  dartIQWorkerEvidence,
 }: UseMatchRealtimeArgs) {
   const spectatorTurnsFetchRef = useRef<Promise<void> | null>(null);
   const spectatorTurnsFetchQueuedRef = useRef(false);
@@ -205,6 +233,8 @@ export function useMatchRealtime({
     }
 
     // Handle throw changes - hot update without full reload
+    let disposed = false;
+    const recoveringTurns = new Map<string, ThrowChangePayload[]>();
     const processThrowChange = async (event: CustomEvent) => {
       // Route to appropriate handler based on mode (use ref to avoid stale closure)
       if (latestStateRef.current.isSpectatorMode) {
@@ -219,11 +249,34 @@ export function useMatchRealtime({
     // buffer unknown turn_ids and flush once the corresponding turn becomes known.
     const pendingThrowBuffer = pendingThrowBufferRef.current;
 
+    const publishTurnsForLeg = (legId: string, nextTurns: TurnRecord[]) => {
+      setTurns((prev) => (areTurnsEqual(prev, nextTurns) ? prev : nextTurns));
+      setTurnsByLeg((prev) => {
+        const previousLegTurns = prev[legId] ?? [];
+        return areTurnsEqual(previousLegTurns, nextTurns)
+          ? prev
+          : replaceRealtimeLegTurns(prev, legId, nextTurns);
+      });
+      latestStateRef.current = {
+        ...latestStateRef.current,
+        turns: nextTurns,
+        turnsByLeg: replaceRealtimeLegTurns(latestStateRef.current.turnsByLeg, legId, nextTurns),
+      };
+    };
+
     const handleThrowChange = async (event: CustomEvent) => {
-      const payload = event.detail as RealtimePayload;
+      const payload = event.detail as RealtimePayload & {
+        eventType?: 'INSERT' | 'UPDATE' | 'DELETE';
+        new?: Partial<ThrowRecord>;
+        old?: Partial<ThrowRecord>;
+      };
       const legId = getRealtimePayloadLegId(payload);
       const turnId = getRealtimePayloadTurnId(payload);
-      const { knownLegIds } = latestStateRef.current;
+      const payloadMatchId = (payload.new as { match_id?: string } | undefined)?.match_id
+        ?? (payload.old as { match_id?: string } | undefined)?.match_id;
+      if (payloadMatchId && payloadMatchId !== matchId) return;
+      if (turnId) recoveringTurns.get(turnId)?.push(payload);
+      const { knownLegIds, knownTurnIds, turns } = latestStateRef.current;
 
       // Until initial match state is loaded, ignore throw events entirely.
       // This prevents cross-match contamination when multiple matches are active.
@@ -231,8 +284,36 @@ export function useMatchRealtime({
         return;
       }
 
+      const belongsToMatch = Boolean(
+        (legId && knownLegIds.has(legId))
+        || (turnId && (knownTurnIds.has(turnId) || turns.some((turn) => turn.id === turnId)))
+      );
+      if (
+        belongsToMatch
+        && payload.eventType === 'INSERT'
+        && payload.new?.id
+        && turnId
+        && typeof payload.new.dart_index === 'number'
+        && !latestStateRef.current.match?.scolia_board_id
+      ) {
+        realtimeCommentaryRef.current?.observeMatchDart({
+          eventId: payload.new.id,
+          turnId,
+          playerId: turns.find((turn) => turn.id === turnId)?.player_id,
+          dartIndex: payload.new.dart_index,
+        });
+      }
+      if (belongsToMatch && (payload.eventType === 'UPDATE' || payload.eventType === 'DELETE')) {
+        ttsServiceRef.current.skipCurrent();
+        ttsServiceRef.current.clearQueue();
+        setCommentaryPlaying(false);
+        setCurrentCommentary(null);
+        realtimeCommentaryRef.current?.correct(
+          payload.eventType === 'UPDATE' ? 'throw_updated' : 'throw_deleted'
+        );
+      }
+
       if (!legId && turnId) {
-        const { knownTurnIds, turns } = latestStateRef.current;
         const hasTurnInState = turns.some((turn) => turn.id === turnId);
         const hasKnownTurns = knownTurnIds.size > 0;
         const isKnownTurn = hasKnownTurns && knownTurnIds.has(turnId);
@@ -242,24 +323,12 @@ export function useMatchRealtime({
         }
         if (!hasTurnInState && hasKnownTurns && !knownTurnIds.has(turnId)) {
           pendingThrowBuffer.set(turnId, payload);
-          if (latestStateRef.current.isSpectatorMode && !pendingTurnReconcileRef.current.has(turnId)) {
-            pendingTurnReconcileRef.current.add(turnId);
-            setTimeout(() => {
-              pendingTurnReconcileRef.current.delete(turnId);
-              void reconcileSpectatorTurn(turnId);
-            }, 200);
-          }
+          if (latestStateRef.current.isSpectatorMode) void reconcileSpectatorTurn(turnId);
           return;
         }
         if (!hasTurnInState && !hasKnownTurns) {
           pendingThrowBuffer.set(turnId, payload);
-          if (latestStateRef.current.isSpectatorMode && !pendingTurnReconcileRef.current.has(turnId)) {
-            pendingTurnReconcileRef.current.add(turnId);
-            setTimeout(() => {
-              pendingTurnReconcileRef.current.delete(turnId);
-              void reconcileSpectatorTurn(turnId);
-            }, 200);
-          }
+          if (latestStateRef.current.isSpectatorMode) void reconcileSpectatorTurn(turnId);
         }
       }
 
@@ -284,6 +353,12 @@ export function useMatchRealtime({
         setCommentaryLoading(true);
 
         const { turns: turnsSnapshot, legs: legsSnapshot, players: playersSnapshot, match: matchSnapshot } = snapshot;
+        const realtimeCommentary = realtimeCommentaryRef.current;
+        if (matchSnapshot?.scolia_board_id && realtimeCommentary?.getStatus() === 'ready') {
+          // Direct worker commentary already owns this dart. Skip replay as well as speech.
+          setCommentaryLoading(false);
+          return;
+        }
 
         const startScoreValue = matchSnapshot?.start_score ? parseInt(matchSnapshot.start_score, 10) : 501;
         const legsToWinValue = matchSnapshot?.legs_to_win ?? 3;
@@ -313,6 +388,7 @@ export function useMatchRealtime({
 
         const allPlayersStats = playersSnapshot.map((p) => ({
           name: p.display_name,
+          nicknames: p.nicknames,
           id: p.id,
           remainingScore: computeRemainingScore(turnsSnapshot, p.id, startScoreValue),
           average: computeAverage(p.id),
@@ -368,10 +444,48 @@ export function useMatchRealtime({
         const overallTurnNumber = turn.turn_number;
         const dartsUsedThisTurn = throws.length;
         const turnTotal = computeTurnTotal(turn);
+        let dartiq: CommentaryContext['dartiq'];
+        let narrative: CommentaryContext['narrative'];
+        if (currentLeg && matchSnapshot) {
+          const initialLegsWon = legsSnapshot.reduce<Record<string, number>>((acc, leg) => {
+            if (leg.id !== currentLeg.id && leg.winner_player_id) {
+              acc[leg.winner_player_id] = (acc[leg.winner_player_id] ?? 0) + 1;
+            }
+            return acc;
+          }, {});
+          const replayInput = {
+            playerIds: playersSnapshot.map((player) => player.id),
+            legs: [currentLeg],
+            turnsByLeg: {
+              [currentLeg.id]: turnsSnapshot.filter((entry) => entry.leg_id === currentLeg.id),
+            },
+            startScore: startScoreValue,
+            finishRule: matchSnapshot.finish,
+            legsToWin: legsToWinValue,
+            initialLegsWon,
+            fairEnding: Boolean(matchSnapshot.fair_ending),
+          };
+          if (latestStateRef.current.isSpectatorMode) {
+            const beforeAnalysis = latestStateRef.current;
+            const analysis = await computeDartIQCommentary(replayInput, dartIQWorkerEvidence, turn.id, turn.player_id);
+            if (disposed || latestStateRef.current.turns !== beforeAnalysis.turns) return;
+            dartiq = analysis?.dartiq ?? undefined;
+            narrative = analysis?.narrative;
+          } else {
+            const dartIQTimeline = reconstructDartIQTimeline({ ...replayInput,
+              playerProfiles: Object.fromEntries(dartIQEvidenceByPlayerId),
+              populationProfile: dartIQPopulationEvidence,
+              outcomeModels: Object.fromEntries(dartIQModelsByPlayerId),
+            });
+            dartiq = summarizeDartIQForTurn(dartIQTimeline, turn.id, turn.player_id) ?? undefined;
+            narrative = buildCommentaryNarrativeMemory({ events: dartIQTimeline, finishRule: matchSnapshot.finish });
+          }
+        }
 
         const context: CommentaryContext = {
           playerName,
           playerId: turn.player_id,
+          turnId: turn.id,
           totalScore: turnTotal,
           remainingScore,
           throws: throws.map((t) => ({
@@ -382,6 +496,9 @@ export function useMatchRealtime({
           busted: turn.busted,
           isHighScore: turnTotal >= 100,
           is180: turnTotal === 180,
+          isNikitaSpecial: isNikitaSpecial(throws),
+          dartiq,
+          narrative,
           gameContext: {
             startScore: startScoreValue,
             legsToWin: legsToWinValue,
@@ -402,10 +519,16 @@ export function useMatchRealtime({
           },
         };
 
+        if (realtimeCommentary?.commentate(context)) {
+          setCommentaryLoading(false);
+          return;
+        }
+
         const response = await generateCommentary(context, personaId);
 
         if (response.commentary) {
           setCurrentCommentary(response.commentary);
+          recordCompletedCommentary(response.commentary);
 
           const tts = ttsServiceRef.current;
           if (tts.getSettings().enabled) {
@@ -461,17 +584,15 @@ export function useMatchRealtime({
           .from('turns')
           .select(`
                 id, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round, created_at,
-                throws:throws(id, turn_id, dart_index, segment, scored)
+                throws:throws(id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)
               `)
           .eq('leg_id', currentLeg.id)
           .order('turn_number', { ascending: true });
 
-        if (!updatedTurns) return;
+        if (disposed || !updatedTurns) return;
 
-        setTurns((prev) => {
-          const next = updatedTurns as unknown as TurnRecord[];
-          return areTurnsEqual(prev, next) ? prev : next;
-        });
+        const nextTurns = updatedTurns as unknown as TurnRecord[];
+        publishTurnsForLeg(currentLeg.id, nextTurns);
 
         const throwCounts: Record<string, number> = {};
         for (const turn of updatedTurns as TurnWithThrows[]) {
@@ -483,7 +604,6 @@ export function useMatchRealtime({
         });
         latestStateRef.current = {
           ...latestStateRef.current,
-          turns: updatedTurns as unknown as TurnRecord[],
           turnThrowCounts: throwCounts,
         };
       };
@@ -499,45 +619,48 @@ export function useMatchRealtime({
     };
 
     const reconcileSpectatorTurn = async (turnId: string) => {
+      if (disposed || recoveringTurns.has(turnId)) return;
+      const intervening: ThrowChangePayload[] = [];
+      recoveringTurns.set(turnId, intervening);
+      const turnAtRequest = latestStateRef.current.turns.find((turn) => turn.id === turnId);
       incrementRealtimeMetric(matchId, 'reconcileTurnCalls');
       try {
         const supabase = await getSupabaseClient();
-        const { data: fetchedTurns } = await supabase
+        const { data: fetchedTurns, error } = await supabase
           .from('turns')
           .select(
             `
             id, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round, created_at,
-            throws:throws(id, turn_id, dart_index, segment, scored)
+            throws:throws(id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)
           `
           )
           .eq('id', turnId)
+          .eq('match_id', matchId)
           .limit(1);
+        if (disposed) return;
+        if (error) throw error;
         const turn = (fetchedTurns as TurnWithThrows[] | null)?.[0];
-        if (!turn) {
-          await reconcileSpectatorCurrentLeg();
-          return;
-        }
+        if (!turn) return;
 
         const legsSnapshot = latestStateRef.current.legs;
         const currentLeg = legsSnapshot.find((l) => !l.winner_player_id) ?? legsSnapshot[legsSnapshot.length - 1];
-        if (currentLeg && turn.leg_id !== currentLeg.id) return;
+        if (!currentLeg || turn.leg_id !== currentLeg.id) return;
 
         const existingTurns = latestStateRef.current.turns as TurnWithThrows[];
+        const liveTurn = existingTurns.find((candidate) => candidate.id === turnId);
+        const recoveredTurn = liveTurn && liveTurn !== turnAtRequest
+          ? { ...turn, ...liveTurn, throws: turn.throws } : turn;
         const existing = existingTurns.filter((t) => t.id !== turn.id);
-        let nextTurns = [...existing, turn].sort((a, b) => a.turn_number - b.turn_number);
+        let nextTurns = [...existing, recoveredTurn].sort((a, b) => a.turn_number - b.turn_number);
         let nextCounts: Record<string, number> = {
           ...latestStateRef.current.turnThrowCounts,
           [turn.id]: (turn.throws ?? []).length,
         };
 
         const pending = pendingThrowBufferRef.current.take(turnId);
-        if (pending) {
+        for (const change of [...(pending ? [pending as ThrowChangePayload] : []), ...intervening]) {
           const result = applySpectatorThrowChange(
-            pending as {
-              eventType?: 'INSERT' | 'UPDATE' | 'DELETE';
-              new?: Partial<ThrowRecord>;
-              old?: Partial<ThrowRecord>;
-            },
+            change,
             {
               currentLegId: currentLeg?.id,
               turns: nextTurns as TurnWithThrows[],
@@ -548,20 +671,19 @@ export function useMatchRealtime({
           nextCounts = result.turnThrowCounts;
         }
 
-        setTurns((prev) => {
-          return areTurnsEqual(prev, nextTurns as unknown as TurnRecord[]) ? prev : (nextTurns as unknown as TurnRecord[]);
-        });
+        publishTurnsForLeg(turn.leg_id, nextTurns as unknown as TurnRecord[]);
 
         setTurnThrowCounts((prev) => {
           return areThrowCountsEqual(prev, nextCounts) ? prev : nextCounts;
         });
         latestStateRef.current = {
           ...latestStateRef.current,
-          turns: nextTurns as unknown as TurnRecord[],
           turnThrowCounts: nextCounts,
         };
       } catch {
-        void reconcileSpectatorCurrentLeg();
+        if (!disposed) void reconcileSpectatorCurrentLeg();
+      } finally {
+        recoveringTurns.delete(turnId);
       }
     };
 
@@ -584,13 +706,7 @@ export function useMatchRealtime({
           pendingThrowBufferRef.current.set(payloadTurnId, payload);
           if (latestStateRef.current.knownTurnIds.has(payloadTurnId)) {
             await reconcileSpectatorTurn(payloadTurnId);
-          } else if (!pendingTurnReconcileRef.current.has(payloadTurnId)) {
-            pendingTurnReconcileRef.current.add(payloadTurnId);
-            setTimeout(() => {
-              pendingTurnReconcileRef.current.delete(payloadTurnId);
-              void reconcileSpectatorTurn(payloadTurnId);
-            }, 200);
-          }
+          } else void reconcileSpectatorTurn(payloadTurnId);
         }
         return;
       }
@@ -618,13 +734,7 @@ export function useMatchRealtime({
             pendingThrowBufferRef.current.set(payloadTurnId, payload);
             if (latestStateRef.current.knownTurnIds.has(payloadTurnId)) {
               await reconcileSpectatorTurn(payloadTurnId);
-            } else if (!pendingTurnReconcileRef.current.has(payloadTurnId)) {
-              pendingTurnReconcileRef.current.add(payloadTurnId);
-              setTimeout(() => {
-                pendingTurnReconcileRef.current.delete(payloadTurnId);
-                void reconcileSpectatorTurn(payloadTurnId);
-              }, 200);
-            }
+            } else void reconcileSpectatorTurn(payloadTurnId);
           }
           return;
         }
@@ -634,16 +744,14 @@ export function useMatchRealtime({
         const turnsChanged = !areTurnsEqual(prevTurns, result.turns as unknown as TurnRecord[]);
         const countsChanged = !areThrowCountsEqual(prevCounts, result.turnThrowCounts);
 
-        setTurns((prev) => {
-          const next = result.turns as unknown as TurnRecord[];
-          return areTurnsEqual(prev, next) ? prev : next;
-        });
+        if (currentLegId) {
+          publishTurnsForLeg(currentLegId, result.turns as unknown as TurnRecord[]);
+        }
         setTurnThrowCounts((prev) => {
           return areThrowCountsEqual(prev, result.turnThrowCounts) ? prev : result.turnThrowCounts;
         });
         latestStateRef.current = {
           ...latestStateRef.current,
-          turns: result.turns as unknown as TurnRecord[],
           turnThrowCounts: result.turnThrowCounts,
         };
         if (!turnsChanged && !countsChanged && payloadTurnId && latestStateRef.current.knownTurnIds.has(payloadTurnId)) {
@@ -718,8 +826,7 @@ export function useMatchRealtime({
               setTimeout(() => setCelebration(null), 2000);
             }
 
-            if (commentaryEnabled && commentaryDebouncer.current.canCall()) {
-              commentaryDebouncer.current.markCalled();
+            if (commentaryEnabled) {
               const snapshot: CommentarySnapshot = {
                 turns: result.turns as TurnWithThrows[],
                 legs: latestStateRef.current.legs,
@@ -829,10 +936,7 @@ export function useMatchRealtime({
             }
 
             // Update state with functional updates
-            setTurns((prev) => {
-              const newTurns = updatedTurns as unknown as TurnRecord[];
-              return areTurnsEqual(prev, newTurns) ? prev : newTurns;
-            });
+            publishTurnsForLeg(currentLeg.id, updatedTurns as unknown as TurnRecord[]);
 
             // Update throw counts
             const throwCounts: Record<string, number> = {};
@@ -961,16 +1065,14 @@ export function useMatchRealtime({
           return;
         }
 
-        setTurns((prev) => {
-          const next = result.turns as unknown as TurnRecord[];
-          return areTurnsEqual(prev, next) ? prev : next;
-        });
+        if (currentLegId) {
+          publishTurnsForLeg(currentLegId, result.turns as unknown as TurnRecord[]);
+        }
         setTurnThrowCounts((prev) => {
           return areThrowCountsEqual(prev, result.turnThrowCounts) ? prev : result.turnThrowCounts;
         });
         latestStateRef.current = {
           ...latestStateRef.current,
-          turns: result.turns as unknown as TurnRecord[],
           turnThrowCounts: result.turnThrowCounts,
         };
 
@@ -1041,8 +1143,7 @@ export function useMatchRealtime({
               setTimeout(() => setCelebration(null), 2000);
             }
 
-            if (commentaryEnabled && commentaryDebouncer.current.canCall()) {
-              commentaryDebouncer.current.markCalled();
+            if (commentaryEnabled) {
               const snapshot: CommentarySnapshot = {
                 turns: result.turns as TurnWithThrows[],
                 legs: latestStateRef.current.legs,
@@ -1065,13 +1166,27 @@ export function useMatchRealtime({
     };
 
     // Handle leg changes - requires full reload for leg transitions
-    const handleLegChange = async () => {
+    const handleLegChange = async (event: CustomEvent) => {
       try {
+        const payload = event.detail as {
+          new?: Partial<LegRecord>;
+          old?: Partial<LegRecord>;
+        };
+        const changedLegId = payload.new?.id ?? payload.old?.id;
+        const previousLeg = latestStateRef.current.legs.find((leg) => leg.id === changedLegId)
+          ?? latestStateRef.current.legs.find((leg) => !leg.winner_player_id)
+          ?? latestStateRef.current.legs[latestStateRef.current.legs.length - 1];
+        if (previousLeg?.id) {
+          // A leg event can overtake the final throw event. Freeze a canonical DB
+          // snapshot before switching the current-leg view so DartIQ never loses
+          // the completed leg from its verified replay prefix.
+          await loadTurnsForLeg(previousLeg.id);
+        }
         const nextLegs = await loadLegsOnly();
         const currentLeg = nextLegs.find((l) => !l.winner_player_id) ?? nextLegs[nextLegs.length - 1];
-        if (currentLeg?.id) {
+        if (currentLeg?.id && currentLeg.id !== previousLeg?.id) {
           await loadTurnsForLeg(currentLeg.id);
-        } else {
+        } else if (!currentLeg?.id) {
           throw new Error('No current leg after legs reload');
         }
       } catch {
@@ -1122,6 +1237,7 @@ export function useMatchRealtime({
 
     // Cleanup function
     return () => {
+      disposed = true;
       pendingThrowBuffer.clear();
       pendingTurnReconcileRef.current.clear();
       if (matchTurnsDebounceTimerRef.current) {
@@ -1149,6 +1265,7 @@ export function useMatchRealtime({
     pendingThrowBufferRef,
     pendingTurnReconcileRef,
     setTurns,
+    setTurnsByLeg,
     setTurnThrowCounts,
     setMatch,
     ongoingTurnRef,
@@ -1157,10 +1274,15 @@ export function useMatchRealtime({
     celebratedTurns,
     commentaryEnabled,
     personaId,
-    commentaryDebouncer,
     setCommentaryLoading,
     setCommentaryPlaying,
     setCurrentCommentary,
+    recordCompletedCommentary,
     ttsServiceRef,
+    realtimeCommentaryRef,
+    dartIQEvidenceByPlayerId,
+    dartIQPopulationEvidence,
+    dartIQModelsByPlayerId,
+    dartIQWorkerEvidence,
   ]);
 }
