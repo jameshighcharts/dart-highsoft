@@ -38,7 +38,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `page.tsx` | Home — leaderboard grid, nav to new match/practice/players |
 | `new/page.tsx` | New X01 or party-game form with optional ready Scolia board selection |
 | `match/[id]/page.tsx` | Match page (server component) |
-| `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator/history stats view |
+| `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator/history stats view; development performance overlay is opt-in via `perf=true` |
 | `match/[id]/report/page.tsx` | Server-rendered DartIQ replay data, deterministic match story, player baseline/WPA breakdowns, and initial URL-selected dart hydration for the client-local report explorer |
 | `game/[id]/page.tsx` | Party-game page (server component) |
 | `game/[id]/GameClient.tsx` | Party-game scoring and spectator client |
@@ -211,7 +211,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 |------|---------|
 | `match/MatchScoringView.tsx` | Active scoring view — scores, dartboard/keypad, actions |
 | `match/MatchSpectatorView.tsx` | Read-only spectator view |
-| `match/SpectatorLiveMatchCard.tsx` | Live player scores and checkout suggestions; desktop player list fills the stretched card, with overflow scrolling |
+| `match/SpectatorLiveMatchCard.tsx` | Responsive live player scoreboard grid with a compact inline match header, compact viewport-aware tile heights, container-scaled scores, bold names, lime on-throw tiles, dart indicators, and compact stats with average-rating emojis without a separate current-turn header; desktop grid fills the stretched card, with overflow scrolling |
 | `match/DartIQLive.tsx` | DartIQ broadcast strip directly above the spectator Score Progress chart, with per-dart leg/match probabilities, large-field circular rail, and gated top-three next-dart landing predictions from the shared tracker |
 | `match/MatchPlayersCard.tsx` | Player list with scores, averages, legs won |
 | `match/LiveScoliaBoard.tsx` | Read-only spectator dartboard with live Scolia impact positions and detected dart orientation; viewport-height card scales the SVG and readouts to fit, without resize work in the dart-processing path |
