@@ -6,7 +6,6 @@ declare module 'next-auth' {
       slackUserId: string | null;
       slackTeamId: string | null;
       isAdmin: boolean;
-      provider: string | null;
     };
   }
 }
@@ -16,6 +15,5 @@ declare module 'next-auth/jwt' {
     slackUserId?: string;
     slackTeamId?: string;
     isAdmin?: boolean;
-    provider?: string;
   }
 }

@@ -33,8 +33,7 @@ Generate `BACKGROUND_JOB_SECRET` as a random value of at least 32 characters.
 The whole app is behind Sign in with Slack. `/login` gates the game (any
 verified member of the Highsoft workspace), `/signin` gates `/admin` (members
 on `AUTH_SLACK_ADMIN_EMAILS`. An empty list grants no admin access. Both pages
-share one light card with a "Login with Slack" button and, when Google is
-configured, a "Login with Google" button. Server-to-server
+share one light card with a single "Login with Slack" button. Server-to-server
 endpoints stay public and authenticate on their own: `/api/slack/*` (request
 signatures), `/api/background-jobs` (bearer secret) and `/api/auth/*`.
 
@@ -70,18 +69,7 @@ AUTH_SLACK_TEAM_ID=               # Highsoft workspace id (T…)
 AUTH_SLACK_ALLOWED_EMAIL_DOMAINS=highsoft.com
 AUTH_SLACK_ADMIN_EMAILS=          # comma-separated admin emails; empty = no admins
 AUTH_TRUST_HOST=true              # only needed outside Vercel
-AUTH_GOOGLE_ID=                   # optional: Google OAuth client id (same as Compass)
-AUTH_GOOGLE_SECRET=               # optional: Google OAuth client secret
 ```
-
-Google sign-in is optional and mirrors Compass: it reuses the allowed-domain
-list, requires a verified email, and registers the redirect URL
-`https://YOUR_APP/api/auth/callback/google` on the Google OAuth client. Google
-users get their Slack identity resolved by work email through
-`users.lookupByEmail`, so player linking and `/profile` work the same; that
-needs `SLACK_BOT_TOKEN` to carry the `users:read.email` scope. If the lookup
-fails the user is still signed in, and `/profile` asks them to sign in with
-Slack once or to have an admin link their player.
 
 On the Slack app, enable **Sign in with Slack** (OpenID Connect) and register
 `https://YOUR_APP/api/auth/callback/slack` as a redirect URL. Slack requires

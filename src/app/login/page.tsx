@@ -19,7 +19,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   return (
     <SignInCard
       title="Highsoft Darts"
-      subtitle="Sign in with your Highsoft account."
+      subtitle="Sign in with your Highsoft Slack account."
       callbackUrl={callbackUrl}
       errorReturnPath="/login"
       errorMessage={getAuthErrorMessage(firstValue(resolvedSearchParams?.error))}

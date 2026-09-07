@@ -18,7 +18,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   return (
     <SignInCard
       title="Dart admin"
-      subtitle="Sign in with your Highsoft account."
+      subtitle="Sign in with your Highsoft Slack account."
       callbackUrl={resolveRedirectTarget(resolvedSearchParams?.callbackUrl, '/admin')}
       errorReturnPath="/signin"
       errorMessage={getAuthErrorMessage(firstValue(resolvedSearchParams?.error))}

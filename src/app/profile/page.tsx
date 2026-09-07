@@ -7,6 +7,6 @@ export const dynamic = 'force-dynamic';
 
 export default async function ProfilePage() {
   const session = await getAuthenticatedSession();
-  if (!session) redirect('/login?callbackUrl=%2Fprofile');
+  if (!session?.user.slackUserId) redirect('/login?callbackUrl=%2Fprofile');
   return <ProfileClient />;
 }

@@ -45,8 +45,7 @@ export function getSlackProfileEmail(profile: SlackClaims): string | null {
   return typeof email === 'string' ? normalizeEmailAddress(email) : null;
 }
 
-/** Slack and Google both send email_verified; some flows stringify it. */
-export function isProfileEmailVerified(profile: SlackClaims): boolean {
+export function isSlackEmailVerified(profile: SlackClaims): boolean {
   const verified: unknown = profile?.email_verified;
   return verified === true || verified === 'true';
 }
@@ -66,5 +65,3 @@ export function isAdminEmail(email: string | null, adminEmails: string[]): boole
   if (!email || adminEmails.length === 0) return false;
   return adminEmails.includes(email.toLowerCase());
 }
-
-export const isSlackEmailVerified = isProfileEmailVerified;

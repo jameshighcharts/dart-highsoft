@@ -7,7 +7,6 @@ import {
   isAdminEmail,
   isAllowedEmailDomain,
   isAllowedSlackWorkspace,
-  isProfileEmailVerified,
   isSlackEmailVerified,
   parseCommaSeparatedList,
 } from './slackWorkspace';
@@ -33,8 +32,7 @@ describe('slackWorkspace helpers', () => {
     expect(getSlackProfileUserId({ 'https://slack.com/user_id': '  ' })).toBeNull();
   });
 
-  it('treats email_verified as verified only when true (Slack and Google profiles)', () => {
-    expect(isProfileEmailVerified({ email: 'a@highsoft.com', email_verified: true })).toBe(true);
+  it('treats email_verified as verified only when true', () => {
     expect(isSlackEmailVerified(profile)).toBe(true);
     expect(isSlackEmailVerified({ email_verified: 'true' })).toBe(true);
     expect(isSlackEmailVerified({ email_verified: false })).toBe(false);
