@@ -429,6 +429,18 @@ function loadLeaderboardLocationFilter(): LeaderboardLocationFilter {
   return 'all';
 }
 
+const LEADERBOARD_ELO_VIEW_STORAGE_KEY = 'leaderboard-elo-view-filter';
+type EloViewFilter = 'all' | '1v1' | 'multi';
+
+function loadLeaderboardEloViewFilter(): EloViewFilter {
+  if (typeof window === 'undefined') return 'all';
+  try {
+    const stored = localStorage.getItem(LEADERBOARD_ELO_VIEW_STORAGE_KEY);
+    if (stored === 'all' || stored === '1v1' || stored === 'multi') return stored;
+  } catch { /* ignore */ }
+  return 'all';
+}
+
 /**
  * Dev-only mock rows so every Elo badge tier can be inspected locally.
  * Shown automatically while running `next dev`; open the page with
@@ -475,12 +487,17 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
     loading,
   } = useLeaderboardData();
   const [locationFilter, setLocationFilter] = useState<LeaderboardLocationFilter>(loadLeaderboardLocationFilter);
+  const [eloViewFilter, setEloViewFilter] = useState<EloViewFilter>(loadLeaderboardEloViewFilter);
   const mockEloRows = useMockEloRows();
   const [matchActivityRange, setMatchActivityRange] = useState<MatchActivityRange>('7d');
 
   useEffect(() => {
     localStorage.setItem(LEADERBOARD_LOCATION_STORAGE_KEY, JSON.stringify(locationFilter));
   }, [locationFilter]);
+
+  useEffect(() => {
+    localStorage.setItem(LEADERBOARD_ELO_VIEW_STORAGE_KEY, eloViewFilter);
+  }, [eloViewFilter]);
 
   const merged = useMemo(() => {
     const map = new Map<string, MergedPlayer>();
@@ -826,14 +843,14 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         { columnId: 'idx' },
         { columnId: 'player' },
         { columnId: 'location' },
-        {
+        ...(eloViewFilter !== '1v1' ? [{
           format: 'Multiplayer Elo',
           columns: [{ columnId: 'multiElo' }, { columnId: 'multiEloTrend' }],
-        },
-        {
+        }] : []),
+        ...(eloViewFilter !== 'multi' ? [{
           format: '1v1 Elo',
           columns: [{ columnId: 'elo1v1' }, { columnId: 'elo1v1Trend' }],
-        },
+        }] : []),
         {
           format: 'Games',
           columns: [
@@ -858,8 +875,8 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
             header: [
               { columnId: 'idx' },
               { columnId: 'player' },
-              { columnId: 'multiElo' },
-              { columnId: 'elo1v1' },
+              ...(eloViewFilter !== '1v1' ? [{ columnId: 'multiElo' }] : []),
+              ...(eloViewFilter !== 'multi' ? [{ columnId: 'elo1v1' }] : []),
             ],
             columns: [
               {
@@ -874,7 +891,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         noData: 'No leaderboard data yet. Play some matches!',
       },
     };
-  }, [filteredMerged, eloHistory, multiEloHistory, recentWinsByPlayer]);
+  }, [filteredMerged, eloHistory, multiEloHistory, recentWinsByPlayer, eloViewFilter]);
 
   if (loading) {
     return <div className="text-muted-foreground text-sm py-4">Loading leaderboard...</div>;
@@ -887,7 +904,29 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
       </div>
 
       <div className="leaderboard-toolbar">
-        <div />
+        <div className="location-filter-tabs" aria-label="Filter leaderboard by Elo type">
+          <button
+            type="button"
+            className={eloViewFilter === 'all' ? 'location-filter-tab location-filter-tab--active' : 'location-filter-tab'}
+            onClick={() => setEloViewFilter('all')}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            className={eloViewFilter === '1v1' ? 'location-filter-tab location-filter-tab--active' : 'location-filter-tab'}
+            onClick={() => setEloViewFilter('1v1')}
+          >
+            1v1
+          </button>
+          <button
+            type="button"
+            className={eloViewFilter === 'multi' ? 'location-filter-tab location-filter-tab--active' : 'location-filter-tab'}
+            onClick={() => setEloViewFilter('multi')}
+          >
+            Multiplayer
+          </button>
+        </div>
         <div className="leaderboard-actions">
           <div className="location-filter-tabs" aria-label="Filter leaderboard by location">
             <button

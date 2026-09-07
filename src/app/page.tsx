@@ -2,9 +2,6 @@
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-
-const QRCode = dynamic(() => import('react-qr-code'), { ssr: false });
 
 const GridLeaderboard = dynamic(
   () => import('@/components/GridLeaderboard').then(m => ({ default: m.GridLeaderboard })),
@@ -12,12 +9,6 @@ const GridLeaderboard = dynamic(
 );
 
 export default function Home() {
-  const [origin, setOrigin] = useState('');
-
-  useEffect(() => {
-    setOrigin(window.location.origin);
-  }, []);
-
   return (
     <main className="w-[90%] mx-auto p-4 md:p-6 space-y-6">
       <GridLeaderboard
@@ -52,13 +43,6 @@ export default function Home() {
           </nav>
         }
       />
-
-      {origin && (
-        <div className="fixed bottom-4 left-4 z-40 hidden flex-col items-center gap-2 rounded-lg bg-background/90 p-3 shadow-md ring-1 ring-border sm:flex">
-          <div className="text-xs font-semibold text-muted-foreground">New match</div>
-          <QRCode value={`${origin}/new`} size={96} />
-        </div>
-      )}
     </main>
   );
 }
