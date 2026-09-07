@@ -31,4 +31,5 @@ export const DEV_BYPASS_USER = {
   slackUserId: 'UDEVLOCAL',
   slackTeamId: process.env.AUTH_SLACK_TEAM_ID?.trim() || 'TDEVLOCAL',
   isAdmin: true,
+  provider: 'dev',
 } as const;
