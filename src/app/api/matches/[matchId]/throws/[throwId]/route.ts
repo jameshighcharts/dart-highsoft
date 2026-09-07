@@ -3,6 +3,7 @@ import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { isMatchActive, loadMatch } from '@/lib/server/matchGuards';
 import { recomputeLegTurns } from '@/lib/server/recomputeLegTurns';
 import { commandSourceForMatch, enqueueCurrentRoundScoliaThrowCommand } from '@/lib/server/scoliaCommands';
+import { enqueueDartIQLiveReplay } from '@/lib/server/backgroundJobs';
 
 async function getLegIdForTurn(
   supabase: ReturnType<typeof getSupabaseServerClient>,
@@ -54,6 +55,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ma
 
     await recomputeLegTurns(supabase, target.legId, parseInt(match.start_score, 10), match.finish);
     try {
+      await enqueueDartIQLiveReplay(supabase, matchId, target.legId);
+    } catch (telemetryError) {
+      console.error('DartIQ correction telemetry error:', telemetryError);
+    }
+    try {
       await enqueueCurrentRoundScoliaThrowCommand(supabase, commandSourceForMatch(match), target, 'THROW_CORRECTED');
     } catch (commandError) {
       console.error('Failed to queue Scolia throw correction:', commandError);
@@ -80,6 +86,11 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ matchId
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     await recomputeLegTurns(supabase, target.legId, parseInt(match.start_score, 10), match.finish);
+    try {
+      await enqueueDartIQLiveReplay(supabase, matchId, target.legId, throwId);
+    } catch (telemetryError) {
+      console.error('DartIQ deletion telemetry error:', telemetryError);
+    }
     try {
       await enqueueCurrentRoundScoliaThrowCommand(supabase, commandSourceForMatch(match), target, 'DELETE_THROW');
     } catch (commandError) {

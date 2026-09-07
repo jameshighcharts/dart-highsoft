@@ -56,6 +56,37 @@ vi.mock('@/lib/supabaseClient', () => ({
   getSupabaseClient: () => Promise.resolve(createMockSupabaseClient(mockDb)),
 }));
 
+vi.mock('@/lib/dartiq/tracker', () => ({
+  DartIQTracker: class {
+    update(input: { playerIds: string[]; startScore: number; legs: Array<{ id: string; leg_number: number; starting_player_id: string }> }) {
+      const currentLeg = input.legs.at(-1)!;
+      return {
+        state: {
+          legId: currentLeg.id,
+          legNumber: currentLeg.leg_number,
+          currentPlayerId: currentLeg.starting_player_id,
+          currentVisitStartScore: input.startScore,
+          dartsRemainingInTurn: 3,
+          scores: Object.fromEntries(input.playerIds.map((id) => [id, input.startScore])),
+          legsWon: Object.fromEntries(input.playerIds.map((id) => [id, 0])),
+          fairEnding: null,
+          projections: input.playerIds.map((id) => ({
+            id,
+            scoreRemaining: input.startScore,
+            legsWon: 0,
+            matchWinProbability: 1 / input.playerIds.length,
+            legWinProbability: 1 / input.playerIds.length,
+            expectedVisitsRemaining: 8,
+          })),
+        },
+        currentCheckoutProbability: 0,
+        latestEvent: null,
+        sequence: 0,
+      };
+    }
+  },
+}));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => mockRouter,
   useSearchParams: () => new URLSearchParams(searchParamsState.value),
@@ -127,16 +158,9 @@ vi.mock('@/lib/commentary/personas', () => ({
 }));
 
 vi.mock('@/services/commentaryService', () => {
-  class MockDebouncer {
-    canCall() {
-      return false;
-    }
-    markCalled() {}
-  }
   return {
     generateCommentary: vi.fn().mockResolvedValue({ commentary: null }),
     generateMatchRecap: vi.fn().mockResolvedValue({ commentary: null }),
-    CommentaryDebouncer: MockDebouncer,
   };
 });
 
@@ -256,7 +280,7 @@ describe('MatchClient', () => {
       setSearchParams('spectator=true');
       const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
 
-      await screen.findByText('Live Match');
+      await screen.findByText('Live Match', undefined, { timeout: 5_000 });
       expect(screen.queryByText('Undo dart')).toBeNull();
 
       view.unmount();
@@ -266,7 +290,7 @@ describe('MatchClient', () => {
       setSearchParams('spectator=true');
       const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
 
-      await screen.findByText('Live Match');
+      await screen.findByText('Live Match', undefined, { timeout: 5_000 });
 
       const logSnapshot = getQueryLog();
       const throwSelects = logSnapshot.filter(
@@ -293,7 +317,7 @@ describe('MatchClient', () => {
       setSearchParams('spectator=true');
       const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
 
-      const liveIndicator = await screen.findByText('Live Match');
+      const liveIndicator = await screen.findByText('Live Match', undefined, { timeout: 5_000 });
       expect(liveIndicator).toBeDefined();
 
       view.unmount();

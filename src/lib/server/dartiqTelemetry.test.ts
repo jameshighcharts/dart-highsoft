@@ -1,0 +1,475 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { DartIQDartEvent, DartIQReplayState } from '@/lib/dartiq/replay';
+
+const { loadMatchData, loadFrozenDartIQEvidence, reconstructDartIQTimeline } = vi.hoisted(() => ({
+  loadMatchData: vi.fn(),
+  loadFrozenDartIQEvidence: vi.fn(),
+  reconstructDartIQTimeline: vi.fn(),
+}));
+
+vi.mock('@/lib/match/loadMatchData', () => ({ loadMatchData }));
+vi.mock('./dartiqEvidence', () => ({ loadFrozenDartIQEvidence }));
+vi.mock('@/lib/dartiq/replay', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/dartiq/replay')>();
+  return { ...actual, reconstructDartIQTimelineWithCheckpoint: (...args: unknown[]) => ({
+    timeline: reconstructDartIQTimeline(...args), checkpoint: null,
+  }) };
+});
+
+import {
+  DartIQTelemetryBatch,
+  persistDartIQCompletedLeg,
+  persistDartIQLiveReplay,
+  persistDartIQLiveThrow,
+} from './dartiqTelemetry';
+
+function state(aLeg: number, aMatch: number, bLeg: number, bMatch: number): DartIQReplayState {
+  const projection = (
+    id: string,
+    legWinProbability: number,
+    matchWinProbability: number
+  ) => ({
+    id,
+    scoreRemaining: id === 'a' ? 40 : 100,
+    legsWon: 0,
+    threeDartAverage: 60,
+    dartsThrown: 9,
+    adjustedThreeDartAverage: 60,
+    expectedVisitsRemaining: id === 'a' ? 1 : 2,
+    legWinProbability,
+    matchWinProbability,
+    baselineThreeDartAverage: 55,
+    historicalDarts: 90,
+    profileConfidence: 0.7,
+    profileSource: 'personal' as const,
+    checkoutRate: 0.3,
+    populationCheckoutRate: 0.2,
+    bustRate: 0.04,
+  });
+  return {
+    legId: 'leg-1',
+    legNumber: 1,
+    currentPlayerId: 'a',
+    currentVisitStartScore: 100,
+    dartsRemainingInTurn: 1,
+    scores: { a: 40, b: 100 },
+    legsWon: { a: 0, b: 0 },
+    projections: [projection('a', aLeg, aMatch), projection('b', bLeg, bMatch)],
+    approximationMode: 'standard',
+    fairEnding: null,
+  };
+}
+
+function event(): DartIQDartEvent {
+  return {
+    eventId: 'dartiq:dart-1',
+    engineVersion: 'behavioral-v1',
+    matchId: 'match-1',
+    sequence: 1,
+    legId: 'leg-1',
+    legNumber: 1,
+    turnId: 'turn-1',
+    playerId: 'a',
+    dartId: 'dart-1',
+    dartIndex: 3,
+    segment: 'D20',
+    scored: 40,
+    turnScoreAfter: 40,
+    busted: false,
+    checkedOut: true,
+    semanticStakes: {
+      oneDartFinishAvailable: true,
+      finishAvailableThisVisit: true,
+      matchWinAvailableThisVisit: false,
+    },
+    consequence: { leg: 0.35, match: 0.2 },
+    checkout: {
+      checkoutProbabilityBefore: 0.3,
+      checkoutProbabilityAfter: 1,
+      nextVisitCheckoutProbability: 0,
+      leaveProbabilityChange: 1,
+      createdBogey: false,
+      avoidedBogey: false,
+    },
+    fairEndingBefore: null,
+    fairEndingAfter: null,
+    before: state(0.65, 0.55, 0.35, 0.45),
+    after: state(1, 0.75, 0, 0.25),
+    matchWinProbabilityAdded: { a: 0.2, b: -0.2 },
+    legWinProbabilityAdded: { a: 0.35, b: -0.35 },
+  };
+}
+
+type Write = { table: string; operation: 'insert' | 'upsert' | 'update' | 'rpc'; payload: unknown };
+
+function fakeSupabase(options: { activeLiveProjection?: boolean } = {}) {
+  const writes: Write[] = [];
+  const reads: string[] = [];
+  const snapshotRequests: unknown[] = [];
+  let lastSource = '';
+  let revision = 0;
+  const from = (table: string) => {
+    reads.push(table);
+    let operation: Exclude<Write['operation'], 'rpc'> | 'select' = 'select';
+    let payload: unknown;
+    const builder = {
+      select: () => builder,
+      eq: () => builder,
+      is: () => builder,
+      in: () => builder,
+      maybeSingle: async () => {
+        if (table === 'dartiq_model_versions') return { data: { id: 7 }, error: null };
+        if (table === 'dartiq_population_evidence') {
+          return { data: { id: 11, content_hash: 'population-hash' }, error: null };
+        }
+        if (table === 'dartiq_projection_events' && options.activeLiveProjection) {
+          return { data: { id: 30 }, error: null };
+        }
+        return { data: null, error: null };
+      },
+      single: async () => ({ data: null, error: null }),
+      insert: (value: unknown) => {
+        operation = 'insert';
+        payload = value;
+        writes.push({ table, operation, payload });
+        return builder;
+      },
+      upsert: (value: unknown) => {
+        operation = 'upsert';
+        payload = value;
+        writes.push({ table, operation, payload });
+        return builder;
+      },
+      update: (value: unknown) => {
+        operation = 'update';
+        payload = value;
+        writes.push({ table, operation, payload });
+        return builder;
+      },
+      then: (resolve: (value: unknown) => unknown) => {
+        if (table === 'dartiq_player_evidence' && operation === 'select') {
+          return Promise.resolve({
+            data: [
+              { id: 21, player_id: 'a', content_hash: 'a-hash' },
+              { id: 22, player_id: 'b', content_hash: 'b-hash' },
+            ],
+            error: null,
+          }).then(resolve);
+        }
+        if (table === 'dartiq_projection_events' && operation === 'insert') {
+          return Promise.resolve({ data: [{ id: 31, source_throw_id: 'dart-1' }], error: null }).then(resolve);
+        }
+        return Promise.resolve({ data: null, error: null }).then(resolve);
+      },
+    };
+    return builder;
+  };
+  const rpc = async (name: string, payload: unknown) => {
+    if (name === 'load_dartiq_telemetry_snapshot') {
+      snapshotRequests.push(payload);
+      const data = await loadMatchData();
+      const source = JSON.stringify(data);
+      if (lastSource !== source) { revision += 1; lastSource = source; }
+      if ((payload as { p_known_revision: string }).p_known_revision === String(revision)) {
+        return { data: { revision: String(revision), unchanged: true }, error: null };
+      }
+      return { data: {
+        revision: String(revision), unchanged: false, data,
+        population: { id: 11, content_hash: 'population-hash' },
+        players: [
+          { id: 21, player_id: 'a', content_hash: 'a-hash' },
+          { id: 22, player_id: 'b', content_hash: 'b-hash' },
+        ],
+      }, error: null };
+    }
+    writes.push({ table: name, operation: 'rpc', payload });
+    return { data: [{ source_throw_id: 'dart-1', projection_event_id: 31 }], error: null };
+  };
+  return { client: { from, rpc }, writes, reads, snapshotRequests };
+}
+
+describe('persistDartIQCompletedLeg', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    loadMatchData.mockResolvedValue({
+      match: {
+        id: 'match-1', start_score: '501', finish: 'double_out', legs_to_win: 2,
+        fair_ending: false, winner_player_id: null, ended_early: false,
+      },
+      players: [{ id: 'a', display_name: 'A' }, { id: 'b', display_name: 'B' }],
+      legs: [{
+        id: 'leg-1', match_id: 'match-1', leg_number: 1,
+        starting_player_id: 'a', winner_player_id: 'a',
+      }],
+      turnsByLeg: { 'leg-1': [] },
+    });
+    loadFrozenDartIQEvidence.mockResolvedValue({
+      playerProfiles: [],
+      populationProfile: undefined,
+      playerOutcomes: [],
+      populationOutcomes: [],
+    });
+    reconstructDartIQTimeline.mockReturnValue([event()]);
+  });
+
+  it('shares replay in a batch but rebuilds after a canonical correction', async () => {
+    const { client, writes, reads, snapshotRequests } = fakeSupabase();
+    const batch = new DartIQTelemetryBatch();
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', batch);
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', batch);
+    expect(loadMatchData).toHaveBeenCalledTimes(2);
+    expect(reconstructDartIQTimeline).toHaveBeenCalledOnce();
+    expect(loadFrozenDartIQEvidence).toHaveBeenCalledOnce();
+    expect(reads).toEqual(['dartiq_model_versions']);
+    expect(snapshotRequests).toEqual([
+      { p_match_id: 'match-1', p_known_revision: null },
+      { p_match_id: 'match-1', p_known_revision: '1' },
+    ]);
+    expect(writes.filter((write) => write.table === 'capture_dartiq_live_projection_event')).toHaveLength(2);
+
+    const canonical = await loadMatchData.mock.results[0].value;
+    loadMatchData.mockResolvedValue({ ...canonical, match: { ...canonical.match, fair_ending: true } });
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', batch);
+    expect(reconstructDartIQTimeline).toHaveBeenCalledTimes(2);
+    expect(reconstructDartIQTimeline.mock.calls[1][1].cachedPrefix).toBeUndefined();
+    // A separate request cannot inherit cached state.
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', new DartIQTelemetryBatch());
+    expect(reconstructDartIQTimeline).toHaveBeenCalledTimes(3);
+  });
+
+  it('passes verified replay checkpoints forward on appended source rows', async () => {
+    const { client } = fakeSupabase();
+    const batch = new DartIQTelemetryBatch();
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', batch);
+    const firstTimeline = batch.contexts.get('match-1')!.context.timeline;
+    const canonical = await loadMatchData.mock.results[0].value;
+    loadMatchData.mockResolvedValue({ ...canonical, turnsByLeg: {
+      'leg-1': [{ id: 'turn-new', throws: [{ id: 'dart-new', scolia_event_id: 10 }] }],
+    } });
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1', batch);
+    expect(reconstructDartIQTimeline.mock.calls[1][1].cachedPrefix).toBe(firstTimeline);
+    expect(loadFrozenDartIQEvidence).toHaveBeenCalledOnce();
+  });
+
+  it('writes one event batch, the full player vector, and a resolution', async () => {
+    const { client, writes } = fakeSupabase();
+    await expect(
+      persistDartIQCompletedLeg(client as never, 'match-1', 'leg-1')
+    ).resolves.toEqual({ persisted: 1, skipped: null });
+
+    const replacement = writes.find(
+      (write) => write.table === 'replace_dartiq_leg_projection_events'
+    );
+    expect(replacement?.operation).toBe('rpc');
+    expect(replacement?.payload).toEqual(expect.objectContaining({
+      p_events: [
+      expect.objectContaining({
+        source_throw_id: 'dart-1',
+        live_capture_status: 'not_supported',
+        live_capture_cause: 'completed_leg_reconstruction',
+        outcome_model_applicable: true,
+        confidence_tier: expect.any(String),
+        pre_state_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+      ],
+      p_player_projections: [
+        expect.objectContaining({ player_id: 'a', match_probability_before: 0.55, match_probability_after: 0.75 }),
+        expect.objectContaining({ player_id: 'b', match_probability_before: 0.45, match_probability_after: 0.25 }),
+      ],
+      p_revision_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }));
+    expect(writes).toContainEqual(expect.objectContaining({
+      table: 'replace_dartiq_projection_resolution',
+      operation: 'rpc',
+      payload: expect.objectContaining({
+        p_kind: 'leg',
+        p_winner_player_id: 'a',
+      }),
+    }));
+    expect(writes).toContainEqual(expect.objectContaining({
+      table: 'replace_dartiq_projection_resolution',
+      operation: 'rpc',
+      payload: expect.objectContaining({
+        p_kind: 'match',
+        p_winner_player_id: null,
+      }),
+    }));
+  });
+
+  it('atomically captures one live projection and its full player vector', async () => {
+    const { client, writes } = fakeSupabase();
+
+    await expect(
+      persistDartIQLiveThrow(client as never, 'match-1', 'dart-1')
+    ).resolves.toEqual({ persisted: true, skipped: null });
+
+    expect(writes).toContainEqual(expect.objectContaining({
+      table: 'capture_dartiq_live_projection_event',
+      operation: 'rpc',
+      payload: expect.objectContaining({
+        p_event: expect.objectContaining({
+          source_throw_id: 'dart-1',
+          provenance: 'live',
+          live_capture_status: 'complete',
+          live_capture_cause: null,
+          revision_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+        p_player_projections: [
+          expect.objectContaining({ player_id: 'a', match_probability_before: 0.55 }),
+          expect.objectContaining({ player_id: 'b', match_probability_before: 0.45 }),
+        ],
+      }),
+    }));
+  });
+
+  it('replaces a corrected live leg in one atomic batch instead of one RPC per dart', async () => {
+    reconstructDartIQTimeline.mockReturnValueOnce([
+      event(),
+      { ...event(), eventId: 'dartiq:dart-2', dartId: 'dart-2', sequence: 2 },
+    ]);
+    const { client, writes } = fakeSupabase();
+
+    await expect(
+      persistDartIQLiveReplay(client as never, 'match-1', 'leg-1')
+    ).resolves.toEqual({ persisted: 2, skipped: null });
+
+    expect(writes.filter(
+      (write) => write.table === 'capture_dartiq_live_projection_event'
+    )).toHaveLength(0);
+    const replacements = writes.filter(
+      (write) => write.table === 'replace_dartiq_leg_projection_events'
+    );
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0]?.payload).toEqual(expect.objectContaining({
+      p_provenance: 'live',
+      p_events: [
+        expect.objectContaining({
+          source_throw_id: 'dart-1',
+          live_capture_status: 'partial',
+          live_capture_cause: 'correction_replay',
+        }),
+        expect.objectContaining({
+          source_throw_id: 'dart-2',
+          live_capture_status: 'partial',
+          live_capture_cause: 'correction_replay',
+        }),
+      ],
+      p_player_projections: expect.arrayContaining([
+        expect.objectContaining({ source_throw_id: 'dart-1', player_id: 'a' }),
+        expect.objectContaining({ source_throw_id: 'dart-2', player_id: 'b' }),
+      ]),
+    }));
+  });
+
+  it('freezes the Scolia cohort from the canonical throw link', async () => {
+    loadMatchData.mockResolvedValueOnce({
+      match: {
+        id: 'match-1', start_score: '501', finish: 'double_out', legs_to_win: 2,
+        fair_ending: false, winner_player_id: null, ended_early: false,
+      },
+      players: [{ id: 'a', display_name: 'A' }, { id: 'b', display_name: 'B' }],
+      legs: [{
+        id: 'leg-1', match_id: 'match-1', leg_number: 1,
+        starting_player_id: 'a', winner_player_id: null,
+      }],
+      turnsByLeg: {
+        'leg-1': [{
+          id: 'turn-1',
+          throws: [{
+            id: 'dart-1', turn_id: 'turn-1', dart_index: 3,
+            segment: 'D20', scored: 40, scolia_event_id: 42,
+          }],
+        }],
+      },
+    });
+    const { client, writes } = fakeSupabase();
+
+    await persistDartIQLiveThrow(client as never, 'match-1', 'dart-1');
+
+    expect(writes).toContainEqual(expect.objectContaining({
+      table: 'capture_dartiq_live_projection_event',
+      payload: expect.objectContaining({
+        p_event: expect.objectContaining({ cohort: 'scolia' }),
+      }),
+    }));
+  });
+
+  it('refreshes an existing final live dart after authoritative leg resolution', async () => {
+    const { client, writes } = fakeSupabase({ activeLiveProjection: true });
+
+    await persistDartIQCompletedLeg(client as never, 'match-1', 'leg-1');
+
+    expect(writes).toContainEqual(expect.objectContaining({
+      table: 'capture_dartiq_live_projection_event',
+      operation: 'rpc',
+      payload: expect.objectContaining({
+        p_event: expect.objectContaining({ source_throw_id: 'dart-1' }),
+      }),
+    }));
+  });
+
+  it('sends a stable content hash so the locked RPC can reuse an identical revision', async () => {
+    const first = fakeSupabase();
+    await persistDartIQCompletedLeg(first.client as never, 'match-1', 'leg-1');
+    const firstPayload = first.writes.find(
+      (write) => write.table === 'replace_dartiq_leg_projection_events'
+    )?.payload as { p_revision_hash: string };
+    const { client, writes } = fakeSupabase();
+
+    await persistDartIQCompletedLeg(client as never, 'match-1', 'leg-1');
+
+    expect(writes.some((write) => write.table === 'dartiq_projection_events')).toBe(false);
+    const secondPayload = writes.find(
+      (write) => write.table === 'replace_dartiq_leg_projection_events'
+    )?.payload as { p_revision_hash: string };
+    expect(secondPayload.p_revision_hash).toBe(firstPayload.p_revision_hash);
+  });
+
+  it('changes the revision hash when a same-ID dart outcome changes', async () => {
+    const original = fakeSupabase();
+    await persistDartIQCompletedLeg(original.client as never, 'match-1', 'leg-1');
+    const originalHash = (original.writes.find(
+      (write) => write.table === 'replace_dartiq_leg_projection_events'
+    )?.payload as { p_revision_hash: string }).p_revision_hash;
+    reconstructDartIQTimeline.mockReturnValueOnce([{
+      ...event(),
+      segment: 'S20',
+      scored: 20,
+      checkedOut: false,
+    }]);
+    const { client, writes } = fakeSupabase();
+
+    await persistDartIQCompletedLeg(client as never, 'match-1', 'leg-1');
+
+    const replacement = writes.find((write) =>
+      write.table === 'replace_dartiq_leg_projection_events'
+    );
+    expect(replacement).toEqual(expect.objectContaining({
+      table: 'replace_dartiq_leg_projection_events',
+      operation: 'rpc',
+    }));
+    expect((replacement?.payload as { p_revision_hash: string }).p_revision_hash)
+      .not.toBe(originalHash);
+  });
+
+  it('changes the live revision hash when authoritative resolution changes only the after vector', async () => {
+    const original = fakeSupabase();
+    await persistDartIQLiveThrow(original.client as never, 'match-1', 'dart-1');
+    const originalHash = ((original.writes.find(
+      (write) => write.table === 'capture_dartiq_live_projection_event'
+    )?.payload as { p_event: { revision_hash: string } }).p_event.revision_hash);
+    reconstructDartIQTimeline.mockReturnValueOnce([{
+      ...event(),
+      after: state(0.65, 0.55, 0.35, 0.45),
+    }]);
+    const changed = fakeSupabase();
+
+    await persistDartIQLiveThrow(changed.client as never, 'match-1', 'dart-1');
+
+    const changedHash = ((changed.writes.find(
+      (write) => write.table === 'capture_dartiq_live_projection_event'
+    )?.payload as { p_event: { revision_hash: string } }).p_event.revision_hash);
+    expect(changedHash).not.toBe(originalHash);
+  });
+});

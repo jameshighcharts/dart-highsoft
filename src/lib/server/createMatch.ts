@@ -7,6 +7,7 @@ export type CreateMatchForPlayersInput = {
   fairEnding: boolean;
   playerIds: string[];
   scoliaBoardId: string | null;
+  rematchOfMatchId?: string | null;
 };
 
 export type CreateMatchForPlayersResult =
@@ -25,6 +26,7 @@ export async function createMatchForPlayers(
       p_fair_ending: input.fairEnding,
       p_player_ids: input.playerIds,
       p_scolia_board_id: input.scoliaBoardId,
+      p_rematch_of_match_id: input.rematchOfMatchId ?? null,
     })
     .single();
 

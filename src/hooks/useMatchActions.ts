@@ -286,6 +286,7 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
           const stats = playerStatsMap.get(p.id) ?? { totalScore: 0, completedTurns: 0, totalScored: 0 };
           return {
             name: p.display_name,
+            nicknames: p.nicknames,
             id: p.id,
             remainingScore: Math.max(startScoreValue - stats.totalScored, 0),
             average: stats.completedTurns > 0 ? stats.totalScore / stats.completedTurns : 0,

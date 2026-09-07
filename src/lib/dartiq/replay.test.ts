@@ -1,0 +1,1041 @@
+import { describe, expect, it } from 'vitest';
+
+import type { LegRecord, ThrowRecord, TurnWithThrows } from '@/lib/match/types';
+import { createDartIQDartPacket } from './events';
+import {
+  calculateDartIQOutcomeRarity,
+  calculateProbabilityVectorConsequence,
+  reconstructDartIQTimeline,
+  reconstructDartIQTimelineWithCheckpoint,
+  transitionDartIQDart,
+  type DartIQReplayDart,
+} from './replay';
+
+function dart(id: string, turnId: string, dartIndex: number, segment: string, scored: number): ThrowRecord {
+  return { id, turn_id: turnId, dart_index: dartIndex, segment, scored };
+}
+
+function turn(
+  id: string,
+  legId: string,
+  playerId: string,
+  turnNumber: number,
+  throws: ThrowRecord[],
+  options: { busted?: boolean; tiebreakRound?: number | null } = {}
+): TurnWithThrows {
+  return {
+    id,
+    leg_id: legId,
+    player_id: playerId,
+    turn_number: turnNumber,
+    total_scored: throws.reduce((sum, entry) => sum + entry.scored, 0),
+    busted: options.busted ?? false,
+    tiebreak_round: options.tiebreakRound ?? null,
+    throws,
+  };
+}
+
+function leg(id: string, number: number, starter: string, winner: string | null): LegRecord {
+  return {
+    id,
+    match_id: 'match-1',
+    leg_number: number,
+    starting_player_id: starter,
+    winner_player_id: winner,
+  };
+}
+
+describe('reconstructDartIQTimeline', () => {
+  it('uses the good or bad directional tail while ranking consequence by magnitude', () => {
+    const analysis = {
+      opportunity: {
+        leg: 0.1,
+        match: 0.1,
+        availability: 'standard' as const,
+        confidenceTier: 'population' as const,
+        stateBackoffLevel: 'population_exact' as const,
+        outcomeBackoffLevel: 'exact' as const,
+        sampleSize: 100,
+        exactStateSampleSize: 100,
+        eligibleForCommentary: true,
+        approximationModes: [],
+      },
+      candidates: [
+        { scoreDelta: 0, isDouble: false, probability: 0.2, actorLegWpa: -0.2, actorMatchWpa: -0.1, legConsequence: 0.2, matchConsequence: 0.1 },
+        { scoreDelta: 20, isDouble: false, probability: 0.5, actorLegWpa: 0, actorMatchWpa: 0, legConsequence: 0.01, matchConsequence: 0.01 },
+        { scoreDelta: 40, isDouble: true, probability: 0.3, actorLegWpa: 0.4, actorMatchWpa: 0.2, legConsequence: 0.4, matchConsequence: 0.2 },
+      ],
+    };
+
+    const bad = calculateDartIQOutcomeRarity(analysis, {
+      legWpa: -0.2,
+      matchWpa: -0.1,
+      consequence: { leg: 0.2, match: 0.1 },
+    });
+    const good = calculateDartIQOutcomeRarity(analysis, {
+      legWpa: 0.4,
+      matchWpa: 0.2,
+      consequence: { leg: 0.4, match: 0.2 },
+    });
+
+    expect(bad.legDirectionalTail).toBeCloseTo(0.2);
+    expect(good.legDirectionalTail).toBeCloseTo(0.3);
+    expect(bad.legConsequenceTail).toBeCloseTo(0.5);
+    expect(good.legConsequenceTail).toBeCloseTo(0.3);
+  });
+  it.each([
+    { finishRule: 'double_out' as const, startScore: 40, segment: 'S20', scored: 20 },
+    { finishRule: 'single_out' as const, startScore: 60, segment: 'S20', scored: 20 },
+  ])('derives checkout and match opportunities under $finishRule rules', ({
+    finishRule,
+    startScore,
+    segment,
+    scored,
+  }) => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'a', 1, [dart('dart-1', 'turn-1', 1, segment, scored)])],
+      },
+      startScore,
+      finishRule,
+      legsToWin: 1,
+    });
+
+    expect(timeline[0].semanticStakes).toEqual({
+      oneDartFinishAvailable: true,
+      finishAvailableThisVisit: true,
+      matchWinAvailableThisVisit: true,
+      oneDartFinishUnconverted: true,
+      unconvertedMatchFinishChancesInVisit: 1,
+    });
+    expect(timeline[0].nextOpponentThreat).toMatchObject({
+      playerId: 'b',
+      scoreRemaining: startScore,
+      checkoutProbabilityNextVisit: expect.any(Number),
+    });
+  });
+
+  it('emits before/after state and WPA for every dart in chronological order', () => {
+    const firstTurn = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-2', 'turn-1', 2, 'S20', 20),
+      dart('dart-1', 'turn-1', 1, 'T20', 60),
+    ]);
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: { 'leg-1': [firstTurn] },
+      startScore: 301,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    expect(timeline.map((event) => event.dartId)).toEqual(['dart-1', 'dart-2']);
+    expect(timeline[0].before.scores.a).toBe(301);
+    expect(timeline[0].after.scores.a).toBe(241);
+    expect(timeline[1].after.scores.a).toBe(221);
+    expect(timeline[0].matchWinProbabilityAdded.a).toBeGreaterThan(0);
+    expect(timeline[0]).toMatchObject({
+      eventId: 'behavioral-v1:match-1:dart-1',
+      engineVersion: 'behavioral-v1',
+    });
+    expect(timeline[0].consequence.leg).toBeGreaterThan(0);
+    expect(timeline[0].consequence.match).toBeGreaterThan(0);
+    expect(firstTurn.throws.map((entry) => entry.id)).toEqual(['dart-2', 'dart-1']);
+  });
+
+  it('tracks physical leg darts, first-nine average, and a three-visit ton streak', () => {
+    const visits = [1, 2, 3].map((visit) => turn(
+      `turn-${visit}`,
+      'leg-1',
+      'a',
+      visit,
+      [
+        dart(`dart-${visit}-1`, `turn-${visit}`, 1, 'T20', 60),
+        dart(`dart-${visit}-2`, `turn-${visit}`, 2, 'S20', 20),
+        dart(`dart-${visit}-3`, `turn-${visit}`, 3, 'S20', 20),
+      ]
+    ));
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: { 'leg-1': visits },
+      startScore: 501,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+    const ninth = timeline.at(-1)!;
+
+    expect(ninth.playerLegDartNumber).toBe(9);
+    expect(ninth.firstNineAverage).toBeCloseTo(100);
+    expect(ninth.tonPlusVisitStreak).toBe(3);
+    expect(ninth.tonPlusStreakReached).toBe(true);
+  });
+
+  it('emits the ton-plus streak milestone once and resets it on a sub-ton visit', () => {
+    const scores = [100, 100, 100, 20, 100];
+    const visits = scores.map((score, index) => turn(
+      `turn-${index}`,
+      'leg-1',
+      'a',
+      index + 1,
+      score === 100
+        ? [
+            dart(`dart-${index}-1`, `turn-${index}`, 1, 'T20', 60),
+            dart(`dart-${index}-2`, `turn-${index}`, 2, 'S20', 20),
+            dart(`dart-${index}-3`, `turn-${index}`, 3, 'S20', 20),
+          ]
+        : [
+            dart(`dart-${index}-1`, `turn-${index}`, 1, 'S20', 20),
+            dart(`dart-${index}-2`, `turn-${index}`, 2, 'Miss', 0),
+            dart(`dart-${index}-3`, `turn-${index}`, 3, 'Miss', 0),
+          ]
+    ));
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: { 'leg-1': visits },
+      startScore: 701,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    expect(timeline.filter((event) => event.tonPlusStreakReached)).toHaveLength(1);
+    expect(timeline.at(-1)?.tonPlusVisitStreak).toBe(1);
+  });
+
+  it('suppresses first-nine scoring when an early bust leaves dart nine inside an unfinished visit', () => {
+    const visits = [
+      turn('turn-1', 'leg-1', 'a', 1, [
+        dart('dart-1-1', 'turn-1', 1, 'T20', 60),
+        dart('dart-1-2', 'turn-1', 2, 'S1', 1),
+      ], { busted: true }),
+      ...[2, 3].map((visit) => turn(
+        `turn-${visit}`,
+        'leg-1',
+        'a',
+        visit,
+        [1, 2, 3].map((dartIndex) =>
+          dart(`dart-${visit}-${dartIndex}`, `turn-${visit}`, dartIndex, 'Miss', 0)
+        )
+      )),
+      turn('turn-4', 'leg-1', 'a', 4, [dart('dart-4-1', 'turn-4', 1, 'Miss', 0)]),
+    ];
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: { 'leg-1': visits },
+      startScore: 62,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    const ninth = timeline.find((event) => event.playerLegDartNumber === 9)!;
+    expect(ninth.firstNineAverage).toBeUndefined();
+  });
+
+  it('marks six perfect scoring darts as nine-dart pace', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: {
+        'leg-1': [1, 2].map((visit) => turn(
+          `turn-${visit}`,
+          'leg-1',
+          'a',
+          visit,
+          [1, 2, 3].map((dartIndex) =>
+            dart(`dart-${visit}-${dartIndex}`, `turn-${visit}`, dartIndex, 'T20', 60)
+          )
+        )),
+      },
+      startScore: 501,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    expect(timeline.at(-1)).toMatchObject({ playerLegDartNumber: 6, checkedOut: false });
+    expect(createDartIQDartPacket(timeline.at(-1)!).signals).toContain('nine_dart_pace');
+  });
+
+  it('attributes a break of throw to the leg winner rather than the resolving dart actor', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', 'b')],
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'b', 1, [dart('dart-1', 'turn-1', 1, 'D20', 40)])],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    expect(timeline[0].legResolution).toMatchObject({
+      winnerPlayerId: 'b',
+      startingPlayerId: 'a',
+      wonAgainstThrow: true,
+    });
+  });
+
+  it('derives a standard leg resolution from a valid live checkout before the leg row reconciles', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'b', 1, [dart('dart-1', 'turn-1', 1, 'D20', 40)])],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    expect(timeline[0].legResolution).toMatchObject({
+      winnerPlayerId: 'b',
+      wonAgainstThrow: true,
+      nextLeg: { number: 2, startingPlayerId: 'b' },
+    });
+  });
+
+  it('never describes fair-ending resolution as a break of throw', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', 'a')],
+      turnsByLeg: {
+        'leg-1': [
+          turn('turn-a', 'leg-1', 'a', 1, [dart('dart-a', 'turn-a', 1, 'D20', 40)]),
+          turn('turn-b', 'leg-1', 'b', 2, [
+            dart('dart-b1', 'turn-b', 1, 'Miss', 0),
+            dart('dart-b2', 'turn-b', 2, 'Miss', 0),
+            dart('dart-b3', 'turn-b', 3, 'Miss', 0),
+          ]),
+        ],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 2,
+      fairEnding: true,
+    });
+
+    const resolved = timeline.at(-1)!;
+    expect(resolved.legResolution?.winnerPlayerId).toBe('a');
+    expect(resolved.legResolution?.wonAgainstThrow).toBe(false);
+    expect(createDartIQDartPacket(resolved).signals).not.toContain('break_of_throw');
+  });
+
+  it('reuses a verified prefix while producing the same projection for an appended dart', () => {
+    const firstTwo = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-1', 'turn-1', 1, 'T20', 60),
+      dart('dart-2', 'turn-1', 2, 'S20', 20),
+    ]);
+    const base = {
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      startScore: 301,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const prefix = reconstructDartIQTimeline({
+      ...base,
+      turnsByLeg: { 'leg-1': [firstTwo] },
+    });
+    const completedTurn = turn('turn-1', 'leg-1', 'a', 1, [
+      ...firstTwo.throws,
+      dart('dart-3', 'turn-1', 3, 'T19', 57),
+    ]);
+    const incremental = reconstructDartIQTimeline({
+      ...base,
+      turnsByLeg: { 'leg-1': [completedTurn] },
+    }, { cachedPrefix: prefix });
+    const clean = reconstructDartIQTimeline({
+      ...base,
+      turnsByLeg: { 'leg-1': [completedTurn] },
+    });
+
+    expect(incremental).toEqual(clean);
+    expect(incremental[0]).toBe(prefix[0]);
+    expect(incremental[1]).toBe(prefix[1]);
+  });
+
+  it('restores leg points correctly when a cached mid-visit prefix is followed by a bust', () => {
+    const base = {
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      startScore: 40,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const first = turn('turn-1', 'leg-1', 'a', 1, [dart('dart-1', 'turn-1', 1, 'S20', 20)]);
+    const prefix = reconstructDartIQTimeline({ ...base, turnsByLeg: { 'leg-1': [first] } });
+    const bust = turn('turn-1', 'leg-1', 'a', 1, [
+      ...first.throws,
+      dart('dart-2', 'turn-1', 2, 'T20', 60),
+    ]);
+    const input = { ...base, turnsByLeg: { 'leg-1': [bust] } };
+
+    const resumed = reconstructDartIQTimelineWithCheckpoint(input, { cachedPrefix: prefix });
+    const clean = reconstructDartIQTimelineWithCheckpoint(input);
+    expect(resumed).toEqual(clean);
+    expect(resumed.timeline.at(-1)?.after.scores.a).toBe(40);
+  });
+
+  it('hydrates a cached leg-ending prefix without leaking leg counters into the next leg', () => {
+    const legs = [leg('leg-1', 1, 'a', 'a'), leg('leg-2', 2, 'b', null)];
+    const checkout = turn('turn-1', 'leg-1', 'a', 1, [dart('dart-1', 'turn-1', 1, 'D20', 40)]);
+    const base = {
+      playerIds: ['a', 'b'],
+      legs,
+      startScore: 40,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const prefix = reconstructDartIQTimeline({
+      ...base,
+      turnsByLeg: { 'leg-1': [checkout], 'leg-2': [] },
+    });
+    const nextTurn = turn('turn-2', 'leg-2', 'b', 1, [dart('dart-2', 'turn-2', 1, 'S20', 20)]);
+    const input = {
+      ...base,
+      turnsByLeg: { 'leg-1': [checkout], 'leg-2': [nextTurn] },
+    };
+
+    const resumed = reconstructDartIQTimelineWithCheckpoint(input, { cachedPrefix: prefix });
+    const clean = reconstructDartIQTimelineWithCheckpoint(input);
+    expect(resumed).toEqual(clean);
+  });
+
+  it('invalidates a cached prefix when an edited dart keeps the same id', () => {
+    const base = {
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      startScore: 301,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const original = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-1', 'turn-1', 1, 'S20', 20),
+    ]);
+    const prefix = reconstructDartIQTimeline({
+      ...base,
+      turnsByLeg: { 'leg-1': [original] },
+    });
+    const corrected = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-1', 'turn-1', 1, 'T20', 60),
+    ]);
+
+    const incremental = reconstructDartIQTimeline({
+      ...base,
+      turnsByLeg: { 'leg-1': [corrected] },
+    }, { cachedPrefix: prefix });
+    const clean = reconstructDartIQTimeline({
+      ...base,
+      turnsByLeg: { 'leg-1': [corrected] },
+    });
+
+    expect(incremental).toEqual(clean);
+    expect(incremental[0]).not.toBe(prefix[0]);
+    expect(incremental[0]).toMatchObject({ segment: 'T20', scored: 60 });
+  });
+
+  it('resumes from an immutable checkpoint and preserves prefix event identity', () => {
+    const firstTurn = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-1', 'turn-1', 1, 'T20', 60),
+    ]);
+    const base = {
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      startScore: 301,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const first = reconstructDartIQTimelineWithCheckpoint({
+      ...base,
+      turnsByLeg: { 'leg-1': [firstTurn] },
+    });
+    const checkpointBefore = structuredClone(first.checkpoint);
+    const appendedTurn = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-1', 'turn-1', 1, 'T20', 60),
+      dart('dart-2', 'turn-1', 2, 'S20', 20),
+    ]);
+    const input = { ...base, turnsByLeg: { 'leg-1': [appendedTurn] } };
+
+    const resumed = reconstructDartIQTimelineWithCheckpoint(input, {
+      cachedPrefix: first.timeline,
+      cachedCheckpoint: first.checkpoint,
+    });
+    const clean = reconstructDartIQTimelineWithCheckpoint(input);
+
+    expect(resumed.timeline).toEqual(clean.timeline);
+    expect(resumed.checkpoint).toEqual(clean.checkpoint);
+    expect(resumed.timeline[0]).toBe(first.timeline[0]);
+    expect(first.checkpoint).toEqual(checkpointBefore);
+  });
+
+  it('does not alias the checkpoint to mutable timeline state', () => {
+    const base = {
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      startScore: 301,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const firstTurn = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-1', 'turn-1', 1, 'T20', 60),
+    ]);
+    const first = reconstructDartIQTimelineWithCheckpoint({
+      ...base,
+      turnsByLeg: { 'leg-1': [firstTurn] },
+    });
+    first.timeline[0].after.scores.a = 999;
+
+    expect(first.checkpoint?.state.scores.a).toBe(241);
+
+    const appendedTurn = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-1', 'turn-1', 1, 'T20', 60),
+      dart('dart-2', 'turn-1', 2, 'S20', 20),
+    ]);
+    const input = { ...base, turnsByLeg: { 'leg-1': [appendedTurn] } };
+    const resumed = reconstructDartIQTimelineWithCheckpoint(input, {
+      cachedPrefix: first.timeline,
+      cachedCheckpoint: first.checkpoint,
+    });
+    const clean = reconstructDartIQTimelineWithCheckpoint(input);
+
+    expect(resumed.timeline.at(-1)?.after).toEqual(clean.timeline.at(-1)?.after);
+    expect(resumed.checkpoint).toEqual(clean.checkpoint);
+  });
+
+  it('invalidates a checkpoint when parent turn semantics change in place', () => {
+    const base = {
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      startScore: 301,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const standardTurn = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-1', 'turn-1', 1, 'T20', 60),
+    ]);
+    const first = reconstructDartIQTimelineWithCheckpoint({
+      ...base,
+      turnsByLeg: { 'leg-1': [standardTurn] },
+    });
+    const tiebreakTurn = turn('turn-1', 'leg-1', 'a', 1, [
+      dart('dart-1', 'turn-1', 1, 'T20', 60),
+    ], { tiebreakRound: 1 });
+    const input = { ...base, turnsByLeg: { 'leg-1': [tiebreakTurn] } };
+
+    const rebuilt = reconstructDartIQTimelineWithCheckpoint(input, {
+      cachedPrefix: first.timeline,
+      cachedCheckpoint: first.checkpoint,
+    });
+    const clean = reconstructDartIQTimelineWithCheckpoint(input);
+
+    expect(rebuilt).toEqual(clean);
+    expect(rebuilt.timeline[0]).not.toBe(first.timeline[0]);
+    expect(rebuilt.timeline[0]).toMatchObject({ tiebreakRound: 1 });
+  });
+
+  it('keeps only current-leg fair-ending progress in an incremental checkpoint', () => {
+    const firstLegTurns = [
+      turn('turn-a1', 'leg-1', 'a', 1, [dart('dart-a1', 'turn-a1', 1, 'D20', 40)]),
+      turn('turn-b1', 'leg-1', 'b', 2, [
+        dart('dart-b1', 'turn-b1', 1, 'Miss', 0),
+        dart('dart-b2', 'turn-b1', 2, 'Miss', 0),
+        dart('dart-b3', 'turn-b1', 3, 'Miss', 0),
+      ]),
+    ];
+    const legs = [leg('leg-1', 1, 'a', 'a'), leg('leg-2', 2, 'b', null)];
+    const legTwoFirst = turn('turn-b2', 'leg-2', 'b', 1, [
+      dart('dart-b4', 'turn-b2', 1, 'S20', 20),
+    ]);
+    const base = {
+      playerIds: ['a', 'b'],
+      legs,
+      startScore: 40,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+      fairEnding: true,
+    };
+    const first = reconstructDartIQTimelineWithCheckpoint({
+      ...base,
+      turnsByLeg: { 'leg-1': firstLegTurns, 'leg-2': [legTwoFirst] },
+    });
+
+    expect(first.checkpoint?.turnProgress.map((progress) => progress.id)).toEqual(['turn-b2']);
+
+    const legTwoAppended = turn('turn-b2', 'leg-2', 'b', 1, [
+      dart('dart-b4', 'turn-b2', 1, 'S20', 20),
+      dart('dart-b5', 'turn-b2', 2, 'Miss', 0),
+    ]);
+    const input = {
+      ...base,
+      turnsByLeg: { 'leg-1': firstLegTurns, 'leg-2': [legTwoAppended] },
+    };
+    const resumed = reconstructDartIQTimelineWithCheckpoint(input, {
+      cachedPrefix: first.timeline,
+      cachedCheckpoint: first.checkpoint,
+    });
+
+    expect(resumed.timeline).toEqual(reconstructDartIQTimeline(input));
+    expect(resumed.checkpoint?.turnProgress.map((progress) => progress.id)).toEqual(['turn-b2']);
+  });
+
+  it('restores score and removes the visit from live form after a bust', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'a', 1, [
+          dart('dart-1', 'turn-1', 1, 'T10', 30),
+          dart('dart-2', 'turn-1', 2, 'S2', 2),
+        ])],
+      },
+      startScore: 32,
+      finishRule: 'double_out',
+      legsToWin: 1,
+    });
+
+    expect(timeline[0].after.scores.a).toBe(2);
+    expect(timeline[1].busted).toBe(true);
+    expect(timeline[1].after.scores.a).toBe(32);
+    expect(timeline[1].after.projections.find((entry) => entry.id === 'a')?.dartsThrown).toBe(0);
+  });
+
+  it('groups unconverted match-finish chances without claiming an attempted target', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'a', 1, [
+          dart('dart-1', 'turn-1', 1, 'Miss', 0),
+          dart('dart-2', 'turn-1', 2, 'Miss', 0),
+          dart('dart-3', 'turn-1', 3, 'Miss', 0),
+        ])],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 1,
+    });
+
+    expect(timeline.map((event) => event.semanticStakes.unconvertedMatchFinishChancesInVisit))
+      .toEqual([1, 2, 3]);
+    expect(timeline[2].semanticStakes).toMatchObject({
+      matchWinAvailableThisVisit: true,
+      oneDartFinishUnconverted: true,
+    });
+  });
+
+  it('rolls a completed leg into the next leg state', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-2', 2, 'b', null), leg('leg-1', 1, 'a', 'a')],
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'a', 1, [dart('dart-1', 'turn-1', 1, 'D20', 40)])],
+        'leg-2': [],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 2,
+    });
+
+    expect(timeline[0].checkedOut).toBe(true);
+    expect(timeline[0].after.legId).toBe('leg-2');
+    expect(timeline[0].after.legsWon.a).toBe(1);
+    expect(timeline[0].after.scores).toEqual({ a: 40, b: 40 });
+    expect(timeline[0].after.currentPlayerId).toBe('b');
+    expect(timeline[0].turnScoreAfter).toBe(40);
+  });
+
+  it('locks match probability after the winning checkout', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b', 'c'],
+      legs: [leg('leg-1', 1, 'a', 'a')],
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'a', 1, [dart('dart-1', 'turn-1', 1, 'D20', 40)])],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 1,
+    });
+
+    const probabilities = Object.fromEntries(
+      timeline[0].after.projections.map((entry) => [entry.id, entry.matchWinProbability])
+    );
+    expect(probabilities).toEqual({ a: 1, b: 0, c: 0 });
+    expect(timeline[0].matchWinProbabilityAdded.a).toBeGreaterThan(0);
+  });
+
+  it('starts a partial replay with the supplied prior leg score', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-3', 3, 'a', null)],
+      turnsByLeg: {
+        'leg-3': [turn('turn-1', 'leg-3', 'a', 1, [dart('dart-1', 'turn-1', 1, 'S20', 20)])],
+      },
+      startScore: 301,
+      finishRule: 'single_out',
+      legsToWin: 3,
+      initialLegsWon: { a: 2, b: 0 },
+    });
+
+    expect(timeline[0].before.legsWon).toEqual({ a: 2, b: 0 });
+    expect(timeline[0].before.projections.find((entry) => entry.id === 'a')?.matchWinProbability)
+      .toBeGreaterThan(0.7);
+  });
+
+  it('keeps multiplayer probability totals normalized throughout the replay', () => {
+    const playerIds = Array.from({ length: 12 }, (_, index) => String(index));
+    const timeline = reconstructDartIQTimeline({
+      playerIds,
+      legs: [leg('leg-1', 1, '0', null)],
+      turnsByLeg: {
+        'leg-1': playerIds.map((playerId, index) =>
+          turn(`turn-${playerId}`, 'leg-1', playerId, index + 1, [
+            dart(`dart-${playerId}`, `turn-${playerId}`, 1, 'S20', 20),
+          ])
+        ),
+      },
+      startScore: 301,
+      finishRule: 'single_out',
+      legsToWin: 3,
+    });
+
+    expect(timeline).toHaveLength(12);
+    for (const event of timeline) {
+      expect(event.after.projections.reduce((sum, entry) => sum + entry.matchWinProbability, 0)).toBeCloseTo(1);
+    }
+  });
+
+  it('keeps a first fair-ending checkout provisional while the opponent completes the round', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: {
+        'leg-1': [turn('turn-a', 'leg-1', 'a', 1, [
+          dart('dart-a-1', 'turn-a', 1, 'D20', 40),
+        ])],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 2,
+      fairEnding: true,
+    });
+
+    const event = timeline[0];
+    const playerA = event.after.projections.find((entry) => entry.id === 'a');
+    expect(event.checkedOut).toBe(true);
+    expect(event.fairEndingAfter).toMatchObject({
+      phase: 'completing_round',
+      checkedOutPlayerIds: ['a'],
+      pendingPlayerIds: ['b'],
+    });
+    expect(playerA?.legWinProbability).toBeGreaterThan(0.5);
+    expect(playerA?.legWinProbability).toBeLessThan(1);
+    expect(event.after.projections.reduce((sum, entry) => sum + entry.legWinProbability, 0))
+      .toBeCloseTo(1);
+  });
+
+  it('resolves a fair-ending leg only after the rest of the round is complete', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', 'a')],
+      turnsByLeg: {
+        'leg-1': [
+          turn('turn-a', 'leg-1', 'a', 1, [dart('dart-a-1', 'turn-a', 1, 'D20', 40)]),
+          turn('turn-b', 'leg-1', 'b', 2, [
+            dart('dart-b-1', 'turn-b', 1, 'S1', 1),
+            dart('dart-b-2', 'turn-b', 2, 'S1', 1),
+            dart('dart-b-3', 'turn-b', 3, 'S1', 1),
+          ]),
+        ],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 2,
+      fairEnding: true,
+    });
+
+    expect(timeline[0].after.legsWon.a).toBe(0);
+    const resolution = timeline.at(-1)!;
+    expect(resolution.fairEndingAfter).toMatchObject({ phase: 'resolved', winnerId: 'a' });
+    expect(resolution.after.legsWon.a).toBe(1);
+    expect(resolution.legWinProbabilityAdded.a).toBeGreaterThan(0);
+  });
+
+  it('models a high-round tiebreak without changing the checked-out X01 scores', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', 'a')],
+      turnsByLeg: {
+        'leg-1': [
+          turn('turn-a', 'leg-1', 'a', 1, [dart('dart-a-1', 'turn-a', 1, 'D20', 40)]),
+          turn('turn-b', 'leg-1', 'b', 2, [dart('dart-b-1', 'turn-b', 1, 'D20', 40)]),
+          turn('tie-a', 'leg-1', 'a', 3, [
+            dart('tie-a-1', 'tie-a', 1, 'T20', 60),
+            dart('tie-a-2', 'tie-a', 2, 'S20', 20),
+            dart('tie-a-3', 'tie-a', 3, 'S20', 20),
+          ], { tiebreakRound: 1 }),
+          turn('tie-b', 'leg-1', 'b', 4, [
+            dart('tie-b-1', 'tie-b', 1, 'T20', 60),
+            dart('tie-b-2', 'tie-b', 2, 'S10', 10),
+            dart('tie-b-3', 'tie-b', 3, 'S10', 10),
+          ], { tiebreakRound: 1 }),
+        ],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 1,
+      fairEnding: true,
+    });
+
+    const tiebreakStart = timeline.find((event) => event.dartId === 'dart-b-1')!;
+    expect(tiebreakStart.fairEndingAfter).toMatchObject({
+      phase: 'tiebreak',
+      tiebreakRound: 1,
+      tiebreakPlayerIds: ['a', 'b'],
+    });
+    const partial = timeline.find((event) => event.dartId === 'tie-a-1')!;
+    expect(partial.after.scores).toEqual({ a: 0, b: 0 });
+    expect(partial.turnScoreAfter).toBe(60);
+    expect(partial.after.projections.reduce((sum, entry) => sum + entry.legWinProbability, 0))
+      .toBeCloseTo(1);
+
+    const resolution = timeline.at(-1)!;
+    expect(resolution.checkedOut).toBe(false);
+    expect(resolution.fairEndingAfter).toMatchObject({ phase: 'resolved', winnerId: 'a' });
+    expect(resolution.after.projections.map((entry) => entry.matchWinProbability))
+      .toEqual([1, 0]);
+  });
+
+  it('resolves the original finisher when the opponent busts while trying to join', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', 'a')],
+      turnsByLeg: {
+        'leg-1': [
+          turn('turn-a', 'leg-1', 'a', 1, [dart('dart-a-1', 'turn-a', 1, 'D16', 32)]),
+          turn('turn-b', 'leg-1', 'b', 2, [
+            dart('dart-b-1', 'turn-b', 1, 'T10', 30),
+            dart('dart-b-2', 'turn-b', 2, 'S2', 2),
+          ], { busted: true }),
+        ],
+      },
+      startScore: 32,
+      finishRule: 'double_out',
+      legsToWin: 2,
+      fairEnding: true,
+    });
+
+    const bust = timeline.at(-1)!;
+    expect(bust.busted).toBe(true);
+    expect(bust.after.scores.b).toBe(32);
+    expect(bust.fairEndingAfter).toMatchObject({ phase: 'resolved', winnerId: 'a' });
+  });
+
+  it('advances tied high-round players into a normalized second tiebreak round', () => {
+    const timeline = reconstructDartIQTimeline({
+      playerIds: ['a', 'b'],
+      legs: [leg('leg-1', 1, 'a', null)],
+      turnsByLeg: {
+        'leg-1': [
+          turn('turn-a', 'leg-1', 'a', 1, [dart('dart-a-1', 'turn-a', 1, 'D20', 40)]),
+          turn('turn-b', 'leg-1', 'b', 2, [dart('dart-b-1', 'turn-b', 1, 'D20', 40)]),
+          turn('tie-a-1', 'leg-1', 'a', 3, [
+            dart('tie-a-1-1', 'tie-a-1', 1, 'S20', 20),
+            dart('tie-a-1-2', 'tie-a-1', 2, 'S20', 20),
+            dart('tie-a-1-3', 'tie-a-1', 3, 'S20', 20),
+          ], { tiebreakRound: 1 }),
+          turn('tie-b-1', 'leg-1', 'b', 4, [
+            dart('tie-b-1-1', 'tie-b-1', 1, 'S20', 20),
+            dart('tie-b-1-2', 'tie-b-1', 2, 'S20', 20),
+            dart('tie-b-1-3', 'tie-b-1', 3, 'S20', 20),
+          ], { tiebreakRound: 1 }),
+          turn('tie-a-2', 'leg-1', 'a', 5, [
+            dart('tie-a-2-1', 'tie-a-2', 1, 'T20', 60),
+          ], { tiebreakRound: 2 }),
+        ],
+      },
+      startScore: 40,
+      finishRule: 'double_out',
+      legsToWin: 2,
+      fairEnding: true,
+    });
+
+    const roundOneTie = timeline.find((event) => event.dartId === 'tie-b-1-3')!;
+    expect(roundOneTie.fairEndingAfter).toMatchObject({
+      phase: 'tiebreak', tiebreakRound: 2, tiebreakScores: {},
+    });
+    const roundTwo = timeline.at(-1)!;
+    expect(roundTwo.fairEndingAfter).toMatchObject({
+      phase: 'tiebreak', tiebreakRound: 2, tiebreakScores: { a: 60, b: 0 },
+    });
+    expect(roundTwo.after.projections.reduce((sum, entry) => sum + entry.legWinProbability, 0))
+      .toBeCloseTo(1);
+  });
+});
+
+describe('transitionDartIQDart', () => {
+  function replaySource(
+    replayLeg: LegRecord,
+    replayTurn: TurnWithThrows,
+    replayDart: ThrowRecord,
+    isLastInLeg = false
+  ): DartIQReplayDart {
+    return {
+      leg: replayLeg,
+      legIndex: 0,
+      turn: replayTurn,
+      dart: replayDart,
+      isLastInLeg,
+    };
+  }
+
+  it('matches clean reconstruction while leaving its checkpoint and source immutable', () => {
+    const replayLeg = leg('leg-1', 1, 'a', null);
+    const firstDart = dart('dart-1', 'turn-1', 1, 'T20', 60);
+    const secondDart = dart('dart-2', 'turn-1', 2, 'S20', 20);
+    const replayTurn = turn('turn-1', 'leg-1', 'a', 1, [firstDart, secondDart]);
+    const input = {
+      playerIds: ['a', 'b'],
+      legs: [replayLeg],
+      turnsByLeg: { 'leg-1': [replayTurn] },
+      startScore: 301,
+      finishRule: 'double_out' as const,
+      legsToWin: 2,
+    };
+    const prefix = reconstructDartIQTimelineWithCheckpoint({
+      ...input,
+      turnsByLeg: {
+        'leg-1': [turn('turn-1', 'leg-1', 'a', 1, [firstDart])],
+      },
+    });
+    const checkpoint = prefix.checkpoint!;
+    const checkpointBefore = structuredClone(checkpoint);
+    const source = replaySource(replayLeg, replayTurn, secondDart, true);
+    const sourceBefore = structuredClone(source);
+
+    const transitioned = transitionDartIQDart(input, [replayLeg], source, undefined, checkpoint);
+    const clean = reconstructDartIQTimelineWithCheckpoint(input);
+
+    expect(transitioned.event).toEqual(clean.timeline[1]);
+    expect(transitioned.checkpoint).toEqual(clean.checkpoint);
+    expect(checkpoint).toEqual(checkpointBefore);
+    expect(source).toEqual(sourceBefore);
+    expect(transitioned.checkpoint).not.toBe(checkpoint);
+    expect(transitioned.event.before).not.toBe(checkpoint.state);
+  });
+
+  it('rolls a mid-visit bust back to the visit start through the transition primitive', () => {
+    const replayLeg = leg('leg-1', 1, 'a', null);
+    const firstDart = dart('dart-1', 'turn-1', 1, 'T10', 30);
+    const bustDart = dart('dart-2', 'turn-1', 2, 'S2', 2);
+    const replayTurn = turn('turn-1', 'leg-1', 'a', 1, [firstDart, bustDart]);
+    const input = {
+      playerIds: ['a', 'b'],
+      legs: [replayLeg],
+      turnsByLeg: { 'leg-1': [replayTurn] },
+      startScore: 32,
+      finishRule: 'double_out' as const,
+      legsToWin: 1,
+    };
+    const prefix = reconstructDartIQTimelineWithCheckpoint({
+      ...input,
+      turnsByLeg: { 'leg-1': [turn('turn-1', 'leg-1', 'a', 1, [firstDart])] },
+    });
+
+    const result = transitionDartIQDart(
+      input,
+      [replayLeg],
+      replaySource(replayLeg, replayTurn, bustDart, true),
+      undefined,
+      prefix.checkpoint!
+    );
+
+    expect(result.event.busted).toBe(true);
+    expect(result.event.after.scores.a).toBe(32);
+    expect(result.event.after.projections.find((entry) => entry.id === 'a')?.dartsThrown).toBe(0);
+  });
+
+  it('preserves provisional fair-ending state when another player still has a reply', () => {
+    const replayLeg = leg('leg-1', 1, 'a', null);
+    const checkoutDart = dart('dart-a', 'turn-a', 1, 'D20', 40);
+    const replyDart = dart('dart-b', 'turn-b', 1, 'Miss', 0);
+    const checkoutTurn = turn('turn-a', 'leg-1', 'a', 1, [checkoutDart]);
+    const replyTurn = turn('turn-b', 'leg-1', 'b', 2, [replyDart]);
+    const input = {
+      playerIds: ['a', 'b'],
+      legs: [replayLeg],
+      turnsByLeg: { 'leg-1': [checkoutTurn, replyTurn] },
+      startScore: 40,
+      finishRule: 'double_out' as const,
+      legsToWin: 1,
+      fairEnding: true,
+    };
+    const prefix = reconstructDartIQTimelineWithCheckpoint({
+      ...input,
+      turnsByLeg: { 'leg-1': [checkoutTurn] },
+    });
+
+    const result = transitionDartIQDart(
+      input,
+      [replayLeg],
+      replaySource(replayLeg, replyTurn, replyDart, true),
+      undefined,
+      prefix.checkpoint!
+    );
+    const clean = reconstructDartIQTimelineWithCheckpoint(input);
+
+    expect(result.event).toEqual(clean.timeline[1]);
+    expect(result.event.fairEndingBefore?.phase).not.toBe('normal');
+    expect(result.event.after.currentPlayerId).toBe('b');
+    expect(result.event.after.dartsRemainingInTurn).toBe(2);
+  });
+});
+
+describe('DartIQ replay consequence', () => {
+  it('equals acting-player absolute WPA in a normalized two-player field', () => {
+    const consequence = calculateProbabilityVectorConsequence(
+      [
+        { id: 'a', legWinProbability: 0.4, matchWinProbability: 0.3 },
+        { id: 'b', legWinProbability: 0.6, matchWinProbability: 0.7 },
+      ],
+      [
+        { id: 'a', legWinProbability: 0.65, matchWinProbability: 0.5 },
+        { id: 'b', legWinProbability: 0.35, matchWinProbability: 0.5 },
+      ]
+    );
+
+    expect(consequence.leg).toBeCloseTo(0.25);
+    expect(consequence.match).toBeCloseTo(0.2);
+  });
+
+  it('captures movement among non-actors in multiplayer', () => {
+    const consequence = calculateProbabilityVectorConsequence(
+      [
+        { id: 'a', legWinProbability: 0.5, matchWinProbability: 0.5 },
+        { id: 'b', legWinProbability: 0.3, matchWinProbability: 0.3 },
+        { id: 'c', legWinProbability: 0.2, matchWinProbability: 0.2 },
+      ],
+      [
+        { id: 'a', legWinProbability: 0.5, matchWinProbability: 0.5 },
+        { id: 'b', legWinProbability: 0.1, matchWinProbability: 0.1 },
+        { id: 'c', legWinProbability: 0.4, matchWinProbability: 0.4 },
+      ]
+    );
+
+    expect(consequence).toEqual({ leg: 0.2, match: 0.2 });
+  });
+
+  it('measures probability mass when the player support changes', () => {
+    const consequence = calculateProbabilityVectorConsequence(
+      [
+        { id: 'a', legWinProbability: 0.4, matchWinProbability: 0.4 },
+        { id: 'b', legWinProbability: 0.6, matchWinProbability: 0.6 },
+      ],
+      [{ id: 'a', legWinProbability: 1, matchWinProbability: 1 }]
+    );
+
+    expect(consequence).toEqual({ leg: 0.6, match: 0.6 });
+  });
+});

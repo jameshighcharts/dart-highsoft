@@ -86,7 +86,13 @@ function throwVerdict(impacts: HeatImpact[]) {
   return { emoji: '😈', label: 'Certified menace' };
 }
 
-function PlayerHeatmap({ data }: { data: PlayerHeatData }) {
+function PlayerHeatmap({
+  data,
+  highlightedDartId,
+}: {
+  data: PlayerHeatData;
+  highlightedDartId?: string;
+}) {
   const blurId = `heat-blur-${data.player.id}`;
   const coreBlurId = `heat-core-${data.player.id}`;
   const clipId = `heat-clip-${data.player.id}`;
@@ -155,16 +161,27 @@ function PlayerHeatmap({ data }: { data: PlayerHeatData }) {
           ))}
         </g>
         {data.impacts.map(({ impact, intensity }) => (
-          <circle
-            key={`point-${impact.id}`}
-            cx={CENTER + (impact.impact_x_mm ?? 0)}
-            cy={CENTER - (impact.impact_y_mm ?? 0)}
-            r={1.35 + intensity * 0.8}
-            fill={intensity >= 0.82 ? '#fff7ed' : 'white'}
-            opacity={0.58 + intensity * 0.35}
-          >
-            <title>{impact.segment}</title>
-          </circle>
+          <g key={`point-${impact.id}`}>
+            {impact.id === highlightedDartId ? (
+              <circle
+                cx={CENTER + (impact.impact_x_mm ?? 0)}
+                cy={CENTER - (impact.impact_y_mm ?? 0)}
+                fill="none"
+                r="9"
+                stroke="#67e8f9"
+                strokeWidth="3"
+              />
+            ) : null}
+            <circle
+              cx={CENTER + (impact.impact_x_mm ?? 0)}
+              cy={CENTER - (impact.impact_y_mm ?? 0)}
+              r={impact.id === highlightedDartId ? 3.5 : 1.35 + intensity * 0.8}
+              fill={impact.id === highlightedDartId || intensity >= 0.82 ? '#fff7ed' : 'white'}
+              opacity={impact.id === highlightedDartId ? 1 : 0.58 + intensity * 0.35}
+            >
+              <title>{impact.segment}{impact.id === highlightedDartId ? ' · selected dart' : ''}</title>
+            </circle>
+          </g>
         ))}
         {NUMBERS.map((number, index) => {
           const position = point(181, ((index * 18 - 90) * Math.PI) / 180);
@@ -183,10 +200,12 @@ export function ScoliaMatchHeatmaps({
   players,
   turns,
   turnsByLeg,
+  highlightedDartId,
 }: {
   players: Player[];
   turns: TurnRecord[];
   turnsByLeg: Record<string, TurnRecord[]>;
+  highlightedDartId?: string;
 }) {
   const playerData = useMemo(() => {
     const currentTurnIds = new Set(turns.map((turn) => turn.id));
@@ -236,7 +255,11 @@ export function ScoliaMatchHeatmaps({
       </CardHeader>
       <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {heatData.map((data) => (
-          <PlayerHeatmap key={data.player.id} data={data} />
+          <PlayerHeatmap
+            key={data.player.id}
+            data={data}
+            highlightedDartId={highlightedDartId}
+          />
         ))}
       </CardContent>
     </Card>

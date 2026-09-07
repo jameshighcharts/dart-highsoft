@@ -13,6 +13,7 @@ import { useMatchData } from '@/hooks/useMatchData';
 import { useMatchRealtime } from '@/hooks/useMatchRealtime';
 import { useMatchActions } from '@/hooks/useMatchActions';
 import { useMatchEloChanges } from '@/hooks/useMatchEloChanges';
+import { useDartIQ } from '@/hooks/useDartIQ';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useRealtime } from '@/hooks/useRealtime';
 import type { LegRecord, MatchRecord, Player, TurnRecord } from '@/lib/match/types';
@@ -61,16 +62,21 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   // Commentary state (persona-driven)
   const {
     commentaryEnabled,
+    realtimeCommentaryStatus,
+    toggleQuickCommentary,
     audioEnabled,
     voice,
     personaId,
     currentCommentary,
+    commentaryTranscriptLog,
     commentaryLoading,
     commentaryPlaying,
     activePersona,
-    commentaryDebouncer,
     ttsServiceRef,
+    realtimeCommentaryRef,
     setCurrentCommentary,
+    recordCompletedCommentary,
+    clearCommentaryTranscriptLog,
     setCommentaryLoading,
     setCommentaryPlaying,
     setAudioEnabled,
@@ -78,7 +84,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     handleCommentaryEnabledChange,
     handleAudioEnabledChange,
     handlePersonaChange,
-  } = useCommentary();
+    skipCommentary,
+  } = useCommentary(matchId);
 
   // Ref to hold latest state for event handlers (prevents stale closure bugs)
   const latestStateRef = useRef({
@@ -86,6 +93,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     playerById: {} as Record<string, Player>,
     turnThrowCounts: {} as Record<string, number>,
     turns: [] as TurnRecord[],
+    turnsByLeg: {} as Record<string, TurnRecord[]>,
     legs: [] as LegRecord[],
     players: [] as Player[],
     match: null as MatchRecord | null,
@@ -105,6 +113,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     turns,
     setTurns,
     turnsByLeg,
+    setTurnsByLeg,
     turnThrowCounts,
     setTurnThrowCounts,
     spectatorLoading,
@@ -115,6 +124,9 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     loadPlayersOnly,
     loadTurnsForLeg,
   } = useMatchData(matchId);
+  const finishRule: FinishRule = useMemo(() => (match?.finish ?? 'double_out'), [match?.finish]);
+  const dartIQPlayerIds = useMemo(() => players.map((player) => player.id), [players]);
+  const dartIQ = useDartIQ(matchId, dartIQPlayerIds, finishRule, !isSpectatorMode);
 
   const ongoingTurnRef = useRef<{
     turnId: string;
@@ -195,6 +207,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
       playerById,
       turnThrowCounts,
       turns,
+      turnsByLeg,
       legs,
       players,
       match,
@@ -222,6 +235,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     pendingThrowBufferRef,
     pendingTurnReconcileRef,
     setTurns,
+    setTurnsByLeg,
     setTurnThrowCounts,
     setMatch,
     ongoingTurnRef,
@@ -230,11 +244,16 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     celebratedTurns,
     commentaryEnabled,
     personaId,
-    commentaryDebouncer,
     setCommentaryLoading,
     setCommentaryPlaying,
     setCurrentCommentary,
+    recordCompletedCommentary,
     ttsServiceRef,
+    realtimeCommentaryRef,
+    dartIQEvidenceByPlayerId: dartIQ.profilesByPlayerId,
+    dartIQPopulationEvidence: dartIQ.populationProfile,
+    dartIQModelsByPlayerId: dartIQ.outcomeModelsByPlayerId,
+    dartIQWorkerEvidence: dartIQ.workerEvidence,
   });
 
   // Check for spectator mode from URL params
@@ -284,7 +303,6 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   const orderPlayers = useMemo(() => selectOrderPlayers(match, players, currentLeg), [match, players, currentLeg]);
 
   const startScore: number = useMemo(() => (match?.start_score ? parseInt(match.start_score, 10) : 501), [match?.start_score]);
-  const finishRule: FinishRule = useMemo(() => (match?.finish ?? 'double_out'), [match]);
 
   // Determine if match has a winner already
   const matchWinnerId = useMemo(() => selectMatchWinnerId(match, legs), [match, legs]);
@@ -545,6 +563,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           onHome={() => router.push('/')}
           onToggleSpectatorMode={toggleSpectatorMode}
           commentaryEnabled={commentaryEnabled}
+          realtimeCommentaryStatus={realtimeCommentaryStatus}
+          onToggleQuickCommentary={toggleQuickCommentary}
           audioEnabled={audioEnabled}
           voice={voice}
           personaId={personaId}
@@ -553,15 +573,19 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           onVoiceChange={setVoice}
           onPersonaChange={handlePersonaChange}
           currentCommentary={currentCommentary}
+          commentaryTranscriptLog={commentaryTranscriptLog}
+          onClearCommentaryTranscriptLog={clearCommentaryTranscriptLog}
           commentaryLoading={commentaryLoading}
           commentaryPlaying={commentaryPlaying}
-          onSkipCommentary={() => ttsServiceRef.current.skipCurrent()}
+          onSkipCommentary={skipCommentary}
           onToggleMute={() => setAudioEnabled(!audioEnabled)}
           queueLength={ttsServiceRef.current.getQueueLength()}
           activePersona={activePersona}
           eloChanges={eloChanges}
           eloChangesLoading={eloChangesLoading}
           fairEndingState={fairEndingState}
+          dartIQWorkerEvidence={dartIQ.workerEvidence}
+          hasPersonalDartIQEvidence={dartIQ.hasPersonalProfiles}
           isHistoryView={historyParam}
           onBackToGames={backToGames}
         />

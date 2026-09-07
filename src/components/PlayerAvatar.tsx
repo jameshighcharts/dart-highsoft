@@ -1,8 +1,8 @@
 import { cn } from '@/lib/utils';
-import { AVATAR_SIZES, avatarFallbackColor, playerInitials, type AvatarSize } from '@/lib/avatarStyle';
+import { AVATAR_SIZES, avatarFallbackColor, playerInitials, type AvatarSize } from '@/lib/avatars';
 
-export type { AvatarSize } from '@/lib/avatarStyle';
-export { playerInitials } from '@/lib/avatarStyle';
+export type { AvatarSize } from '@/lib/avatars';
+export { playerInitials } from '@/lib/avatars';
 
 export type AvatarPlayer = {
   id?: string | null;

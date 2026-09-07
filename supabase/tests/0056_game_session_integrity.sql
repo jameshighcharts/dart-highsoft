@@ -336,7 +336,7 @@ begin
     select 1
     from unnest(array[
       'public.create_game_session_atomic(public.game_session_mode,jsonb,uuid[],uuid)'::regprocedure,
-      'public.create_x01_match_atomic(public.x01_start,public.finish_rule,integer,boolean,uuid[],uuid)'::regprocedure,
+      'public.create_x01_match_atomic(public.x01_start,public.finish_rule,integer,boolean,uuid[],uuid,uuid)'::regprocedure,
       'public.append_game_throw_atomic(uuid,uuid,uuid,integer,integer,integer,text,integer,jsonb,bigint,numeric,numeric,numeric,numeric,boolean,uuid)'::regprocedure,
       'public.undo_last_game_throw_atomic(uuid,uuid,boolean)'::regprocedure,
       'public.finalize_game_session_atomic(uuid,uuid,uuid)'::regprocedure
@@ -353,7 +353,7 @@ begin
     from pg_proc p
     where p.oid = any(array[
       'public.create_game_session_atomic(public.game_session_mode,jsonb,uuid[],uuid)'::regprocedure,
-      'public.create_x01_match_atomic(public.x01_start,public.finish_rule,integer,boolean,uuid[],uuid)'::regprocedure,
+      'public.create_x01_match_atomic(public.x01_start,public.finish_rule,integer,boolean,uuid[],uuid,uuid)'::regprocedure,
       'public.append_game_throw_atomic(uuid,uuid,uuid,integer,integer,integer,text,integer,jsonb,bigint,numeric,numeric,numeric,numeric,boolean,uuid)'::regprocedure,
       'public.undo_last_game_throw_atomic(uuid,uuid,boolean)'::regprocedure,
       'public.finalize_game_session_atomic(uuid,uuid,uuid)'::regprocedure

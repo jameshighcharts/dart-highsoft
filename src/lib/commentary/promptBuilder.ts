@@ -1,5 +1,6 @@
 import type { CommentaryPersona, CommentaryPayload, MatchRecapPayload } from './types';
 import { computeDartIQ, humorStyleFromScore } from './insights';
+import { commentaryNicknameInstruction, renderPlayerNicknames, nikitaSpecialMoment } from './personas';
 
 interface PromptBuildOptions {
   persona: CommentaryPersona;
@@ -20,8 +21,38 @@ export function buildCommentaryPrompt(
   const { persona } = options;
   const rng = options.random ?? Math.random;
   const style = persona.style;
+  const significantDartIQ = Boolean(
+    payload.dartiq
+      && (Math.abs(payload.dartiq.matchWpa) >= 0.06
+        || (payload.dartiq.peakMatchConsequence ?? 0) >= 0.04
+        || (payload.dartiq.peakLegConsequence ?? 0) >= 0.08
+        || payload.dartiq.createdBogey
+        || payload.dartiq.changedMatchFavorite
+        || payload.dartiq.checkedOut)
+  );
+  const hasNarrativeHook = Boolean(
+    payload.narrative
+      && (
+        payload.narrative.rematch
+        || payload.narrative.activeStoryArc
+        || Math.abs(payload.narrative.biggestSwing?.matchWpa ?? 0) >= 0.05
+        || payload.narrative.players.some((player) =>
+          player.tendencies.length > 0
+          || player.baselinePerformance !== 'near_baseline'
+          || player.checkoutPressure.recentUnconvertedOneDartFinishes.length > 0
+          || player.checkoutPressure.highPressureOpportunities > 0
+        )
+      )
+  );
 
-  if (rng() < style.plainLineProbability) {
+  if (
+    persona.id !== 'chad'
+    &&
+    !payload.isNikitaSpecial
+    && !significantDartIQ
+    && !hasNarrativeHook
+    && rng() < style.plainLineProbability
+  ) {
     return {
       plainLine: `${payload.playerName} scores ${payload.totalScore}; ${payload.remainingScore} left.`,
       allowSlang: false,
@@ -45,7 +76,9 @@ export function buildCommentaryPrompt(
     .join(' | ');
 
   let resultPrefix = '';
-  if (payload.busted) {
+  if (payload.isNikitaSpecial) {
+    resultPrefix = `${nikitaSpecialMoment(payload.playerName)} `;
+  } else if (payload.busted) {
     resultPrefix = 'BUST! ';
   } else if (payload.is180) {
     resultPrefix = '180! ';
@@ -75,7 +108,50 @@ export function buildCommentaryPrompt(
   if (iq.setupShot) iqHints.push('Visit looked like a setup shot.');
   if (iq.bust) iqHints.push(`Bust resets to ${payload.remainingScore}.`);
 
-  const allowSlang = rng() < style.slangUseProbability;
+  const dartIQHints: string[] = [];
+  if (payload.dartiq) {
+    const dartiq = payload.dartiq;
+    const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
+    const formatPoints = (value: number) => `${value >= 0 ? '+' : ''}${Math.round(value * 100)}pp`;
+    dartIQHints.push(
+      `Match win chance ${formatPercent(dartiq.matchProbabilityBefore)} → ${formatPercent(dartiq.matchProbabilityAfter)} (${formatPoints(dartiq.matchWpa)}).`
+    );
+    dartIQHints.push(
+      `Leg win chance ${formatPercent(dartiq.legProbabilityBefore)} → ${formatPercent(dartiq.legProbabilityAfter)} (${formatPoints(dartiq.legWpa)}).`
+    );
+    if (dartiq.changedMatchFavorite) dartIQHints.push('This visit changed the match favorite.');
+    if (Math.abs(dartiq.biggestDartMatchWpa) >= 0.03) {
+      dartIQHints.push(`Biggest single-dart match swing in the visit: ${formatPoints(dartiq.biggestDartMatchWpa)}.`);
+    }
+    if ((dartiq.peakMatchConsequence ?? 0) >= 0.03) {
+      dartIQHints.push(`Largest full-field match consequence: ${formatPoints(dartiq.peakMatchConsequence ?? 0)}.`);
+    }
+    if (dartiq.createdBogey) dartIQHints.push('The visit created an unfinishable bogey leave.');
+    else if (Math.abs(dartiq.leaveProbabilityChange ?? 0) >= 0.03) {
+      dartIQHints.push(
+        `The resulting leave changed the next-visit checkout chance by ${formatPoints(dartiq.leaveProbabilityChange ?? 0)}, to ${formatPercent(dartiq.nextVisitCheckoutProbability ?? 0)}.`
+      );
+    }
+    if (
+      dartiq.nextOpponentThreat
+      && !dartiq.checkedOut
+      && dartiq.nextOpponentThreat.scoreRemaining <= 170
+      && dartiq.nextOpponentThreat.checkoutProbabilityNextVisit >= 0.05
+    ) {
+      const opponent = payload.gameContext.allPlayers.find(
+        (player) => player.id === dartiq.nextOpponentThreat?.playerId
+      );
+      dartIQHints.push(
+        `If the visit passes, ${opponent?.name ?? 'the next opponent'} has ${dartiq.nextOpponentThreat.scoreRemaining} left with a ${formatPercent(dartiq.nextOpponentThreat.checkoutProbabilityNextVisit)} next-visit checkout chance.`
+      );
+    }
+  }
+
+  const narrativeMemory = payload.narrative
+    ? JSON.stringify(payload.narrative)
+    : 'none yet';
+
+  const allowSlang = persona.id === 'chad' || persona.id === 'nord' || rng() < style.slangUseProbability;
   const humorStyle = humorStyleFromScore(payload.totalScore);
 
   const ordinalPosition = formatOrdinal(gameContext.positionInMatch);
@@ -83,29 +159,48 @@ export function buildCommentaryPrompt(
 
   const slangTermLabel = style.maxSlangPerLine === 1 ? 'term' : 'terms';
 
+  const deliveryDirection = payload.isNikitaSpecial
+    ? 'Write one explosive 6–16 word celebration in your persona. Name the Nikita Special; let the joy be comically disproportionate.'
+    : persona.id === 'chad'
+      ? `Write ONE concise, deadpan line (≤ ${style.maxWords} words) in Chad's original California surf-bro voice.`
+    : persona.id === 'nord'
+      ? `Skriv ÉN kort replikk (maks ${style.maxWords} ord) med Olufs tørre, frittalende nordnorske energi.`
+      : `Write ONE concise line (≤ ${style.maxWords} words).`;
+
   const prompt = `
 ${payload.playerName}: ${throwsDescription} = ${payload.totalScore} pts. ${resultPrefix}${payload.remainingScore} left.
 ${positionLine}
 Recent: ${recentTurnsStr || 'First turn'}.${streakInfo}
 Standings: ${standingsStr || 'No standings available.'}
+${renderPlayerNicknames(gameContext.allPlayers)}
 
 IQ hints: ${iqHints.length ? iqHints.join(' ') : 'none'}
+DartIQ: ${dartIQHints.length ? dartIQHints.join(' ') : 'no DartIQ data'}
+Compact narrative memory: ${narrativeMemory}
+Special event: ${payload.isNikitaSpecial ? 'Let delighted disbelief override the usual deadpan delivery: explosive joy, affectionate ridicule, and no dry scoring recap.' : 'none'}
 
-Write ONE deadpan, concise line (≤ ${style.maxWords} words).
-Use ${payload.playerName}'s name and reference their ${payload.totalScore}-point turn or current checkout situation.
+${deliveryDirection}
+Use ${payload.playerName}'s name or a supplied nickname and reference their ${payload.totalScore}-point turn or current checkout situation.
+${commentaryNicknameInstruction}
+Keep it playful and lightly sassy. Tease the darts or the emerging story, never the person's identity or appearance.
 
-Humor style: ${humorStyle}.
+${payload.isNikitaSpecial ? 'Humor style: ecstatic, affectionate signature-move celebration.' : `Humor style: ${humorStyle}.
 Tone guide:
 - hype-lite: impressed but calm
 - confident-dry: composed credit
 - neutral-dry: matter-of-fact
 - roast-lite: gentle ribbing, not mean
-- wry-quiet: minimal, resigned humor
+- wry-quiet: minimal, resigned humor`}
 
-Slang policy: ${allowSlang ? `optional (≤${style.maxSlangPerLine} natural ${slangTermLabel}).` : 'avoid all slang this line.'}
+Slang policy: ${persona.id === 'chad' || persona.id === 'nord'
+    ? 'let the persona and the moment decide naturally; do not follow a numeric slang quota.'
+    : allowSlang ? `optional (≤${style.maxSlangPerLine} natural ${slangTermLabel}).` : 'avoid all slang this line.'}
 Stay clear of hashtags, emojis, or filler catchphrases.
 Prioritize dart intelligence (bogeys, checkout pressure, doubles, busts, setup leaves) over jokes.
-Be informative first, witty second. Output only the one-liner.`;
+When DartIQ data is present, explain the consequence accurately. DartIQ is the situation; call the result clutch only when the player gained probability.
+Use at most one relevant narrative-memory thread. Build continuity without reciting the memory object or forcing history into every call.
+When broadcastDirection is present, follow its activeStoryArc as the committed angle, ignore backgroundStoryArcs, and honor payoff_due or closure_due callbacks. Otherwise use activeStoryArc. Never invent evidence beyond it.
+${payload.isNikitaSpecial ? 'Make the celebration the point; no extra analysis.' : 'Be informative first, witty second.'} Output only the one-liner.`;
 
   return { prompt, allowSlang, humorStyle };
 }
@@ -155,6 +250,7 @@ ${finalThrowsInfo}
 
 Final Standings:
 ${finalStandings}
+${renderPlayerNicknames(context.allPlayers)}
 ${context.matchDuration ? `Duration: ${context.matchDuration}` : ''}
 `.trim();
 
@@ -162,6 +258,7 @@ ${context.matchDuration ? `Duration: ${context.matchDuration}` : ''}
 ${matchStats}
 
 MATCH ENDED. Write an enthusiastic, entertaining match recap and winner announcement.
+${commentaryNicknameInstruction}
 
 Requirements:
 - 2-4 sentences total (60-80 words max)

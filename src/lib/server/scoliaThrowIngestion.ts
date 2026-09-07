@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { detectedThrowFromMessage, type ScoliaMessage } from '../scolia/protocol.ts';
 import { completeLeg } from './completeLeg.ts';
+import { enqueueDartIQLiveThrow } from './backgroundJobs.ts';
 import { isMatchScoringActive, loadMatch, type MatchRow } from './matchGuards.ts';
 import { resolveOrCreateTurnForPlayer } from './turnLifecycle.ts';
 import { replayTurn, type ThrowData } from '../../utils/legScoreCalculator.ts';
@@ -90,53 +91,22 @@ async function updateEvent(
 async function loadSnapshot(
   supabase: SupabaseClient,
   matchId: string,
-  requestedLegId?: string
+  requestedLegId?: string,
+  settlingTurnId?: string
 ): Promise<MatchSnapshot | null> {
-  const match = await loadMatch(supabase, matchId);
-  if (!match) return null;
-
-  let legQuery = supabase
-    .from('legs')
-    .select('id, match_id, leg_number, starting_player_id, winner_player_id')
-    .eq('match_id', matchId);
-  legQuery = requestedLegId
-    ? legQuery.eq('id', requestedLegId)
-    : legQuery.is('winner_player_id', null).order('leg_number', { ascending: false }).limit(1);
-  const { data: legData, error: legError } = await legQuery.maybeSingle();
-  if (legError) throw new Error(legError.message);
-  if (!legData) return null;
-  const leg = legData as LegRow;
-
-  const [{ data: playerData, error: playerError }, { data: turnData, error: turnError }] = await Promise.all([
-    supabase
-      .from('match_players')
-      .select('player_id, play_order')
-      .eq('match_id', matchId)
-      .order('play_order'),
-    supabase
-      .from('turns')
-      .select(`
-        id, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round,
-        throws:throws(id, turn_id, dart_index, segment, scored, scolia_event_id)
-      `)
-      .eq('leg_id', leg.id)
-      .order('turn_number'),
-  ]);
-  if (playerError) throw new Error(playerError.message);
-  if (turnError) throw new Error(turnError.message);
-
-  const playerIds = (playerData ?? []).map((row) => row.player_id as string);
+  const { data, error } = await supabase.rpc('load_scolia_match_snapshot', {
+    p_match_id: matchId,
+    p_leg_id: requestedLegId ?? null,
+    p_turn_id: settlingTurnId ?? null,
+  });
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const { match, leg, playerIds, turns } = data as Pick<MatchSnapshot, 'match' | 'leg' | 'playerIds' | 'turns'>;
   if (playerIds.length === 0) throw new Error('Scolia match has no players');
   const startIndex = playerIds.indexOf(leg.starting_player_id);
   const orderPlayerIds = startIndex < 0
     ? playerIds
     : [...playerIds.slice(startIndex), ...playerIds.slice(0, startIndex)];
-  const turns = (turnData ?? []).map((row) => ({
-    ...row,
-    throws: (Array.isArray(row.throws) ? row.throws : [])
-      .map((dart) => dart as ThrowRow)
-      .sort((a, b) => a.dart_index - b.dart_index),
-  })) as TurnRow[];
   const fairEndingState = computeFairEndingState(
     turnInputs(turns),
     orderPlayerIds.map((id) => ({ id })),
@@ -170,7 +140,7 @@ async function finishThrowLifecycle(
   turnId: string,
   throwId: string
 ) {
-  const snapshot = await loadSnapshot(supabase, matchId, legId);
+  const snapshot = await loadSnapshot(supabase, matchId, legId, turnId);
   if (!snapshot) throw new Error('Could not reload the Scolia match after recording a throw');
   const turn = snapshot.turns.find((candidate) => candidate.id === turnId);
   if (!turn) throw new Error('Could not reload the Scolia turn after recording a throw');
@@ -222,6 +192,18 @@ async function finishThrowLifecycle(
   // Keep the argument intentionally used: callers know the inserted row made it
   // through all turn/leg side effects before the event is marked processed.
   void throwId;
+}
+
+async function enqueueLiveDartIQWithoutBreakingScoring(
+  supabase: SupabaseClient,
+  matchId: string,
+  throwId: string
+) {
+  try {
+    await enqueueDartIQLiveThrow(supabase, matchId, throwId);
+  } catch (error) {
+    console.error('DartIQ live Scolia telemetry error:', error);
+  }
 }
 
 async function findExistingThrow(supabase: SupabaseClient, eventId: number): Promise<ThrowRow | null> {
@@ -292,6 +274,7 @@ export async function ingestScoliaThrowEvent(
             existingThrow.id
           );
         }
+        await enqueueLiveDartIQWithoutBreakingScoring(supabase, linked.matchId, existingThrow.id);
         await updateEvent(supabase, event.id, 'processed', null);
         return { status: 'processed', target: { kind: 'match', id: linked.matchId }, throwId: existingThrow.id };
       }
@@ -359,12 +342,14 @@ export async function ingestScoliaThrowEvent(
       const duplicate = await findExistingThrow(supabase, event.id);
       if (!duplicate) throw new Error(insertError?.message ?? 'Failed to create Scolia throw');
       await finishThrowLifecycle(supabase, matchId, snapshot.leg.id, duplicate.turn_id, duplicate.id);
+      await enqueueLiveDartIQWithoutBreakingScoring(supabase, matchId, duplicate.id);
       await updateEvent(supabase, event.id, 'processed', null);
       return { status: 'processed', target, throwId: duplicate.id };
     }
 
     const inserted = insertedThrow as ThrowRow;
     await finishThrowLifecycle(supabase, matchId, snapshot.leg.id, inserted.turn_id, inserted.id);
+    await enqueueLiveDartIQWithoutBreakingScoring(supabase, matchId, inserted.id);
     await updateEvent(supabase, event.id, 'processed', null);
     return { status: 'processed', target, throwId: inserted.id };
   } catch (error) {

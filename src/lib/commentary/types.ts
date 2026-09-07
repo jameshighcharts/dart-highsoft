@@ -6,6 +6,7 @@ export interface ThrowData {
 
 export interface PlayerStats {
   name: string;
+  nicknames?: string[];
   id: string;
   remainingScore: number;
   average: number;
@@ -37,16 +38,61 @@ export interface CommentaryGameContext {
   consecutiveLowScores?: number;
 }
 
+export interface CommentaryDartIQContext {
+  matchProbabilityBefore: number;
+  matchProbabilityAfter: number;
+  matchWpa: number;
+  legProbabilityBefore: number;
+  legProbabilityAfter: number;
+  legWpa: number;
+  biggestDartMatchWpa: number;
+  peakLegConsequence?: number;
+  peakMatchConsequence?: number;
+  oneDartFinishAvailable?: boolean;
+  matchWinAvailableThisVisit?: boolean;
+  unconvertedMatchFinishChancesInVisit?: number;
+  changedMatchFavorite: boolean;
+  checkedOut: boolean;
+  busted: boolean;
+  leaveProbabilityChange?: number;
+  nextVisitCheckoutProbability?: number;
+  nextOpponentThreat?: {
+    playerId: string;
+    scoreRemaining: number;
+    checkoutProbabilityNextVisit: number;
+  } | null;
+  createdBogey?: boolean;
+  peakLegOpportunity?: number;
+  peakMatchOpportunity?: number;
+  rarestLegDirectionalTail?: number;
+  rarestMatchDirectionalTail?: number;
+  firstNineAverage?: number;
+  tonPlusVisitStreak?: number;
+  legResolution?: {
+    winnerPlayerId: string;
+    startingPlayerId: string;
+    wonAgainstThrow: boolean;
+    legsWonAfter: Record<string, number>;
+    matchWon: boolean;
+    nextLeg: { number: number; startingPlayerId: string } | null;
+  };
+  signals?: import('@/lib/dartiq/events').DartIQEventSignal[];
+}
+
 export interface CommentaryPayload {
   playerName: string;
   playerId: string;
+  turnId?: string;
   totalScore: number;
   remainingScore: number;
   throws: ThrowData[];
   busted: boolean;
   isHighScore: boolean;
   is180: boolean;
+  isNikitaSpecial?: boolean;
   gameContext: CommentaryGameContext;
+  dartiq?: CommentaryDartIQContext;
+  narrative?: CommentaryNarrativeMemory;
 }
 
 export interface MatchRecapContext {
@@ -84,6 +130,12 @@ export interface CommentaryResult {
   error?: string;
 }
 
+export interface CommentaryTranscriptEntry {
+  id: string;
+  text: string;
+  completedAt: string;
+}
+
 export interface CommentaryStyleConfig {
   slangUseProbability: number;
   maxSlangPerLine: number;
@@ -103,3 +155,4 @@ export interface CommentaryPersona {
 
 export type CommentaryPersonaId = CommentaryPersona['id'];
 export type CommentaryExcitementLevel = 'low' | 'medium' | 'high';
+import type { CommentaryNarrativeMemory } from './commentaryNarrative';

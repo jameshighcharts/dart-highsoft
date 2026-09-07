@@ -3,9 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import { resolvePersona } from '@/lib/commentary/personas';
-import type { CommentaryPersona, CommentaryPersonaId } from '@/lib/commentary/types';
-import { CommentaryDebouncer } from '@/services/commentaryService';
+import type {
+  CommentaryPersona,
+  CommentaryPersonaId,
+  CommentaryTranscriptEntry,
+} from '@/lib/commentary/types';
+import type { RealtimeCommentaryService, RealtimeCommentaryStatus } from '@/services/realtimeCommentaryService';
 import { getTTSService, type VoiceOption } from '@/services/ttsService';
+import { useRealtimeCommentary } from '@/hooks/useRealtimeCommentary';
+import { resolveRealtimeVoice } from '@/lib/commentary/realtimeTypes';
 
 type UseCommentaryResult = {
   commentaryEnabled: boolean;
@@ -13,12 +19,18 @@ type UseCommentaryResult = {
   voice: VoiceOption;
   personaId: CommentaryPersonaId;
   currentCommentary: string | null;
+  commentaryTranscriptLog: CommentaryTranscriptEntry[];
   commentaryLoading: boolean;
   commentaryPlaying: boolean;
   activePersona: CommentaryPersona;
-  commentaryDebouncer: MutableRefObject<CommentaryDebouncer>;
   ttsServiceRef: MutableRefObject<ReturnType<typeof getTTSService>>;
+  realtimeCommentaryRef: MutableRefObject<RealtimeCommentaryService | null>;
+  realtimeCommentaryReady: boolean;
+  realtimeCommentaryStatus: RealtimeCommentaryStatus;
+  toggleQuickCommentary: () => void;
   setCurrentCommentary: (value: string | null) => void;
+  recordCompletedCommentary: (value: string) => void;
+  clearCommentaryTranscriptLog: () => void;
   setCommentaryLoading: (value: boolean) => void;
   setCommentaryPlaying: (value: boolean) => void;
   setAudioEnabled: (value: boolean) => void;
@@ -27,45 +39,91 @@ type UseCommentaryResult = {
   handleCommentaryEnabledChange: (enabled: boolean) => void;
   handleAudioEnabledChange: (enabled: boolean) => void;
   handlePersonaChange: (nextPersona: CommentaryPersonaId) => void;
+  skipCommentary: () => void;
 };
 
-export function useCommentary(): UseCommentaryResult {
+export function useCommentary(matchId: string): UseCommentaryResult {
   const [commentaryEnabled, setCommentaryEnabled] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
-  const [voice, setVoice] = useState<VoiceOption>('onyx'); // Match TTSService default - male voice
+  const [voice, setVoice] = useState<VoiceOption>('cedar');
   const [personaId, setPersonaId] = useState<CommentaryPersonaId>('chad');
   const [currentCommentary, setCurrentCommentary] = useState<string | null>(null);
+  const [commentaryTranscriptLog, setCommentaryTranscriptLog] = useState<CommentaryTranscriptEntry[]>([]);
   const [commentaryLoading, setCommentaryLoading] = useState(false);
   const [commentaryPlaying, setCommentaryPlaying] = useState(false);
   const ttsServiceRef = useRef(getTTSService());
-  const commentaryDebouncer = useRef(new CommentaryDebouncer(2000));
   const activePersona = useMemo(() => resolvePersona(personaId), [personaId]);
+  const recordCompletedCommentary = useCallback((value: string) => {
+    setCommentaryTranscriptLog((current) => appendCommentaryTranscript(current, value));
+  }, []);
+  const clearCommentaryTranscriptLog = useCallback(() => {
+    setCommentaryTranscriptLog([]);
+  }, []);
+  const { serviceRef: realtimeCommentaryRef, status: realtimeCommentaryStatus } =
+    useRealtimeCommentary({
+      matchId,
+      enabled: commentaryEnabled && audioEnabled,
+      personaId,
+      voice,
+      onTranscript: setCurrentCommentary,
+      onTranscriptComplete: recordCompletedCommentary,
+      onPlaying: setCommentaryPlaying,
+    });
 
   const handleCommentaryEnabledChange = useCallback(
     (enabled: boolean) => {
       setCommentaryEnabled(enabled);
       if (enabled && audioEnabled) {
+        void realtimeCommentaryRef.current?.unlock();
         void ttsServiceRef.current.unlock();
       }
     },
-    [audioEnabled]
+    [audioEnabled, realtimeCommentaryRef]
   );
 
   const handleAudioEnabledChange = useCallback(
     (enabled: boolean) => {
       setAudioEnabled(enabled);
       if (enabled && commentaryEnabled) {
+        void realtimeCommentaryRef.current?.unlock();
         void ttsServiceRef.current.unlock();
       }
     },
-    [commentaryEnabled]
+    [commentaryEnabled, realtimeCommentaryRef]
   );
 
   const handlePersonaChange = useCallback((nextPersona: CommentaryPersonaId) => {
     setPersonaId(nextPersona);
   }, []);
 
+  const toggleQuickCommentary = useCallback(() => {
+    if (commentaryEnabled && audioEnabled) {
+      realtimeCommentaryRef.current?.skip();
+      ttsServiceRef.current.clearQueue();
+      setCommentaryPlaying(false);
+      setAudioEnabled(false);
+      setCommentaryEnabled(false);
+      return;
+    }
+    // Unlock during the gesture; separate toggle handlers see pre-click state.
+    void realtimeCommentaryRef.current?.unlock();
+    void ttsServiceRef.current.unlock();
+    setVoice('verse');
+    setAudioEnabled(true);
+    setCommentaryEnabled(true);
+  }, [commentaryEnabled, audioEnabled, realtimeCommentaryRef]);
+
+  const skipCommentary = useCallback(() => {
+    realtimeCommentaryRef.current?.skip();
+    ttsServiceRef.current.skipCurrent();
+    setCommentaryPlaying(false);
+  }, [realtimeCommentaryRef]);
+
   // Load commentary preferences and enforce disabled-by-default AI toggles
+  useEffect(() => {
+    setCommentaryTranscriptLog([]);
+  }, [matchId]);
+
   useEffect(() => {
     try {
       // Always start each session with AI features disabled.
@@ -83,7 +141,7 @@ export function useCommentary(): UseCommentaryResult {
       }
 
       const ttsSettings = ttsServiceRef.current.getSettings();
-      setVoice(ttsSettings.voice);
+      setVoice(resolveRealtimeVoice(ttsSettings.voice));
     } catch (error) {
       console.error('Failed to load commentary settings:', error);
     }
@@ -149,12 +207,18 @@ export function useCommentary(): UseCommentaryResult {
     voice,
     personaId,
     currentCommentary,
+    commentaryTranscriptLog,
     commentaryLoading,
     commentaryPlaying,
     activePersona,
-    commentaryDebouncer,
     ttsServiceRef,
+    realtimeCommentaryRef,
+    realtimeCommentaryReady: realtimeCommentaryStatus === 'ready',
+    realtimeCommentaryStatus,
+    toggleQuickCommentary,
     setCurrentCommentary,
+    recordCompletedCommentary,
+    clearCommentaryTranscriptLog,
     setCommentaryLoading,
     setCommentaryPlaying,
     setAudioEnabled,
@@ -163,5 +227,30 @@ export function useCommentary(): UseCommentaryResult {
     handleCommentaryEnabledChange,
     handleAudioEnabledChange,
     handlePersonaChange,
+    skipCommentary,
   };
+}
+
+export const MAX_COMMENTARY_TRANSCRIPTS = 50;
+
+type TranscriptEntryFactory = {
+  id?: () => string;
+  now?: () => string;
+};
+
+export function appendCommentaryTranscript(
+  current: CommentaryTranscriptEntry[],
+  value: string,
+  factory: TranscriptEntryFactory = {}
+): CommentaryTranscriptEntry[] {
+  const text = value.trim();
+  if (!text || current.at(-1)?.text === text) return current;
+
+  const entry: CommentaryTranscriptEntry = {
+    id: factory.id?.() ?? crypto.randomUUID(),
+    text,
+    completedAt: factory.now?.() ?? new Date().toISOString(),
+  };
+
+  return [...current, entry].slice(-MAX_COMMENTARY_TRANSCRIPTS);
 }

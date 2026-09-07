@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { loadMatchData } from '@/lib/match/loadMatchData';
 import { recordPerfMetric } from '@/lib/match/perfMetrics';
@@ -20,7 +20,7 @@ type UseMatchDataResult = {
   turns: TurnRecord[];
   setTurns: (value: TurnRecord[] | ((prev: TurnRecord[]) => TurnRecord[])) => void;
   turnsByLeg: Record<string, TurnRecord[]>;
-  setTurnsByLeg: (value: Record<string, TurnRecord[]>) => void;
+  setTurnsByLeg: Dispatch<SetStateAction<Record<string, TurnRecord[]>>>;
   turnThrowCounts: Record<string, number>;
   setTurnThrowCounts: (value: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => void;
   spectatorLoading: boolean;
@@ -104,7 +104,10 @@ export function useMatchData(matchId: string): UseMatchDataResult {
 
       // NOTE: throw counts are derived from the loaded turns above to avoid extra queries.
     } catch (e) {
-      console.error('Spectator mode refresh error:', e);
+      console.error(
+        'Spectator mode refresh error:',
+        e instanceof Error ? e.message : JSON.stringify(e)
+      );
       // Don't set error state in spectator mode to avoid disrupting the view
     } finally {
       if (process.env.NODE_ENV !== 'production') {

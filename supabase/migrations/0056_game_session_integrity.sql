@@ -1,3 +1,5 @@
+begin;
+
 lock table public.matches, public.game_sessions in share row exclusive mode;
 
 do $$
@@ -730,3 +732,5 @@ alter view public.around_the_clock_leaderboard set (security_invoker = true);
 
 grant select on public.shanghai_leaderboard to anon, authenticated;
 grant select on public.around_the_clock_leaderboard to anon, authenticated;
+
+commit;

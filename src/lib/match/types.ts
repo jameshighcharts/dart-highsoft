@@ -1,6 +1,6 @@
 import type { FinishRule } from '@/utils/x01';
 
-export type Player = { id: string; display_name: string; location?: string | null; avatar_url?: string | null };
+export type Player = { id: string; display_name: string; location?: string | null; avatar_url?: string | null; nicknames?: string[] };
 
 export type MatchRecord = {
   id: string;
@@ -8,11 +8,13 @@ export type MatchRecord = {
   start_score: '201' | '301' | '501';
   finish: FinishRule;
   legs_to_win: number;
+  winner_player_id?: string | null;
   ended_early?: boolean;
   paused_at?: string | null;
   fair_ending?: boolean;
   tournament_match_id?: string | null;
   scolia_board_id?: string | null;
+  rematch_of_match_id?: string | null;
 };
 
 export type LegRecord = {
@@ -46,6 +48,7 @@ export type ThrowRecord = {
   dart_index: number;
   segment: string;
   scored: number;
+  scolia_event_id?: number | null;
   impact_x_mm?: number | null;
   impact_y_mm?: number | null;
   angle_horizontal_deg?: number | null;
