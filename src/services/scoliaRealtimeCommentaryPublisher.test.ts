@@ -1,11 +1,83 @@
 import { RealtimeNarrativeWireState } from '../lib/commentary/realtimeWireFormat';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CommentaryPolicy } from '../lib/commentary/commentaryPolicy';
 import { CommentaryVisitTiming } from '../lib/commentary/commentaryVisitTiming';
 import { RealtimePlayback } from '../lib/commentary/realtimePlayback';
 import { RealtimeResponseQueue } from '../lib/commentary/realtimeResponseQueue';
 import { ScoliaRealtimeCommentaryPublisher } from './scoliaRealtimeCommentaryPublisher';
+
+import { warmScoliaDartIQContext, ScoliaDartIQEventCache } from '../lib/commentary/scoliaRealtimeEvent';
+
+vi.mock('../lib/commentary/scoliaRealtimeEvent', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../lib/commentary/scoliaRealtimeEvent')>(),
+  warmScoliaDartIQContext: vi.fn(async () => undefined),
+}));
+afterEach(() => vi.mocked(warmScoliaDartIQContext).mockReset().mockResolvedValue(undefined));
+
+describe('Scolia delivery persistence', () => {
+  it.each(['new', 'pending', 'sent', 'failed', 'insert-error', 'read-error'] as const)(
+    'preserves delivery state for %s', async (state) => {
+      const row = { session_id: 'listener', throw_id: 'dart',
+        status: state === 'new' ? 'pending' : state, attempts: state === 'new' ? 0 : 2 };
+      const query = {
+        upsert: vi.fn(() => query), select: vi.fn(() => query), eq: vi.fn(() => query),
+        maybeSingle: vi.fn(async () => ({ data: state === 'new' ? row : null,
+          error: state === 'insert-error' ? { message: 'insert failed' } : null })),
+        single: vi.fn(async () => ({ data: row,
+          error: state === 'read-error' ? { message: 'read failed' } : null })),
+      };
+      const from = vi.fn(() => query);
+      const publisher = new ScoliaRealtimeCommentaryPublisher({ from } as unknown as SupabaseClient, 'test');
+      const internals = publisher as unknown as { ensureDelivery: (session: string, dart: string) => Promise<typeof row> };
+      const result = internals.ensureDelivery('listener', 'dart');
+      if (state === 'insert-error') await expect(result).rejects.toThrow('insert failed');
+      else if (state === 'read-error') await expect(result).rejects.toThrow('read failed');
+      else await expect(result).resolves.toEqual(row);
+      expect(from).toHaveBeenCalledTimes(state === 'new' || state === 'insert-error' ? 1 : 2);
+      expect(query.upsert).toHaveBeenCalledWith({ session_id: 'listener', throw_id: 'dart' },
+        { onConflict: 'session_id,throw_id', ignoreDuplicates: true });
+      if (state !== 'new' && state !== 'insert-error') {
+        expect(query.eq.mock.calls).toEqual([['session_id', 'listener'], ['throw_id', 'dart']]);
+      }
+    });
+});
+
+describe('Scolia cache preparation', () => {
+  it.each(['ready', 'correction', 'live', 'replaced', 'closed', 'disconnected'] as const)(
+    'only installs an unused current warm-up: %s', async (state) => {
+      const publisher = new ScoliaRealtimeCommentaryPublisher({} as SupabaseClient, 'test');
+      const internals = publisher as unknown as {
+        warmCache: (id: string) => void;
+        dartIQCache: ScoliaDartIQEventCache;
+        cacheWarmups: Map<string, Promise<void>>;
+        matchEpochs: Map<string, number>;
+        matchWork: Map<string, Promise<void>>;
+        connections: Map<string, object>;
+      };
+      const context = { timeline: [] } as unknown as NonNullable<Awaited<ReturnType<typeof warmScoliaDartIQContext>>>;
+      let release!: (value: typeof context) => void;
+      vi.mocked(warmScoliaDartIQContext).mockReturnValue(new Promise((resolve) => { release = resolve; }));
+      internals.matchEpochs.set('match', 0);
+      internals.connections.set('listener', { session: { match_id: 'match' } });
+      internals.warmCache('match');
+      internals.warmCache('match');
+      expect(warmScoliaDartIQContext).toHaveBeenCalledTimes(1);
+      const pending = internals.cacheWarmups.get('match');
+      expect(internals.matchWork.size).toBe(0);
+      if (state === 'correction') internals.matchEpochs.set('match', 1);
+      if (state === 'live') internals.matchWork.set('match', Promise.resolve());
+      const replacement = { ...context };
+      if (state === 'replaced') internals.dartIQCache.set('match', replacement);
+      if (state === 'closed' || state === 'disconnected') internals.connections.clear();
+      if (state === 'closed') publisher.close();
+      release(context);
+      await pending;
+      expect(internals.dartIQCache.get('match')).toBe(
+        state === 'ready' ? context : state === 'replaced' ? replacement : undefined);
+      expect(internals.cacheWarmups.size).toBe(0);
+    });
+});
 
 describe('Scolia commentary serialization', () => {
   it('scopes recovery and lets another match recover while one connection is blocked', async () => {
@@ -52,6 +124,7 @@ describe('Scolia commentary serialization', () => {
     release();
     await Promise.all([sweep, live]);
     expect(recovered).toEqual(['b1', 'a1', 'a2']);
+    expect(vi.mocked(warmScoliaDartIQContext).mock.calls.map(([, id]) => id)).toEqual(['b', 'a']);
     expect(liveRead).toHaveBeenCalledWith('a');
     expect(query.in).toHaveBeenCalledWith('session_id', ids);
     expect(internals.loadActiveSessions).toHaveBeenCalledWith(ids);

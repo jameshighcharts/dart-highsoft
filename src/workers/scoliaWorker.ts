@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { pathToFileURL } from 'node:url';
 
 import {
   boardStatePatchForMessage,
@@ -60,7 +61,7 @@ async function fetchAccountBoards(accessToken: string): Promise<AccountBoard[]> 
   return value;
 }
 
-class BoardConnection {
+export class BoardConnection {
   private readonly board: StoredBoard;
   private readonly accessToken: string;
   private readonly supabase: SupabaseClient;
@@ -308,16 +309,36 @@ class BoardConnection {
       storedEvent = data;
     }
 
-    await this.updateBoard({
+    const boardUpdate = this.updateBoard({
       ...boardStatePatchForMessage(message),
       worker_connection_status: 'connected',
       worker_heartbeat_at: now,
       last_event_at: now,
     });
 
+    const processingStatus = storedEvent.processing_status as string;
+    if (message.type === 'THROW_DETECTED' && processingStatus !== 'processed' && processingStatus !== 'ignored') {
+      // Persist the event first, then overlap independent status/scoring work.
+      // Wait for both before advancing the board queue, even if either fails.
+      const results = await Promise.allSettled([boardUpdate, (async () => {
+        const result = await ingestScoliaThrowEvent(this.supabase, storedEvent as StoredScoliaEvent);
+        if (result.status === 'processed') {
+          console.info(`[scolia] ${this.board.name}: scored throw ${message.id}`);
+          if (result.target.kind === 'match') {
+            this.publishCommentary(result.target.id, result.throwId);
+          }
+        } else {
+          console.info(`[scolia] ${this.board.name}: ignored throw ${message.id}: ${result.reason}`);
+        }
+      })()]);
+      for (const result of results) {
+        if (result.status === 'rejected') throw result.reason;
+      }
+      return;
+    }
+    await boardUpdate;
     await this.handleCommandResponse(message, now);
 
-    const processingStatus = storedEvent.processing_status as string;
     if (
       processingStatus !== 'processed'
       && processingStatus !== 'ignored'
@@ -336,18 +357,6 @@ class BoardConnection {
     }
 
     if (processingStatus === 'processed' || processingStatus === 'ignored') return;
-    if (message.type === 'THROW_DETECTED') {
-      const result = await ingestScoliaThrowEvent(this.supabase, storedEvent as StoredScoliaEvent);
-      if (result.status === 'processed') {
-        console.info(`[scolia] ${this.board.name}: scored throw ${message.id}`);
-        if (result.target.kind === 'match') {
-          this.publishCommentary(result.target.id, result.throwId);
-        }
-      } else {
-        console.info(`[scolia] ${this.board.name}: ignored throw ${message.id}: ${result.reason}`);
-      }
-      return;
-    }
 
     const { error: ignoreError } = await this.supabase
       .from('scolia_events')
@@ -534,7 +543,9 @@ async function startScoliaWorker() {
   }, COMMENTARY_RETRY_INTERVAL_MS);
 }
 
-startScoliaWorker().catch((error) => {
-  console.error('[scolia] worker failed to start', error);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  startScoliaWorker().catch((error) => {
+    console.error('[scolia] worker failed to start', error);
+    process.exit(1);
+  });
+}

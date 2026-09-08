@@ -196,46 +196,34 @@ export async function loadScoliaRealtimeDartEvent(
   throwId: string,
   dartIQCache?: ScoliaDartIQEventCache
 ): Promise<ScoliaRealtimeDartEvent> {
-  const { data: dart, error: dartError } = await supabase
+  // Read the same facts in one database snapshot instead of three dependent
+  // request stages. Explicit FK aliases disambiguate the reverse throws join.
+  const { data, error } = await supabase
     .from('throws')
-    .select('id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm')
+    .select(`
+      id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm,
+      turn:turn_id(
+        id, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round,
+        throws:throws(id, scored, dart_index, segment, impact_x_mm, impact_y_mm),
+        player:player_id(id, display_name),
+        leg:leg_id(
+          id, match_id, leg_number, starting_player_id, winner_player_id,
+          match:match_id(id, winner_player_id, start_score, finish, legs_to_win, fair_ending)
+        )
+      )
+    `)
     .eq('id', throwId)
     .single();
-  if (dartError || !dart) throw new Error(dartError?.message ?? 'Accepted Scolia throw was not found');
-
-  const { data: turn, error: turnError } = await supabase
-    .from('turns')
-    .select(`
-      id, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round,
-      throws:throws(id, scored, dart_index, segment, impact_x_mm, impact_y_mm)
-    `)
-    .eq('id', dart.turn_id)
-    .single();
-  if (turnError || !turn) throw new Error(turnError?.message ?? 'Accepted Scolia turn was not found');
-
-  const [{ data: leg, error: legError }, { data: match, error: matchError }, { data: player, error: playerError }] =
-    await Promise.all([
-      supabase
-        .from('legs')
-        .select('id, match_id, leg_number, starting_player_id, winner_player_id')
-        .eq('id', turn.leg_id)
-        .single(),
-      supabase
-        .from('matches')
-        .select('id, winner_player_id, start_score, finish, legs_to_win, fair_ending')
-        .eq('id', matchId)
-        .single(),
-      supabase
-        .from('players')
-        .select('id, display_name')
-        .eq('id', turn.player_id)
-        .single(),
-    ]);
-  if (legError || !leg || leg.match_id !== matchId) {
-    throw new Error(legError?.message ?? 'Accepted Scolia leg did not belong to the match');
+  if (error || !data) throw new Error(error?.message ?? 'Accepted Scolia throw was not found');
+  const { turn: joinedTurn, ...dart } = data as unknown as AcceptedScoliaDartRows;
+  if (!joinedTurn) throw new Error('Accepted Scolia turn was not found');
+  const { leg: joinedLeg, player, ...turn } = joinedTurn;
+  if (!joinedLeg || joinedLeg.match_id !== matchId) {
+    throw new Error('Accepted Scolia leg did not belong to the match');
   }
-  if (matchError || !match) throw new Error(matchError?.message ?? 'Accepted Scolia match was not found');
-  if (playerError || !player) throw new Error(playerError?.message ?? 'Accepted Scolia player was not found');
+  const { match, ...leg } = joinedLeg;
+  if (!match) throw new Error('Accepted Scolia match was not found');
+  if (!player) throw new Error('Accepted Scolia player was not found');
 
   const eventCache = dartIQCache ?? new ScoliaDartIQEventCache();
   const dartiq = await loadDartIQPacket(
@@ -323,6 +311,19 @@ type AcceptedDartIQDart = {
   };
 };
 
+type AcceptedScoliaDartRows = AcceptedDartIQDart['dart'] & {
+  impact_x_mm: number | null;
+  impact_y_mm: number | null;
+  turn: (AcceptedDartIQDart['turn'] & {
+    throws: Array<AcceptedDartIQDart['dart'] & { impact_x_mm: number | null; impact_y_mm: number | null }>;
+    player: { id: string; display_name: string } | null;
+    leg: (AcceptedDartIQDart['leg'] & {
+      match: { id: string; winner_player_id: string | null; start_score: string | number;
+        finish: FinishRule; legs_to_win: number; fair_ending: boolean } | null;
+    }) | null;
+  }) | null;
+};
+
 async function loadDartIQPacket(
   supabase: SupabaseClient,
   matchId: string,
@@ -364,6 +365,38 @@ async function loadDartIQPacket(
     dartIQCache?.delete(matchId);
   }
 
+  const context = await loadScoliaDartIQContext(supabase, matchId, config, currentLeg.id);
+  if (!context) return undefined;
+  context.lastTurnNumber ||= accepted.turn.turn_number;
+  context.lastDartIndex = context.timeline.at(-1)?.dartIndex ?? accepted.dart.dart_index;
+  dartIQCache?.set(matchId, context);
+  const dartIQEvent = context.timeline.find((event) => event.dartId === throwId);
+  return dartIQEvent ? createDartIQDartPacket(dartIQEvent) : undefined;
+}
+
+/** Builds the same canonical replay used by live delivery, without sending speech. */
+export async function warmScoliaDartIQContext(
+  supabase: SupabaseClient,
+  matchId: string,
+): Promise<CachedDartIQContext | undefined> {
+  const { data: match, error } = await supabase.from('matches')
+    .select('start_score, finish, legs_to_win, fair_ending').eq('id', matchId).single();
+  if (error) throw new Error(error.message);
+  if (!match) return undefined;
+  return loadScoliaDartIQContext(supabase, matchId, {
+    startScore: Number.parseInt(String(match.start_score), 10),
+    finishRule: match.finish as FinishRule,
+    legsToWin: match.legs_to_win as number,
+    fairEnding: Boolean(match.fair_ending),
+  });
+}
+
+async function loadScoliaDartIQContext(
+  supabase: SupabaseClient,
+  matchId: string,
+  config: { startScore: number; finishRule: FinishRule; legsToWin: number; fairEnding: boolean },
+  currentLegId?: string,
+): Promise<CachedDartIQContext | undefined> {
   const [playersResult, legsResult, frozenEvidence] = await Promise.all([
     supabase
       .from('match_players')
@@ -380,6 +413,9 @@ async function loadDartIQPacket(
   const error = playersResult.error
     ?? legsResult.error;
   if (error) throw new Error(error.message);
+
+  // Do not warm a fallback model before the match's immutable evidence exists.
+  if (!currentLegId && !frozenEvidence) return undefined;
 
   const playerIds = (playersResult.data ?? []).map((row) => row.player_id as string);
   const playerIdSet = new Set(playerIds);
@@ -399,7 +435,9 @@ async function loadDartIQPacket(
     .in('leg_id', allLegs.map((leg) => leg.id))
     .order('turn_number');
   if (turnsResult.error) throw new Error(turnsResult.error.message);
-  const replayLeg = allLegs.find((leg) => leg.id === currentLeg.id);
+  const replayLeg = currentLegId
+    ? allLegs.find((leg) => leg.id === currentLegId)
+    : allLegs.at(-1);
   if (!replayLeg || playerIds.length === 0) return undefined;
 
   const turnsByLeg = Object.fromEntries(allLegs.map((leg) => [leg.id, [] as TurnWithThrows[]]));
@@ -448,16 +486,14 @@ async function loadDartIQPacket(
   const timeline = tracker.events();
   const latestEvent = timeline.at(-1);
   const latestTurn = latestEvent
-    ? (input.turnsByLeg[accepted.leg.id] ?? []).find((turn) => turn.id === latestEvent.turnId)
+    ? (input.turnsByLeg[replayLeg.id] ?? []).find((turn) => turn.id === latestEvent.turnId)
     : undefined;
-  dartIQCache?.set(matchId, {
+  return {
     input,
     tracker,
     timeline,
-    legId: accepted.leg.id,
-    lastTurnNumber: latestTurn?.turn_number ?? accepted.turn.turn_number,
-    lastDartIndex: latestEvent?.dartIndex ?? accepted.dart.dart_index,
-  });
-  const dartIQEvent = timeline.find((event) => event.dartId === throwId);
-  return dartIQEvent ? createDartIQDartPacket(dartIQEvent) : undefined;
+    legId: replayLeg.id,
+    lastTurnNumber: latestTurn?.turn_number ?? 0,
+    lastDartIndex: latestTurn ? latestEvent!.dartIndex : 0,
+  };
 }

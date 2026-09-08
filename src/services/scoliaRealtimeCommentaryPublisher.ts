@@ -3,6 +3,7 @@ import { WebSocket } from 'ws';
 
 import {
   loadScoliaRealtimeDartEvent,
+  warmScoliaDartIQContext,
   ScoliaDartIQEventCache,
   type ScoliaRealtimeDartEvent,
 } from '../lib/commentary/scoliaRealtimeEvent.ts';
@@ -105,6 +106,7 @@ export class ScoliaRealtimeCommentaryPublisher {
   private flushingPending = false;
   private controlEventSequence = 0;
   private readonly matchWork = new Map<string, Promise<void>>();
+  private readonly cacheWarmups = new Map<string, Promise<void>>();
 
   constructor(
     supabase: SupabaseClient,
@@ -282,6 +284,7 @@ export class ScoliaRealtimeCommentaryPublisher {
             }
           }
         });
+        this.warmCache(matchId);
       });
     } finally {
       this.flushingPending = false;
@@ -298,6 +301,27 @@ export class ScoliaRealtimeCommentaryPublisher {
     this.connections.clear();
     this.dartIQCache.clear();
     this.matchEpochs.clear();
+    this.cacheWarmups.clear();
+  }
+
+  private warmCache(matchId: string) {
+    if (this.dartIQCache.get(matchId) || this.cacheWarmups.has(matchId)) return;
+    const epoch = this.matchEpochs.get(matchId);
+    // Preparation is speculative and never holds the per-match delivery queue.
+    // Install only if live work/corrections have not made the result obsolete.
+    const warmup = warmScoliaDartIQContext(this.supabase, matchId).then((context) => {
+      if (!context || this.cacheWarmups.get(matchId) !== warmup
+        || this.matchEpochs.get(matchId) !== epoch || this.matchWork.has(matchId)
+        || this.dartIQCache.get(matchId)
+        || ![...this.connections.values()].some((connection) => connection.session.match_id === matchId)) return;
+      this.dartIQCache.set(matchId, context);
+    }).catch((error: unknown) => {
+      console.warn('[commentary] Cache preparation failed; live delivery will load normally:',
+        error instanceof Error ? error.message : 'unknown error');
+    }).finally(() => {
+      if (this.cacheWarmups.get(matchId) === warmup) this.cacheWarmups.delete(matchId);
+    });
+    this.cacheWarmups.set(matchId, warmup);
   }
 
   private async activeSessions(matchId: string): Promise<ActiveRealtimeCommentarySession[]> {
@@ -337,13 +361,18 @@ export class ScoliaRealtimeCommentaryPublisher {
   }
 
   private async ensureDelivery(sessionId: string, throwId: string): Promise<DeliveryRow> {
-    const { error: insertError } = await this.supabase
+    const { data: inserted, error: insertError } = await this.supabase
       .from('commentary_realtime_deliveries')
       .upsert(
         { session_id: sessionId, throw_id: throwId },
         { onConflict: 'session_id,throw_id', ignoreDuplicates: true }
-      );
+      )
+      .select('session_id, throw_id, status, attempts')
+      .maybeSingle();
     if (insertError) throw new Error(insertError.message);
+    // ON CONFLICT DO NOTHING returns no row for an existing delivery. Keep
+    // its authoritative status/attempts; a fresh insert needs no second trip.
+    if (inserted) return inserted as DeliveryRow;
 
     const { data, error } = await this.supabase
       .from('commentary_realtime_deliveries')

@@ -37,7 +37,7 @@ export class CommentaryVisitTiming {
   private speech: { event: CommentaryTimingEvent; expire: () => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
   constructor(options: CommentaryVisitTimingOptions = {}) {
-    this.ordinaryHoldMs = Math.max(0, options.ordinaryHoldMs ?? 300);
+    this.ordinaryHoldMs = Math.max(0, options.ordinaryHoldMs ?? 0);
   }
 
   observeDart(event: CommentaryTimingEvent): CommentaryTimingObservation {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
@@ -7,6 +7,7 @@ import {
   measureCommentaryGrouping,
   commentaryLandingForecast,
   loadScoliaRealtimeDartEvent,
+  warmScoliaDartIQContext,
   ScoliaDartIQEventCache,
   type ScoliaRealtimeDartFacts,
 } from './scoliaRealtimeEvent';
@@ -48,6 +49,17 @@ function supabaseWithRows(tables: Record<string, Row[]>) {
 
       function materialize(row: Row | null) {
         if (!row) return null;
+        if (table === 'throws' && selectQuery.includes('turn:turn_id')) {
+          const turn = (tables.turns ?? []).find((entry) => entry.id === row.turn_id);
+          const leg = (tables.legs ?? []).find((entry) => entry.id === turn?.leg_id);
+          return { ...row, turn: turn ? { ...turn,
+            throws: (tables.throws ?? []).filter((dart) => dart.turn_id === turn.id),
+            player: (tables.players ?? []).find((entry) => entry.id === turn.player_id) ?? null,
+            leg: leg ? { ...leg,
+              match: (tables.matches ?? []).find((entry) => entry.id === leg.match_id) ?? null,
+            } : null,
+          } : null };
+        }
         if (table === 'turns' && selectQuery.includes('throws:throws')) {
           return {
             ...row,
@@ -280,6 +292,51 @@ describe('classifyScoliaRealtimeDart', () => {
     expect(event.dartiq?.signals).toEqual(
       expect.arrayContaining(['leg_win', 'match_win'])
     );
+  });
+
+  it.each([false, true])('feeds identical next-dart context after warming (existing history: %s)', async (history) => {
+    const tables: Record<string, Row[]> = {
+      matches: [{
+        id: 'match', winner_player_id: null, start_score: '301', finish: 'double_out',
+        legs_to_win: 2, fair_ending: false,
+      }],
+      match_players: [
+        { match_id: 'match', player_id: 'a', play_order: 0 },
+        { match_id: 'match', player_id: 'b', play_order: 1 },
+      ],
+      legs: [{
+        id: 'leg', match_id: 'match', leg_number: 1, starting_player_id: 'a', winner_player_id: null,
+      }],
+      turns: [{
+        id: 'turn', leg_id: 'leg', player_id: 'a', turn_number: 1,
+        total_scored: 60, busted: false, tiebreak_round: null,
+      }],
+      throws: [{ id: 'dart-1', turn_id: 'turn', dart_index: 1, segment: 'T20', scored: 60, impact_x_mm: 0, impact_y_mm: 103 }],
+      players: [{ id: 'a', display_name: 'Player A' }],
+      dartiq_player_profiles: [],
+      dartiq_population_profiles: [],
+    };
+    tables.dartiq_population_evidence = [{ match_id: 'match', raw_evidence: { profile: null, outcomes: [] } }];
+    if (!history) { tables.throws = []; tables.turns = []; }
+    const supabase = supabaseWithRows(tables);
+    const context = await warmScoliaDartIQContext(supabase, 'match');
+    expect(context).toBeDefined();
+    const cache = new ScoliaDartIQEventCache();
+    cache.set('match', context!);
+    const tracker = context!.tracker;
+    if (!history) tables.turns.push({ id: 'turn', leg_id: 'leg', player_id: 'a', turn_number: 1,
+      total_scored: 20, busted: false, tiebreak_round: null });
+    else tables.turns[0].total_scored = 80;
+    tables.throws.push({ id: 'next', turn_id: 'turn', dart_index: history ? 2 : 1,
+      segment: 'S20', scored: 20, impact_x_mm: 0, impact_y_mm: 110 });
+    const reads = vi.spyOn(supabase, 'from');
+    const warm = await loadScoliaRealtimeDartEvent(supabase, 'match', 'next', cache);
+    expect(reads.mock.calls.map(([table]) => table)).toEqual(['throws']);
+    const cold = await loadScoliaRealtimeDartEvent(supabase, 'match', 'next');
+    expect(warm).toEqual(cold);
+    expect(cache.get('match')!.tracker).toBe(tracker);
+    tables.dartiq_population_evidence = [];
+    expect(await warmScoliaDartIQContext(supabase, 'match')).toBeUndefined();
   });
 
   it('keeps canonical DartIQ history in the worker cache between sequential darts', async () => {
