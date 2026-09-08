@@ -60,3 +60,11 @@
 0056_game_session_integrity
 0057_slack_dart_polls
 0058_background_jobs
+0059_dartiq_evidence
+0059_player_avatars_and_nicknames
+0060_realtime_commentary_sessions
+0061_dartiq_telemetry
+0062_scolia_worker_notifications
+0063_worker_snapshots
+0064_continuous_dartiq_calibration
+0065_dartiq_model_training
