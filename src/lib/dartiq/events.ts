@@ -91,6 +91,7 @@ export type DartIQDartPacket = {
     enabled: true;
     phase: 'normal' | 'completing_round' | 'tiebreak' | 'resolved';
     checkedOutPlayerIds: string[];
+    pendingPlayerIds?: string[];
     tiebreakRound: number;
     tiebreakPlayerIds: string[];
     tiebreakScores: Record<string, number>;
@@ -132,11 +133,8 @@ function favoriteId(state: DartIQReplayState) {
 }
 
 function lockedMatchWinnerId(event: DartIQDartEvent) {
-  const winner = event.after.projections.find((projection) => projection.matchWinProbability === 1);
-  if (!winner) return null;
-  return event.after.projections.every((projection) =>
-    projection.matchWinProbability === (projection.id === winner.id ? 1 : 0)
-  ) ? winner.id : null;
+  // Model certainty is not a game result, especially during fair-ending catch-up.
+  return event.legResolution?.matchWon ? event.legResolution.winnerPlayerId : null;
 }
 
 function tiebreakLeaderId(event: DartIQDartEvent, kind: 'before' | 'after') {
@@ -377,6 +375,7 @@ export function createDartIQDartPacket(event: DartIQDartEvent): DartIQDartPacket
         enabled: true as const,
         phase: fairAfter.phase,
         checkedOutPlayerIds: fairAfter.checkedOutPlayerIds,
+        pendingPlayerIds: fairAfter.pendingPlayerIds,
         tiebreakRound: fairAfter.tiebreakRound,
         tiebreakPlayerIds: fairAfter.tiebreakPlayerIds,
         tiebreakScores: fairAfter.tiebreakScores,

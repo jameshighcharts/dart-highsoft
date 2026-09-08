@@ -1535,3 +1535,28 @@ Playback ownership recognizes both GA assistant `output_audio` content and legac
 Player nicknames accompany canonical names in Realtime session snapshots and fallback turn/recap prompts. They are optional aliases, never separate players, behavioral evidence, or instructions; use remains varied and identity stays explicit. Nickname edits reach Realtime on the next snapshot (new session, reconnect, or correction), without adding per-dart profile queries.
 
 The exact 1/5/20 Nikita Special has a leading celebration candidate, mandatory named delivery, and a 6–16 word emotional burst. A canonical display name beginning with the full name Nikita receives the namesake signature-moment treatment; aliases and substring matches do not establish that identity. Ordinary low-score deadpan guidance is removed for this event in fallback prompts. Scoring detection and interruption priorities are unchanged.
+
+
+Scolia commentary now receives coordinate-verified proximity to the same-sector treble or double
+region when a single lands within 5 mm. Missing or contradictory coordinates produce no proximity
+claim. Validated geometry artifacts also supply the top three pre-dart landing segments, the actual
+segment's probability under that pre-dart state, and a next-dart forecast while the same visit
+continues. Forecasts use frozen evidence and canonical before/after states; they expire on the next
+dart, correction, or handoff. They do not infer aim or condition on the preceding impact. These facts
+are optional speech context and do not introduce extra calls or change pacing.
+
+Fair-ending briefs now explicitly retain unresolved round/tiebreak status, named pending players,
+and high-score tiebreak totals/rules, including reconnect snapshots. Manual visit summaries retain
+the phase too. Winner signals and match-closing story arcs require an explicit match resolution,
+not a probability vector that happens to reach 100%. Per-call instructions suppress winner language
+while catch-up or tiebreak play continues. Audible repetition and delivery still require a listening pass.
+
+
+Scolia commentary grouping uses coordinate-verified darts from the accepted current-visit prefix.
+It supplies maximum pairwise separation, first-pair distance, and the latest dart's distance to
+its nearest earlier dart. All prefix darts must have valid, segment-consistent coordinates;
+missing impacts suppress grouping rather than implying that the remaining darts form a full group.
+A maximum separation of 15 mm labels a tight physical group; a third dart at least 30 mm from both
+members of a first pair within 15 mm is described as separated. These are editorial descriptions,
+not calibrated skill measures or evidence of intended targets, deflection, or poor accuracy.
+Grouping remains optional context under existing speech timing and priority rules.
