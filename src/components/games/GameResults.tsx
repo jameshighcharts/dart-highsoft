@@ -67,26 +67,26 @@ export function GameResults({ mode, status, config, state, players, winnerId, ch
   const winner = !endedEarly && winnerId ? nameOf(winnerId) : null;
 
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-4">
+    <div className="rounded-2xl border border-white/10 bg-card p-4 md:p-6 space-y-4">
       <div className="flex items-center gap-3">
         <Trophy className={cn('size-8', winner ? 'text-amber-400' : 'text-muted-foreground')} />
         <div>
           <div className="text-xs uppercase tracking-wide text-muted-foreground">
             {endedEarly ? 'Game ended early' : 'Winner'}
           </div>
-          <div className="text-2xl font-bold leading-tight">{endedEarly ? 'No winner' : winner ?? 'Draw'}</div>
+          <div className="text-3xl md:text-5xl font-black leading-tight tracking-tight">{endedEarly ? 'No winner' : winner ?? 'Draw'}</div>
         </div>
       </div>
 
-      <ol className="divide-y rounded-md border">
+      <ol className="divide-y divide-white/10 rounded-xl border border-white/10">
         {ranked.map((playerId, index) => (
-          <li key={playerId} className="flex items-center gap-3 px-3 py-2">
+          <li key={playerId} className="flex flex-wrap items-center gap-3 px-3 py-3">
             <span className="w-6 text-sm text-muted-foreground tabular-nums">{index + 1}.</span>
             <span className={cn('flex-1 min-w-0 inline-flex items-center gap-2', playerId === winnerId && !endedEarly && 'font-semibold')}>
               <PlayerAvatar player={avatarOf(playerId)} size="sm" />
               <span className="truncate">{nameOf(playerId)}</span>
             </span>
-            <span className="text-sm text-muted-foreground tabular-nums">{summaryFor(mode, config, state.perPlayer[playerId])}</span>
+            <span className="w-full pl-9 text-sm text-muted-foreground tabular-nums sm:w-auto sm:pl-0">{summaryFor(mode, config, state.perPlayer[playerId])}</span>
           </li>
         ))}
       </ol>
