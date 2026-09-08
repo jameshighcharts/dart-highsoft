@@ -204,7 +204,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `slack/playerImport.ts` | Plans and applies the Slack member → player import with the first-name / `First L` naming rule |
 | `auth/slackWorkspace.ts` | Pure Slack sign-in gate helpers (team id, verified email, allowed domains, admin list) |
 | `auth/requireAdmin.ts` | Session guard for `/api/admin` routes |
-| `slack/dartTime.ts` | Parses `/dart HH:MM` in the configured IANA time zone |
+| `slack/dartTime.ts` | Parses the `/dart` command (optional time or `now`, start score, legs, finish rule) in the configured IANA time zone |
 | `slack/messages.ts` | Builds accessible Slack Block Kit poll messages |
 | `slack/signature.ts` | Verifies Slack request signatures and rejects replayed requests |
 

@@ -21,6 +21,9 @@ type SlackDartPollRow = {
   time_zone: string;
   status: 'open' | 'finalizing' | 'completed' | 'cancelled';
   match_id: string | null;
+  start_score: '201' | '301' | '501';
+  finish: 'single_out' | 'double_out';
+  legs_to_win: number;
 };
 
 type SlackDartVoteRow = {
@@ -33,7 +36,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function pollView(poll: SlackDartPollRow, votes: SlackDartVoteRow[], matchUrl?: string) {
+function matchUrls(appOrigin: string, matchId: string): { matchUrl: string; spectatorUrl: string } {
+  return {
+    matchUrl: `${appOrigin}/match/${matchId}`,
+    spectatorUrl: `${appOrigin}/match/${matchId}?spectator=true`,
+  };
+}
+
+function pollView(
+  poll: SlackDartPollRow,
+  votes: SlackDartVoteRow[],
+  urls?: { matchUrl: string; spectatorUrl: string },
+) {
   return {
     id: poll.id,
     scheduledFor: poll.scheduled_for,
@@ -41,7 +55,10 @@ function pollView(poll: SlackDartPollRow, votes: SlackDartVoteRow[], matchUrl?: 
     yesUserIds: votes.filter((vote) => vote.choice).map((vote) => vote.slack_user_id),
     noUserIds: votes.filter((vote) => !vote.choice).map((vote) => vote.slack_user_id),
     status: poll.status,
-    matchUrl,
+    startScore: poll.start_score ?? '501',
+    finish: poll.finish ?? 'double_out',
+    legsToWin: poll.legs_to_win ?? 1,
+    ...urls,
   };
 }
 
@@ -72,6 +89,9 @@ export async function createSlackDartPoll(options: {
   createdBySlackUserId: string;
   scheduledFor: Date;
   timeZone: string;
+  startScore: '201' | '301' | '501';
+  finish: 'single_out' | 'double_out';
+  legsToWin: number;
   responseUrl: string;
 }): Promise<void> {
   const { supabase } = options;
@@ -83,6 +103,9 @@ export async function createSlackDartPoll(options: {
       created_by_slack_user_id: options.createdBySlackUserId,
       scheduled_for: options.scheduledFor.toISOString(),
       time_zone: options.timeZone,
+      start_score: options.startScore,
+      finish: options.finish,
+      legs_to_win: options.legsToWin,
     })
     .select('*')
     .single();
@@ -132,7 +155,7 @@ export async function recordSlackDartVote(options: {
 
   if (error || !poll || poll.status !== 'open' || new Date(poll.scheduled_for) <= new Date()) {
     if (options.responseUrl) {
-      await respondToSlack(options.responseUrl, 'Voting for this dart match has closed.');
+      await respondToSlack(options.responseUrl, 'Sign-up for this dart match has closed.');
     }
     return;
   }
@@ -303,7 +326,7 @@ async function finalizePoll(
       poll.channel_id,
       poll.message_ts,
       buildSlackDartPollMessage(
-        pollView(completed, votes, `${appOrigin}/match/${matchId}`),
+        pollView(completed, votes, matchUrls(appOrigin, matchId)),
       ),
     );
   }
@@ -326,11 +349,11 @@ export async function finalizeSlackDartPollById(options: {
   if (poll.status === 'completed' || poll.status === 'cancelled') {
     if (poll.message_ts) {
       const votes = await loadVotes(options.supabase, poll.id);
-      const matchUrl = poll.match_id ? `${options.appOrigin}/match/${poll.match_id}` : undefined;
+      const urls = poll.match_id ? matchUrls(options.appOrigin, poll.match_id) : undefined;
       await updateSlackMessage(
         poll.channel_id,
         poll.message_ts,
-        buildSlackDartPollMessage(pollView(poll, votes, matchUrl)),
+        buildSlackDartPollMessage(pollView(poll, votes, urls)),
       );
     }
     return;

@@ -2,7 +2,7 @@ import { after, NextRequest, NextResponse } from 'next/server';
 
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { createSlackDartPoll, recordSlackDartVote } from '@/lib/slack/dartPollService';
-import { parseSlackDartTime } from '@/lib/slack/dartTime';
+import { describeSlackDartSettings, parseSlackDartCommand } from '@/lib/slack/dartTime';
 import { verifySlackRequest } from '@/lib/slack/signature';
 
 type SlackBlockAction = {
@@ -87,15 +87,16 @@ export async function POST(request: NextRequest) {
   }
 
   const timeZone = process.env.SLACK_DART_TIME_ZONE?.trim() || 'Europe/Oslo';
-  let scheduledFor: Date | null;
   try {
-    scheduledFor = parseSlackDartTime(form.get('text') ?? '', { timeZone });
+    new Intl.DateTimeFormat('en-GB', { timeZone });
   } catch {
     return slackText('SLACK_DART_TIME_ZONE is not a valid IANA time zone.', 503);
   }
-  if (!scheduledFor) {
-    return slackText('Use `/dart HH:MM`, for example `/dart 14:00`.');
+  const parsed = parseSlackDartCommand(form.get('text') ?? '', { timeZone });
+  if (!parsed.ok) {
+    return slackText(parsed.error);
   }
+  const { scheduledFor, immediate, startScore, finish, legsToWin } = parsed.command;
 
   const supabase = getSupabaseServerClient();
   after(async () => {
@@ -107,6 +108,9 @@ export async function POST(request: NextRequest) {
         createdBySlackUserId: userId,
         scheduledFor,
         timeZone,
+        startScore,
+        finish,
+        legsToWin,
         responseUrl,
       });
     } catch (error) {
@@ -114,11 +118,9 @@ export async function POST(request: NextRequest) {
     }
   });
 
-  return slackText(
-    `Creating a dart poll for ${scheduledFor.toLocaleString('en-GB', {
-      timeZone,
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    })}.`,
-  );
+  const settings = describeSlackDartSettings({ startScore, finish, legsToWin });
+  const when = immediate
+    ? `sign-up closes at ${scheduledFor.toLocaleTimeString('en-GB', { timeZone, timeStyle: 'short' })}`
+    : `starting ${scheduledFor.toLocaleString('en-GB', { timeZone, dateStyle: 'medium', timeStyle: 'short' })}`;
+  return slackText(`Creating a dart poll (${settings}), ${when}.`);
 }

@@ -1,9 +1,46 @@
 # Slack dart polls
 
-The Slack integration lets someone run `/dart 14:00` in a channel. It posts a
-Yes/No poll, closes voting at that time, and creates a one-leg 501 double-out
-match when at least two people voted Yes. The completed poll links directly to
-the scoring page. A time that has already passed means the following day.
+The Slack integration lets someone run `/dart` in a channel to gather players
+for a match. It posts a sign-up message with "I'm down" / "Not this time"
+buttons, closes sign-up at the chosen time, and creates the match when at least
+two people are in. The completed message links to the scoring page and the
+spectator view. Slack users are resolved to players through the identity links
+managed in `/admin`.
+
+## Command syntax
+
+```
+/dart [HH:MM|now] [201|301|501] [legs] [single|double]
+```
+
+Every part is optional and the order does not matter.
+
+| Part | Meaning | Default |
+| --- | --- | --- |
+| `HH:MM` | Start time in `SLACK_DART_TIME_ZONE`. A time that has already passed means the following day. | five-minute sign-up window |
+| `now` | Same as no time: sign-up closes five minutes after the command. | |
+| `201`, `301`, `501` | X01 start score. | `501` |
+| any other whole number | Legs to win (1–21). | `1` |
+| `single`, `double` | Finish rule (`single-out` / `double_out` spellings also work). | `double` |
+
+Examples:
+
+- `/dart` — quick 501, 1 leg, double out; sign-up closes in five minutes.
+- `/dart 14:00` — same settings, match at 14:00.
+- `/dart now 301 2 double` — the old `/dart301 2 double` bot command.
+- `/dart 12:30 201 single` — 201 single out at 12:30.
+
+Unknown words, duplicate settings, or an out-of-range legs count return a
+private usage message and no poll is created.
+
+## Joining
+
+Anyone in the channel presses **I'm down** to join or **Not this time** to
+opt out. Pressing the other button changes the answer. Buttons disappear when
+sign-up closes. With fewer than two players the poll is marked cancelled;
+otherwise the match is created with the poll's settings and the message shows
+"Match ready" with scoring and spectator links. Play order follows the order
+people joined, so the first to press I'm down throws first.
 
 ## Slack app setup
 
@@ -117,9 +154,11 @@ Run `npm run slack:sync-players -- --dry` to print the plan without writing.
 
 ## Deployment
 
-1. Apply migrations `0057_slack_dart_polls.sql` and
-   `0058_background_jobs.sql`. Until the Vault values below exist, the
-   scheduler returns without claiming jobs.
+1. Apply migrations `0057_slack_dart_polls.sql`,
+   `0058_background_jobs.sql` and
+   `20260908120000_slack_dart_poll_settings.sql` (start score, finish rule
+   and legs per poll). Until the Vault values below exist, the scheduler
+   returns without claiming jobs.
 2. Add the Vercel variables and deploy the app so `/api/background-jobs` is
    available.
 3. Store the deployed app URL and the exact same random dispatch secret in
