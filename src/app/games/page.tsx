@@ -75,7 +75,7 @@ type TournamentSummary = {
 
 function createPreviewGames(): ListedGame[] {
   const names = ['James', 'Ada', 'Ben', 'Nikita', 'Sofia', 'Oliver'];
-  return Array.from({ length: 420 }, (_, index) => {
+  return Array.from({ length: 420 }, (_, index): ListedGame => {
     const date = new Date();
     date.setDate(date.getDate() - (index < 2 ? 0 : Math.floor(((index * 37) % 365) / 7) * 7 + index % 5));
     date.setHours(12 + index % 8, index % 60, 0, 0);
