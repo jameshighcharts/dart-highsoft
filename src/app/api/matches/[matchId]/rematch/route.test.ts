@@ -41,6 +41,7 @@ function createSupabase(options?: { matchInsertError?: { code: string; message: 
           },
         };
       }
+      if (table === 'players') return { select() { return this; }, in(_key: string, ids: string[]) { return Promise.resolve({ data: ids.map(id => ({ id })), error: null }); } };
       if (table === 'match_players') {
         return {
           select() { return this; },
@@ -95,6 +96,16 @@ describe('POST /api/matches/[matchId]/rematch', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+  });
+
+  it('creates an edited lineup with the original X01 settings', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-01T12:00:00.000Z'));
+    const test = createSupabase();
+    getSupabaseServerClientMock.mockReturnValue(test.supabase);
+    const playerIds = ['11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222'];
+    const response = await POST(new Request('http://localhost/rematch', { method: 'POST', body: JSON.stringify({ playerIds }) }), { params: Promise.resolve({ matchId: 'match-1' }) });
+    expect(response.status).toBe(200);
+    expect(test.getMatchCreation()).toMatchObject({ p_player_ids: expect.arrayContaining(playerIds), p_start_score: '501', p_finish: 'double_out', p_legs_to_win: 3, p_rematch_of_match_id: 'match-1' });
   });
 
   it('carries a ready Scolia board into the rematch', async () => {
