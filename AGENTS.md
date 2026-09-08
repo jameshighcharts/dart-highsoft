@@ -44,7 +44,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `game/[id]/page.tsx` | Party-game page (server component) |
 | `game/[id]/GameClient.tsx` | Party-game scoring and spectator client |
 | `games/page.tsx` | Player-searchable X01 and party-game history with paginated loading, daily activity filtering, completed X01 stats links, and development-only dummy data at `?preview=1` |
-| `players/page.tsx` | Player management (list, create, toggle active) |
+| `players/page.tsx` | Player management (list non-test players, create, edit location) |
 | `boards/page.tsx` | Scolia board management (connectivity, availability, active match/game links, connect/disconnect) |
 | `stats/page.tsx` | Stats and leaderboards |
 | `leaderboards/page.tsx` | Detailed X01, Elo, and party-mode leaderboards |
@@ -226,7 +226,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `match/EditThrowsModal.tsx` | Edit recorded throws in current leg |
 | `match/EditPlayersModal.tsx` | Add/remove/reorder players |
 | `match/EloChangesDisplay.tsx` | Elo rating changes after match |
-| `games/GameActivityHeatmap.tsx` | GitHub-style daily game activity for the past year, filtered by player search, with selectable dates |
+| `games/GameActivityHeatmap.tsx` | GitHub-style daily game activity from September 1, 2026 through today, Monday-first weeks with aligned Mon/Wed/Fri labels, filtered by player search, with selectable dates |
 | `games/NewGameOptions.tsx` | Party-game picker and per-mode configuration controls |
 | `games/GamePlayerCard.tsx` | Shared X01-style party-game player tiles with current/last-visit darts and mode-specific scores |
 | `games/GameHeader.tsx` | Party-game title, status, round, and same-tab spectator navigation |

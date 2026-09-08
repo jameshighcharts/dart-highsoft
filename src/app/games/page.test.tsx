@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GAME_SESSION_STATUSES } from '@/lib/games/types';
 import GamesPage from './page';
+import { GameActivityHeatmap } from '@/components/games/GameActivityHeatmap';
 
 const getSupabaseClientMock = vi.fn();
 const queryInCalls: Array<{ table: string; column: string; values: unknown[] }> = [];
@@ -74,7 +75,7 @@ describe('GamesPage party-game history', () => {
       await screen.findByRole('textbox', { name: 'Search by player' });
       fireEvent.change(screen.getByRole('textbox', { name: 'Search by player' }), { target: { value: 'Older player' } });
       expect(screen.getByText('Older player')).toBeInTheDocument();
-      expect(screen.getByText(/1 game in the past year/)).toBeInTheDocument();
+      expect(screen.getByText(/1 game since September 2026/)).toBeInTheDocument();
     } finally {
       rowsByTable.game_sessions = original;
     }
@@ -86,11 +87,11 @@ describe('GamesPage party-game history', () => {
     const search = screen.getByRole('textbox', { name: 'Search by player' });
     fireEvent.change(search, { target: { value: '  ADA  ' } });
     expect(screen.getByText('Ada')).toBeInTheDocument();
-    expect(screen.getByText(/1 game in the past year/)).toBeInTheDocument();
+    expect(screen.getByText(/1 game since September 2026/)).toBeInTheDocument();
     fireEvent.change(search, { target: { value: 'Nobody' } });
     expect(screen.queryByText('Ada')).not.toBeInTheDocument();
     expect(screen.getByText('No completed games match your filters')).toBeInTheDocument();
-    expect(screen.getByText(/0 games in the past year/)).toBeInTheDocument();
+    expect(screen.getByText(/0 games since September 2026/)).toBeInTheDocument();
     fireEvent.change(search, { target: { value: '' } });
     expect(screen.getByText('Ada')).toBeInTheDocument();
   });
@@ -122,5 +123,35 @@ describe('GamesPage party-game history', () => {
         values: [...GAME_SESSION_STATUSES],
       });
     });
+  });
+});
+
+
+describe('Game activity calendar', () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('starts in September with Monday first and adds only elapsed days', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 8, 12));
+    const props = {
+      dates: [new Date(2026, 7, 31, 12).toISOString(), new Date(2026, 8, 1, 12).toISOString(), new Date(2026, 8, 9, 12).toISOString()],
+      selectedDate: null,
+      onSelectDate: vi.fn(),
+    };
+    const { rerender } = render(<GameActivityHeatmap {...props} />);
+    expect(screen.getAllByRole('button')).toHaveLength(8);
+    expect(screen.getByText(/1 game since September 2026/)).toBeInTheDocument();
+    const labels = screen.getByText('Mon').parentElement;
+    expect(labels?.textContent).toBe('MonWedFri');
+    const firstDay = screen.getAllByRole('button')[0];
+    expect(firstDay).toHaveAccessibleName(/September 1, 2026/);
+    expect(firstDay.parentElement?.children[1].tagName).toBe('SPAN');
+    vi.setSystemTime(new Date(2026, 8, 9, 12));
+    rerender(<GameActivityHeatmap {...props} />);
+    expect(screen.getAllByRole('button')).toHaveLength(9);
+    expect(screen.getByText(/2 games since September 2026/)).toBeInTheDocument();
   });
 });
