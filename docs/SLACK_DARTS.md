@@ -155,18 +155,31 @@ Run `npm run slack:sync-players -- --dry` to print the plan without writing.
 
 ## Deployment
 
-Before promoting this app version, run **Deploy Supabase Migrations** against
-the PR branch with `verify_only` enabled. It tries the migration and SQL
-regression against the configured database in a bounded transaction, then
-rolls back the schema changes, test players, matches, polls, and queued jobs.
-The checks use the service role and raise SQL errors on failure.
+Before promoting this app version, generate the rollback-only SQL check:
 
-After that passes, run the same workflow with `verify_only` disabled to apply
-the migration before merging. Old app versions continue to create 501,
-one-leg, double-out polls through the column defaults. Rolling the app back
-does not require dropping the new columns or reverting the function.
-The workflow also runs the SQL check before automatic deployments on `main`.
-Deploying the app before the migration finishes makes new poll inserts fail.
+```sh
+node scripts/supabase-migrations.mjs slack-settings-sql
+```
+
+Run its output in the Supabase SQL Editor as `postgres`. It tests the migration
+and service-role match creation in a bounded transaction, then rolls back the
+schema changes, test players, matches, polls, and queued jobs. Every assertion
+raises an SQL error on failure. CI runs the JavaScript tests; this database
+check is a separate release step. The current GitHub token can deploy
+migrations but cannot use the Management API SQL query endpoint.
+
+After that passes, run **Deploy Supabase Migrations** against the PR branch to
+apply the migration before merging. Run the output of the following command
+in the SQL Editor afterward to test the installed schema without replacing it:
+
+```sh
+node scripts/supabase-migrations.mjs slack-settings-sql --installed
+```
+
+Old app versions continue to create 501, one-leg, double-out polls through the
+column defaults. Rolling the app back does not require dropping the new columns
+or reverting the function. Deploying the app before the migration finishes
+makes new poll inserts fail.
 
 1. Apply migrations `0057_slack_dart_polls.sql`,
    `0058_background_jobs.sql` and

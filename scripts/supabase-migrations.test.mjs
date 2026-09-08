@@ -31,6 +31,12 @@ describe('Slack migration verification', () => {
     expect(() => slackSettingsVerificationQuery('', 'begin; select 1; commit;'))
       .toThrow(/roll it back/);
   });
+
+  it('preserves PostgreSQL dollar quoting in the migration', () => {
+    const migration = 'do $$ begin perform 1; end $$;';
+    expect(slackSettingsVerificationQuery(migration, 'begin; select 1; rollback;'))
+      .toContain(migration);
+  });
 });
 
 describe('Supabase migration selection', () => {

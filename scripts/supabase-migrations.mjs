@@ -139,7 +139,7 @@ export function slackSettingsVerificationQuery(migration, regression) {
   if (!/^begin;\s/i.test(regression) || !/rollback;\s*$/i.test(regression)) {
     throw new Error('Slack settings regression must begin a transaction and roll it back');
   }
-  return regression.replace(/^begin;/i, `begin;
+  return regression.replace(/^begin;/i, () => `begin;
 set local lock_timeout = '2s';
 set local statement_timeout = '20s';
 create extension if not exists pgtap with schema extensions;
@@ -147,20 +147,13 @@ set local search_path = public, extensions;
 ${migration}`);
 }
 
-async function verifySlackSettings(root, installed) {
+async function printSlackSettingsSql(root, installed) {
   const name = '20260908120000_slack_dart_poll_settings.sql';
   const [migration, regression] = await Promise.all([
     readFile(path.join(root, 'supabase/migrations', name), 'utf8'),
     readFile(path.join(root, 'supabase/tests', name), 'utf8'),
   ]);
-  const request = managementClient();
-  // Every regression assertion raises on failure; the final rollback also
-  // removes the trial schema changes, fixtures, and trigger-created jobs.
-  await request('/database/query', {
-    method: 'POST',
-    body: JSON.stringify({ query: slackSettingsVerificationQuery(installed ? '' : migration, regression) }),
-  });
-  console.log(`Slack settings ${installed ? 'installed schema' : 'trial migration'} and service-role match creation passed; all trial changes rolled back`);
+  console.log(slackSettingsVerificationQuery(installed ? '' : migration, regression));
 }
 
 async function verify({ root, baseline, waitMs }) {
@@ -207,8 +200,8 @@ async function main() {
     await deploy({ root, baseline });
     return;
   }
-  if (command === 'verify-slack-settings') {
-    await verifySlackSettings(root, args.includes('--installed'));
+  if (command === 'slack-settings-sql') {
+    await printSlackSettingsSql(root, args.includes('--installed'));
     return;
   }
   if (command === 'verify') {

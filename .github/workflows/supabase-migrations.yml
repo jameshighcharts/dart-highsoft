@@ -6,15 +6,9 @@ on:
       - main
     paths:
       - 'supabase/migrations/**'
-      - 'supabase/tests/20260908120000_slack_dart_poll_settings.sql'
       - 'scripts/supabase-migrations.mjs'
       - '.github/workflows/supabase-migrations.yml'
-  workflow_dispatch:
-    inputs:
-      verify_only:
-        description: 'Test Slack settings with rollback, without deploying migrations'
-        type: boolean
-        default: true
+  workflow_dispatch: # Allow manual trigger from GitHub Actions UI
 
 concurrency:
   group: production-supabase-migrations
@@ -42,20 +36,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Verify Slack settings migration with rollback
-        run: node scripts/supabase-migrations.mjs verify-slack-settings
-
       # Production already contains every exact legacy migration through
       # 0055_game_sessions. Full names matter because 0055_pause_matches was
       # committed later and must not inherit that baseline.
       - name: Deploy new migrations
-        if: ${{ !inputs.verify_only }}
         run: node scripts/supabase-migrations.mjs deploy
 
       - name: Verify production migration history
-        if: ${{ !inputs.verify_only }}
         run: node scripts/supabase-migrations.mjs verify --wait-ms=60000
-
-      - name: Verify installed Slack settings with rollback
-        if: ${{ !inputs.verify_only }}
-        run: node scripts/supabase-migrations.mjs verify-slack-settings --installed
