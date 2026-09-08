@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { apiRequest } from "@/lib/apiClient";
+import { isTVModeEnabled, requestTVModeFullscreen } from "@/lib/tvMode";
 import { useScoliaBoardRealtime } from "@/hooks/useScoliaBoardRealtime";
 import {
   hasFreshScoliaHeartbeat,
@@ -356,6 +357,7 @@ export default function NewMatchPage() {
       setSubmitError(problem);
       return;
     }
+    requestTVModeFullscreen();
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -368,7 +370,7 @@ export default function NewMatchPage() {
             selectedBoardId === MANUAL_BOARD_VALUE ? null : selectedBoardId,
         },
       });
-      router.push(`/game/${result.gameId}`);
+      router.push(`/game/${result.gameId}${isTVModeEnabled() ? '?spectator=true' : ''}`);
     } catch (error) {
       setSubmitError(
         error instanceof Error
@@ -382,6 +384,7 @@ export default function NewMatchPage() {
   async function onStart() {
     if (gameMode) return onStartGame(gameMode);
     if (selectedIds.length < 2) return alert("Select at least 2 players");
+    requestTVModeFullscreen();
     setSubmitting(true);
     try {
       const result = await apiRequest<{ matchId: string }>("/api/matches", {
@@ -395,7 +398,7 @@ export default function NewMatchPage() {
             selectedBoardId === MANUAL_BOARD_VALUE ? null : selectedBoardId,
         },
       });
-      router.push(`/match/${result.matchId}`);
+      router.push(`/match/${result.matchId}${isTVModeEnabled() ? '?spectator=true' : ''}`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to create match";
