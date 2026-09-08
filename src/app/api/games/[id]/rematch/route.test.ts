@@ -98,6 +98,30 @@ describe('POST /api/games/[id]/rematch', () => {
     expect(seated.slice().sort()).toEqual([...ORDER].sort());
   });
 
+  it('uses an edited lineup while preserving mode and settings', async () => {
+    const finished = cricketSession({ status: 'completed', winner_player_id: PLAYER_A });
+    const t = tables(finished as unknown as MockRow);
+    const supabase = createSupabaseMock(t, { create_game_session_atomic: createSessionRpc(t.game_sessions) });
+    getSupabaseServerClientMock.mockReturnValue(supabase);
+    const response = await POST(new Request('http://localhost/rematch', { method: 'POST', body: JSON.stringify({ playerIds: [PLAYER_B, PLAYER_C] }) }), { params });
+    expect(response.status).toBe(201);
+    const args = supabase.rpcFor('create_game_session_atomic')[0]!.args;
+    expect(args.p_player_ids).toEqual(expect.arrayContaining([PLAYER_B, PLAYER_C]));
+    expect(args.p_player_ids).toHaveLength(2);
+    expect(args.p_config).toEqual(finished.config);
+    expect(args.p_mode).toBe('cricket');
+    expect(t.game_session_players).toEqual(sessionPlayerRows(ORDER));
+  });
+
+  it('rejects too few selected players without creating a session', async () => {
+    const t = tables(cricketSession({ status: 'completed' }) as unknown as MockRow);
+    const supabase = createSupabaseMock(t);
+    getSupabaseServerClientMock.mockReturnValue(supabase);
+    const response = await POST(new Request('http://localhost/rematch', { method: 'POST', body: JSON.stringify({ playerIds: [PLAYER_B] }) }), { params });
+    expect(response.status).toBe(400);
+    expect(supabase.rpcFor('create_game_session_atomic')).toHaveLength(0);
+  });
+
   it('keeps everyone eligible to start when the game had no winner', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const ended = cricketSession({ status: 'ended_early', completed_at: '2026-09-01T11:00:00.000Z' });
