@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { apiRequest } from "@/lib/apiClient";
 import { isTVModeEnabled, requestTVModeFullscreen } from "@/lib/tvMode";
@@ -47,7 +47,7 @@ import {
 } from "@/components/games/BoardPicker";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 
-type Player = { id: string; display_name: string; location: string | null; avatar_url?: string | null };
+type Player = { id: string; display_name: string; location: string | null; avatar_url?: string | null; gamesPlayed?: number };
 
 type StartScore = "201" | "301" | "501";
 
@@ -175,11 +175,18 @@ export default function NewMatchPage() {
       const supabase = await getSupabaseClient();
       const { data } = await supabase
         .from("players")
-        .select("*")
+        .select("id, display_name, location, avatar_url, match_players(count), game_session_players(count)")
         .eq("is_active", true)
         .order("display_name");
       if (!cancelled && data) {
-        const activePlayers = data as Player[];
+        const activePlayers: Player[] = data.map((player) => ({
+          id: player.id,
+          display_name: player.display_name,
+          location: player.location,
+          avatar_url: player.avatar_url,
+          gamesPlayed: (player.match_players[0]?.count ?? 0)
+            + (player.game_session_players[0]?.count ?? 0),
+        }));
         setPlayers(activePlayers);
         const activeIds = new Set(activePlayers.map((player) => player.id));
         setSelectedIds((ids) => ids.filter((id) => activeIds.has(id)));
@@ -277,7 +284,11 @@ export default function NewMatchPage() {
     });
   }
 
-  const locationPlayers = players.filter(
+  const sortedPlayers = useMemo(() => [...players].sort((a, b) =>
+    (b.gamesPlayed ?? 0) - (a.gamesPlayed ?? 0)
+      || a.display_name.localeCompare(b.display_name),
+  ), [players]);
+  const locationPlayers = sortedPlayers.filter(
     (p) =>
       p.location === null ||
       enabledLocations.includes(p.location as LocationValue),
@@ -585,7 +596,7 @@ export default function NewMatchPage() {
               />
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:max-h-[calc(100dvh-324px)] lg:min-h-64 lg:overflow-y-auto 2xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2.5 min-[480px]:grid-cols-2 md:grid-cols-3 lg:max-h-[calc(100dvh-324px)] lg:min-h-64 lg:overflow-y-auto xl:grid-cols-4">
             {filteredPlayers.map((p) => {
               const loc = LOCATIONS.find((l) => l.value === p.location);
               const checked = selectedIds.includes(p.id);
@@ -599,7 +610,7 @@ export default function NewMatchPage() {
                 >
                   <PlayerAvatar player={p} size="xl" className="size-16 text-xl ring-2 ring-white/10" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-2xl font-black tracking-tight xl:text-[28px]">{p.display_name}</span>
+                    <span title={p.display_name} className="block truncate text-2xl font-black tracking-tight xl:text-[28px]">{p.display_name}</span>
                     {loc && (
                       <span className={`mt-0.5 block text-xs font-semibold tracking-wide ${checked ? "text-sky-300/70" : "text-slate-500"}`}>
                         {loc.label}
