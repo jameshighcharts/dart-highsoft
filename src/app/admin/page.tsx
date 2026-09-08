@@ -1,8 +1,10 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { ArrowLeft } from 'lucide-react';
 
 import { getAuthenticatedSession, signOut } from '@/auth';
 import { AdminUsersPanel } from '@/components/admin/AdminUsersPanel';
+import { Button } from '@/components/ui/button';
 import { isAuthDevBypassEnabled } from '@/lib/auth/devBypass';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +21,12 @@ export default async function AdminPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8 md:px-6 md:py-10">
+      <Button asChild variant="outline" className="mb-6">
+        <Link href="/">
+          <ArrowLeft aria-hidden="true" />
+          Back home
+        </Link>
+      </Button>
       <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Users</h1>
@@ -26,11 +34,7 @@ export default async function AdminPage() {
             Players and their Slack identities for the <code className="rounded bg-muted px-1 py-0.5 text-xs">/dart</code> poll.
           </p>
         </div>
-        <div className="flex items-center gap-3 text-sm">
-          <Link href="/" className="text-muted-foreground hover:text-foreground">
-            Back to scoreboard
-          </Link>
-          <span className="text-muted-foreground" aria-hidden="true">·</span>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="text-muted-foreground">{viewer.name}</span>
           {isAuthDevBypassEnabled() ? (
             <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">dev bypass</span>
