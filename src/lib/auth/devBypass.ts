@@ -1,9 +1,17 @@
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
+
+export function isLoopbackHostname(hostname: string | null | undefined): boolean {
+  return Boolean(hostname && LOOPBACK_HOSTNAMES.has(hostname));
+}
+
 // Opt-in local preview without Slack. Only active under `next dev`
-// (NODE_ENV=development) AND when AUTH_DEV_BYPASS=1 is set. A production
-// build always has NODE_ENV=production, so this can never be on in a
-// deployment. Also used by the Playwright E2E server (see `dev:test`).
-export function isAuthDevBypassEnabled(): boolean {
-  return process.env.NODE_ENV === 'development' && process.env.AUTH_DEV_BYPASS === '1';
+// (NODE_ENV=development) AND when either AUTH_DEV_BYPASS=1 is set or the
+// request is coming from localhost/127.0.0.1. A production build always has
+// NODE_ENV=production, so this can never be on in a deployment. Also used by
+// the Playwright E2E server (see `dev:test`).
+export function isAuthDevBypassEnabled(hostname?: string | null): boolean {
+  if (process.env.NODE_ENV !== 'development') return false;
+  return process.env.AUTH_DEV_BYPASS === '1' || isLoopbackHostname(hostname);
 }
 
 type PerformanceAuditRequest = {

@@ -1,3 +1,4 @@
+import { headers } from 'next/headers';
 import NextAuth from 'next-auth';
 import type { NextAuthConfig, Session } from 'next-auth';
 import Google from 'next-auth/providers/google';
@@ -147,7 +148,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth(config);
  * Slack account could not be resolved by email.
  */
 export async function getAuthenticatedSession(): Promise<Session | null> {
-  if (isAuthDevBypassEnabled()) {
+  const hostname = (await headers()).get('host')?.split(':')[0] ?? null;
+  if (isAuthDevBypassEnabled(hostname)) {
     return { user: { ...DEV_BYPASS_USER }, expires: new Date(Date.now() + 60 * 60 * 1000).toISOString() };
   }
   if (!isAuthConfigured) return null;
