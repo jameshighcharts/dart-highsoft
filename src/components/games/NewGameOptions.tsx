@@ -65,11 +65,15 @@ export type SavedGameSetup = {
 /** Restore only recognized options; stale or malformed preferences use defaults. */
 export function loadStoredSetup(): SavedGameSetup | null {
   try {
-    const saved = JSON.parse(localStorage.getItem(SETUP_STORAGE_KEY) ?? "null");
-    if (!saved || !isGameType(saved.gameType)) return null;
+    const parsed: unknown = JSON.parse(localStorage.getItem(SETUP_STORAGE_KEY) ?? "null");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const saved = parsed as Record<string, unknown>;
     const gameType = saved.gameType;
-    const gameConfig = gameType === "x01" ? {} : defaultConfigFor(gameType);
-    const raw = saved.gameConfig;
+    if (!isGameType(gameType)) return null;
+    const gameConfig: Record<string, unknown> = gameType === "x01" ? {} : defaultConfigFor(gameType);
+    const raw = saved.gameConfig && typeof saved.gameConfig === "object" && !Array.isArray(saved.gameConfig)
+      ? saved.gameConfig as Record<string, unknown>
+      : null;
     if (gameType !== "x01" && raw && typeof raw === "object") {
       for (const field of GAME_MODE_INFO[gameType].fields) {
         const value = raw[field.key];
@@ -91,14 +95,14 @@ export function loadStoredSetup(): SavedGameSetup | null {
         );
       }
     }
-    const legsToWin = Number.isSafeInteger(saved.legsToWin) && saved.legsToWin > 0 ? saved.legsToWin : 1;
+    const legsToWin = typeof saved.legsToWin === "number" && Number.isSafeInteger(saved.legsToWin) && saved.legsToWin > 0 ? saved.legsToWin : 1;
     return {
       gameType,
       gameConfig,
       selectedIds: Array.isArray(saved.selectedIds)
-        ? [...new Set(saved.selectedIds.filter((id: unknown): id is string => typeof id === "string" && id.length > 0))] as string[]
+        ? [...new Set(saved.selectedIds.filter((id: unknown): id is string => typeof id === "string" && id.length > 0))]
         : [],
-      startScore: ["201", "301", "501"].includes(saved.startScore) ? saved.startScore : "301",
+      startScore: (saved.startScore === "201" || saved.startScore === "301" || saved.startScore === "501") ? saved.startScore : "301",
       finish: saved.finish === "double_out" ? "double_out" : "single_out",
       legsToWin,
       fairEnding: legsToWin === 1 && saved.fairEnding === true,

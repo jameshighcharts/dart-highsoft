@@ -154,3 +154,41 @@
     animation: none;
   }
 }
+
+
+@media (prefers-reduced-motion: no-preference) {
+  .selected-lineup-avatar {
+    animation-name: lineup-avatar-enter, lineup-ready-pulse;
+    animation-timing-function: ease-out, ease-in-out;
+    animation-iteration-count: 1, infinite;
+    animation-fill-mode: both, none;
+  }
+}
+
+@keyframes lineup-ready-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+@keyframes lineup-avatar-enter {
+  0% { opacity: 0; transform: translateY(14px) scale(0.85); }
+  42% { opacity: 1; transform: translateY(-8px) scale(1.08); }
+  65% { transform: translateY(4px) scale(0.97); }
+  83% { transform: translateY(-2px) scale(1.02); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .start-action-bar:has(.start-match-button:enabled:is(:hover, :focus-visible)) .lineup-avatar-slot {
+    animation-name: lineup-excited;
+    animation-duration: 700ms;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+}
+
+@keyframes lineup-excited {
+  0%, 100% { transform: translateY(0) scale(1); }
+  45% { transform: translateY(-13px) scale(1.16) rotate(-5deg); }
+  75% { transform: translateY(-3px) scale(1.04) rotate(3deg); }
+}

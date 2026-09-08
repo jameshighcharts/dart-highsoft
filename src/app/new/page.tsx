@@ -348,7 +348,7 @@ export default function NewMatchPage() {
   const selectedPlayers = selectedIds
     .map((id) => players.find((p) => p.id === id))
     .filter((p): p is Player => Boolean(p))
-    .map((p) => ({ id: p.id, name: p.display_name }));
+    .map((p) => ({ id: p.id, name: p.display_name, display_name: p.display_name, avatar_url: p.avatar_url }));
 
   async function onStartGame(mode: GameMode) {
     const problem = validateGameSelection(mode, gameConfig, selectedIds);
@@ -405,11 +405,10 @@ export default function NewMatchPage() {
   }
 
   return (
-    <div className="w-full space-y-5 px-4 pt-4 pb-36 md:px-6 lg:px-8">
-      <h1 className="text-3xl font-black tracking-tight">New Game</h1>
-
+    <div className="w-full space-y-5 px-4 pt-4 pb-44 md:px-6 lg:px-8">
       <div className="grid items-start gap-5 lg:grid-cols-[300px_minmax(0,1fr)] xl:gap-8 xl:grid-cols-[320px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-5 rounded-2xl bg-slate-900/40 p-4 [&_button[data-slot=select-trigger]]:border-white/10 [&_input]:border-white/10 [&_button[data-variant=outline]]:border-white/10">
+          <h1 className="text-3xl font-black tracking-tight">New Game</h1>
           <div className="space-y-2">
             <div className="font-medium">Game type</div>
             <GameTypePicker value={gameType} onChange={changeGameType} />
@@ -533,8 +532,8 @@ export default function NewMatchPage() {
 
         </div>
         <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-2xl font-extrabold tracking-tight">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="mr-auto shrink-0 whitespace-nowrap text-2xl font-extrabold tracking-tight">
               Players
               <span className="ml-3 text-sm font-semibold tracking-normal text-sky-300" aria-live="polite">
                 {selectedIds.length} selected
@@ -546,10 +545,8 @@ export default function NewMatchPage() {
                   key={loc.value}
                   type="button"
                   size="sm"
-                  variant={
-                    enabledLocations.includes(loc.value) ? "default" : "outline"
-                  }
-                  className={enabledLocations.includes(loc.value) ? "border border-sky-400/20 bg-sky-400/10 font-bold text-sky-300 hover:bg-sky-400/20" : "border-white/10 bg-transparent text-slate-400 hover:bg-white/5"}
+                  variant="outline"
+                  className={enabledLocations.includes(loc.value) ? "border border-sky-400/20 bg-sky-400/10 font-bold text-sky-300 hover:bg-sky-400/20" : "border border-white/10 bg-transparent font-bold text-slate-400 hover:bg-white/5"}
                   aria-pressed={enabledLocations.includes(loc.value)}
                   onClick={() => toggleLocation(loc.value)}
                 >
@@ -557,50 +554,35 @@ export default function NewMatchPage() {
                 </Button>
               ))}
             </div>
+            <div className="relative w-full max-w-80 min-w-0 xl:w-80">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                inputMode="search"
+                autoComplete="off"
+                className="h-12 rounded-xl border-white/10 bg-slate-900/50 pl-9 text-base"
+                placeholder="Search players"
+                aria-label="Search players"
+                value={playerSearch}
+                onChange={(e) => setPlayerSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  if (filteredPlayers.length === 1) {
+                    toggle(filteredPlayers[0].id);
+                    setPlayerSearch("");
+                  } else if (
+                    filteredPlayers.length === 0 &&
+                    searchTerm &&
+                    !searchMatchesExisting
+                  ) {
+                    void createPlayer(playerSearch);
+                  }
+                }}
+              />
+            </div>
           </div>
-          <div className="flex h-8 items-center gap-1.5 overflow-x-auto" aria-label="Selected players">
-              {selectedIds.length === 0 && <span className="text-sm text-slate-500">Choose your lineup</span>}
-              {selectedPlayers.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => toggle(p.id)}
-                  aria-label={`Remove ${p.name}`}
-                  className="flex shrink-0 items-center gap-1 rounded-full bg-accent/40 px-2.5 py-1 text-xs font-medium hover:bg-accent/60"
-                >
-                  {p.name}
-                  <X className="size-3" />
-                </button>
-              ))}
-          </div>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              inputMode="search"
-              autoComplete="off"
-              className="h-12 rounded-xl border-white/10 bg-slate-900/50 pl-9 text-base"
-              placeholder="Search players"
-              aria-label="Search players"
-              value={playerSearch}
-              onChange={(e) => setPlayerSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter") return;
-                e.preventDefault();
-                if (filteredPlayers.length === 1) {
-                  toggle(filteredPlayers[0].id);
-                  setPlayerSearch("");
-                } else if (
-                  filteredPlayers.length === 0 &&
-                  searchTerm &&
-                  !searchMatchesExisting
-                ) {
-                  void createPlayer(playerSearch);
-                }
-              }}
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:max-h-[calc(100dvh-480px)] lg:min-h-64 lg:overflow-y-auto 2xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:max-h-[calc(100dvh-324px)] lg:min-h-64 lg:overflow-y-auto 2xl:grid-cols-3">
             {filteredPlayers.map((p) => {
               const loc = LOCATIONS.find((l) => l.value === p.location);
               const checked = selectedIds.includes(p.id);
@@ -632,7 +614,26 @@ export default function NewMatchPage() {
               </p>
             )}
           </div>
-          {searchTerm && !searchMatchesExisting ? (
+
+          {gameMode !== null && (
+            <>
+              {killerHint && (
+                <p className="text-sm text-amber-500">
+                  Killer is best with 3 or more players.
+                </p>
+              )}
+              {(submitError ??
+                (selectedIds.length > 0 ? validationError : null)) && (
+                <p className="text-sm text-destructive">
+                  {submitError ?? validationError}
+                </p>
+              )}
+            </>
+          )}
+
+          <div className="fixed inset-x-7 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 rounded-t-2xl bg-background/95 px-1 pt-3 pb-3 shadow-[0_-12px_32px_rgba(3,7,18,0.8)] backdrop-blur-xl md:inset-x-12 lg:right-14 lg:bottom-0 lg:left-[376px] xl:left-[408px]">
+            <div className="mb-3">
+{searchTerm && !searchMatchesExisting ? (
             <Button
               type="button"
               variant="outline"
@@ -660,44 +661,49 @@ export default function NewMatchPage() {
               </Button>
             </div>
           )}
-
-          {gameMode !== null && (
-            <>
-              {killerHint && (
-                <p className="text-sm text-amber-500">
-                  Killer is best with 3 or more players.
-                </p>
-              )}
-              {(submitError ??
-                (selectedIds.length > 0 ? validationError : null)) && (
-                <p className="text-sm text-destructive">
-                  {submitError ?? validationError}
-                </p>
-              )}
-            </>
-          )}
-
-          <div className="fixed inset-x-7 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 rounded-t-2xl bg-background/95 px-1 pt-3 pb-3 shadow-[0_-12px_32px_rgba(3,7,18,0.8)] backdrop-blur-xl md:inset-x-12 lg:right-14 lg:bottom-0 lg:left-[376px] xl:left-[408px]">
-            <p className="mb-2 truncate text-center text-xs font-medium text-slate-400" role="status">
-              {validationError ?? (selectedIds.length < 2 && gameMode === null
-                ? "Choose at least 2 players to start"
-                : `${selectedIds.length} players ready · ${gameTypeName(gameType)}`)}
-            </p>
+            </div>
+            <div className="start-action-bar grid grid-cols-2 items-center gap-3">
+            <div className="flex h-16 min-w-0 items-center justify-center px-3" aria-label="Selected players">
+              <div className="flex w-full items-center" style={{ maxWidth: selectedPlayers.length ? selectedPlayers.length * 56 - 8 : undefined }}>
+              {selectedIds.length === 0 && <span className="w-full text-center text-xs text-slate-500">Choose your lineup</span>}
+              {selectedPlayers.map((p, index) => (
+                <div key={p.id} style={{ animationDelay: `${-index * 0.09}s` }} className="lineup-avatar-slot relative min-w-0 flex-[1_1_56px] last:flex-[0_0_48px] hover:z-10 focus-within:z-10">
+                <button
+                  type="button"
+                  onClick={() => toggle(p.id)}
+                  aria-label={`Remove ${p.name}`}
+                  title={`${p.name} · Click to remove`}
+                  style={{
+                    animationDelay: `0s, ${0.56 + index * 0.28}s`,
+                    animationDuration: "560ms, 6s",
+                  }}
+                  className="selected-lineup-avatar pointer-events-auto group relative isolate shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                >
+                  <PlayerAvatar player={p} size="lg" className="size-12 ring-0" />
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-slate-950/65 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true">
+                    <X className="size-4" />
+                  </span>
+                </button>
+                </div>
+              ))}
+            </div>
+          </div>
             <Button
               size="lg"
-              className="group relative h-16 w-full gap-3 overflow-hidden rounded-xl border border-blue-300/30 bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 px-6 text-xl font-semibold tracking-normal text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_6px_24px_rgba(37,99,235,0.2)] transition-[filter,box-shadow] hover:brightness-110 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_8px_28px_rgba(37,99,235,0.3)]"
+              className="start-match-button group relative h-16 w-full min-w-0 gap-2 overflow-hidden rounded-xl border border-blue-300/30 bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 px-3 text-base font-semibold sm:px-6 sm:text-xl tracking-normal text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_6px_24px_rgba(37,99,235,0.2)] transition-[filter,box-shadow,border-color] duration-200 hover:border-cyan-100 hover:brightness-110 hover:shadow-[inset_0_0_0_1px_rgba(165,243,252,0.8),0_0_0_2px_rgba(56,189,248,0.65),0_0_18px_rgba(56,189,248,0.65),0_0_38px_rgba(99,102,241,0.4)]"
               onClick={onStart}
               disabled={
                 !setupLoaded || !playersLoaded || submitting || (gameMode !== null && validationError !== null)
               }
             >
-              <span>{submitting
+              <span className="truncate">{submitting
                 ? "Starting…"
                 : gameMode === null
                   ? "Start match"
                   : `Start ${gameTypeName(gameMode)}`}</span>
-              <ArrowRight className="size-5 shrink-0 text-blue-100 transition-transform group-hover:translate-x-1 motion-reduce:transition-none" aria-hidden="true" />
+              <ArrowRight className="hidden size-5 shrink-0 text-blue-100 sm:block transition-transform group-hover:translate-x-1 motion-reduce:transition-none" aria-hidden="true" />
             </Button>
+            </div>
           </div>
         </div>
       </div>

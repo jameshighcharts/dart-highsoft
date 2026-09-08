@@ -37,7 +37,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | Path | Purpose |
 |------|---------|
 | `page.tsx` | Home — leaderboard grid, nav to new match/practice/players |
-| `new/page.tsx` | New X01 or party-game form with locally remembered rules, party options, and ordered active-player lineup; stacked game cards with blue/cyan gradient selection outlines in a narrow settings column alongside a full-width, scrollable grid of large avatar/name player tiles and a fixed bottom start action; reserved lineup space prevents selection layout shifts, with optional ready Scolia board selection |
+| `new/page.tsx` | New X01 or party-game form with locally remembered rules, party options, and ordered active-player lineup; stacked game cards with blue/cyan gradient selection outlines in a narrow settings column alongside a full-width, scrollable grid of large avatar/name player tiles and a fixed bottom bar with a half-width start action and centered avatar lineup that overlaps to fit, with entry bounces, staggered reduced-motion-aware pulses, excited hops on Start hover/focus, and click-to-remove, with optional ready Scolia board selection |
 | `match/[id]/page.tsx` | Match page (server component) |
 | `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator/history stats view; development performance overlay is opt-in via `perf=true` |
 | `match/[id]/report/page.tsx` | Server-rendered DartIQ replay data, deterministic match story, player baseline/WPA breakdowns, and initial URL-selected dart hydration for the client-local report explorer |
