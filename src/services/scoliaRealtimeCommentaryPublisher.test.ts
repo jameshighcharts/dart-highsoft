@@ -176,7 +176,7 @@ describe('Scolia pause reactions', () => {
 });
 
 describe('Scolia stale speech', () => {
-  it('clears audible output and drops a queued replacement when its lifetime expires', () => {
+  it('preserves speech past the old six-second cutoff but recovers a stuck response', () => {
     vi.useFakeTimers();
     const publisher = new ScoliaRealtimeCommentaryPublisher({} as SupabaseClient, 'test-key');
     const connection = {
@@ -198,6 +198,9 @@ describe('Scolia stale speech', () => {
       internals.enqueueProviderResponse(connection, { type: 'response.create', event_id: 'queued' });
       expect(connection.socket.send).not.toHaveBeenCalled();
       vi.advanceTimersByTime(6_000);
+      expect(connection.socket.send).not.toHaveBeenCalled();
+      expect(connection.playback.busy).toBe(true);
+      vi.advanceTimersByTime(24_000);
       expect(connection.socket.send.mock.calls.map(([raw]) => JSON.parse(raw).type))
         .toEqual(['response.cancel', 'output_audio_buffer.clear']);
       expect(connection.responseQueue.complete('old-response').next).toBeNull();

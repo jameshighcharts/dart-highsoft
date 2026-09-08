@@ -21,16 +21,17 @@ function event(overrides: Partial<CommentaryTimingEvent> = {}): CommentaryTiming
 afterEach(() => vi.useRealTimers());
 
 describe('CommentaryVisitTiming', () => {
-  it('discards aged speech on the next dart even when no replacement call is selected', () => {
+  it('lets an ongoing line finish across routine darts without a replacement', () => {
     vi.useFakeTimers();
     const timing = new CommentaryVisitTiming();
     const expire = vi.fn();
     timing.trackSpeech(event({ dartIndex: 1 }), expire);
     vi.advanceTimersByTime(2_000);
     timing.observeDart(event({ eventId: 'next', dartIndex: 2 }));
-    expect(expire).toHaveBeenCalledTimes(1);
+    expect(expire).not.toHaveBeenCalled();
     vi.advanceTimersByTime(10_000);
-    expect(expire).toHaveBeenCalledTimes(1);
+    expect(expire).not.toHaveBeenCalled();
+    timing.reset();
   });
 
   it('expires live match-dart anticipation on the very next dart even within 100ms', () => {
@@ -45,7 +46,7 @@ describe('CommentaryVisitTiming', () => {
     expect(expire).toHaveBeenCalledOnce(); timing.reset();
   });
 
-  it('cuts the previous visit on a new player but preserves a fresh reaction in the same visit', () => {
+  it('preserves an ongoing line when the next player starts throwing', () => {
     vi.useFakeTimers();
     const timing = new CommentaryVisitTiming();
     const expire = vi.fn();
@@ -53,13 +54,14 @@ describe('CommentaryVisitTiming', () => {
     timing.observeDart(event({ eventId: 'same-visit', dartIndex: 2 }));
     expect(expire).not.toHaveBeenCalled();
     timing.observeDart(event({ eventId: 'new-visit', turnId: 'turn-b', dartIndex: 1 }));
-    expect(expire).toHaveBeenCalledTimes(1);
+    expect(expire).not.toHaveBeenCalled();
+    timing.reset();
   });
 
   it.each([
-    ['ordinary', 1, 3_000], ['ordinary', 3, 6_000],
-    ['marquee', 3, 8_000], ['terminal', 3, 12_000],
-  ] as const)('bounds %s dart %s speech from dispatch, including provider wait', (priority, dartIndex, age) => {
+    ['ordinary', 1, 30_000], ['ordinary', 3, 30_000],
+    ['marquee', 3, 30_000], ['terminal', 3, 30_000],
+  ] as const)('allows %s dart %s to finish and only cancels a stuck response', (priority, dartIndex, age) => {
     vi.useFakeTimers();
     const timing = new CommentaryVisitTiming();
     const expire = vi.fn();
@@ -134,19 +136,26 @@ describe('CommentaryVisitTiming', () => {
     expect(deliver).toHaveBeenCalledOnce();
   });
 
-  it('nudges once after a long pause and cancels when play resumes', () => {
+  it('nudges once at twelve seconds each visit and cancels when play resumes', () => {
     vi.useFakeTimers();
     const timing = new CommentaryVisitTiming();
     const deliver = vi.fn();
     timing.scheduleIdle(deliver);
-    vi.advanceTimersByTime(19_999);
+    vi.advanceTimersByTime(11_999);
     expect(deliver).not.toHaveBeenCalled();
     timing.observeDart(event());
     vi.advanceTimersByTime(60_000);
     expect(deliver).not.toHaveBeenCalled();
     timing.scheduleIdle(deliver);
+    vi.advanceTimersByTime(11_999);
+    expect(deliver).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(deliver).toHaveBeenCalledOnce();
     vi.advanceTimersByTime(60_000);
     expect(deliver).toHaveBeenCalledOnce();
+    timing.scheduleIdle(deliver);
+    vi.advanceTimersByTime(12_000);
+    expect(deliver).toHaveBeenCalledTimes(2);
   });
 
   it('invalidates an idle check already awaiting the database on a dart or correction', () => {
