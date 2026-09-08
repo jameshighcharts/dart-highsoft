@@ -93,7 +93,7 @@ type UseMatchActionsResult = {
   removePlayerFromMatch: (playerId: string) => Promise<void>;
   movePlayerUp: (index: number) => Promise<void>;
   movePlayerDown: (index: number) => Promise<void>;
-  startRematch: () => Promise<void>;
+  startRematch: (playerIds?: string[]) => Promise<void>;
   endGameEarly: () => Promise<void>;
   togglePause: () => Promise<void>;
   endLegAndMaybeMatch: (winnerPlayerId: string) => Promise<void>;
@@ -892,18 +892,15 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
     [players, matchId, loadAll, canReorderPlayers]
   );
 
-  const startRematch = useCallback(async () => {
+  const startRematch = useCallback(async (playerIds?: string[]) => {
     if (!match) return;
     try {
       setRematchLoading(true);
-      const result = await apiRequest<{ newMatchId: string }>(`/api/matches/${matchId}/rematch`);
+      const result = await apiRequest<{ newMatchId: string }>(`/api/matches/${matchId}/rematch`, { body: playerIds ? { playerIds } : undefined });
       if (broadcastRematch) {
         await broadcastRematch(result.newMatchId);
       }
       routerPush(`/match/${result.newMatchId}`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Unknown error creating rematch';
-      alert(msg);
     } finally {
       setRematchLoading(false);
     }

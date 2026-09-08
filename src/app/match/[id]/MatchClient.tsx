@@ -1,5 +1,6 @@
 "use client";
 
+import { RematchPanel } from '@/components/games/RematchPanel';
 import { MatchScoringView } from '@/components/match/MatchScoringView';
 import { RealtimeDebugPanel } from '@/components/match/RealtimeDebugPanel';
 import { PerfDebugPanel } from '@/components/match/PerfDebugPanel';
@@ -42,6 +43,7 @@ const MatchSpectatorView = dynamic(
 
 export default function MatchClient({ matchId }: { matchId: string }) {
   const router = useRouter();
+  const [rematchOpen, setRematchOpen] = useState(false);
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const spectatorParam = searchParams.get('spectator') === 'true';
@@ -536,11 +538,19 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   if (!match || !currentLeg) return <div className="p-4">No leg available</div>;
   const matchUrl = origin ? `${origin}/match/${matchId}` : '';
 
+  const rematchPanel = (matchWinnerId || match.ended_early) && !match.tournament_match_id ? (
+    <RematchPanel players={orderPlayers} gameLabel={`${match.start_score} ${match.finish === 'double_out' ? 'double out' : 'single out'}`}
+      minPlayers={2} showTrigger={isSpectatorMode || Boolean(match.ended_early)} open={rematchOpen} onOpenChange={setRematchOpen} onStart={startRematch} />
+  ) : null;
+
   // Spectator Mode View
   if (isSpectatorMode) {
     return (
       <>
+        {rematchPanel}
         <MatchSpectatorView
+          rematchOpen={rematchOpen}
+          onRematch={!match.tournament_match_id ? () => setRematchOpen(true) : undefined}
           celebration={celebration}
           realtimeConnectionStatus={realtime.connectionStatus}
           realtimeIsConnected={realtime.isConnected}
@@ -602,6 +612,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
 
   return (
     <>
+      {rematchPanel}
       <MatchScoringView
         realtimeConnectionStatus={realtime.connectionStatus}
         currentPlayer={currentPlayer}
@@ -622,7 +633,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
         pauseLoading={pauseLoading}
         onTogglePause={togglePause}
         rematchLoading={rematchLoading}
-        onStartRematch={startRematch}
+        onStartRematch={() => setRematchOpen(true)}
         editOpen={editOpen}
         onEditOpenChange={setEditOpen}
         editingThrows={editingThrows}

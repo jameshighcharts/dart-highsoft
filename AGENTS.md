@@ -159,6 +159,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `server/dartiqCalibration.ts` | Daily temperature reports plus separate trained-artifact fitting, validation, compare-and-swap activation, and rollback orchestration |
 | `server/createMatch.ts` | Creates X01 matches, ordered players, and the first leg through one transaction |
 | `server/backgroundJobs.ts` | Validates claimed jobs, dispatches Slack and DartIQ capture handlers, and records completion/retry/failure |
+| `server/rematchPlayers.ts` | Validates optional rematch lineups while retaining empty-request compatibility |
 | `server/createGameSession.ts` | Validates configuration and creates party-game sessions with ordered players |
 | `server/gameGuards.ts` | Loads typed party-game rows and checks active-session state |
 | `server/gameThrowLifecycle.ts` | Owns transactional party-game append, undo, and completion mutations |
@@ -229,6 +230,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `games/GamePlayerCard.tsx` | Shared X01-style party-game player tiles with current/last-visit darts and mode-specific scores |
 | `games/GameHeader.tsx` | Party-game title, status, round, and same-tab spectator navigation |
 | `games/GameControls.tsx` | Party-game undo, end confirmation, and rematch controls |
+| `games/RematchPanel.tsx` | Shared rematch dialog with location filters, searchable avatar rows, and selected-player chips for scorer and spectator views |
 | `games/GameResults.tsx` | Party-game result and rematch display |
 | `games/CricketBoard.tsx` | Cricket targets, marks, and points display |
 | `games/KillerBoard.tsx` | Killer numbers, lives, and elimination display |
@@ -468,3 +470,5 @@ After a real takeout, Scolia may offer one optional pause reaction if no dart ar
 Each match snapshot includes one explicitly fictional commentator starting premise, selected deterministically from the match ID by `commentaryStartingMood()` in `personas.ts`. It remains stable across listeners, reconnects and correction epochs. Shared response instructions let the mood develop through actual game events and prior conversation, without repeating the premise or inventing facts about players. No additional database fields or model calls are required.
 
 Rivalry commentary uses `selectCommentaryRivalry` in `commentaryNarrative.ts` over frozen supported history or a verified rematch. `RivalryDirector` in `broadcastDirector.ts` keeps one selected pair across quiet visits, with one establishment, two ordinary developments, up to six developments only when further reversals or match opportunities earn them, and an authoritative match-result ending. `RealtimeNarrativeWireState` adapts worker darts and browser completed visits to the same director and renders compact named briefs. Rivalry developments use existing speech slots; promoted live stories retain priority. Rivalry match-dart anticipation uses the actual post-dart one-dart route with darts still in hand, suppresses fair-ending and leg-only claims, speaks in 2–6 words, and expires on the very next dart. The completed opening line is retained separately from the latest callback so the commentator can own earlier misplaced confidence. Callback excerpts require successful audio generation AND the matching playback-stopped event; cleared, failed, cancelled, old-epoch, and text-only responses cannot establish heard history. Corrections reset the thread and delivery memory; reconnects use self-contained developments rather than repeating setup. Direct records never advance from multiplayer results, and fair-ending checkouts or leg-only wins never resolve a match rivalry. The local `commentary:demo prepare` freezes explicitly synthetic Ada/Ben history for its new test-only players, with Ada ending Ben’s three-shared-win run on D16.
+
+**Quick rematch:** `components/games/RematchPanel.tsx` offers same or edited players after X01 and game-session completion in scorer and spectator views. Player creation uses the existing players API; rematch routes validate optional player IDs with `lib/server/rematchPlayers.ts` and preserve source settings and board checks. Tournament X01 matches retain bracket navigation. Mobile UI reference: `docs/images/rematch-player-picker.png`.

@@ -79,11 +79,11 @@ describe.each(['cricket','killer','shanghai','around_the_clock'] as const)('%s',
   });
 });
 
-it('shows the result when Shanghai is hit and keeps spectators read-only', () => {
+it('shows a rematch after Shanghai while keeping finished scores read-only', () => {
   mocks.query='spectator=true';mocks.data.session.mode='shanghai';mocks.data.session.config={rounds:7,startNumber:1};
   mocks.data.throws=[dart('S1',1),dart('D1',2),dart('T1',3)];
   render(<GameClient gameId="game" />);
   expect(screen.getByText('Winner')).toBeInTheDocument();
   expect(screen.queryByRole('region',{name:'Current turn'})).not.toBeInTheDocument();
-  expect(screen.queryByRole('button',{name:'Rematch'})).not.toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'Rematch'})).toBeInTheDocument();
 });

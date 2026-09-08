@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server';
+import { readRematchPlayers } from '@/lib/server/rematchPlayers';
 
 import { createGameSession, shuffle } from '@/lib/server/createGameSession';
 import { loadGameSession } from '@/lib/server/gameGuards';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
-export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  let selectedPlayerIds: string[] | null;
+  try {
+    selectedPlayerIds = await readRematchPlayers(request);
+  } catch {
+    return NextResponse.json({ error: 'Choose a valid list of unique players' }, { status: 400 });
+  }
   try {
     const { id } = await params;
     const supabase = getSupabaseServerClient();
@@ -20,7 +27,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       .eq('session_id', id)
       .order('play_order');
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    const playerIds = ((rows ?? []) as { player_id: string }[]).map((row) => row.player_id);
+    const playerIds = selectedPlayerIds ?? ((rows ?? []) as { player_id: string }[]).map((row) => row.player_id);
 
     // Someone other than the winner starts; the rest are shuffled.
     const winnerId = session.winner_player_id;

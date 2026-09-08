@@ -1,9 +1,16 @@
 import { NextResponse } from 'next/server';
+import { readRematchPlayers } from '@/lib/server/rematchPlayers';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { createMatchForPlayers } from '@/lib/server/createMatch';
 import { isScoliaBoardReady } from '@/lib/scolia/availability';
 
-export async function POST(_: Request, { params }: { params: Promise<{ matchId: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
+  let selectedPlayerIds: string[] | null;
+  try {
+    selectedPlayerIds = await readRematchPlayers(request);
+  } catch {
+    return NextResponse.json({ error: 'Choose a valid list of unique players' }, { status: 400 });
+  }
   try {
     const { matchId } = await params;
     const supabase = getSupabaseServerClient();
@@ -50,9 +57,15 @@ export async function POST(_: Request, { params }: { params: Promise<{ matchId: 
         return NextResponse.json({ error: 'The Scolia board is not ready for a rematch' }, { status: 409 });
       }
     }
-    const playerIds = (mpData as { player_id: string; play_order: number }[]).map((r) => r.player_id);
+    const playerIds = selectedPlayerIds ?? (mpData as { player_id: string; play_order: number }[]).map((r) => r.player_id);
     if (playerIds.length < 2) {
       return NextResponse.json({ error: 'Need at least 2 players to start a rematch' }, { status: 400 });
+    }
+
+    if (selectedPlayerIds) {
+      const { data, error } = await supabase.from('players').select('id').in('id', playerIds);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (data?.length !== playerIds.length) return NextResponse.json({ error: 'One or more players were not found' }, { status: 404 });
     }
 
     const winnerId = match.winner_player_id ?? null;
