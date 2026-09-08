@@ -87,7 +87,7 @@ export default function RootLayout({
               </Link>
             </div>
           </nav>
-          <nav className="lg:hidden fixed bottom-0 left-0 right-0 border-t bg-card">
+          <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t bg-card pb-[env(safe-area-inset-bottom)]">
             <div className="grid grid-cols-5">
               <Link href="/" className="flex flex-col items-center justify-center py-2 gap-1">
                 <Home className="size-5" />

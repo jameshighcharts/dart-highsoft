@@ -888,25 +888,50 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         },
       },
       responsive: {
-        rules: [{
-          condition: {
-            maxWidth: 800
+        rules: [
+          {
+            condition: {
+              maxWidth: 800
+            },
+            gridOptions: {
+              header: [
+                { columnId: 'idx' },
+                { columnId: 'player' },
+                ...(eloViewFilter !== '1v1' ? [{ columnId: 'multiElo' }] : []),
+                ...(eloViewFilter !== 'multi' ? [{ columnId: 'elo1v1' }] : []),
+              ],
+              columns: [
+                { id: 'player', width: 110 },
+                // The flattened header drops the "Multiplayer Elo" / "1v1 Elo"
+                // groups, so the two rating columns need distinct labels.
+                { id: 'multiElo', header: { format: 'Multi Elo' } },
+                { id: 'elo1v1', header: { format: '1v1 Elo' } },
+              ],
+            }
           },
-          gridOptions: {
-            header: [
-              { columnId: 'idx' },
-              { columnId: 'player' },
-              ...(eloViewFilter !== '1v1' ? [{ columnId: 'multiElo' }] : []),
-              ...(eloViewFilter !== 'multi' ? [{ columnId: 'elo1v1' }] : []),
-            ],
-            columns: [
-              {
-                id: 'player',
-                width: 110,
-              },
-            ],
+          {
+            // Phones cannot fit two Elo columns: the tier badge is 132px wide,
+            // so showing both leaves ~99px for the name and truncates most of
+            // them. Show a single rating column instead — the 1v1 / Multi tabs
+            // above the grid still switch which rating that is.
+            condition: {
+              maxWidth: 560
+            },
+            gridOptions: {
+              header: [
+                { columnId: 'idx' },
+                { columnId: 'player' },
+                { columnId: eloViewFilter === '1v1' ? 'elo1v1' : 'multiElo' },
+              ],
+              columns: [
+                { id: 'idx', width: 34 },
+                { id: 'player', width: 'auto' },
+                { id: 'multiElo', width: 148, header: { format: 'Multi Elo' } },
+                { id: 'elo1v1', width: 148, header: { format: '1v1 Elo' } },
+              ],
+            }
           }
-        }]
+        ]
       },
       lang: {
         noData: 'No leaderboard data yet. Play some matches!',
@@ -1255,6 +1280,22 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           max-height: 800px;
           --hcg-vertical-padding: 6px;
         }
+        /*
+         * Below lg the app shows the fixed bottom nav, and a fixed-height grid
+         * becomes a nested scroller taller than the viewport: it swallows touch
+         * scrolling, so the page itself can no longer be scrolled and the
+         * bottom of the table stays trapped behind that nav. Let the grid grow
+         * to its content instead and hand vertical scrolling back to the page.
+         */
+        @media (max-width: 1023px) {
+          .grid-leaderboard .hcg-container {
+            height: auto;
+            max-height: none;
+          }
+          .grid-leaderboard .hcg-table tbody {
+            overflow: visible;
+          }
+        }
         .grid-leaderboard .hcg-table thead th {
           color: #858b94;
           font-size: 11px;
@@ -1584,6 +1625,13 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
         .grid-leaderboard .win-loss-empty {
           color: var(--muted-text);
+        }
+        /* Phone widths: trim cell padding so the 132px tier badge and the
+           player name both get as much room as possible. */
+        @media (max-width: 560px) {
+          .grid-leaderboard .hcg-container {
+            --hcg-horizontal-padding: 8px;
+          }
         }
       `}</style>
       <Grid options={options} />

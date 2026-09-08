@@ -12,7 +12,7 @@ export function SiteChrome({ nav, children }: { nav: ReactNode; children: ReactN
   const bare = BARE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   if (bare) return <>{children}</>;
   return (
-    <div className="min-h-screen pb-16 lg:pb-0">
+    <div className="min-h-screen pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">
       {nav}
       <main className="px-3 py-2 md:p-6">{children}</main>
     </div>
