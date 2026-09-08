@@ -248,11 +248,11 @@ describe('CommentaryPolicy', () => {
   });
 
   it.each(['large_swing', 'bust', 'one_dart_finish_created', 'one_dart_finish_unconverted'] as const)(
-    'lets significant %s interrupt immediately during intense play', (signal) => {
+    'does not interrupt a playing line for another notable %s', (signal) => {
       const policy = new CommentaryPolicy();
       policy.evaluate(event({ priority: 'notable', signals: ['treble_hit'] }), 1_000);
       expect(policy.evaluate(event({ eventId: 'urgent', priority: 'notable', signals: [signal] }), 3_200))
-        .toMatchObject({ shouldSpeak: true, interrupt: true });
+        .toMatchObject({ shouldSpeak: false, interrupt: false });
     }
   );
 
@@ -280,13 +280,15 @@ describe('CommentaryPolicy', () => {
     expect(policy.canStartWalkOn(31_000)).toBe(true);
   });
 
-  it('limits idle nudges to one per minute without displacing speech', () => {
+  it('allows a nudge each visit without displacing speech', () => {
     const policy = new CommentaryPolicy();
     expect(policy.canStartIdleCall(1_000)).toBe(true);
     policy.recordIdleCall(1_000);
     expect(policy.canStartIdleCall(70_000)).toBe(false);
     policy.responseFinished();
-    expect(policy.canStartIdleCall(30_000)).toBe(false);
+    expect(policy.canStartIdleCall(5_000)).toBe(false);
+    expect(policy.canStartIdleCall(13_000)).toBe(true);
+    expect(policy.canStartIdleCall(30_000)).toBe(true);
     expect(policy.canStartIdleCall(61_000)).toBe(true);
   });
 

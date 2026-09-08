@@ -43,7 +43,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `match/[id]/report/page.tsx` | Server-rendered DartIQ replay data, deterministic match story, player baseline/WPA breakdowns, and initial URL-selected dart hydration for the client-local report explorer |
 | `game/[id]/page.tsx` | Party-game page (server component) |
 | `game/[id]/GameClient.tsx` | Party-game scoring and spectator client |
-| `games/page.tsx` | Live and recent X01 and party-game listing; completed X01 games link to read-only stats |
+| `games/page.tsx` | Player-searchable X01 and party-game history with paginated loading, daily activity filtering, completed X01 stats links, and development-only dummy data at `?preview=1` |
 | `players/page.tsx` | Player management (list, create, toggle active) |
 | `boards/page.tsx` | Scolia board management (connectivity, availability, active match/game links, connect/disconnect) |
 | `stats/page.tsx` | Stats and leaderboards |
@@ -92,7 +92,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `slack/darts/` | POST | Verify Slack slash commands/button actions and create dart polls |
 | `auth/[...nextauth]/` | GET, POST | Auth.js (next-auth v5) Sign in with Slack handlers; `auth/slack/callback` aliases the callback URL |
 | `admin/players/` | GET, POST | Admin-only: players with Slack links plus workspace directory; create player |
-| `admin/players/[playerId]/` | PATCH | Admin-only: rename, relocate, or (de)activate a player |
+| `admin/players/[playerId]/` | PATCH | Admin-only: rename, edit nicknames, relocate, or (de)activate a player |
 | `admin/players/[playerId]/slack-link/` | PUT, DELETE | Admin-only: link/unlink a player and a Slack user in `slack_player_links` |
 | `admin/slack/sync/` | POST | Admin-only: import workspace members as players (first name / `First L`) and link them |
 | `me/` | GET, PATCH | Signed-in member's own player (via `slack_player_links`); edit nicknames/location |
@@ -159,6 +159,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `server/dartiqCalibration.ts` | Daily temperature reports plus separate trained-artifact fitting, validation, compare-and-swap activation, and rollback orchestration |
 | `server/createMatch.ts` | Creates X01 matches, ordered players, and the first leg through one transaction |
 | `server/backgroundJobs.ts` | Validates claimed jobs, dispatches Slack and DartIQ capture handlers, and records completion/retry/failure |
+| `server/rematchPlayers.ts` | Validates optional rematch lineups while retaining empty-request compatibility |
 | `server/createGameSession.ts` | Validates configuration and creates party-game sessions with ordered players |
 | `server/gameGuards.ts` | Loads typed party-game rows and checks active-session state |
 | `server/gameThrowLifecycle.ts` | Owns transactional party-game append, undo, and completion mutations |
@@ -178,8 +179,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/realtimePrompt.ts` | Builds compact labeled Realtime session prompts and per-call briefs |
 | `commentary/realtimePlayback.ts` | Tracks generation separately from audible playback, recognizes GA `output_audio` and legacy `audio` content, and ignores stale stop events after interruptions |
 | `commentary/realtimeResponseQueue.ts` | Serializes latest-wins Realtime response replacement across asynchronous provider cancellation |
-| `commentary/commentaryPolicy.ts` | Listener-local deterministic speech policy: loose office-match cooldowns, observation memory, live reaction windows, guaranteed calls, and latest-wins interruption |
-| `commentary/commentaryVisitTiming.ts` | Shared visit-gap coordinator with worker speech-expiry windows: suppresses stale pending calls, drops aged routine speech on new darts, and bounds request-to-playback lifetime |
+| `commentary/commentaryPolicy.ts` | Listener-local deterministic speech policy: loose office-match cooldowns, observation memory, live reaction windows, guaranteed calls, and major-event interruption while notable observations preserve ongoing speech |
+| `commentary/commentaryVisitTiming.ts` | Shared visit-gap coordinator with worker speech-expiry windows: suppresses stale pending calls, lets ongoing lines finish across routine darts, expires live anticipation on the next dart, nudges once per waiting visit after 12 seconds from takeout, and recovers stuck responses with a 30-second watchdog |
 | `commentary/commentaryNarrative.ts` | Builds bounded factual story memory from DartIQ replay: tendencies, unconverted finish history, biggest swing, rematch stakes, baseline performance, and deterministic frozen-history rivalry selection |
 | `commentary/storyArcDirector.ts` | Scores competing factual match arcs, selects one broadcast angle, and assigns analysis/sass/callback/closing treatment |
 | `commentary/broadcastDirector.ts` | Stateful listener-local producer plus canonical report replay: arc hysteresis, lifecycle events, reserve stories, editorial budgets, and verified payoff/closure obligations; persistent listener-local rivalry beats and playback-confirmed callback memory |
@@ -211,6 +212,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 ### Components (`src/components`)
 | File | Purpose |
 |------|---------|
+| `profile/ProfileClient.tsx` | Own profile and stats, with admin-only player nickname editing |
+| `profile/AdminNicknameEditor.tsx` | Admin player picker and nickname form using the protected admin API; regression tests cover saving, clearing, and failures |
 | `match/MatchScoringView.tsx` | Active scoring view — scores, dartboard/keypad, actions |
 | `match/MatchSpectatorView.tsx` | Read-only spectator view |
 | `match/SpectatorLiveMatchCard.tsx` | Responsive live player scoreboard grid with a compact inline match header, compact viewport-aware tile heights, container-scaled scores with correction-safe impact motion, on-throw light sweeps, reduced-motion support, bold names, lime on-throw tiles, dart indicators, and compact stats with average-rating emojis without a separate current-turn header; desktop grid fills the stretched card, with overflow scrolling |
@@ -223,10 +226,12 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `match/EditThrowsModal.tsx` | Edit recorded throws in current leg |
 | `match/EditPlayersModal.tsx` | Add/remove/reorder players |
 | `match/EloChangesDisplay.tsx` | Elo rating changes after match |
+| `games/GameActivityHeatmap.tsx` | GitHub-style daily game activity for the past year, filtered by player search, with selectable dates |
 | `games/NewGameOptions.tsx` | Party-game picker and per-mode configuration controls |
 | `games/GamePlayerCard.tsx` | Shared X01-style party-game player tiles with current/last-visit darts and mode-specific scores |
 | `games/GameHeader.tsx` | Party-game title, status, round, and same-tab spectator navigation |
 | `games/GameControls.tsx` | Party-game undo, end confirmation, and rematch controls |
+| `games/RematchPanel.tsx` | Shared rematch dialog with location filters, searchable avatar rows, and selected-player chips for scorer and spectator views |
 | `games/GameResults.tsx` | Party-game result and rematch display |
 | `games/CricketBoard.tsx` | Cricket targets, marks, and points display |
 | `games/KillerBoard.tsx` | Killer numbers, lives, and elimination display |
@@ -466,3 +471,5 @@ After a real takeout, Scolia may offer one optional pause reaction if no dart ar
 Each match snapshot includes one explicitly fictional commentator starting premise, selected deterministically from the match ID by `commentaryStartingMood()` in `personas.ts`. It remains stable across listeners, reconnects and correction epochs. Shared response instructions let the mood develop through actual game events and prior conversation, without repeating the premise or inventing facts about players. No additional database fields or model calls are required.
 
 Rivalry commentary uses `selectCommentaryRivalry` in `commentaryNarrative.ts` over frozen supported history or a verified rematch. `RivalryDirector` in `broadcastDirector.ts` keeps one selected pair across quiet visits, with one establishment, two ordinary developments, up to six developments only when further reversals or match opportunities earn them, and an authoritative match-result ending. `RealtimeNarrativeWireState` adapts worker darts and browser completed visits to the same director and renders compact named briefs. Rivalry developments use existing speech slots; promoted live stories retain priority. Rivalry match-dart anticipation uses the actual post-dart one-dart route with darts still in hand, suppresses fair-ending and leg-only claims, speaks in 2–6 words, and expires on the very next dart. The completed opening line is retained separately from the latest callback so the commentator can own earlier misplaced confidence. Callback excerpts require successful audio generation AND the matching playback-stopped event; cleared, failed, cancelled, old-epoch, and text-only responses cannot establish heard history. Corrections reset the thread and delivery memory; reconnects use self-contained developments rather than repeating setup. Direct records never advance from multiplayer results, and fair-ending checkouts or leg-only wins never resolve a match rivalry. The local `commentary:demo prepare` freezes explicitly synthetic Ada/Ben history for its new test-only players, with Ada ending Ben’s three-shared-win run on D16.
+
+**Quick rematch:** `components/games/RematchPanel.tsx` offers same or edited players after X01 and game-session completion in scorer and spectator views. Player creation uses the existing players API; rematch routes validate optional player IDs with `lib/server/rematchPlayers.ts` and preserve source settings and board checks. Tournament X01 matches retain bracket navigation. Mobile UI reference: `docs/images/rematch-player-picker.png`.

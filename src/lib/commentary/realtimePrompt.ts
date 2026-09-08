@@ -183,6 +183,6 @@ export function buildRealtimeResponseInstructions(input: RealtimeResponseBrief) 
 
 
 export function buildRealtimeIdleInstructions(personaId?: CommentaryPersonaId) {
-  const brief = 'PAUSE · 3–10 words. No new dart has been recorded for 20 seconds after takeout. One playful wondering-aloud nudge to the incoming player from the latest takeout, or a dry remark about the wait; may skip. Do not claim anyone is absent, in the bathroom, or distracted. No nagging or coaching.';
+  const brief = 'PAUSE · 3–10 words. The incoming player has not thrown their first dart for 12 seconds after takeout. Give them one short, affectionately impatient hurry-up using their supplied name: an incredulous question, theatrical sigh, or dry jab at how long this is taking. Chad lets his restless office-heckler impatience show; Bob makes the delay sound quietly absurd. Vary the wording across visits; do not repeat a stock catchphrase or turn it into a speech. Tease the wait, never invent why they are waiting or claim they are absent, in the bathroom, or distracted. No coaching.';
   return withSessionContract(personaId, brief);
 }
