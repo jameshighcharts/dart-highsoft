@@ -1,5 +1,7 @@
 "use client";
 
+import { Portal as TooltipPortal } from '@radix-ui/react-tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export function gameDateKey(date: Date) {
@@ -35,7 +37,7 @@ export function GameActivityHeatmap({ dates, selectedDate, onSelectDate }: {
     weeks.push(week);
   }
   const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
-  return <Card>
+  return <TooltipProvider delayDuration={150}><Card>
     <CardHeader>
       <CardTitle>Game activity</CardTitle>
       <CardDescription>{total} {total === 1 ? 'game' : 'games'} in the past year · Games started per day · Click a day to filter</CardDescription>
@@ -54,11 +56,14 @@ export function GameActivityHeatmap({ dates, selectedDate, onSelectDate }: {
               const key = gameDateKey(date);
               const count = counts.get(key) ?? 0;
               const label = `${date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}: ${count} ${count === 1 ? 'game' : 'games'}`;
-              return date > today ? <span key={key} className="h-3 w-3" /> : <button
-                key={key} type="button" title={label} aria-label={label} aria-pressed={selectedDate === key}
+              return date > today ? <span key={key} className="h-3 w-3" /> : <Tooltip key={key}>
+                <TooltipTrigger asChild><button
+                type="button" aria-label={label} aria-pressed={selectedDate === key}
                 onClick={() => onSelectDate(key)}
                 className={`h-3 w-3 rounded-[2px] border border-foreground/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${colors[Math.min(count, 4)]} ${selectedDate === key ? 'ring-2 ring-foreground ring-offset-1 ring-offset-background' : ''}`}
-              />;
+              /></TooltipTrigger>
+                <TooltipPortal><TooltipContent>{label}</TooltipContent></TooltipPortal>
+              </Tooltip>;
             })}
           </div>)}
         </div>
@@ -67,5 +72,5 @@ export function GameActivityHeatmap({ dates, selectedDate, onSelectDate }: {
         <span>Less</span>{colors.map((color, index) => <span key={color} title={index === 4 ? '4+ games' : `${index} games`} className={`h-3 w-3 rounded-[2px] ${color}`} />)}<span>More</span>
       </div>
     </CardContent>
-  </Card>;
+  </Card></TooltipProvider>;
 }
