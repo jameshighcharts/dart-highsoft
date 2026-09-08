@@ -44,7 +44,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `game/[id]/page.tsx` | Party-game page (server component) |
 | `game/[id]/GameClient.tsx` | Party-game scoring and spectator client |
 | `games/page.tsx` | Player-searchable X01 and party-game history with paginated loading, daily activity filtering, completed X01 stats links, and development-only dummy data at `?preview=1` |
-| `players/page.tsx` | Player management (list, create, toggle active) |
+| `players/page.tsx` | Player management (list non-test players, create, edit location) |
 | `boards/page.tsx` | Scolia board management (connectivity, availability, active match/game links, connect/disconnect) |
 | `stats/page.tsx` | Stats and leaderboards |
 | `leaderboards/page.tsx` | Detailed X01, Elo, and party-mode leaderboards |
@@ -188,7 +188,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/realtimeTypes.ts` | Shared Realtime session/correction-envelope contracts, model default, UUID validation, and legacy-to-Realtime voice mapping |
 | `commentary/realtimeSnapshot.ts` | Builds compact authoritative match snapshots for new, reconnected, and rotated Realtime sessions |
 | `commentary/scoliaRealtimeEvent.ts` | Shares canonical replay/model construction with listener-triggered cache preparation; loads an accepted Scolia throw and its turn/leg/match/player facts in one joined canonical read, attaches its deterministic DartIQ packet, adds coordinate-verified ring proximity, current-visit grouping distances, and frozen-model before/next-dart landing forecasts, and classifies speech priority without waiting for Supabase Realtime |
-| `avatars.ts` | Shared avatar sizes, initials, colors, escaped grid HTML, and storage URL parsing |
+| `avatars.ts` | Shared avatar sizes, default goblin icon assignment (`public/avatars/default`, keyed `goblin-01..40`, picked per player id), escaped grid HTML, and storage URL parsing |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
 | `supabaseServer.ts` | Server-side Supabase client (API routes) |
 | `apiClient.ts` | Typed fetch wrapper: `apiRequest<T>()` |
@@ -226,7 +226,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `match/EditThrowsModal.tsx` | Edit recorded throws in current leg |
 | `match/EditPlayersModal.tsx` | Add/remove/reorder players |
 | `match/EloChangesDisplay.tsx` | Elo rating changes after match |
-| `games/GameActivityHeatmap.tsx` | GitHub-style daily game activity for the past year, filtered by player search, with selectable dates |
+| `games/GameActivityHeatmap.tsx` | GitHub-style daily game activity from September 1, 2026 through today, Monday-first weeks with aligned Mon/Wed/Fri labels, filtered by player search, with selectable dates |
 | `games/NewGameOptions.tsx` | Party-game picker and per-mode configuration controls |
 | `games/GamePlayerCard.tsx` | Shared X01-style party-game player tiles with current/last-visit darts and mode-specific scores |
 | `games/GameHeader.tsx` | Party-game title, status, round, and same-tab spectator navigation |
@@ -238,7 +238,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `games/ShanghaiBoard.tsx` | Shanghai targets, rounds, and scores display |
 | `games/ClockBoard.tsx` | Around the Clock progress display |
 | `leaderboard/GameModeLeaderboardItem.tsx` | Player row for party-mode leaderboard statistics |
-| `PlayerAvatar.tsx` | Shared avatar rendering with initials fallback |
+| `PlayerAvatar.tsx` | Shared avatar rendering; falls back to the player's assigned default goblin icon |
 | `PlayerAvatarById.tsx` | Avatar lookup for ID-only rows, with one shared cached player query |
 | `Dartboard.tsx` | SVG interactive dartboard (desktop) |
 | `MobileKeypad.tsx` | Touch number pad (mobile) |

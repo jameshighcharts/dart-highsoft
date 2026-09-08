@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { AVATAR_SIZES, avatarFallbackColor, playerInitials, type AvatarSize } from '@/lib/avatars';
+import { AVATAR_SIZES, resolveAvatarUrl, type AvatarSize } from '@/lib/avatars';
 
 export type { AvatarSize } from '@/lib/avatars';
 export { playerInitials } from '@/lib/avatars';
@@ -11,8 +11,10 @@ export type AvatarPlayer = {
 };
 
 /**
- * Circular player picture with an initials fallback. One component, one set of
- * sizes, used everywhere a player is shown so avatars look identical app-wide.
+ * Circular player picture. Players without an uploaded picture get a default
+ * goblin icon assigned deterministically from their id (see lib/avatars). One
+ * component, one set of sizes, used everywhere a player is shown so avatars
+ * look identical app-wide.
  * When the row only carries a player id (leaderboard views), use
  * <PlayerAvatarById> which looks the picture up from a cached players fetch.
  */
@@ -32,21 +34,8 @@ export function PlayerAvatar({
     className,
   );
 
-  if (player.avatar_url) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element -- remote Supabase Storage URL; no optimizer config needed
-      <img src={player.avatar_url} alt="" title={name} className={cn(base, 'bg-muted object-cover')} loading="lazy" decoding="async" />
-    );
-  }
-
   return (
-    <span
-      aria-hidden="true"
-      title={name}
-      className={cn(base, 'font-semibold leading-none ring-1 ring-black/10')}
-      style={{ backgroundColor: avatarFallbackColor(player.id ?? name), color: 'white' }}
-    >
-      {playerInitials(name)}
-    </span>
+    // eslint-disable-next-line @next/next/no-img-element -- remote Supabase Storage URL or static default icon; no optimizer config needed
+    <img src={resolveAvatarUrl(player)} alt="" title={name} className={cn(base, 'bg-muted object-cover')} loading="lazy" decoding="async" />
   );
 }
