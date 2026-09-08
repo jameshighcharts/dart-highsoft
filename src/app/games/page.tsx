@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { GameActivityHeatmap, gameDateKey } from '@/components/games/GameActivityHeatmap';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Activity, Play, Eye, Trophy, Clock, Users, Swords, Trash2 } from 'lucide-react';
@@ -71,15 +73,75 @@ type TournamentSummary = {
   player_count: number;
 };
 
+function createPreviewGames(): ListedGame[] {
+  const names = ['James', 'Ada', 'Ben', 'Nikita', 'Sofia', 'Oliver'];
+  return Array.from({ length: 420 }, (_, index): ListedGame => {
+    const date = new Date();
+    date.setDate(date.getDate() - (index < 2 ? 0 : Math.floor(((index * 37) % 365) / 7) * 7 + index % 5));
+    date.setHours(12 + index % 8, index % 60, 0, 0);
+    if (index < 2) date.setTime(Date.now() - (index + 1) * 12 * 60_000);
+    const players = [index % names.length, (index + 1 + index % 4) % names.length].map((player, play_order) => ({
+      id: `preview-player-${player}`, display_name: names[player], play_order,
+    }));
+    const created_at = date.toISOString();
+    const winner = index < 2 ? null : players[index % 2];
+    if (index % 3 === 0) return {
+      kind: 'game', created_at,
+      game: { id: `preview-game-${index}`, mode: 'cricket', status: winner ? 'completed' : 'active', created_at,
+        players, winner_player_id: winner?.id ?? null, winner_name: winner?.display_name },
+    };
+    return {
+      kind: 'match', created_at,
+      match: { id: `preview-match-${index}`, mode: 'x01', start_score: '501', finish: 'double_out', legs_to_win: 2,
+        created_at, players, winner_player_id: winner?.id ?? null, winner_name: winner?.display_name,
+        completed_at: winner ? created_at : null, ended_early: false,
+        legs: winner ? [0, 1].map(leg => ({ id: `preview-leg-${index}-${leg}`, winner_player_id: winner.id })) : [],
+      },
+    };
+  }).sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+async function loadAllRows<T>(query: (offset: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const result = await query(offset);
+    if (result.error) throw new Error(result.error.message);
+    rows.push(...(result.data ?? []));
+    if (!result.data || result.data.length < 500) return rows;
+  }
+}
+
 export default function GamesPage() {
   const [liveGames, setLiveGames] = useState<ListedGame[]>([]);
   const [recentGames, setRecentGames] = useState<ListedGame[]>([]);
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
+  const [playerSearch, setPlayerSearch] = useState('');
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(20);
+  const [loadError, setLoadError] = useState(false);
+  const [preview, setPreview] = useState(false);
   const router = useRouter();
+  const matchesSearch = (entry: ListedGame) => {
+    const players = entry.kind === 'match' ? entry.match.players : entry.game.players;
+    return players.some(player => player.display_name.toLocaleLowerCase().includes(playerSearch.trim().toLocaleLowerCase()));
+  };
+  const searchedLive = liveGames.filter(matchesSearch);
+  const searchedRecent = recentGames.filter(matchesSearch);
+  const matchesDate = (entry: ListedGame) => !selectedDate || gameDateKey(new Date(entry.created_at)) === selectedDate;
+  const filteredLive = searchedLive.filter(matchesDate);
+  const filteredRecent = searchedRecent.filter(matchesDate);
 
   useEffect(() => {
+    if (process.env.NODE_ENV === 'development' && new URLSearchParams(window.location.search).get('preview') === '1') {
+      const games = createPreviewGames();
+      setPreview(true);
+      setLiveGames(games.filter(entry => entry.kind === 'game' ? entry.game.status === 'active' : !entry.match.completed_at));
+      setRecentGames(games.filter(entry => entry.kind === 'game' ? entry.game.status !== 'active' : !!entry.match.completed_at));
+      setLoading(false);
+      return;
+    }
     loadGames();
     loadTournaments();
   }, []);
@@ -87,13 +149,11 @@ export default function GamesPage() {
   const loadGames = async () => {
     try {
       setLoading(true);
+      setLoadError(false);
       const supabase = await getSupabaseClient();
 
-      const now = new Date();
-      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
       const [matchesResult, sessionsResult] = await Promise.all([
-        supabase
+        loadAllRows(offset => supabase
           .from('matches')
           .select(`
             id,
@@ -119,8 +179,9 @@ export default function GamesPage() {
             )
           `)
           .order('created_at', { ascending: false })
-          .limit(20),
-        supabase
+          .order('id', { ascending: false })
+          .range(offset, offset + 499)),
+        loadAllRows(offset => supabase
           .from('game_sessions')
           .select(`
             id,
@@ -139,7 +200,8 @@ export default function GamesPage() {
           `)
           .in('status', [...GAME_SESSION_STATUSES])
           .order('created_at', { ascending: false })
-          .limit(20),
+          .order('id', { ascending: false })
+          .range(offset, offset + 499)),
       ]);
 
       type PlayerRelation = Array<{
@@ -156,7 +218,7 @@ export default function GamesPage() {
           }))
           .sort((a, b) => a.play_order - b.play_order);
 
-      const matches = matchesResult.data ?? [];
+      const matches = matchesResult;
 
       // Transform the data
       const transformedMatches = matches.map((match) => ({
@@ -176,7 +238,7 @@ export default function GamesPage() {
         return match;
       });
 
-      const sessions: GameSessionWithDetails[] = (sessionsResult.data ?? []).flatMap((session) => {
+      const sessions: GameSessionWithDetails[] = sessionsResult.flatMap((session) => {
         if (!isGameMode(session.mode) || !isGameSessionStatus(session.status)) return [];
         const players = mapPlayers(
           (session as unknown as { game_session_players: PlayerRelation }).game_session_players
@@ -201,16 +263,14 @@ export default function GamesPage() {
 
       const recentMatches: ListedGame[] = matchesWithWinners
         .filter(match => match.winner_player_id || match.completed_at || match.ended_early)
-        .slice(0, 10)
         .map((match) => ({ kind: 'match', created_at: match.created_at, match }));
 
       const liveSessions: ListedGame[] = sessions
-        .filter((game) => game.status === 'active' && new Date(game.created_at) > oneDayAgo)
+        .filter((game) => game.status === 'active')
         .map((game) => ({ kind: 'game', created_at: game.created_at, game }));
 
       const recentSessions: ListedGame[] = sessions
         .filter((game) => game.status !== 'active')
-        .slice(0, 10)
         .map((game) => ({ kind: 'game', created_at: game.created_at, game }));
 
       const byNewest = (a: ListedGame, b: ListedGame) =>
@@ -220,6 +280,7 @@ export default function GamesPage() {
       setRecentGames([...recentMatches, ...recentSessions].sort(byNewest));
     } catch (error) {
       console.error('Error loading games:', error);
+      setLoadError(true);
       setLiveGames([]);
       setRecentGames([]);
     } finally {
@@ -269,6 +330,7 @@ export default function GamesPage() {
   };
 
   const handleDeleteGame = async (match: MatchWithDetails) => {
+    if (preview) return;
     const passcode = window.prompt(
       `Enter the admin passcode to permanently delete this game (${match.players.map((player) => player.display_name).join(', ')}). This cannot be undone.`
     );
@@ -453,6 +515,14 @@ export default function GamesPage() {
         <p className="text-muted-foreground">Live and recent dart matches</p>
       </div>
 
+      {loadError && <div role="alert" className="text-destructive">Could not load games. <Button variant="outline" onClick={loadGames}>Try again</Button></div>}
+      {selectedDate && <div className="flex items-center gap-3 text-sm">
+        Games on {selectedDate}
+        <Button variant="outline" size="sm" onClick={() => setSelectedDate(null)}>Clear date</Button>
+      </div>}
+
+      {preview && <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">Local preview with dummy games. Player search and date filters are interactive; game links are examples.</p>}
+
       {/* Active Tournaments */}
       {tournaments.length > 0 && (
         <div className="space-y-4">
@@ -496,22 +566,22 @@ export default function GamesPage() {
         <div className="flex items-center gap-2">
           <Play className="h-5 w-5 text-red-500" />
           <h2 className="text-2xl font-semibold">Live Games</h2>
-          {liveGames.length > 0 && (
+          {filteredLive.length > 0 && (
             <Badge variant="destructive" className="animate-pulse">
-              {liveGames.length} Live
+              {filteredLive.length} Live
             </Badge>
           )}
         </div>
 
-        {liveGames.length === 0 ? (
+        {filteredLive.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-muted-foreground">
-              No live games at the moment
+              {playerSearch || selectedDate ? 'No live games match your filters' : 'No live games at the moment'}
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {liveGames.map((item) => {
+            {filteredLive.map((item) => {
               if (item.kind === 'game') return renderLiveGameSession(item.game);
               const match = item.match;
               return (
@@ -565,7 +635,7 @@ export default function GamesPage() {
                       variant="destructive"
                       size="icon"
                       onClick={() => handleDeleteGame(match)}
-                      disabled={deletingMatchId === match.id}
+                      disabled={preview || deletingMatchId === match.id}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -578,6 +648,12 @@ export default function GamesPage() {
         )}
       </div>
 
+      {!loadError && <GameActivityHeatmap
+        dates={[...searchedLive, ...searchedRecent].map(game => game.created_at)}
+        selectedDate={selectedDate}
+        onSelectDate={date => { setSelectedDate(date === selectedDate ? null : date); setVisibleCount(20); }}
+      />}
+
       {/* Recent Games Section */}
       <div className="space-y-4">
         <div className="flex items-center gap-2">
@@ -585,15 +661,21 @@ export default function GamesPage() {
           <h2 className="text-2xl font-semibold">Recent Games</h2>
         </div>
 
-        {recentGames.length === 0 ? (
+        <div className="max-w-md space-y-2">
+          <label htmlFor="player-search" className="text-sm font-medium">Search by player</label>
+          <Input id="player-search" placeholder="Enter a player name…" value={playerSearch}
+            onChange={event => { setPlayerSearch(event.target.value); setVisibleCount(20); }} />
+        </div>
+
+        {filteredRecent.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-muted-foreground">
-              No completed games yet
+              {playerSearch || selectedDate ? 'No completed games match your filters' : 'No completed games yet'}
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-4">
-            {recentGames.map((item) => {
+            {filteredRecent.slice(0, visibleCount).map((item) => {
               if (item.kind === 'game') return renderRecentGameSession(item.game);
               const match = item.match;
               return (
@@ -675,7 +757,7 @@ export default function GamesPage() {
                           variant="destructive"
                           size="icon"
                           onClick={() => handleDeleteGame(match)}
-                          disabled={deletingMatchId === match.id}
+                          disabled={preview || deletingMatchId === match.id}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -688,6 +770,7 @@ export default function GamesPage() {
             })}
           </div>
         )}
+        {filteredRecent.length > visibleCount && <Button variant="outline" onClick={() => setVisibleCount(count => count + 20)}>Show more games</Button>}
       </div>
     </div>
   );
