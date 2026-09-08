@@ -8,6 +8,7 @@ import type { MeResponse } from '@/app/api/me/route';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { PlayerEloStats } from '@/components/PlayerEloStats';
 import { PlayerMultiEloStats } from '@/components/PlayerMultiEloStats';
+import { AdminNicknameEditor } from '@/components/profile/AdminNicknameEditor';
 import { ProfileSummaryCard } from '@/components/profile/ProfileSummaryCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -151,6 +152,12 @@ export function ProfileClient() {
         <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
           {error}
         </p>
+      ) : null}
+
+      {user.isAdmin ? (
+        <AdminNicknameEditor onSaved={(updated) => {
+          if (player?.id === updated.id) setPlayer({ ...player, nicknames: updated.nicknames });
+        }} />
       ) : null}
 
       {!player ? (
