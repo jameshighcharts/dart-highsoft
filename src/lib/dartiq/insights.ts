@@ -94,6 +94,7 @@ export type DartIQTurnSummary = {
   firstNineAverage?: number;
   tonPlusVisitStreak: number;
   legResolution?: DartIQDartEvent['legResolution'];
+  fairEnding?: DartIQDartEvent['fairEndingAfter'];
   signals: DartIQEventSignal[];
 };
 
@@ -233,6 +234,7 @@ export function summarizeDartIQForTurn(
     firstNineAverage: last.firstNineAverage,
     tonPlusVisitStreak: last.tonPlusVisitStreak ?? 0,
     legResolution: last.legResolution,
+    fairEnding: last.fairEndingAfter,
     signals: [...signals],
   };
 }

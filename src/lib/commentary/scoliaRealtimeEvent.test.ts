@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
   classifyScoliaRealtimeDart,
+  describeCommentaryLanding,
+  measureCommentaryGrouping,
+  commentaryLandingForecast,
   loadScoliaRealtimeDartEvent,
+  warmScoliaDartIQContext,
   ScoliaDartIQEventCache,
   type ScoliaRealtimeDartFacts,
 } from './scoliaRealtimeEvent';
@@ -45,6 +49,17 @@ function supabaseWithRows(tables: Record<string, Row[]>) {
 
       function materialize(row: Row | null) {
         if (!row) return null;
+        if (table === 'throws' && selectQuery.includes('turn:turn_id')) {
+          const turn = (tables.turns ?? []).find((entry) => entry.id === row.turn_id);
+          const leg = (tables.legs ?? []).find((entry) => entry.id === turn?.leg_id);
+          return { ...row, turn: turn ? { ...turn,
+            throws: (tables.throws ?? []).filter((dart) => dart.turn_id === turn.id),
+            player: (tables.players ?? []).find((entry) => entry.id === turn.player_id) ?? null,
+            leg: leg ? { ...leg,
+              match: (tables.matches ?? []).find((entry) => entry.id === leg.match_id) ?? null,
+            } : null,
+          } : null };
+        }
         if (table === 'turns' && selectQuery.includes('throws:throws')) {
           return {
             ...row,
@@ -279,6 +294,51 @@ describe('classifyScoliaRealtimeDart', () => {
     );
   });
 
+  it.each([false, true])('feeds identical next-dart context after warming (existing history: %s)', async (history) => {
+    const tables: Record<string, Row[]> = {
+      matches: [{
+        id: 'match', winner_player_id: null, start_score: '301', finish: 'double_out',
+        legs_to_win: 2, fair_ending: false,
+      }],
+      match_players: [
+        { match_id: 'match', player_id: 'a', play_order: 0 },
+        { match_id: 'match', player_id: 'b', play_order: 1 },
+      ],
+      legs: [{
+        id: 'leg', match_id: 'match', leg_number: 1, starting_player_id: 'a', winner_player_id: null,
+      }],
+      turns: [{
+        id: 'turn', leg_id: 'leg', player_id: 'a', turn_number: 1,
+        total_scored: 60, busted: false, tiebreak_round: null,
+      }],
+      throws: [{ id: 'dart-1', turn_id: 'turn', dart_index: 1, segment: 'T20', scored: 60, impact_x_mm: 0, impact_y_mm: 103 }],
+      players: [{ id: 'a', display_name: 'Player A' }],
+      dartiq_player_profiles: [],
+      dartiq_population_profiles: [],
+    };
+    tables.dartiq_population_evidence = [{ match_id: 'match', raw_evidence: { profile: null, outcomes: [] } }];
+    if (!history) { tables.throws = []; tables.turns = []; }
+    const supabase = supabaseWithRows(tables);
+    const context = await warmScoliaDartIQContext(supabase, 'match');
+    expect(context).toBeDefined();
+    const cache = new ScoliaDartIQEventCache();
+    cache.set('match', context!);
+    const tracker = context!.tracker;
+    if (!history) tables.turns.push({ id: 'turn', leg_id: 'leg', player_id: 'a', turn_number: 1,
+      total_scored: 20, busted: false, tiebreak_round: null });
+    else tables.turns[0].total_scored = 80;
+    tables.throws.push({ id: 'next', turn_id: 'turn', dart_index: history ? 2 : 1,
+      segment: 'S20', scored: 20, impact_x_mm: 0, impact_y_mm: 110 });
+    const reads = vi.spyOn(supabase, 'from');
+    const warm = await loadScoliaRealtimeDartEvent(supabase, 'match', 'next', cache);
+    expect(reads.mock.calls.map(([table]) => table)).toEqual(['throws']);
+    const cold = await loadScoliaRealtimeDartEvent(supabase, 'match', 'next');
+    expect(warm).toEqual(cold);
+    expect(cache.get('match')!.tracker).toBe(tracker);
+    tables.dartiq_population_evidence = [];
+    expect(await warmScoliaDartIQContext(supabase, 'match')).toBeUndefined();
+  });
+
   it('keeps canonical DartIQ history in the worker cache between sequential darts', async () => {
     const tables: Record<string, Row[]> = {
       matches: [{
@@ -296,7 +356,7 @@ describe('classifyScoliaRealtimeDart', () => {
         id: 'turn', leg_id: 'leg', player_id: 'a', turn_number: 1,
         total_scored: 60, busted: false, tiebreak_round: null,
       }],
-      throws: [{ id: 'dart-1', turn_id: 'turn', dart_index: 1, segment: 'T20', scored: 60 }],
+      throws: [{ id: 'dart-1', turn_id: 'turn', dart_index: 1, segment: 'T20', scored: 60, impact_x_mm: 0, impact_y_mm: 103 }],
       players: [{ id: 'a', display_name: 'Player A' }],
       dartiq_player_profiles: [],
       dartiq_population_profiles: [],
@@ -305,15 +365,102 @@ describe('classifyScoliaRealtimeDart', () => {
     const cache = new ScoliaDartIQEventCache();
 
     await loadScoliaRealtimeDartEvent(supabase, 'match', 'dart-1', cache);
-    tables.throws.push({ id: 'dart-2', turn_id: 'turn', dart_index: 2, segment: 'S20', scored: 20 });
+    const cached = cache.get('match')!;
+    const base = cached.input.outcomeModels!.a;
+    cached.input.outcomeModels = { ...cached.input.outcomeModels, a: { ...base,
+      predictLanding: () => ({ artifactId: 'frozen', validation: 'passed', confidence: 'high',
+        segments: [{ segment: 'S20', probability: 0.8 }, { segment: 'T20', probability: 0.2 }] }),
+    } };
+    tables.throws.push({ id: 'dart-2', turn_id: 'turn', dart_index: 2, segment: 'S20', scored: 20,
+      impact_x_mm: 0, impact_y_mm: 110 });
     tables.turns[0].total_scored = 80;
     const second = await loadScoliaRealtimeDartEvent(supabase, 'match', 'dart-2', cache);
 
     expect(second.dartiq).toMatchObject({ dartId: 'dart-2', scoreBefore: 241, scoreAfter: 221 });
+    expect(second.landing?.detail).toContain('3.0 mm from the T20');
+    expect(second.grouping).toMatchObject({ dartCount: 2, maximumSeparationMm: 7, shape: 'tight' });
+    expect(second.landingBefore).toMatchObject({ scoreRemaining: 241, dartsLeft: 2, actualSegmentProbability: 0.8 });
+    expect(second.landingNext).toMatchObject({ scoreRemaining: 221, dartsLeft: 1 });
     expect(second.narrative).toMatchObject({
       schemaVersion: 1,
       players: expect.arrayContaining([expect.objectContaining({ playerId: 'a' })]),
     });
     expect(cache.get('match')?.timeline).toHaveLength(2);
+  });
+});
+
+
+describe('grounded landing commentary', () => {
+  it('describes real ring proximity without inventing aim or using contradictory coordinates', () => {
+    expect(describeCommentaryLanding('S20', 0, 110)?.detail).toContain('3.0 mm from the T20');
+    expect(describeCommentaryLanding('S20', 0, 160)?.detail).toContain('2.0 mm from the D20');
+    expect(describeCommentaryLanding('S20', 0, 110)?.detail).toContain('Intended target unknown');
+    expect(describeCommentaryLanding('S20', 0, 130)).toBeUndefined();
+    expect(describeCommentaryLanding('T20', 0, 110)).toBeUndefined();
+    expect(describeCommentaryLanding('S20', null, 110)).toBeUndefined();
+    expect(describeCommentaryLanding('S20', NaN, 110)).toBeUndefined();
+  });
+
+  it('uses only validated, high-confidence forecasts and preserves probability outside the top three', () => {
+    const forecast = { artifactId: 'frozen', validation: 'passed' as const, confidence: 'high' as const,
+      segments: [{ segment: 'S20', probability: 0.5 }, { segment: 'T20', probability: 0.3 },
+        { segment: 'S5', probability: 0.15 }, { segment: 'S1', probability: 0.05 }] };
+    const input: Parameters<typeof commentaryLandingForecast>[0] = {
+      playerIds: ['a'], legs: [], turnsByLeg: {}, startScore: 501, finishRule: 'double_out', legsToWin: 1,
+      outcomeModels: { a: { version: 'behavioral-v1', distribution: () => { throw new Error('No projection needed'); },
+        predictLanding: () => forecast } },
+    };
+    const state: Parameters<typeof commentaryLandingForecast>[1] = {
+      legId: 'leg', legNumber: 1, currentPlayerId: 'a', dartsRemainingInTurn: 2,
+      scores: { a: 301 }, legsWon: {}, projections: [], approximationMode: 'standard', fairEnding: null,
+    };
+    expect(commentaryLandingForecast(input, state, 'S1')).toMatchObject({ playerId: 'a', dartsLeft: 2,
+      scoreRemaining: 301, artifactId: 'frozen', actualSegmentProbability: 0.05,
+      segments: forecast.segments.slice(0, 3) });
+    expect(commentaryLandingForecast(input, { ...state, scores: { a: 170 } })).toBeUndefined();
+    expect(commentaryLandingForecast(input, { ...state, currentPlayerId: null })).toBeUndefined();
+    expect(commentaryLandingForecast(input, { ...state, fairEnding: {
+      phase: 'tiebreak', checkedOutPlayerIds: ['a'], tiebreakRound: 1, tiebreakPlayerIds: ['a'],
+      tiebreakScores: {}, winnerId: null, pendingPlayerIds: ['a'], tiebreakDartsThrown: {}, approximationMode: 'fair-ending-weighted',
+    } })).toBeUndefined();
+    input.outcomeModels!.a.predictLanding = () => ({ ...forecast, validation: 'pending' });
+    expect(commentaryLandingForecast(input, state)).toBeUndefined();
+    input.outcomeModels!.a.predictLanding = () => ({ ...forecast, confidence: 'low' });
+    expect(commentaryLandingForecast(input, state)).toBeUndefined();
+  });
+});
+
+
+describe('current-visit grouping', () => {
+  const dart = (dart_index: number, x: number, y: number, segment = 'S20') => ({
+    dart_index, segment, impact_x_mm: x, impact_y_mm: y,
+  });
+  it('measures pairwise diameter rather than mistaking radius for group size', () => {
+    expect(measureCommentaryGrouping([dart(1, -6, 130), dart(2, 6, 130), dart(3, 0, 134)], 3))
+      .toMatchObject({ dartCount: 3, maximumSeparationMm: 12, firstPairSeparationMm: 12, shape: 'tight' });
+  });
+  it('describes a third dart separated from both members of a close pair', () => {
+    expect(measureCommentaryGrouping([dart(1, 0, 125), dart(2, 0, 130), dart(3, 0, 160)], 3))
+      .toMatchObject({ maximumSeparationMm: 35, latestNearestSeparationMm: 30, shape: 'third_separated' });
+    expect(measureCommentaryGrouping([dart(1, 0, 120), dart(2, 0, 145), dart(3, 0, 160)], 3)?.shape).toBe('spread');
+  });
+  it('does not include later darts or mix a missing or duplicate index into a group', () => {
+    const darts = [dart(3, 0, 160), dart(2, 0, 130), dart(1, 0, 125)];
+    expect(measureCommentaryGrouping(darts, 2)).toMatchObject({ dartCount: 2, maximumSeparationMm: 5 });
+    expect(measureCommentaryGrouping(darts, 1)).toBeUndefined();
+    expect(measureCommentaryGrouping([darts[0], darts[2]], 3)).toBeUndefined();
+    expect(measureCommentaryGrouping([dart(1, 0, 125), dart(1, 0, 130)], 2)).toBeUndefined();
+  });
+  it('suppresses incomplete, nonfinite, out-of-range, or contradictory geometry', () => {
+    for (const invalid of [null, NaN, Infinity, 300]) {
+      expect(measureCommentaryGrouping([dart(1, 0, 125), { ...dart(2, 0, 130), impact_y_mm: invalid }], 2)).toBeUndefined();
+    }
+    expect(measureCommentaryGrouping([dart(1, 0, 125), dart(2, 0, 130, 'T20')], 2)).toBeUndefined();
+  });
+  it('recalculates a corrected landing without retaining the earlier grouping', () => {
+    const darts = [dart(1, 0, 125), dart(2, 0, 130), dart(3, 0, 135)];
+    expect(measureCommentaryGrouping(darts, 3)?.shape).toBe('tight');
+    darts[2] = dart(3, 0, 160);
+    expect(measureCommentaryGrouping(darts, 3)?.shape).toBe('third_separated');
   });
 });

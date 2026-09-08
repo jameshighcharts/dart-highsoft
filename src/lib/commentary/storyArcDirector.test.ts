@@ -189,7 +189,9 @@ describe('directCommentaryStoryArc', () => {
   });
 
   it('turns a rematch win into a revenge payoff', () => {
-    const events = [event({ sequence: 1, before: state(0.5, 0.5), after: state(1, 0) })];
+    const resolved = event({ sequence: 1, before: state(0.5, 0.5), after: state(1, 0) });
+    resolved.legResolution = { winnerPlayerId: 'a', startingPlayerId: 'a', wonAgainstThrow: false, legsWonAfter: { a: 1, b: 0 }, matchWon: true, nextLeg: null };
+    const events = [resolved];
     expect(directCommentaryStoryArc({
       events,
       finishRule: 'double_out',
@@ -207,4 +209,14 @@ describe('directCommentaryStoryArc', () => {
     const events = [event({ sequence: 1, before: state(0.5, 0.5), after: state(0.52, 0.48) })];
     expect(directCommentaryStoryArc({ events, finishRule: 'double_out' })).toBeNull();
   });
+});
+
+
+it('does not close a rematch story from model certainty before resolution', () => {
+  const story = directCommentaryStoryArc({
+    events: [event({ sequence: 1, before: state(0.5, 0.5), after: state(1, 0) })],
+    finishRule: 'double_out', rematch: { previousWinnerId: 'b', revengePlayerIds: ['a'] },
+  });
+  expect(story?.phase).not.toBe('payoff');
+  expect(story?.treatment).not.toBe('match_closing');
 });

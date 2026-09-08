@@ -104,6 +104,7 @@ describe('createDartIQDartPacket', () => {
       segment: 'D20',
       scored: 40,
       after,
+      legResolution: { winnerPlayerId: 'a', startingPlayerId: 'a', wonAgainstThrow: false, legsWonAfter: { a: 1, b: 0 }, matchWon: true, nextLeg: null },
       matchWinProbabilityAdded: { a: 0.55, b: -0.55 },
       legWinProbabilityAdded: { a: 0.45, b: -0.45 },
     });
@@ -382,6 +383,7 @@ describe('createDartIQDartPacket', () => {
     const packet = createDartIQDartPacket(event({
       checkedOut: false,
       after,
+      legResolution: { winnerPlayerId: 'a', startingPlayerId: 'a', wonAgainstThrow: false, legsWonAfter: { a: 1, b: 0 }, matchWon: true, nextLeg: null },
       fairEndingBefore: {
         phase: 'tiebreak', checkedOutPlayerIds: ['a', 'b'], tiebreakRound: 1,
         tiebreakPlayerIds: ['a', 'b'], tiebreakScores: { a: 100, b: 70 }, winnerId: null,
@@ -420,4 +422,10 @@ describe('createDartIQDartPacket', () => {
     expect(packet.scoreBefore).toBe(40);
     expect(packet.scoreAfter).toBe(20);
   });
+});
+
+ it('never turns model certainty into a winner announcement', () => {
+  const packet = createDartIQDartPacket(event({ after: state(1, 1) }));
+  expect(packet.signals).not.toContain('match_win');
+  expect(packet.priority).not.toBe('terminal');
 });

@@ -39,6 +39,7 @@ export interface CommentaryGameContext {
 }
 
 export interface CommentaryDartIQContext {
+  fairEnding?: import('@/lib/dartiq/replay').DartIQDartEvent['fairEndingAfter'];
   matchProbabilityBefore: number;
   matchProbabilityAfter: number;
   matchWpa: number;
