@@ -21,7 +21,7 @@ export default auth((request) => {
   // Auth.js can attach an error-shaped object on configuration failures.
   // Require a real, fully identified Slack user so failures fail closed.
   const isAuthenticated = Boolean(request.auth?.user?.slackUserId)
-    || isAuthDevBypassEnabled()
+    || isAuthDevBypassEnabled(nextUrl.hostname)
     || isAuthPerformanceBypassEnabled(request);
 
   if (isPublic(pathname)) {

@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { Session } from 'next-auth';
 
@@ -15,7 +16,8 @@ export type AdminSession = Session & {
  * requests, but every handler re-checks so the API fails closed on its own.
  */
 export async function requireAdmin(): Promise<AdminSession | NextResponse> {
-  if (!isAuthConfigured && !isAuthDevBypassEnabled()) {
+  const hostname = (await headers()).get('host')?.split(':')[0] ?? null;
+  if (!isAuthConfigured && !isAuthDevBypassEnabled(hostname)) {
     return NextResponse.json({ error: 'Sign-in is not configured' }, { status: 503 });
   }
   const session = await getAuthenticatedSession();
@@ -45,7 +47,8 @@ export const NO_SLACK_IDENTITY_ERROR =
  * links are keyed on the Slack user id, so without it there is nothing to edit.
  */
 export async function requireUser(): Promise<UserSession | NextResponse> {
-  if (!isAuthConfigured && !isAuthDevBypassEnabled()) {
+  const hostname = (await headers()).get('host')?.split(':')[0] ?? null;
+  if (!isAuthConfigured && !isAuthDevBypassEnabled(hostname)) {
     return NextResponse.json({ error: 'Sign-in is not configured' }, { status: 503 });
   }
   const session = await getAuthenticatedSession();

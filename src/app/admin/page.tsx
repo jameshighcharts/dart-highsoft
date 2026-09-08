@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 
 import { getAuthenticatedSession, signOut } from '@/auth';
 import { AdminUsersPanel } from '@/components/admin/AdminUsersPanel';
-import { isAuthDevBypassEnabled } from '@/lib/auth/devBypass';
+import { DEV_BYPASS_USER } from '@/lib/auth/devBypass';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +32,7 @@ export default async function AdminPage() {
           </Link>
           <span className="text-muted-foreground" aria-hidden="true">·</span>
           <span className="text-muted-foreground">{viewer.name}</span>
-          {isAuthDevBypassEnabled() ? (
+          {session.user.email === DEV_BYPASS_USER.email ? (
             <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">dev bypass</span>
           ) : (
           <form
