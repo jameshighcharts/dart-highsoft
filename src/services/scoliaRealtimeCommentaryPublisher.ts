@@ -392,15 +392,14 @@ export class ScoliaRealtimeCommentaryPublisher {
         ...(event.dartiq?.legResolution ? ['leg_resolution' as const] : []),
         ...(event.dartiq?.legResolution?.matchWon ? ['match_resolution' as const] : []),
       ];
-      const direction = event.narrative
-        ? connection.broadcastDirector.direct({
-            sequence: event.narrative.sequence,
-            candidates: event.narrative.storyArcCandidates,
-            matchWinnerId: resolvedMatchWinnerId,
-            observedTriggers,
-            triggerPlayerId: event.dartiq?.legResolution?.winnerPlayerId ?? event.playerId,
-          })
-        : null;
+      const direction = connection.broadcastDirector.direct({
+        sequence: event.narrative?.sequence ?? event.dartiq?.sequence ?? 0,
+        candidates: event.narrative?.storyArcCandidates ?? [],
+        matchWinnerId: resolvedMatchWinnerId,
+        observedTriggers,
+        triggerPlayerId: event.dartiq?.legResolution?.winnerPlayerId ?? event.playerId,
+        rivalry: connection.wireState.observeRivalryDart(event),
+      });
       const directedEvent: ScoliaRealtimeDartEvent = direction && event.narrative
         ? {
             ...event,
@@ -444,13 +443,15 @@ export class ScoliaRealtimeCommentaryPublisher {
       const baseSignals = event.dartiq?.signals ?? [];
       const signals = [
         ...baseSignals,
+        ...(direction.rivalry?.stage === 'anticipate' ? ['one_dart_finish_created' as const] : []),
         ...(event.nikitaSpecial ? ['nikita_special' as const] : []),
         ...(direction?.shouldPromote ? ['story_arc' as const] : []),
       ];
       const resolvedMatchWon = resolvedMatchWinnerId !== null;
       const policyPriority = resolvedMatchWon
         ? 'terminal'
-        : direction?.shouldPromote && (event.priority === 'silent' || event.priority === 'ordinary')
+        : (direction?.shouldPromote || direction.rivalry?.stage === 'anticipate')
+          && (event.priority === 'silent' || event.priority === 'ordinary')
         ? 'notable'
         : event.priority;
       const policyEvent: CommentaryPolicyEvent = {
@@ -466,7 +467,9 @@ export class ScoliaRealtimeCommentaryPublisher {
         matchWon: resolvedMatchWon,
         priority: policyPriority,
         signals,
-        storyKey: story ? `${story.kind}:${story.subjectPlayerId ?? 'match'}` : undefined,
+        storyKey: direction?.rivalry
+          ? `${direction.rivalry.rivalry.key}:${direction.rivalry.development}`
+          : story ? `${story.kind}:${story.subjectPlayerId ?? 'match'}` : undefined,
       };
       const timingObservation = connection.visitTiming.observeDart({
         ...policyEvent,
@@ -495,7 +498,8 @@ export class ScoliaRealtimeCommentaryPublisher {
           connection.openingGraceUntilMs = 0;
         }
         connection.visitTiming.schedule(
-          { ...policyEvent, guaranteed: decision.guaranteed },
+          { ...policyEvent, guaranteed: decision.guaranteed,
+            expiresOnNextDart: direction.rivalry?.stage === 'anticipate' },
           () => {
             if (isCurrent?.() === false) {
               connection.policy.responseFinished();
@@ -503,7 +507,9 @@ export class ScoliaRealtimeCommentaryPublisher {
             }
             let storyToken: string | null = null;
             try {
-              storyToken = direction?.shouldPromote && direction.activeStoryArc
+              storyToken = direction?.rivalry
+                ? `${session.epoch}:${event.eventId}:${direction.rivalry.rivalry.key}`
+                : direction?.shouldPromote && direction.activeStoryArc
                 ? `${session.epoch}:${event.eventId}:${storyArcKey(direction.activeStoryArc)}`
                 : null;
               if (storyToken && direction) {
@@ -546,11 +552,14 @@ export class ScoliaRealtimeCommentaryPublisher {
                     ...(storyToken ? { story_token: storyToken } : {}),
                   },
                 },
-              }, { ...policyEvent, guaranteed: decision.guaranteed });
+              }, { ...policyEvent, guaranteed: decision.guaranteed,
+                expiresOnNextDart: direction.rivalry?.stage === 'anticipate' });
               // A queued introduction has spent its editorial beat even if a
               // fresher dart interrupts the audio. Callback fulfilment still
               // waits for a genuinely completed response.
-              if (direction?.shouldPromote) {
+              if (direction?.rivalry) {
+                connection.wireState.rivalry.dispatched(direction.rivalry);
+              } else if (direction?.shouldPromote) {
                 connection.broadcastDirector.markMentioned(direction);
               }
               return true;
@@ -822,6 +831,9 @@ export class ScoliaRealtimeCommentaryPublisher {
           connection.activeStoryResponse = responseId && pendingStory
             ? { ...pendingStory, responseId }
             : null;
+          if (responseId && pendingStory?.direction.rivalry) {
+            connection.wireState.rivalry.responseCreated(responseId, pendingStory.direction.rivalry);
+          }
         }
         if (
           event.type === 'response.output_audio_transcript.delta'
@@ -838,6 +850,9 @@ export class ScoliaRealtimeCommentaryPublisher {
           connection.transcript = event.transcript;
         }
         if (event.type === 'output_audio_buffer.stopped' || event.type === 'output_audio_buffer.cleared') {
+          connection.wireState.rivalry.playbackStopped(
+            event.response_id, event.type === 'output_audio_buffer.cleared'
+          );
           if (connection.playback.stopped(event.response_id) && !connection.responseQueue.busy) {
             connection.visitTiming.finishSpeech();
             connection.policy.responseFinished();
@@ -851,12 +866,17 @@ export class ScoliaRealtimeCommentaryPublisher {
             connection.playback.generationFinished(responseId, completed && !completion.discarded
               && hasRealtimeAudioOutput(event.response));
             const completedTranscript = connection.transcript.trim();
+            connection.wireState.rivalry.generationFinished(
+              responseId, completedTranscript,
+              completed && !completion.discarded && hasRealtimeAudioOutput(event.response)
+            );
             const completedStory = connection.activeStoryResponse;
             if (
               !completion.discarded
               && completed
               && completedTranscript
               && completedStory
+              && !completedStory.direction.rivalry
               && (!responseId || responseId === completedStory.responseId)
             ) {
               connection.broadcastDirector.markResponseCompleted(
@@ -970,6 +990,7 @@ export class ScoliaRealtimeCommentaryPublisher {
     session: ActiveRealtimeCommentarySession
   ) {
     this.cancelProviderSpeech(connection, 'authoritative_correction');
+    connection.wireState.rivalry.reset(null);
     connection.policy.reset(session.epoch);
     connection.visitTiming.reset();
     connection.broadcastDirector.reset();
@@ -997,6 +1018,7 @@ export class ScoliaRealtimeCommentaryPublisher {
   }
 
   private cancelProviderSpeech(connection: SidebandConnection, reason: string) {
+    connection.wireState.rivalry.cancelPending();
     connection.visitTiming.finishSpeech();
     const controlId = realtimeEventId(
       reason,

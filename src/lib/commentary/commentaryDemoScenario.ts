@@ -1,4 +1,17 @@
+import type { DartIQHistoricalFact } from '../dartiq/evidence.ts';
+
 export const COMMENTARY_DEMO_PLAYERS = ['Ada', 'Ben', 'Jo', 'Max', 'Liv', 'Sam'] as const;
+
+/** Explicitly synthetic history, confined to the local demo's test players. */
+export function commentaryDemoRivalryFacts(playerId: (name: CommentaryDemoPlayer) => string): DartIQHistoricalFact[] {
+  return [{
+    kind: 'matchup_history', subjectPlayerId: playerId('Ada'), counterpartPlayerId: playerId('Ben'),
+    support: 5, confidenceTier: 'supported', evidence: {
+      sharedMatches: 5, subjectWins: 1, counterpartWins: 3, otherWinnerMatches: 1,
+      twoPlayerMatches: 0, latestWinnerPlayerId: playerId('Ben'), currentWinnerStreak: 3,
+    },
+  }];
+}
 
 export type CommentaryDemoPlayer = (typeof COMMENTARY_DEMO_PLAYERS)[number];
 

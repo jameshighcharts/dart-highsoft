@@ -33,6 +33,18 @@ describe('CommentaryVisitTiming', () => {
     expect(expire).toHaveBeenCalledTimes(1);
   });
 
+  it('expires live match-dart anticipation on the very next dart even within 100ms', () => {
+    vi.useFakeTimers();
+    const timing = new CommentaryVisitTiming(); const expire = vi.fn();
+    const anticipation = event({ dartIndex: 1, priority: 'notable', expiresOnNextDart: true });
+    timing.observeDart(anticipation); timing.trackSpeech(anticipation, expire);
+    vi.advanceTimersByTime(100);
+    timing.observeDart(anticipation);
+    expect(expire).not.toHaveBeenCalled();
+    timing.observeDart(event({ eventId: 'dart-2', dartIndex: 2 }));
+    expect(expire).toHaveBeenCalledOnce(); timing.reset();
+  });
+
   it('cuts the previous visit on a new player but preserves a fresh reaction in the same visit', () => {
     vi.useFakeTimers();
     const timing = new CommentaryVisitTiming();

@@ -1,3 +1,4 @@
+import type { DartIQHistoricalFact } from '../dartiq/evidence.ts';
 import type { DartIQDartEvent } from '@/lib/dartiq/replay';
 import { hasCheckoutRoute } from '@/lib/dartiq/checkout';
 import { isMaterialDartIQConsequence } from '@/lib/dartiq/events';
@@ -219,4 +220,96 @@ export function buildCommentaryNarrativeMemory(input: {
       };
     }),
   };
+}
+
+export type CommentaryRivalry = {
+  key: string;
+  kind: 'streak' | 'breakthrough' | 'tied_record' | 'revenge';
+  subjectId: string;
+  counterpartId: string;
+  scope: 'direct' | 'shared';
+  fieldSize: number;
+  meetings: number;
+  subjectWins: number;
+  counterpartWins: number;
+  streak: number;
+};
+
+export type RivalryBeat = {
+  rivalry: CommentaryRivalry;
+  eventId: string;
+  sequence: number;
+  stage: 'establish' | 'anticipate' | 'threaten' | 'twist' | 'resolve';
+  development: 'opening' | 'match_dart' | 'gain' | 'chance_unconverted' | 'bust' | 'rival_response' | 'subject_won' | 'rival_won' | 'other_won';
+  winnerId: string | null;
+  callbackExcerpt: string | null;
+  setupExcerpt?: string | null;
+  actorId?: string;
+  matchDart?: { score: number; target: string | null };
+};
+
+/** Frozen evidence only. Mixed-field aggregates must never become a duel record. */
+export function selectCommentaryRivalry(input: {
+  playerIds: readonly string[];
+  historicalFacts: readonly DartIQHistoricalFact[];
+  rematch?: CommentaryRematchContext | null;
+}): CommentaryRivalry | null {
+  const players = new Set(input.playerIds);
+  const candidates: Array<{ rivalry: CommentaryRivalry; weight: number }> = [];
+  for (const fact of input.historicalFacts) {
+    if (fact.kind !== 'matchup_history' || fact.confidenceTier === 'thin'
+      || !fact.counterpartPlayerId || fact.subjectPlayerId === fact.counterpartPlayerId
+      || !players.has(fact.subjectPlayerId) || !players.has(fact.counterpartPlayerId)) continue;
+    const number = (key: string) => {
+      const value = fact.evidence[key];
+      return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : -1;
+    };
+    const meetings = number('sharedMatches');
+    const subjectWins = number('subjectWins');
+    const counterpartWins = number('counterpartWins');
+    const others = number('otherWinnerMatches');
+    const direct = number('twoPlayerMatches');
+    if (meetings < 3 || fact.support < meetings || subjectWins < 0 || counterpartWins < 0
+      || others < 0 || direct < 0 || direct > meetings
+      || subjectWins + counterpartWins + others !== meetings) continue;
+    const scope = direct === meetings && others === 0 ? 'direct' : 'shared';
+    const latest = fact.evidence.latestWinnerPlayerId;
+    const streak = number('currentWinnerStreak');
+    let subjectId = fact.subjectPlayerId;
+    let counterpartId = fact.counterpartPlayerId;
+    let kind: CommentaryRivalry['kind'];
+    if (scope === 'direct' && (subjectWins === 0 || counterpartWins === 0)) {
+      kind = 'breakthrough';
+      if (counterpartWins === 0) [subjectId, counterpartId] = [counterpartId, subjectId];
+    } else if (streak >= 2 && streak <= meetings
+      && (latest === subjectId || latest === counterpartId)
+      && streak <= (latest === subjectId ? subjectWins : counterpartWins)) {
+      kind = 'streak';
+      if (latest === subjectId) [subjectId, counterpartId] = [counterpartId, subjectId];
+    } else if (scope === 'direct' && players.size === 2 && subjectWins === counterpartWins) {
+      kind = 'tied_record';
+      [subjectId, counterpartId] = [subjectId, counterpartId].sort();
+    } else continue;
+    const rivalry: CommentaryRivalry = {
+      key: `${kind}:${[subjectId, counterpartId].sort().join(':')}`,
+      kind, subjectId, counterpartId, scope, fieldSize: players.size, meetings,
+      subjectWins: subjectId === fact.subjectPlayerId ? subjectWins : counterpartWins,
+      counterpartWins: subjectId === fact.subjectPlayerId ? counterpartWins : subjectWins,
+      streak: Math.max(0, streak),
+    };
+    candidates.push({ rivalry, weight: (kind === 'breakthrough' ? 30 : kind === 'streak' ? 20 : 10)
+      + Math.min(9, Math.max(0, streak)) + Math.min(9, meetings) / 10 });
+  }
+  const previousWinner = input.rematch?.previousWinnerId;
+  if (previousWinner && players.has(previousWinner)) {
+    for (const subjectId of input.rematch?.revengePlayerIds ?? []) {
+      if (!players.has(subjectId) || subjectId === previousWinner) continue;
+      candidates.push({ weight: 15, rivalry: {
+        key: `revenge:${subjectId}:${previousWinner}`, kind: 'revenge', subjectId,
+        counterpartId: previousWinner, scope: players.size === 2 ? 'direct' : 'shared',
+        fieldSize: players.size, meetings: 1, subjectWins: 0, counterpartWins: 1, streak: 1,
+      } });
+    }
+  }
+  return candidates.sort((a, b) => b.weight - a.weight || a.rivalry.key.localeCompare(b.rivalry.key))[0]?.rivalry ?? null;
 }

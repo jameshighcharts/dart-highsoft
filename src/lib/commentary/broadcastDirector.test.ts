@@ -1,3 +1,5 @@
+import { RivalryDirector, type RivalryObservation } from './broadcastDirector';
+import type { CommentaryRivalry } from './commentaryNarrative';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -204,5 +206,163 @@ describe('BroadcastDirector', () => {
     expect(beats.map((beat) => beat.transition)).toEqual(['started', 'payoff_due']);
     expect(beats.every((beat) => beat.arc.kind === 'dominance')).toBe(true);
     expect(beats.at(-1)?.dartId).toBe('dart-10');
+  });
+});
+
+
+describe('RivalryDirector', () => {
+  const rivalry: CommentaryRivalry = {
+    key: 'streak:a:b', kind: 'streak', subjectId: 'a', counterpartId: 'b',
+    scope: 'shared', fieldSize: 6, meetings: 5, subjectWins: 1, counterpartWins: 4, streak: 3,
+  };
+  const visit = (sequence: number, overrides: Partial<RivalryObservation> = {}): RivalryObservation => ({
+    eventId: `event-${sequence}`, sequence, turnId: `turn-${sequence}`, playerId: 'a',
+    probabilityBefore: 0.16, probabilityAfter: 0.17, matchChance: false, completedVisit: true,
+    checkedOut: false, busted: false, protectedMoment: false, legResolved: false,
+    fairEndingPending: false, winnerId: null, ...overrides,
+  });
+  function setup() {
+    const director = new RivalryDirector();
+    director.reset(rivalry);
+    return director;
+  }
+  function establish(director: RivalryDirector, delivered = false) {
+    const beat = director.observe(visit(3))!;
+    expect(beat.stage).toBe('establish');
+    director.dispatched(beat);
+    if (delivered) {
+      director.responseCreated('opening', beat);
+      director.generationFinished('opening', 'He is starting to charge rent.', true);
+      director.playbackStopped('opening', false);
+    }
+    return beat;
+  }
+  it('retains the rivalry through quiet visits and notices a large-field gain below 55%', () => {
+    const director = setup();
+    establish(director, true);
+    for (let sequence = 6; sequence <= 60; sequence += 3) expect(director.observe(visit(sequence))).toBeNull();
+    expect(director.observe(visit(63, { probabilityAfter: 0.24 })))
+      .toMatchObject({ stage: 'threaten', development: 'gain', callbackExcerpt: 'He is starting to charge rent.' });
+  });
+  it('aggregates the full visit and preserves an earlier match opportunity', () => {
+    const director = setup(); establish(director);
+    director.observe(visit(10, { turnId: 'visit', completedVisit: false, matchChance: true }));
+    director.observe(visit(11, { turnId: 'visit', completedVisit: false }));
+    expect(director.observe(visit(12, { turnId: 'visit' })))
+      .toMatchObject({ stage: 'twist', development: 'chance_unconverted' });
+  });
+  it('does not consume a setup or development that loses the speech slot', () => {
+    const director = setup();
+    expect(director.observe(visit(3))?.stage).toBe('establish');
+    const next = director.observe(visit(6))!;
+    expect(next.stage).toBe('establish'); director.dispatched(next);
+    expect(director.observe(visit(12, { probabilityAfter: 0.25 }))?.development).toBe('gain');
+    expect(director.observe(visit(15, { probabilityAfter: 0.25 }))?.development).toBe('gain');
+  });
+  it('allows an earned match-chance twist beyond two developments and reserves the result', () => {
+    const director = setup(); establish(director);
+    director.dispatched(director.observe(visit(9, { probabilityAfter: 0.25 }))!);
+    expect(director.observe(visit(15, { probabilityAfter: 0.3 }))).toBeNull();
+    director.dispatched(director.observe(visit(18, { playerId: 'b', probabilityAfter: 0.3 }))!);
+    expect(director.observe(visit(24, { matchChance: true })))
+      .toMatchObject({ development: 'chance_unconverted' });
+    const ending = director.observe(visit(25, { winnerId: 'a', checkedOut: true, legResolved: true }))!;
+    expect(ending).toMatchObject({ stage: 'resolve', development: 'subject_won' });
+    director.dispatched(ending);
+    expect(director.observe(visit(26, { winnerId: 'a' }))).toBeNull();
+  });
+  it('anticipates a live finish once per visit without waiting for the ordinary six-dart gap', () => {
+    const director = setup(); establish(director, true);
+    const anticipation = director.observe(visit(4, { turnId: 'finish-visit', completedVisit: false,
+      matchDart: { score: 32, target: 'D16' } }))!;
+    expect(anticipation).toMatchObject({ stage: 'anticipate', development: 'match_dart', actorId: 'a',
+      matchDart: { score: 32, target: 'D16' } });
+    director.dispatched(anticipation);
+    expect(director.observe(visit(5, { turnId: 'finish-visit', completedVisit: false,
+      matchDart: { score: 16, target: 'D8' } }))).toBeNull();
+    expect(director.observe(visit(6, { completedVisit: true, matchDart: { score: 16, target: 'D8' } }))).toBeNull();
+  });
+  it('gives the rival a live match-dart beat too, but not during fair ending or protected moments', () => {
+    const director = setup(); establish(director);
+    const chance = { completedVisit: false, playerId: 'b', matchDart: { score: 50, target: 'bull (50)' } };
+    expect(director.observe(visit(4, { ...chance, fairEndingPending: true }))).toBeNull();
+    expect(director.observe(visit(5, { ...chance, protectedMoment: true }))).toBeNull();
+    expect(director.observe(visit(6, chance))).toMatchObject({ stage: 'anticipate', actorId: 'b' });
+  });
+  it('earns extra beats through alternating reversals with a hard ceiling of six developments', () => {
+    const director = setup(); establish(director);
+    for (let i = 0; i < 6; i++) {
+      const beat = director.observe(visit(9 + i * 6, { playerId: i % 2 ? 'b' : 'a', probabilityAfter: 0.35 }))!;
+      expect(beat.development).toBe(i % 2 ? 'rival_response' : 'gain');
+      director.dispatched(beat);
+    }
+    expect(director.observe(visit(45, { probabilityAfter: 0.4 }))).toBeNull();
+    expect(director.observe(visit(46, { completedVisit: false, matchDart: { score: 32, target: 'D16' } }))).toBeNull();
+    expect(director.observe(visit(47, { winnerId: 'a' }))?.stage).toBe('resolve');
+  });
+  it('preserves the delivered opening position separately from the latest callback', () => {
+    const director = setup(); establish(director, true);
+    const turn = director.observe(visit(9, { probabilityAfter: 0.35 }))!;
+    director.dispatched(turn); director.responseCreated('twist', turn);
+    director.generationFinished('twist', 'Hang on. The tenant has ideas.', true);
+    director.playbackStopped('twist', false);
+    expect(director.observe(visit(15, { winnerId: 'a' }))).toMatchObject({
+      setupExcerpt: 'He is starting to charge rent.', callbackExcerpt: 'Hang on. The tenant has ideas.',
+    });
+  });
+  it.each(['a', 'b', 'c'])('resolves with the actual authoritative winner %s', (winnerId) => {
+    const director = setup(); establish(director);
+    expect(director.observe(visit(4, { winnerId, playerId: 'c', checkedOut: true, protectedMoment: true })))
+      .toMatchObject({ stage: 'resolve', winnerId, development: winnerId === 'a' ? 'subject_won' : winnerId === 'b' ? 'rival_won' : 'other_won' });
+  });
+  it('never resolves a provisional fair-ending checkout or a leg-only win', () => {
+    const director = setup(); establish(director);
+    expect(director.observe(visit(9, { checkedOut: true, fairEndingPending: true, probabilityAfter: 1 }))).toBeNull();
+    expect(director.observe(visit(12, { checkedOut: true, legResolved: true }))).toBeNull();
+    expect(director.observe(visit(15, { fairEndingPending: true, probabilityAfter: 0.6 }))).toBeNull();
+  });
+  it('ignores duplicate, stale and between-dart observations', () => {
+    const director = setup();
+    expect(director.observe(visit(2, { completedVisit: false }))).toBeNull();
+    establish(director);
+    expect(director.observe(visit(3, { winnerId: 'a' }))).toBeNull();
+    expect(director.observe(visit(2, { winnerId: 'a' }))).toBeNull();
+    expect(director.observe(visit(9, { winnerId: 'a', isLatest: false }))).toBeNull();
+  });
+  it.each(['generation-first', 'playback-first'])('requires generation AND drained audio: %s', (order) => {
+    const director = setup(); const beat = establish(director);
+    director.responseCreated('response', beat);
+    if (order === 'generation-first') director.generationFinished('response', 'The tenant has ideas.', true);
+    else director.playbackStopped('response', false);
+    expect(director.observe(visit(9, { probabilityAfter: 0.3 }))?.callbackExcerpt).toBeNull();
+    if (order === 'generation-first') director.playbackStopped('response', false);
+    else director.generationFinished('response', 'The tenant has ideas.', true);
+    expect(director.observe(visit(12, { probabilityAfter: 0.3 }))?.callbackExcerpt).toBe('The tenant has ideas.');
+  });
+  it.each(['cleared', 'cancelled', 'failed', 'text-only'])('does not remember %s audio', (reason) => {
+    const director = setup(); const beat = establish(director);
+    director.responseCreated('response', beat);
+    director.generationFinished('response', 'Unheard rent joke.', reason !== 'failed' && reason !== 'text-only');
+    if (reason === 'cancelled') director.cancelPending();
+    director.playbackStopped('response', reason === 'cleared');
+    director.playbackStopped('response', false);
+    expect(director.observe(visit(9, { probabilityAfter: 0.3 }))?.callbackExcerpt).toBeNull();
+  });
+  it('clears claims and callback audio on correction or end; reconnect does not repeat setup', () => {
+    const director = setup(); establish(director, true);
+    director.reset(rivalry, true);
+    director.playbackStopped('opening', false);
+    expect(director.observe(visit(9))).toBeNull();
+    expect(director.observe(visit(12, { probabilityAfter: 0.3 })))
+      .toMatchObject({ stage: 'threaten', callbackExcerpt: null });
+    director.reset(null);
+    expect(director.observe(visit(15, { winnerId: 'a' }))).toBeNull();
+  });
+  it('lets a promoted live story keep its slot but gives the rivalry its ending', () => {
+    const rivalryDirector = setup(); const director = new BroadcastDirector();
+    const opening = rivalryDirector.observe(visit(3))!;
+    expect(director.direct({ sequence: 3, candidates: [arc('comeback', 0.8)], rivalry: opening }).rivalry).toBeUndefined();
+    const ending = rivalryDirector.observe(visit(6, { winnerId: 'a' }))!;
+    expect(director.direct({ sequence: 6, candidates: [], matchWinnerId: 'a', rivalry: ending }).rivalry).toEqual(ending);
   });
 });

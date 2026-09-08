@@ -1,11 +1,12 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 import {
   BROADCAST_DIRECTOR_DEMO,
   COMMENTARY_DEMO_PLAYERS,
   commentaryDemoSummary,
+  commentaryDemoRivalryFacts,
   type CommentaryDemoDart,
 } from '../src/lib/commentary/commentaryDemoScenario.ts';
 import {
@@ -150,7 +151,7 @@ async function prepareDemo(supabase: SupabaseClient) {
       ended_early: false,
       scolia_board_id: board.id,
     })
-    .select('id')
+    .select('id, created_at')
     .single();
   if (matchError || !match) throw new Error(matchError?.message ?? 'Could not create demo match');
 
@@ -169,7 +170,25 @@ async function prepareDemo(supabase: SupabaseClient) {
   });
   if (legError) throw new Error(legError.message);
 
+  // Freeze synthetic evidence once, before any demo darts or listeners exist.
+  // These newly created players are test-only; real player history is untouched.
+  const rawEvidence = {
+    profile: null, outcomes: [],
+    historicalFacts: commentaryDemoRivalryFacts((name) => String(playerByName.get(name)!.id)),
+    historicalFactsCutoffAt: match.created_at ?? now,
+  };
+  const { error: evidenceError } = await supabase.from('dartiq_population_evidence').insert({
+    match_id: match.id, finish_rule: 'double_out', historical_cutoff_at: now,
+    eligibility_version: 'commentary-demo-synthetic-v1', eligible_player_count: 0,
+    evidence_schema_version: 1, raw_evidence: rawEvidence,
+    content_hash: createHash('md5').update(JSON.stringify(rawEvidence)).digest('hex'),
+  });
+  if (evidenceError) throw new Error(evidenceError.message);
+  const { error: captureError } = await supabase.rpc('capture_dartiq_match_evidence', { p_match_id: match.id });
+  if (captureError) throw new Error(captureError.message);
+
   console.log(`Demo match: ${match.id}`);
+  console.log('Synthetic rivalry: Ben won the last three shared meetings; Ada can end the run.');
   console.log(`Open: http://localhost:3000/match/${match.id}`);
   console.log('Enable commentary and audio in the match UI, then run:');
   console.log(`npm run commentary:demo -- run ${match.id}`);
@@ -395,6 +414,7 @@ async function main() {
   const [command = 'preview', value, ...flags] = process.argv.slice(2);
   if (command === 'preview') {
     console.table(commentaryDemoSummary());
+    console.log('Synthetic rivalry: Ben won the last three shared meetings; Ada ends the run on D16.');
     return;
   }
   const supabase = client();
