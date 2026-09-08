@@ -44,8 +44,8 @@ describe('CricketBoard', () => {
   it('renders player headers with points and per-target marks', () => {
     render(<CricketBoard state={state} players={players} config={config} currentPlayerId="p2" />);
 
-    expect(screen.getByText('Alice')).toBeInTheDocument();
-    expect(screen.getByText('Bob')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Alice' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Bob' })).toBeInTheDocument();
     expect(screen.getByText('40')).toBeInTheDocument();
 
     const cell = (playerId: string, target: number) => screen.getByTestId(`cricket-cell-${playerId}-${target}`);

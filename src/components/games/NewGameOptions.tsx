@@ -334,13 +334,13 @@ function KillerNumberAssignment({
   const missing = players.filter((p) => typeof assigned[p.id] !== "number");
 
   return (
-    <div className="col-span-2 space-y-3">
+    <div className="sm:col-span-2 space-y-3">
       <div>
         <div className="font-medium">Pick a number for each player</div>
         <p className="text-xs text-muted-foreground">Numbers must be unique.</p>
       </div>
       {players.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Select players above to assign numbers.</p>
+        <p className="text-sm text-muted-foreground">Select players below to assign numbers.</p>
       ) : (
         players.map((player) => {
           const own = assigned[player.id];
@@ -352,7 +352,7 @@ function KillerNumberAssignment({
                   {typeof own === "number" ? `Number ${own}` : "No number yet"}
                 </span>
               </div>
-              <div className="grid grid-cols-10 gap-1" role="group" aria-label={`Number for ${player.name}`}>
+              <div className="grid grid-cols-5 gap-2 sm:grid-cols-10" role="group" aria-label={`Number for ${player.name}`}>
                 {KILLER_NUMBERS.map((num) => {
                   const owner = taken.get(num);
                   const isOwn = owner === player.id;
@@ -369,7 +369,7 @@ function KillerNumberAssignment({
                         else next[player.id] = num;
                         onChange(next);
                       }}
-                      className={`h-8 rounded border text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      className={`h-11 rounded border text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                         isOwn ? "border-accent bg-accent/30" : "hover:bg-accent/20"
                       }`}
                     >
@@ -411,8 +411,9 @@ export function GameConfigFields({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {info.fields.map((field) => {
+          if (mode === "around_the_clock" && field.key === "bullRequirement" && config.includeBull === false) return null;
           if (field.kind === "select") {
             const raw = config[field.key];
             const value = raw === undefined || raw === null ? "" : String(raw);
@@ -420,7 +421,7 @@ export function GameConfigFields({
               <div key={field.key}>
                 <div className="font-medium mb-1">{field.label}</div>
                 <Select value={value} onValueChange={(v) => set(field.key, coerceSelectValue(mode, field.key, v))}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger className="w-full min-h-11" aria-label={field.label}>
                     <SelectValue placeholder={field.label} />
                   </SelectTrigger>
                   <SelectContent>
@@ -439,7 +440,9 @@ export function GameConfigFields({
             return (
               <StepperField
                 key={field.key}
-                field={field}
+                field={mode === "cricket" && field.key === "maxRounds" && config.variant === "cut_throat"
+                  ? { ...field, help: "Lowest points wins when the limit is reached." }
+                  : field}
                 value={config[field.key]}
                 onChange={(v) => set(field.key, v)}
               />
@@ -447,7 +450,7 @@ export function GameConfigFields({
           }
           const id = `game-field-${mode}-${field.key}`;
           return (
-            <div key={field.key} className="col-span-2 flex items-center justify-between gap-4 rounded border p-3">
+            <div key={field.key} className="sm:col-span-2 flex items-center justify-between gap-4 rounded border p-3">
               <label htmlFor={id} className="text-sm font-medium">
                 {field.label}
                 {field.help && <span className="block text-xs font-normal text-muted-foreground">{field.help}</span>}

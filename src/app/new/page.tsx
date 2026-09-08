@@ -648,7 +648,10 @@ export default function NewMatchPage() {
         </>
       )}
 
-      <div className="sticky bottom-0 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:static md:mx-0 md:border-0 md:bg-transparent md:p-0">
+      <div className={`${gameMode !== null ? "sticky bottom-16 lg:bottom-0" : "sticky bottom-0"} -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:static md:mx-0 md:border-0 md:bg-transparent md:p-0`}>
+        {gameMode !== null && <p className="mb-2 text-sm text-muted-foreground" role="status">
+          {validationError ?? `${selectedIds.length} players ready · ${gameTypeName(gameMode)}`}
+        </p>}
         <Button
           size="lg"
           className="w-full md:w-auto"

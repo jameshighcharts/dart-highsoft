@@ -1,58 +1,40 @@
 'use client';
 
-import { Radio } from 'lucide-react';
-
+import Link from 'next/link';
+import { ArrowLeft, Eye, Radio } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { gameModeName } from '@/lib/games/labels';
 import type { GameMode, GameSessionStatus } from '@/lib/games/types';
 
 type GameHeaderProps = {
+  gameId: string;
   mode: GameMode;
   status: GameSessionStatus;
   finished: boolean;
-  round: number;
-  /** Shanghai only: the current round's target number. */
-  roundTarget?: number | null;
-  currentPlayerName: string | null;
+  roundLabel: string;
+  spectator: boolean;
   scoliaBoardId: string | null;
-  celebration?: string | null;
 };
 
-function statusLabel(status: GameSessionStatus, finished: boolean): { text: string; variant: 'default' | 'secondary' | 'outline' } {
-  if (status === 'ended_early') return { text: 'Ended early', variant: 'outline' };
-  if (status === 'completed' || finished) return { text: 'Finished', variant: 'secondary' };
-  return { text: 'Live', variant: 'default' };
-}
-
-export function GameHeader({ mode, status, finished, round, roundTarget, currentPlayerName, scoliaBoardId, celebration }: GameHeaderProps) {
-  const isActive = status === 'active' && !finished;
-  const badge = statusLabel(status, finished);
-
+export function GameHeader({ gameId, mode, status, finished, roundLabel, spectator, scoliaBoardId }: GameHeaderProps) {
+  const active = status === 'active' && !finished;
   return (
-    <div className="rounded-lg border bg-card p-3 md:p-4 space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="outline" className="text-sm">{gameModeName(mode)}</Badge>
-        <Badge variant={badge.variant} className={isActive ? 'bg-emerald-600 text-white' : undefined}>
-          {badge.text}
+    <header className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h1 className="text-xl font-bold tracking-tight md:text-2xl">{gameModeName(mode)}</h1>
+        <Badge variant="outline" className={active ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-white/15'}>
+          {status === 'ended_early' ? 'Ended early' : active ? 'In progress' : 'Finished'}
         </Badge>
-        {scoliaBoardId && (
-          <Badge variant="secondary" className="gap-1">
-            <Radio className="size-3" />
-            Scolia board
-          </Badge>
-        )}
-        <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-          Round {round}
-          {roundTarget ? ` · Target ${roundTarget}` : ''}
-        </span>
+        <span className="text-sm tabular-nums text-muted-foreground">{roundLabel}</span>
+        {scoliaBoardId && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Radio className="size-3" />Scolia</span>}
       </div>
-      {isActive && currentPlayerName && (
-        <div>
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">Up now</div>
-          <div className="text-3xl md:text-4xl font-bold leading-tight truncate">{currentPlayerName}</div>
-        </div>
-      )}
-      {celebration && <div className="text-sm font-medium text-primary">{celebration}</div>}
-    </div>
+      <Button variant="outline" size="sm" asChild className="min-h-10 border-white/15">
+        <Link href={`/game/${gameId}${spectator ? '' : '?spectator=true'}`}>
+          {spectator ? <ArrowLeft className="size-4" /> : <Eye className="size-4" />}
+          {spectator ? 'Exit spectator view' : 'Spectator view'}
+        </Link>
+      </Button>
+    </header>
   );
 }

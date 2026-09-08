@@ -101,8 +101,8 @@ export const GAME_MODE_INFO: Record<GameMode, GameModeInfo> = {
         label: 'Rounds',
         kind: 'select',
         options: [
-          { value: '7', label: '7 rounds (1 to 7)' },
-          { value: '20', label: '20 rounds (1 to 20)' },
+          { value: '7', label: '7 rounds' },
+          { value: '20', label: '20 rounds' },
         ],
       },
       { key: 'startNumber', label: 'Start number', kind: 'stepper', min: 1, max: 20 },
@@ -111,7 +111,7 @@ export const GAME_MODE_INFO: Record<GameMode, GameModeInfo> = {
   },
   around_the_clock: {
     mode: 'around_the_clock',
-    name: 'Around the Clock',
+    name: 'Around the World',
     shortName: 'Clock',
     tagline: 'Race from 1 to 20 and finish on Bull.',
     description:

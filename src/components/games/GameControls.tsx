@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Eye, Gamepad2, Plus, RotateCcw, Square, Undo2 } from 'lucide-react';
+import { Gamepad2, Plus, RotateCcw, Square, Undo2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -15,7 +15,6 @@ import {
 } from '@/components/ui/dialog';
 
 type GameControlsProps = {
-  gameId: string;
   isActive: boolean;
   canUndo: boolean;
   busy: boolean;
@@ -24,40 +23,34 @@ type GameControlsProps = {
   onRematch: () => void;
 };
 
-export function GameControls({ gameId, isActive, canUndo, busy, onUndo, onEndEarly, onRematch }: GameControlsProps) {
+export function GameControls({ isActive, canUndo, busy, onUndo, onEndEarly, onRematch }: GameControlsProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button variant="outline" size="sm" onClick={onUndo} disabled={!canUndo || busy} className="gap-1">
+      <Button variant="outline" size="sm" onClick={onUndo} disabled={!canUndo || busy} className="min-h-11 gap-1 border-white/15">
         <Undo2 className="size-4" />
         Undo
       </Button>
       {isActive && (
-        <Button variant="outline" size="sm" onClick={() => setConfirmOpen(true)} disabled={busy} className="gap-1">
+        <Button variant="outline" size="sm" onClick={() => setConfirmOpen(true)} disabled={busy} className="min-h-11 gap-1 border-white/15">
           <Square className="size-4" />
           End game
         </Button>
       )}
-      <Button variant="ghost" size="sm" asChild className="gap-1">
-        <a href={`/game/${gameId}?spectator=true`} target="_blank" rel="noopener noreferrer">
-          <Eye className="size-4" />
-          Spectator view
-        </a>
-      </Button>
       {!isActive && (
         <>
-          <Button size="sm" onClick={onRematch} disabled={busy} className="gap-1">
+          <Button size="sm" onClick={onRematch} disabled={busy} className="min-h-11 gap-1 border-white/15">
             <RotateCcw className="size-4" />
             Rematch
           </Button>
-          <Button variant="outline" size="sm" asChild className="gap-1">
+          <Button variant="outline" size="sm" asChild className="min-h-11 gap-1 border-white/15">
             <Link href="/new">
               <Plus className="size-4" />
               New game
             </Link>
           </Button>
-          <Button variant="outline" size="sm" asChild className="gap-1">
+          <Button variant="outline" size="sm" asChild className="min-h-11 gap-1 border-white/15">
             <Link href="/games">
               <Gamepad2 className="size-4" />
               Games

@@ -5,10 +5,10 @@ import { Heart, Skull, Target } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { GameState, KillerConfig, KillerEvent, KillerPlayerState } from '@/lib/games/types';
 import type { GamePlayerData } from '@/hooks/useGameData';
-import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { GamePlayerCard, type PlayerVisitProps } from './GamePlayerCard';
 import { cn } from '@/lib/utils';
 
-type KillerBoardProps = {
+type KillerBoardProps = PlayerVisitProps & {
   state: GameState<KillerPlayerState, KillerEvent>;
   players: GamePlayerData[];
   config: KillerConfig;
@@ -25,63 +25,29 @@ function hintFor(ps: KillerPlayerState, config: KillerConfig): string {
   return config.hitToKill === 'double' ? "Hit an opponent's double" : "Hit an opponent's number";
 }
 
-export function KillerBoard({ state, players, config, currentPlayerId }: KillerBoardProps) {
+export function KillerBoard({ state, players, config, currentPlayerId, throws, turnIndex }: KillerBoardProps) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+    <div className={cn('grid gap-3', players.length === 4 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-[repeat(auto-fit,minmax(min(100%,13rem),1fr))]')}>
       {players.map((player) => {
         const ps = state.perPlayer[player.player_id];
         if (!ps) return null;
         const isCurrent = player.player_id === currentPlayerId;
         return (
-          <div
-            key={player.player_id}
-            className={cn(
-              'rounded-lg border bg-card p-3 flex flex-col gap-2 transition-colors',
-              isCurrent && !ps.eliminated && 'border-primary ring-2 ring-primary/40',
-              ps.eliminated && 'opacity-50 grayscale'
-            )}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="text-4xl font-bold tabular-nums leading-none">{ps.number}</div>
-              <div className="flex flex-col items-end gap-1">
-                {ps.isKiller && !ps.eliminated && (
-                  <Badge variant="destructive" className="gap-1">
-                    <Target className="size-3" />
-                    KILLER
-                  </Badge>
-                )}
-                {ps.eliminated && (
-                  <Badge variant="outline" className="gap-1">
-                    <Skull className="size-3" />
-                    Out
-                  </Badge>
-                )}
+          <GamePlayerCard key={player.player_id} player={player} current={isCurrent && !ps.eliminated}
+            score={ps.number} scoreLabel="Assigned number" finished={state.winnerId === player.player_id}
+            detail={ps.eliminated ? 'Eliminated' : `${ps.lives} ${ps.lives === 1 ? 'life' : 'lives'} left · ${ps.kills} kills`}
+            throws={throws} turnIndex={turnIndex}>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex gap-1" aria-label={`${ps.lives} of ${config.lives} lives`}>
+                {Array.from({ length: config.lives }, (_, index) => <Heart key={index} aria-hidden="true"
+                  className={cn('size-5', index < ps.lives ? 'fill-rose-400 text-rose-400' : 'text-muted-foreground/40')} />)}
               </div>
+              {ps.eliminated ? <Badge variant="outline"><Skull className="mr-1 size-3" />Out</Badge>
+                : ps.isKiller ? <Badge className="bg-rose-400/15 text-rose-300"><Target className="mr-1 size-3" />Killer</Badge>
+                : <Badge variant="secondary">Not a killer yet</Badge>}
             </div>
-            <div className="flex items-center gap-2 font-medium">
-              <PlayerAvatar player={{ id: player.player_id, display_name: player.display_name, avatar_url: player.avatar_url }} size="sm" />
-              <span className="truncate">{player.display_name}</span>
-            </div>
-            <div className="flex items-center gap-1" aria-label={`${ps.lives} of ${config.lives} lives`}>
-              {Array.from({ length: config.lives }, (_, index) => {
-                const alive = index < ps.lives;
-                return (
-                  <Heart
-                    key={index}
-                    className={cn('size-4', alive ? 'fill-red-500 text-red-500' : 'text-muted-foreground/50')}
-                  />
-                );
-              })}
-              {ps.kills > 0 && (
-                <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-                  {ps.kills} {ps.kills === 1 ? 'kill' : 'kills'}
-                </span>
-              )}
-            </div>
-            {isCurrent && !state.finished && (
-              <div className="text-xs text-primary">{hintFor(ps, config)}</div>
-            )}
-          </div>
+            {isCurrent && <p className="text-sm text-lime-300">{hintFor(ps, config)}</p>}
+          </GamePlayerCard>
         );
       })}
     </div>

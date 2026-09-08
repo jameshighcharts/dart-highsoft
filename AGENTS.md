@@ -166,6 +166,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `server/scoliaCommands.ts` | Enqueues current-round Scolia correction/deletion notifications for the worker WebSocket |
 | `server/scoliaThrowIngestion.ts` | Idempotently maps persisted Scolia detections into the active app match and completes turns/legs |
 | `games/types.ts` | Shared party-game modes, session state, engine, configuration, and event contracts |
+| `games/presentation.ts` | Validates typed party-game views and derives mode-specific turn targets and rule guidance |
 | `games/registry.ts` | Maps party-game modes to their replay engines |
 | `games/replay.ts` | Shared turn grouping, player rotation, and configuration parsing helpers |
 | `games/segment.ts` | Converts canonical dart segments into scores and multipliers |
@@ -222,8 +223,9 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `match/EditPlayersModal.tsx` | Add/remove/reorder players |
 | `match/EloChangesDisplay.tsx` | Elo rating changes after match |
 | `games/NewGameOptions.tsx` | Party-game picker and per-mode configuration controls |
-| `games/GameHeader.tsx` | Party-game title, status, and connection header |
-| `games/GameControls.tsx` | Manual party-game dart input, undo, and end controls |
+| `games/GamePlayerCard.tsx` | Shared X01-style party-game player tiles with current/last-visit darts and mode-specific scores |
+| `games/GameHeader.tsx` | Party-game title, status, round, and same-tab spectator navigation |
+| `games/GameControls.tsx` | Party-game undo, end confirmation, and rematch controls |
 | `games/GameResults.tsx` | Party-game result and rematch display |
 | `games/CricketBoard.tsx` | Cricket targets, marks, and points display |
 | `games/KillerBoard.tsx` | Killer numbers, lives, and elimination display |
@@ -387,8 +389,11 @@ The completed visit is an important commentary unit, not a barrier. Back-to-back
 **Fair ending:**
 First player checks out → DartIQ v2 marks the checkout provisional and projects the remaining players' chances to join → remaining players complete their turns → if single checkout: leg resolves → if multiple checkouts: eligible players enter high-round tiebreaks. Tiebreak darts update deterministic, normalized probabilities without changing X01 scores; tied leaders advance to the next round. Only authoritative resolution emits `leg_win`/`match_win`.
 
+**Party-game UI:**
+Scoring and spectator views share X01-style player tiles with lime on-throw state, per-mode targets, and current/last-turn darts. Manual scoring offers keypad and dartboard input beside the scoreboard on desktop and before it on mobile. Spectator navigation stays in the same tab. Ended sessions suppress active-player hints and scoring controls; marks and round tables scroll within their panel.
+
 **Party-game scoring:**
-New Game selects Cricket, Killer, Shanghai, or Around the Clock → `POST /api/games` creates the session and ordered players through `create_game_session_atomic` → `GameClient` replays `game_throws` through the selected pure engine → `useGameActions` queues manual input through `POST /api/games/:id/throws` → `append_game_throw_atomic` locks the session and commits the throw with any completion → `undo_last_game_throw_atomic` deletes the latest dart and reopens a completed session when board ownership still permits it → `useGameData` reconciles session and throw changes through Supabase realtime.
+New Game selects Cricket, Killer, Shanghai, or Around the World → `POST /api/games` creates the session and ordered players through `create_game_session_atomic` → `GameClient` replays `game_throws` through the selected pure engine → `useGameActions` queues manual input through `POST /api/games/:id/throws` → `append_game_throw_atomic` locks the session and commits the throw with any completion → `undo_last_game_throw_atomic` deletes the latest dart and reopens a completed session when board ownership still permits it → `useGameData` reconciles session and throw changes through Supabase realtime.
 
 **Scolia board connectivity:**
 
