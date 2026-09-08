@@ -1550,3 +1550,13 @@ and high-score tiebreak totals/rules, including reconnect snapshots. Manual visi
 the phase too. Winner signals and match-closing story arcs require an explicit match resolution,
 not a probability vector that happens to reach 100%. Per-call instructions suppress winner language
 while catch-up or tiebreak play continues. Audible repetition and delivery still require a listening pass.
+
+
+Scolia commentary grouping uses coordinate-verified darts from the accepted current-visit prefix.
+It supplies maximum pairwise separation, first-pair distance, and the latest dart's distance to
+its nearest earlier dart. All prefix darts must have valid, segment-consistent coordinates;
+missing impacts suppress grouping rather than implying that the remaining darts form a full group.
+A maximum separation of 15 mm labels a tight physical group; a third dart at least 30 mm from both
+members of a first pair within 15 mm is described as separated. These are editorial descriptions,
+not calibrated skill measures or evidence of intended targets, deflection, or poor accuracy.
+Grouping remains optional context under existing speech timing and priority rules.

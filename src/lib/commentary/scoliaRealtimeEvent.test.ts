@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   classifyScoliaRealtimeDart,
   describeCommentaryLanding,
+  measureCommentaryGrouping,
   commentaryLandingForecast,
   loadScoliaRealtimeDartEvent,
   ScoliaDartIQEventCache,
@@ -298,7 +299,7 @@ describe('classifyScoliaRealtimeDart', () => {
         id: 'turn', leg_id: 'leg', player_id: 'a', turn_number: 1,
         total_scored: 60, busted: false, tiebreak_round: null,
       }],
-      throws: [{ id: 'dart-1', turn_id: 'turn', dart_index: 1, segment: 'T20', scored: 60 }],
+      throws: [{ id: 'dart-1', turn_id: 'turn', dart_index: 1, segment: 'T20', scored: 60, impact_x_mm: 0, impact_y_mm: 103 }],
       players: [{ id: 'a', display_name: 'Player A' }],
       dartiq_player_profiles: [],
       dartiq_population_profiles: [],
@@ -320,6 +321,7 @@ describe('classifyScoliaRealtimeDart', () => {
 
     expect(second.dartiq).toMatchObject({ dartId: 'dart-2', scoreBefore: 241, scoreAfter: 221 });
     expect(second.landing?.detail).toContain('3.0 mm from the T20');
+    expect(second.grouping).toMatchObject({ dartCount: 2, maximumSeparationMm: 7, shape: 'tight' });
     expect(second.landingBefore).toMatchObject({ scoreRemaining: 241, dartsLeft: 2, actualSegmentProbability: 0.8 });
     expect(second.landingNext).toMatchObject({ scoreRemaining: 221, dartsLeft: 1 });
     expect(second.narrative).toMatchObject({
@@ -368,5 +370,40 @@ describe('grounded landing commentary', () => {
     expect(commentaryLandingForecast(input, state)).toBeUndefined();
     input.outcomeModels!.a.predictLanding = () => ({ ...forecast, confidence: 'low' });
     expect(commentaryLandingForecast(input, state)).toBeUndefined();
+  });
+});
+
+
+describe('current-visit grouping', () => {
+  const dart = (dart_index: number, x: number, y: number, segment = 'S20') => ({
+    dart_index, segment, impact_x_mm: x, impact_y_mm: y,
+  });
+  it('measures pairwise diameter rather than mistaking radius for group size', () => {
+    expect(measureCommentaryGrouping([dart(1, -6, 130), dart(2, 6, 130), dart(3, 0, 134)], 3))
+      .toMatchObject({ dartCount: 3, maximumSeparationMm: 12, firstPairSeparationMm: 12, shape: 'tight' });
+  });
+  it('describes a third dart separated from both members of a close pair', () => {
+    expect(measureCommentaryGrouping([dart(1, 0, 125), dart(2, 0, 130), dart(3, 0, 160)], 3))
+      .toMatchObject({ maximumSeparationMm: 35, latestNearestSeparationMm: 30, shape: 'third_separated' });
+    expect(measureCommentaryGrouping([dart(1, 0, 120), dart(2, 0, 145), dart(3, 0, 160)], 3)?.shape).toBe('spread');
+  });
+  it('does not include later darts or mix a missing or duplicate index into a group', () => {
+    const darts = [dart(3, 0, 160), dart(2, 0, 130), dart(1, 0, 125)];
+    expect(measureCommentaryGrouping(darts, 2)).toMatchObject({ dartCount: 2, maximumSeparationMm: 5 });
+    expect(measureCommentaryGrouping(darts, 1)).toBeUndefined();
+    expect(measureCommentaryGrouping([darts[0], darts[2]], 3)).toBeUndefined();
+    expect(measureCommentaryGrouping([dart(1, 0, 125), dart(1, 0, 130)], 2)).toBeUndefined();
+  });
+  it('suppresses incomplete, nonfinite, out-of-range, or contradictory geometry', () => {
+    for (const invalid of [null, NaN, Infinity, 300]) {
+      expect(measureCommentaryGrouping([dart(1, 0, 125), { ...dart(2, 0, 130), impact_y_mm: invalid }], 2)).toBeUndefined();
+    }
+    expect(measureCommentaryGrouping([dart(1, 0, 125), dart(2, 0, 130, 'T20')], 2)).toBeUndefined();
+  });
+  it('recalculates a corrected landing without retaining the earlier grouping', () => {
+    const darts = [dart(1, 0, 125), dart(2, 0, 130), dart(3, 0, 135)];
+    expect(measureCommentaryGrouping(darts, 3)?.shape).toBe('tight');
+    darts[2] = dart(3, 0, 160);
+    expect(measureCommentaryGrouping(darts, 3)?.shape).toBe('third_separated');
   });
 });

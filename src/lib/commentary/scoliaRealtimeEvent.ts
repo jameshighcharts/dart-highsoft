@@ -64,6 +64,7 @@ export type ScoliaRealtimeDartEvent = {
   isLatestDart?: boolean;
   narrative?: CommentaryNarrativeMemory;
   landing?: { detail: string };
+  grouping?: CommentaryGrouping;
   landingBefore?: CommentaryLandingForecast;
   landingNext?: CommentaryLandingForecast;
 };
@@ -76,6 +77,48 @@ export type CommentaryLandingForecast = {
   segments: { segment: string; probability: number }[];
   actualSegmentProbability?: number;
 };
+
+export type CommentaryGrouping = {
+  dartCount: number;
+  maximumSeparationMm: number;
+  firstPairSeparationMm: number;
+  latestNearestSeparationMm: number;
+  shape: 'tight' | 'third_separated' | 'spread';
+};
+
+type GroupingDart = {
+  dart_index: number;
+  segment: string;
+  impact_x_mm?: number | null;
+  impact_y_mm?: number | null;
+};
+
+/** Describe only the accepted visit prefix; incomplete geometry cannot establish a group. */
+export function measureCommentaryGrouping(darts: readonly GroupingDart[], dartIndex: number): CommentaryGrouping | undefined {
+  if (dartIndex !== 2 && dartIndex !== 3) return undefined;
+  const prefix = darts.filter((dart) => dart.dart_index <= dartIndex)
+    .slice().sort((a, b) => a.dart_index - b.dart_index);
+  if (prefix.length !== dartIndex) return undefined;
+  const positions: Array<{ x: number; y: number }> = [];
+  for (const [index, dart] of prefix.entries()) {
+    const x = dart.impact_x_mm;
+    const y = dart.impact_y_mm;
+    if (dart.dart_index !== index + 1 || x == null || y == null
+      || !Number.isFinite(x) || !Number.isFinite(y) || Math.hypot(x, y) > 250
+      || landingSegment(x, y) !== dart.segment) return undefined;
+    positions.push({ x, y });
+  }
+  const distance = (a: number, b: number) => Math.hypot(positions[a].x - positions[b].x, positions[a].y - positions[b].y);
+  const firstPairSeparationMm = distance(0, 1);
+  const lastDistances = positions.slice(0, -1).map((_, index) => distance(index, positions.length - 1));
+  const maximumSeparationMm = Math.max(firstPairSeparationMm, ...lastDistances);
+  const latestNearestSeparationMm = Math.min(...lastDistances);
+  // Descriptive editorial thresholds, not calibrated measures of skill or intended aim.
+  return { dartCount: positions.length, maximumSeparationMm, firstPairSeparationMm, latestNearestSeparationMm,
+    shape: maximumSeparationMm <= 15 ? 'tight'
+      : positions.length === 3 && firstPairSeparationMm <= 15 && latestNearestSeparationMm >= 30
+        ? 'third_separated' : 'spread' };
+}
 
 /** Coordinates describe a landing, never an intended target. */
 export function describeCommentaryLanding(segment: string, x?: number | null, y?: number | null) {
@@ -164,7 +207,7 @@ export async function loadScoliaRealtimeDartEvent(
     .from('turns')
     .select(`
       id, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round,
-      throws:throws(id, scored, dart_index, segment)
+      throws:throws(id, scored, dart_index, segment, impact_x_mm, impact_y_mm)
     `)
     .eq('id', dart.turn_id)
     .single();
@@ -225,6 +268,7 @@ export async function loadScoliaRealtimeDartEvent(
   const canonical: DartIQDartEvent | undefined = narrativeTimeline?.[sourceIndex];
   const replayInput = eventCache.get(matchId)?.input;
   return classifyScoliaRealtimeDart({
+    grouping: measureCommentaryGrouping((turn as { throws?: GroupingDart[] }).throws ?? [], dart.dart_index),
     landing: describeCommentaryLanding(dart.segment, dart.impact_x_mm, dart.impact_y_mm),
     landingBefore: canonical && replayInput ? commentaryLandingForecast(replayInput, canonical.before, dart.segment) : undefined,
     landingNext: canonical && replayInput && !canonical.legResolution

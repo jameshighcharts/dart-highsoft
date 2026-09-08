@@ -606,3 +606,18 @@ describe('fair-ending and landing event authority', () => {
       .toContain('All earlier next-landing forecasts have expired');
   });
 });
+
+
+it('renders grouping as optional current-visit evidence without inferring intent', () => {
+  const state = new RealtimeNarrativeWireState();
+  renderRealtimeSnapshot(1, snapshot(), state);
+  const source = event();
+  source.grouping = { dartCount: 3, maximumSeparationMm: 35, firstPairSeparationMm: 5,
+    latestNearestSeparationMm: 30, shape: 'third_separated' };
+  const text = renderScoliaRealtimeEvent(1, source, state);
+  expect(text).toContain('VISIT GROUPING · Nikita, 3 darts so far');
+  expect(text).toContain('maximum pairwise separation 35.0 mm');
+  expect(text).toContain('third landed away from both');
+  expect(text).toContain('no inferred aim, deflection');
+  expect(renderScoliaRealtimeEvent(1, event(), state)).not.toContain('VISIT GROUPING');
+});

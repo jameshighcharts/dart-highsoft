@@ -186,7 +186,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/commentaryDemoScenario.ts` | Deterministic six-player 301 double-out office broadcast demo with scrappy scoring, isolated trebles/doubles, clustered finish tension, and a D16 payoff, with synthetic Ada/Ben rivalry evidence for the local demo |
 | `commentary/realtimeTypes.ts` | Shared Realtime session/correction-envelope contracts, model default, UUID validation, and legacy-to-Realtime voice mapping |
 | `commentary/realtimeSnapshot.ts` | Builds compact authoritative match snapshots for new, reconnected, and rotated Realtime sessions |
-| `commentary/scoliaRealtimeEvent.ts` | Loads an accepted Scolia throw from canonical rows, attaches its deterministic DartIQ packet, adds coordinate-verified ring proximity and frozen-model before/next-dart landing forecasts, and classifies speech priority without waiting for Supabase Realtime |
+| `commentary/scoliaRealtimeEvent.ts` | Loads an accepted Scolia throw from canonical rows, attaches its deterministic DartIQ packet, adds coordinate-verified ring proximity, current-visit grouping distances, and frozen-model before/next-dart landing forecasts, and classifies speech priority without waiting for Supabase Realtime |
 | `avatars.ts` | Shared avatar sizes, initials, colors, escaped grid HTML, and storage URL parsing |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
 | `supabaseServer.ts` | Server-side Supabase client (API routes) |
