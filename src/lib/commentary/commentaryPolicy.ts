@@ -117,7 +117,6 @@ export class CommentaryPolicy {
   private activePriority: DartIQEventPriority | null = null;
   private epoch = 0;
   private lastWalkOnAtMs: number | null = null;
-  private lastIdleCallAtMs: number | null = null;
 
   constructor(options: CommentaryPolicyOptions = {}) {
     this.cooldownMs = { ...DEFAULT_COOLDOWNS, ...options.cooldownMs };
@@ -170,13 +169,9 @@ export class CommentaryPolicy {
       return this.reject(event.priority, observationKey, 'active-higher-priority');
     }
 
-    const significant = PRIORITY_RANK[event.priority] >= PRIORITY_RANK.marquee
-      || (event.priority === 'notable' && event.signals.some((signal) => [
-        'large_swing', 'bust', 'one_dart_finish_created',
-        'one_dart_finish_unconverted', 'back_to_back_t20',
-      ].includes(signal)));
-    // Routine speech has a playback-length cooldown, not a replacement queue.
-    if (this.activePriority && !significant) {
+    // Notable observations can wait for another opportunity. Only a major
+    // event earns cutting off an existing line; guaranteed results were handled above.
+    if (this.activePriority && PRIORITY_RANK[event.priority] < PRIORITY_RANK.marquee) {
       return this.reject(event.priority, observationKey, 'cooldown');
     }
 
@@ -218,12 +213,11 @@ export class CommentaryPolicy {
   }
 
   canStartIdleCall(nowMs = Date.now()) {
-    return this.canStartAmbientCall(nowMs)
-      && (this.lastIdleCallAtMs === null || nowMs - this.lastIdleCallAtMs >= 60_000);
+    // The visit timer owns one nudge per takeout; each new visit is eligible.
+    return this.canStartAmbientCall(nowMs);
   }
 
   recordIdleCall(nowMs = Date.now()) {
-    this.lastIdleCallAtMs = nowMs;
     this.recordAmbientCall(nowMs, true);
   }
 
@@ -241,7 +235,6 @@ export class CommentaryPolicy {
     this.observations.clear();
     this.lastDartAtMs = null;
     this.lastWalkOnAtMs = null;
-    this.lastIdleCallAtMs = null;
     this.lastSpokenAtMs = null;
     this.ordinaryVisitsSinceSpeech = 0;
     this.activePriority = null;

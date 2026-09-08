@@ -34,7 +34,7 @@ export class CommentaryVisitTiming {
   private pending: PendingResponse | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private idleVersion = 0;
-  private speech: { event: CommentaryTimingEvent; startedAt: number; expire: () => void; timer: ReturnType<typeof setTimeout> } | null = null;
+  private speech: { event: CommentaryTimingEvent; expire: () => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
   constructor(options: CommentaryVisitTimingOptions = {}) {
     this.ordinaryHoldMs = Math.max(0, options.ordinaryHoldMs ?? 300);
@@ -52,7 +52,7 @@ export class CommentaryVisitTiming {
     const speech = this.speech;
     if (speech && speech.event.eventId !== event.eventId
       && speech.event.priority !== 'terminal' && speech.event.priority !== 'marquee'
-      && (speech.event.expiresOnNextDart || speech.event.turnId !== event.turnId || Date.now() - speech.startedAt >= 2_000)) {
+      && speech.event.expiresOnNextDart) {
       this.finishSpeech();
       speech.expire();
     }
@@ -66,8 +66,8 @@ export class CommentaryVisitTiming {
     );
     if (suppressedPendingSpeech) this.clearPending();
 
-    // Fresh audible reactions retain their gap. Aged routine speech was
-    // discarded above; the policy additionally owns significant interruption.
+    // Ordinary darts do not invalidate an audible line. Only explicit live
+    // anticipation expires here; the policy owns major-event interruptions.
 
     this.lastDart = {
       eventId: event.eventId,
@@ -95,7 +95,7 @@ export class CommentaryVisitTiming {
   }
 
   /** One nudge per real takeout; no repeating timer or queued idle commentary. */
-  scheduleIdle(deliver: (isCurrent: () => boolean) => void, delayMs = 20_000) {
+  scheduleIdle(deliver: (isCurrent: () => boolean) => void, delayMs = 12_000) {
     this.clearIdle();
     const version = this.idleVersion;
     this.idleTimer = setTimeout(() => {
@@ -116,17 +116,18 @@ export class CommentaryVisitTiming {
     this.clearPending();
   }
 
-  /** Bound the entire request-to-playback window, including queued generation. */
+  /** Recover a stuck response, without using editorial length limits to cut audio. */
   trackSpeech(event: CommentaryTimingEvent, expire: () => void) {
     this.finishSpeech();
-    const maximumAgeMs = event.priority === 'terminal' ? 12_000
-      : event.priority === 'marquee' ? 8_000 : event.dartIndex < 3 ? 3_000 : 6_000;
+    // Includes provider latency and playback. Normal completion clears this
+    // watchdog; a healthy short call must have room to finish its sentence.
+    const maximumAgeMs = 30_000;
     const timer = setTimeout(() => {
       if (this.speech?.timer !== timer) return;
       this.finishSpeech();
       expire();
     }, maximumAgeMs);
-    this.speech = { event, startedAt: Date.now(), expire, timer };
+    this.speech = { event, expire, timer };
   }
 
   finishSpeech() {
