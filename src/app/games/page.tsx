@@ -515,11 +515,6 @@ export default function GamesPage() {
         <p className="text-muted-foreground">Live and recent dart matches</p>
       </div>
 
-      <div className="max-w-md space-y-2">
-        <label htmlFor="player-search" className="text-sm font-medium">Search by player</label>
-        <Input id="player-search" placeholder="Enter a player name…" value={playerSearch}
-          onChange={event => { setPlayerSearch(event.target.value); setVisibleCount(20); }} />
-      </div>
       {loadError && <div role="alert" className="text-destructive">Could not load games. <Button variant="outline" onClick={loadGames}>Try again</Button></div>}
       {selectedDate && <div className="flex items-center gap-3 text-sm">
         Games on {selectedDate}
@@ -664,6 +659,12 @@ export default function GamesPage() {
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 text-yellow-500" />
           <h2 className="text-2xl font-semibold">Recent Games</h2>
+        </div>
+
+        <div className="max-w-md space-y-2">
+          <label htmlFor="player-search" className="text-sm font-medium">Search by player</label>
+          <Input id="player-search" placeholder="Enter a player name…" value={playerSearch}
+            onChange={event => { setPlayerSearch(event.target.value); setVisibleCount(20); }} />
         </div>
 
         {filteredRecent.length === 0 ? (
