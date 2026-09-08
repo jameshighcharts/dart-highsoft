@@ -4,7 +4,6 @@ import { ArrowLeft } from 'lucide-react';
 
 import { getAuthenticatedSession, signOut } from '@/auth';
 import { AdminUsersPanel } from '@/components/admin/AdminUsersPanel';
-import { Button } from '@/components/ui/button';
 import { isAuthDevBypassEnabled } from '@/lib/auth/devBypass';
 
 export const dynamic = 'force-dynamic';
@@ -21,15 +20,15 @@ export default async function AdminPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8 md:px-6 md:py-10">
-      <Button asChild variant="outline" className="mb-6">
-        <Link href="/">
-          <ArrowLeft aria-hidden="true" />
-          Back home
-        </Link>
-      </Button>
       <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Users</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-semibold tracking-tight">Users</h1>
+            <Link href="/" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+              <ArrowLeft className="size-3" aria-hidden="true" />
+              Home
+            </Link>
+          </div>
           <p className="mt-1 text-sm text-muted-foreground">
             Players and their Slack identities for the <code className="rounded bg-muted px-1 py-0.5 text-xs">/dart</code> poll.
           </p>
