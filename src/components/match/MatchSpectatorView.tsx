@@ -37,6 +37,7 @@ const ScoreProgressChart = dynamic(
 );
 const DeferredScoreProgressChart = memo(ScoreProgressChart);
 const DeferredHeatmaps = memo(ScoliaMatchHeatmaps);
+const BOARD_COLLAPSED_STORAGE_KEY = 'dart-spectator-board-collapsed-v1';
 
 type CelebrationState = {
   score: number;
@@ -204,6 +205,24 @@ export function MatchSpectatorView({
   isHistoryView = false,
   onBackToGames,
 }: Props) {
+  const [boardCollapsed, setBoardCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setBoardCollapsed(window.localStorage.getItem(BOARD_COLLAPSED_STORAGE_KEY) === 'true');
+    } catch {
+      // Storage can be unavailable; the toggle still works for this visit.
+    }
+  }, []);
+
+  const toggleBoardCollapsed = useCallback(() => {
+    const nextCollapsed = !boardCollapsed;
+    setBoardCollapsed(nextCollapsed);
+    try {
+      window.localStorage.setItem(BOARD_COLLAPSED_STORAGE_KEY, String(nextCollapsed));
+    } catch {
+      // Keep the local UI usable when browser storage is blocked.
+    }
+  }, [boardCollapsed]);
   const [winnerModalOpen, setWinnerModalOpen] = useState(false);
   const [scoliaBoardPhase, setScoliaBoardPhase] = useState<string | null | undefined>(undefined);
   const scoliaBoardId = match.scolia_board_id;
@@ -496,13 +515,17 @@ export function MatchSpectatorView({
           <>
             {/* Cards Row - responsive layout */}
             <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+          <div className={`spectator-main-row grid min-w-0 grid-cols-1 gap-6 xl:col-span-4 ${match.scolia_board_id ? (boardCollapsed ? 'spectator-main-row--collapsed' : 'spectator-main-row--expanded') : ''}`}>
           {match.scolia_board_id && !isHistoryView ? (
             <LiveScoliaBoard
               turns={turns}
               currentLegId={currentLegId}
               currentPlayerName={spectatorCurrentPlayer?.display_name}
+              currentPlayer={spectatorCurrentPlayer}
               playerById={playerById}
               boardPhase={scoliaBoardPhase}
+              collapsed={boardCollapsed}
+              onToggleCollapsed={toggleBoardCollapsed}
               actions={<CommentaryQuickToggle
                 enabled={commentaryEnabled && audioEnabled}
                 status={realtimeCommentaryStatus}
@@ -522,7 +545,23 @@ export function MatchSpectatorView({
             getAvgForPlayer={getAvgForPlayer}
             fairEndingState={fairEndingState}
             title={isHistoryView ? 'Match Summary' : 'Live Match'}
+            className="xl:col-span-1 xl:row-span-1 xl:self-stretch"
+            spacious={Boolean(match.scolia_board_id) && boardCollapsed}
           />
+
+          </div>
+          <style jsx>{`
+            @media (min-width: 1280px) {
+              .spectator-main-row {
+                transition: grid-template-columns 700ms cubic-bezier(.22, 1, .36, 1);
+              }
+              .spectator-main-row--expanded { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+              .spectator-main-row--collapsed { grid-template-columns: minmax(0, .4fr) minmax(0, 1.6fr); }
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .spectator-main-row { transition: none; }
+            }
+          `}</style>
 
           {/* Legs Summary */}
           {legs.length > 0 && (

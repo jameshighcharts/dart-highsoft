@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { PanelLeftClose } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
+import { PlayerAvatar, type AvatarPlayer } from '@/components/PlayerAvatar';
 import { Card, CardContent } from '@/components/ui/card';
 import type { ThrowRecord, TurnRecord, TurnWithThrows } from '@/lib/match/types';
 
@@ -144,16 +147,22 @@ export function LiveScoliaBoard({
   turns,
   currentLegId,
   currentPlayerName,
+  currentPlayer,
   playerById,
   boardPhase,
   actions,
+  collapsed = false,
+  onToggleCollapsed,
 }: {
   turns: TurnRecord[];
   currentLegId?: string;
   currentPlayerName?: string;
-  playerById?: Record<string, { display_name: string }>;
+  currentPlayer?: AvatarPlayer | null;
+  playerById?: Record<string, AvatarPlayer & { display_name: string }>;
   boardPhase?: string | null;
   actions?: ReactNode;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }) {
   const latestVisit = useMemo(() => {
     let latest: TurnWithThrows | undefined;
@@ -190,9 +199,10 @@ export function LiveScoliaBoard({
   );
   const visitTotal = currentThrows.reduce((total, dart) => total + dart.scored, 0);
   const latestDart = currentThrows.at(-1);
-  const displayedPlayerName = currentVisit
-    ? playerById?.[currentVisit.player_id]?.display_name ?? currentPlayerName
-    : currentPlayerName;
+  const displayedPlayer = currentVisit
+    ? playerById?.[currentVisit.player_id]
+    : currentPlayer;
+  const displayedPlayerName = displayedPlayer?.display_name ?? currentPlayerName;
   const wedges = useMemo(() => NUMBERS.flatMap((_, index) => {
     const start = ((index * 18 - 99) * Math.PI) / 180;
     const end = (((index + 1) * 18 - 99) * Math.PI) / 180;
@@ -207,15 +217,16 @@ export function LiveScoliaBoard({
   }), []);
 
   return (
-    <Card className="live-board-card relative h-[calc(100dvh-3rem)] min-h-0 self-start overflow-hidden py-4 xl:col-span-2">
+    <Card className={`live-board-card relative h-[calc(100dvh-3rem)] min-h-0 min-w-0 self-start overflow-hidden py-4 ${collapsed ? 'live-board-card--collapsed' : ''}`}>
       {actions ? <div className="absolute right-3 top-3 z-10">{actions}</div> : null}
-      <CardContent className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] justify-items-center gap-3 px-4 py-0 min-[1900px]:grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)] min-[1900px]:grid-rows-[minmax(0,1fr)] min-[1900px]:items-center">
+      <CardContent className="live-board-content grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] justify-items-center gap-3 px-4 py-0 min-[1900px]:grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)] min-[1900px]:grid-rows-[minmax(0,1fr)] min-[1900px]:items-center">
         <h2 className="sr-only">Live Board</h2>
         <svg
           viewBox={`${VIEWBOX_INSET} ${VIEWBOX_INSET} ${SIZE - VIEWBOX_INSET * 2} ${SIZE - VIEWBOX_INSET * 2}`}
           className="h-full min-h-0 w-full min-w-0 drop-shadow-xl"
           role="img"
           aria-label="Live Scolia dartboard"
+          aria-hidden={collapsed}
         >
           <defs>
             <filter id="impact-glow" x="-100%" y="-100%" width="300%" height="300%">
@@ -329,12 +340,21 @@ export function LiveScoliaBoard({
           aria-label="Current visit throws"
         >
           {displayedPlayerName ? (
-            <div className="mb-3 text-center" aria-live="polite">
-              <div className="text-[10px] font-black uppercase tracking-[0.42em] text-cyan-500/70 sm:text-xs">
-                Current player
-              </div>
-              <div className="mt-1 truncate bg-gradient-to-r from-cyan-300 via-white to-sky-400 bg-clip-text text-[clamp(1.25rem,5dvh,3.75rem)] font-black uppercase italic leading-none tracking-[-0.04em] text-transparent drop-shadow-[0_0_18px_rgba(56,189,248,0.32)]" title={displayedPlayerName}>
-                {displayedPlayerName}
+            <div className="live-board-player mb-3 flex min-w-0 items-center justify-center gap-4 sm:gap-5" aria-live="polite">
+              {displayedPlayer ? (
+                <PlayerAvatar
+                  player={displayedPlayer}
+                  size="xl"
+                  className="h-[clamp(4rem,9dvh,6.5rem)] w-[clamp(4rem,9dvh,6.5rem)] ring-4 ring-cyan-300/30 shadow-[0_0_24px_rgba(34,211,238,0.2)]"
+                />
+              ) : null}
+              <div className="live-board-player-label min-w-0 text-left">
+                <div className="text-[10px] font-black uppercase tracking-[0.42em] text-cyan-500/70 sm:text-xs">
+                  Current player
+                </div>
+                <div className="live-board-player-name mt-1 truncate bg-gradient-to-r from-cyan-300 via-white to-sky-400 bg-clip-text text-[clamp(1.25rem,5dvh,3.75rem)] font-black uppercase italic leading-none tracking-[-0.04em] text-transparent drop-shadow-[0_0_18px_rgba(56,189,248,0.32)]" title={displayedPlayerName}>
+                  {displayedPlayerName}
+                </div>
               </div>
             </div>
           ) : (
@@ -357,7 +377,62 @@ export function LiveScoliaBoard({
           ) : null}
         </div>
       </CardContent>
+      {onToggleCollapsed ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="board-collapse-toggle absolute bottom-3 right-3 z-10 h-11 w-11 rounded-xl border-0 bg-transparent text-muted-foreground/60 shadow-none hover:bg-white/5 hover:text-muted-foreground"
+          onClick={onToggleCollapsed}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? 'Expand dartboard' : 'Collapse dartboard'}
+          title={collapsed ? 'Expand dartboard' : 'Collapse dartboard'}
+        >
+          <PanelLeftClose className={`h-5 w-5 transition-transform duration-500 motion-reduce:transition-none ${collapsed ? 'rotate-180' : ''}`} />
+        </Button>
+      ) : null}
       <style jsx global>{`
+        .live-board-card .live-board-content {
+          padding-bottom: 3rem;
+          transition: grid-template-rows 650ms cubic-bezier(.22,1,.36,1), padding 650ms cubic-bezier(.22,1,.36,1);
+        }
+        .live-board-content > svg {
+          transition: opacity 300ms ease, transform 650ms cubic-bezier(.22,1,.36,1);
+          transform-origin: 50% 65%;
+        }
+        .live-board-card--collapsed .live-board-content > svg {
+          opacity: 0;
+          transform: scale(.65) rotate(-12deg);
+          pointer-events: none;
+          overflow: hidden;
+        }
+        .live-board-card .live-board-player img {
+          transition: width 650ms cubic-bezier(.22,1,.36,1), height 650ms cubic-bezier(.22,1,.36,1);
+        }
+        .board-collapse-toggle { transition: transform 180ms ease, background-color 180ms ease; }
+        .board-collapse-toggle:active { transform: scale(.88); }
+        .live-board-card--collapsed .live-board-content {
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-rows: minmax(0, 0fr) minmax(0, 1fr);
+          row-gap: 0;
+          padding-top: 3.5rem;
+          overflow-y: auto;
+        }
+        .live-board-card--collapsed .throw-readout-grid { grid-template-columns: minmax(0, 1fr); }
+        .live-board-card--collapsed .live-board-player {
+          flex-direction: column;
+          gap: 1rem;
+        }
+        .live-board-card--collapsed .live-board-player-label { width: 100%; text-align: center; }
+        .live-board-card--collapsed .live-board-player-name {
+          display: inline-block;
+          max-width: 100%;
+          font-size: clamp(1.25rem, 2.5vw, 2.5rem);
+        }
+        .live-board-card--collapsed .live-board-player img {
+          width: clamp(6rem, 15dvh, 10rem);
+          height: clamp(6rem, 15dvh, 10rem);
+        }
         .live-board-card .throw-score {
           font-size: clamp(2rem, min(7vw, 10dvh), 8rem);
         }
@@ -433,6 +508,8 @@ export function LiveScoliaBoard({
         }
         @media (prefers-reduced-motion: reduce) {
           .throw-readout, .visit-total, .next-player-stage, .next-player-stage::before { animation: none; }
+          .live-board-card .live-board-content, .live-board-content > svg, .live-board-card .live-board-player img, .board-collapse-toggle { transition: none; }
+          .board-collapse-toggle:active { transform: none; }
         }
         @media (min-width: 1900px) {
           .throw-readout-grid { grid-template-columns: minmax(0, 1fr); }

@@ -1,5 +1,6 @@
 "use client";
 
+import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
@@ -25,6 +26,8 @@ type Props = {
   getAvgForPlayer: (playerId: string) => number;
   fairEndingState?: FairEndingState;
   title?: string;
+  className?: string;
+  spacious?: boolean;
 };
 
 export function SpectatorLiveMatchCard({
@@ -39,6 +42,8 @@ export function SpectatorLiveMatchCard({
   getAvgForPlayer,
   fairEndingState,
   title = 'Live Match',
+  className,
+  spacious = false,
 }: Props) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -103,7 +108,7 @@ export function SpectatorLiveMatchCard({
   }, []);
 
   return (
-    <Card className="min-w-0 gap-4 overflow-hidden xl:max-h-[calc(100dvh-3rem)] xl:self-start xl:col-span-2 xl:row-span-2">
+    <Card className={cn("min-w-0 gap-4 overflow-hidden xl:max-h-[calc(100dvh-3rem)] xl:self-start xl:row-span-2 xl:col-span-2", className)}>
       <CardHeader className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1.5">
         <CardTitle>{title}</CardTitle>
         <CardDescription className="text-xs">
@@ -171,7 +176,7 @@ export function SpectatorLiveMatchCard({
             ref={listRef}
             role="list"
             aria-label="Live player scores"
-            className="grid auto-rows-[minmax(13rem,auto)] content-start grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3 max-h-[70vh] min-h-0 overflow-y-auto overflow-x-hidden p-1 -m-1 xl:max-h-[calc(100dvh-9rem)]"
+            className={cn("grid auto-rows-[minmax(13rem,auto)] content-start grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3 max-h-[70vh] min-h-0 overflow-y-auto overflow-x-hidden p-1 -m-1 xl:max-h-[calc(100dvh-9rem)]", spacious && "xl:flex-1 xl:auto-rows-[minmax(13rem,1fr)] xl:content-stretch", spacious && (orderPlayers.length === 7 || orderPlayers.length === 8 ? "xl:grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))]" : "xl:grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))]"))}
           >
             {orderPlayers.map((player) => {
               const isTiebreak = fairEndingState?.phase === 'tiebreak';
@@ -225,14 +230,18 @@ export function SpectatorLiveMatchCard({
                   }`}
                 >
                   <span className="scoreboard-sweep" aria-hidden="true" />
-                  <div className="relative flex min-w-0 items-center gap-2.5">
-                    <PlayerAvatar player={player} size="sm" />
-                    <span className="min-w-0 break-words text-xl font-bold leading-tight tracking-tight">{player.display_name}</span>
+                  <div className="relative flex min-w-0 items-center gap-[clamp(0.625rem,4cqw,1rem)]">
+                    <PlayerAvatar
+                      player={player}
+                      size="sm"
+                      className="h-[clamp(2rem,17cqw,4.5rem)] w-[clamp(2rem,17cqw,4.5rem)]"
+                    />
+                    <span className="min-w-0 break-words text-[clamp(1.125rem,9cqw,2.75rem)] font-bold leading-tight tracking-tight">{player.display_name}</span>
                   </div>
 
                   <div className="my-auto flex flex-col items-start gap-2">
                     <div>
-                      <div data-score-number className={`origin-left text-[clamp(3.5rem,34cqw,7rem)] font-black leading-none tracking-tighter tabular-nums ${isCurrent ? 'text-lime-300' : isCheckedOut ? 'text-emerald-300' : 'text-foreground'}`}>
+                      <div data-score-number className={`origin-left text-[clamp(3.5rem,min(calc(64cqw_-_4rem),16dvh),11rem)] font-black leading-none tracking-tighter tabular-nums ${isCurrent ? 'text-lime-300' : isCheckedOut ? 'text-emerald-300' : 'text-foreground'}`}>
                         {score}
                       </div>
                       <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -257,8 +266,8 @@ export function SpectatorLiveMatchCard({
 
                   <div className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-white/10 pt-2.5 text-xs tabular-nums text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
-                      <span>{averageDecoration.emoji}</span> AVG
-                      <span className={`font-semibold ${averageDecoration.cls}`}>{avg.toFixed(1)}</span>
+                      <span className="text-[clamp(1.125rem,7cqw,1.75rem)] leading-none">{averageDecoration.emoji}</span> AVG
+                      <span className={`text-[clamp(0.875rem,5.5cqw,1.375rem)] font-extrabold leading-none ${averageDecoration.cls}`}>{avg.toFixed(1)}</span>
                     </span>
                     {!isTiebreakPlayer && (() => {
                       const { lastRoundScore, bestRoundScore } = getLegRoundStats(turns, currentLegId, player.id);
