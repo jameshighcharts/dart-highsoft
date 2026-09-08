@@ -92,7 +92,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `slack/darts/` | POST | Verify Slack slash commands/button actions and create dart polls |
 | `auth/[...nextauth]/` | GET, POST | Auth.js (next-auth v5) Sign in with Slack handlers; `auth/slack/callback` aliases the callback URL |
 | `admin/players/` | GET, POST | Admin-only: players with Slack links plus workspace directory; create player |
-| `admin/players/[playerId]/` | PATCH | Admin-only: rename, relocate, or (de)activate a player |
+| `admin/players/[playerId]/` | PATCH | Admin-only: rename, edit nicknames, relocate, or (de)activate a player |
 | `admin/players/[playerId]/slack-link/` | PUT, DELETE | Admin-only: link/unlink a player and a Slack user in `slack_player_links` |
 | `admin/slack/sync/` | POST | Admin-only: import workspace members as players (first name / `First L`) and link them |
 | `me/` | GET, PATCH | Signed-in member's own player (via `slack_player_links`); edit nicknames/location |
@@ -178,8 +178,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/realtimePrompt.ts` | Builds compact labeled Realtime session prompts and per-call briefs |
 | `commentary/realtimePlayback.ts` | Tracks generation separately from audible playback, recognizes GA `output_audio` and legacy `audio` content, and ignores stale stop events after interruptions |
 | `commentary/realtimeResponseQueue.ts` | Serializes latest-wins Realtime response replacement across asynchronous provider cancellation |
-| `commentary/commentaryPolicy.ts` | Listener-local deterministic speech policy: loose office-match cooldowns, observation memory, live reaction windows, guaranteed calls, and latest-wins interruption |
-| `commentary/commentaryVisitTiming.ts` | Shared visit-gap coordinator with worker speech-expiry windows: suppresses stale pending calls, drops aged routine speech on new darts, and bounds request-to-playback lifetime |
+| `commentary/commentaryPolicy.ts` | Listener-local deterministic speech policy: loose office-match cooldowns, observation memory, live reaction windows, guaranteed calls, and major-event interruption while notable observations preserve ongoing speech |
+| `commentary/commentaryVisitTiming.ts` | Shared visit-gap coordinator with worker speech-expiry windows: suppresses stale pending calls, lets ongoing lines finish across routine darts, expires live anticipation on the next dart, nudges once per waiting visit after 12 seconds from takeout, and recovers stuck responses with a 30-second watchdog |
 | `commentary/commentaryNarrative.ts` | Builds bounded factual story memory from DartIQ replay: tendencies, unconverted finish history, biggest swing, rematch stakes, baseline performance, and deterministic frozen-history rivalry selection |
 | `commentary/storyArcDirector.ts` | Scores competing factual match arcs, selects one broadcast angle, and assigns analysis/sass/callback/closing treatment |
 | `commentary/broadcastDirector.ts` | Stateful listener-local producer plus canonical report replay: arc hysteresis, lifecycle events, reserve stories, editorial budgets, and verified payoff/closure obligations; persistent listener-local rivalry beats and playback-confirmed callback memory |
@@ -211,6 +211,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 ### Components (`src/components`)
 | File | Purpose |
 |------|---------|
+| `profile/ProfileClient.tsx` | Own profile and stats, with admin-only player nickname editing |
+| `profile/AdminNicknameEditor.tsx` | Admin player picker and nickname form using the protected admin API; regression tests cover saving, clearing, and failures |
 | `match/MatchScoringView.tsx` | Active scoring view — scores, dartboard/keypad, actions |
 | `match/MatchSpectatorView.tsx` | Read-only spectator view |
 | `match/SpectatorLiveMatchCard.tsx` | Responsive live player scoreboard grid with a compact inline match header, compact viewport-aware tile heights, container-scaled scores with correction-safe impact motion, on-throw light sweeps, reduced-motion support, bold names, lime on-throw tiles, dart indicators, and compact stats with average-rating emojis without a separate current-turn header; desktop grid fills the stretched card, with overflow scrolling |
