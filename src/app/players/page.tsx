@@ -20,7 +20,7 @@ export default function PlayersPage() {
 
   async function load() {
     const supabase = await getSupabaseClient();
-    const { data } = await supabase.from('players').select('*').order('display_name');
+    const { data } = await supabase.from('players').select('*').eq('is_test', false).order('display_name');
     setPlayers(data ?? []);
   }
   useEffect(() => {
