@@ -42,7 +42,7 @@ type UseCommentaryResult = {
   skipCommentary: () => void;
 };
 
-export function useCommentary(matchId: string): UseCommentaryResult {
+export function useCommentary(matchId: string, autoStart = false): UseCommentaryResult {
   const [commentaryEnabled, setCommentaryEnabled] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [voice, setVoice] = useState<VoiceOption>('cedar');
@@ -119,16 +119,17 @@ export function useCommentary(matchId: string): UseCommentaryResult {
     setCommentaryPlaying(false);
   }, [realtimeCommentaryRef]);
 
-  // Load commentary preferences and enforce disabled-by-default AI toggles
+  // Load commentary preferences; new matches remain disabled unless opted in.
   useEffect(() => {
     setCommentaryTranscriptLog([]);
   }, [matchId]);
 
+  const preferencesLoadedRef = useRef(false);
   useEffect(() => {
+    if (preferencesLoadedRef.current) return;
+    preferencesLoadedRef.current = true;
     try {
-      // Always start each session with AI features disabled.
-      setCommentaryEnabled(false);
-      setAudioEnabled(false);
+      // Ignore legacy enable flags; auto-start is an explicit match preference.
       localStorage.setItem('commentary-enabled', 'false');
       localStorage.setItem('chad-enabled', 'false');
       localStorage.setItem('commentary-audio-enabled', 'false');
@@ -146,6 +147,14 @@ export function useCommentary(matchId: string): UseCommentaryResult {
       console.error('Failed to load commentary settings:', error);
     }
   }, []);
+
+  // Apply the new-match preference once, so manual toggles remain authoritative.
+  const autoStartedMatchRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!autoStart || autoStartedMatchRef.current === matchId) return;
+    autoStartedMatchRef.current = matchId;
+    if (!commentaryEnabled || !audioEnabled) toggleQuickCommentary();
+  }, [autoStart, matchId, commentaryEnabled, audioEnabled, toggleQuickCommentary]);
 
   // Save commentary enabled state
   useEffect(() => {
@@ -183,6 +192,7 @@ export function useCommentary(matchId: string): UseCommentaryResult {
     }
 
     const unlockOnFirstInteraction = () => {
+      void realtimeCommentaryRef.current?.unlock();
       void ttsServiceRef.current.unlock();
     };
 
@@ -190,7 +200,7 @@ export function useCommentary(matchId: string): UseCommentaryResult {
     return () => {
       window.removeEventListener('pointerdown', unlockOnFirstInteraction);
     };
-  }, [audioEnabled]);
+  }, [audioEnabled, realtimeCommentaryRef]);
 
   useEffect(() => {
     try {

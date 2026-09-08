@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { LoaderCircle, Plus, RefreshCw, Router, Trash2 } from 'lucide-react';
+import { LoaderCircle, Plus, RefreshCw, Router, Trash2, Tv } from 'lucide-react';
 import Link from 'next/link';
 
 import { apiRequest } from '@/lib/apiClient';
@@ -302,23 +302,26 @@ export default function BoardsPage() {
         )}
       </section>
 
-      <Card>
-        <CardContent className="flex items-center justify-between gap-4">
-          <div className="space-y-1">
-            <Label htmlFor="tv-mode" className="text-base font-semibold">TV mode</Label>
-            <p id="tv-mode-description" className="text-sm text-muted-foreground">
+      <div className="space-y-2">
+        <label htmlFor="tv-mode" className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${tvMode ? 'border-cyan-400/30 bg-cyan-400/10' : 'border-white/10 bg-white/[0.03] hover:bg-white/5'}`}>
+          <Tv className={`h-5 w-5 shrink-0 ${tvMode ? 'text-cyan-300' : 'text-slate-400'}`} aria-hidden="true" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">TV mode</span>
+            <span id="tv-mode-description" className="mt-0.5 block text-xs leading-relaxed text-slate-400">
               Open new games in fullscreen spectator mode. Saved in this browser.
-            </p>
-            {tvModeError ? <p role="alert" className="text-sm text-destructive">{tvModeError}</p> : null}
-          </div>
+            </span>
+          </span>
           <Switch
             id="tv-mode"
+            aria-label="TV mode"
             aria-describedby="tv-mode-description"
             checked={tvMode}
             onCheckedChange={changeTVMode}
+            className="data-[state=checked]:bg-cyan-400"
           />
-        </CardContent>
-      </Card>
+        </label>
+        {tvModeError ? <p role="alert" className="text-sm text-destructive">{tvModeError}</p> : null}
+      </div>
     </div>
   );
 }
