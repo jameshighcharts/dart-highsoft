@@ -537,6 +537,7 @@ export class ScoliaRealtimeCommentaryPublisher {
                     nextPlayerAlreadyThrowing: timingObservation.nextPlayerAlreadyThrowing,
                     direction,
                     nikitaSpecial: event.nikitaSpecial,
+                    fairEndingPending: Boolean(event.dartiq?.fairEnding && ['completing_round', 'tiebreak'].includes(event.dartiq!.fairEnding!.phase)),
                     legResolved: Boolean(event.dartiq?.legResolution),
                     nextLegAvailable: Boolean(event.dartiq?.legResolution?.nextLeg),
                     // Hardware handoff is a later TAKEOUT_FINISHED event.

@@ -351,6 +351,7 @@ export class RealtimeCommentaryService {
             nextPlayerAlreadyThrowing: timingObservation.nextPlayerAlreadyThrowing,
             direction: directedContext.narrative?.broadcastDirection,
             nikitaSpecial: directedContext.isNikitaSpecial,
+            fairEndingPending: Boolean(directedContext.dartiq?.fairEnding && ['completing_round', 'tiebreak'].includes(directedContext.dartiq!.fairEnding!.phase)),
             legResolved: Boolean(directedContext.dartiq?.legResolution),
             nextLegAvailable: Boolean(directedContext.dartiq?.legResolution?.nextLeg),
             nextPlayerAvailable: Boolean(directedContext.dartiq?.nextOpponentThreat),

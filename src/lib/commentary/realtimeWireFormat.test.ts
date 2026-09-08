@@ -550,3 +550,59 @@ describe('rivalry speech briefs', () => {
     expect(state.observeRivalryDart(source)).toBeNull();
   });
 });
+
+
+describe('fair-ending and landing event authority', () => {
+  it('explains pending catch-up on checkout and subsequent darts without announcing a winner', () => {
+    const state = new RealtimeNarrativeWireState();
+    renderRealtimeSnapshot(1, snapshot(), state);
+    const source = event();
+    source.dartiq!.signals = ['checkout', 'fair_ending_checkout'];
+    source.dartiq!.fairEnding = { enabled: true, phase: 'completing_round', checkedOutPlayerIds: [PLAYER_A],
+      pendingPlayerIds: [PLAYER_B], tiebreakRound: 0, tiebreakPlayerIds: [], tiebreakScores: {}, winnerId: null,
+      approximationMode: 'fair-ending-weighted' };
+    const initial = renderScoliaRealtimeEvent(1, source, state);
+    expect(initial).toContain('A checkout is provisional; no winner yet');
+    expect(initial).toContain('Still entitled to finish this round: Ken');
+    source.checkedOut = false;
+    source.dartiq!.checkedOut = false;
+    source.dartiq!.signals = [];
+    const subsequent = renderScoliaRealtimeEvent(1, source, state);
+    expect(subsequent).toContain('do not repeat congratulations');
+    expect(subsequent).not.toContain('Leg result:');
+    expect(subsequent).not.toContain('won the leg');
+  });
+
+  it('restores high-score tiebreak rules and named totals on reconnect', () => {
+    const context = snapshot();
+    context.fairEnding = true;
+    context.currentLeg!.fairEndingState = { phase: 'tiebreak', checkedOutPlayerIds: [PLAYER_A, PLAYER_B],
+      tiebreakRound: 2, tiebreakPlayerIds: [PLAYER_A, PLAYER_B], tiebreakScores: { [PLAYER_A]: 60, [PLAYER_B]: 20 }, winnerId: null };
+    const text = renderRealtimeSnapshot(2, context, new RealtimeNarrativeWireState());
+    expect(text).toContain('high-score tiebreak round 2');
+    expect(text).toContain('Nikita 60, Ken 20');
+    expect(text).toContain('scores count UP');
+    expect(text).toContain('Tied leaders play another round');
+    expect(text).not.toContain(PLAYER_A);
+  });
+
+  it('separates the prior prediction from the next dart and expires missing forecasts', () => {
+    const state = new RealtimeNarrativeWireState();
+    renderRealtimeSnapshot(1, snapshot(), state);
+    const source = event();
+    source.landing = { detail: 'Landed in S20, 3.0 mm from the T20 scoring region. Intended target unknown.' };
+    source.landingBefore = { playerId: PLAYER_A, dartsLeft: 3, scoreRemaining: 301, artifactId: 'model',
+      segments: [{ segment: 'S20', probability: 0.5 }], actualSegmentProbability: 0.05 };
+    source.landingNext = { ...source.landingBefore, dartsLeft: 2, scoreRemaining: 281 };
+    const text = renderScoliaRealtimeEvent(1, source, state);
+    expect(text).toContain('PRE-DART LANDING · Nikita, 3 darts left at 301');
+    expect(text).toContain('NEXT LANDING · Nikita, 2 darts left at 281');
+    expect(text).toContain('S20 50%');
+    expect(text).toContain('Intended target unknown');
+    const later = renderScoliaRealtimeEvent(1, event(), state);
+    expect(later).not.toContain('NEXT LANDING ·');
+    expect(later).toContain('Landing forecasts from earlier events are expired');
+    expect(renderScoliaTakeoutFinished({ epoch: 1, takeoutEventId: 'takeout', playerName: 'Ken', scoreRemaining: 301 }))
+      .toContain('All earlier next-landing forecasts have expired');
+  });
+});

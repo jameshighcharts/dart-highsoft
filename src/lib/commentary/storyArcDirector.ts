@@ -150,7 +150,8 @@ export function rankCommentaryStoryArcs(input: {
 
   const currentState = latestCompletedState ?? first.before;
   const current = new Map(playerIds.map((id) => [id, probability(currentState, id)]));
-  const lockedWinner = playerIds.find((id) => current.get(id) === 1) ?? null;
+  const lockedWinner = input.events.findLast((event) => event.legResolution?.matchWon)
+    ?.legResolution?.winnerPlayerId ?? null;
   for (const playerId of playerIds) {
     const currentProbability = current.get(playerId) ?? 0;
     const initialProbability = initial.get(playerId) ?? 0;

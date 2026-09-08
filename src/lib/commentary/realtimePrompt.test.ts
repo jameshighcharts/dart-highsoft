@@ -262,3 +262,13 @@ describe('rivalry drama delivery', () => {
     expect(twist).toContain('allegiance and confidence sideways');
   });
 });
+
+
+it('preserves unresolved fair-ending and forecast-expiry rules in per-call instructions', () => {
+  const text = buildRealtimeResponseInstructions({ priority: 'marquee', dartIndex: 1, turnScore: 40,
+    checkedOut: true, busted: false, nextPlayerAlreadyThrowing: false, fairEndingPending: true });
+  expect(text).toContain('RESULT · unresolved fair ending');
+  expect(text).toContain('No winner announcement');
+  expect(text).toContain('Even a displayed 100% chance is not a result');
+  expect(text).toContain('expires on the next dart, correction, or turn change');
+});

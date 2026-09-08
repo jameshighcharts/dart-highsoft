@@ -111,6 +111,7 @@ export function buildCommentaryPrompt(
   const dartIQHints: string[] = [];
   if (payload.dartiq) {
     const dartiq = payload.dartiq;
+    if (dartiq.fairEnding) dartIQHints.push(`Fair-ending phase: ${dartiq.fairEnding.phase}; ${dartiq.fairEnding.phase === 'resolved' ? 'leg resolved' : 'no confirmed winner'}; tiebreak round ${dartiq.fairEnding.tiebreakRound}.`);
     const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
     const formatPoints = (value: number) => `${value >= 0 ? '+' : ''}${Math.round(value * 100)}pp`;
     dartIQHints.push(
@@ -195,6 +196,7 @@ Slang policy: ${persona.id === 'chad'
     : allowSlang ? `optional (≤${style.maxSlangPerLine} natural ${slangTermLabel}).` : 'avoid all slang this line.'}
 Stay clear of hashtags, emojis, or filler catchphrases.
 Prioritize dart intelligence (bogeys, checkout pressure, doubles, busts, setup leaves) over jokes.
+Fair ending: a checkout is provisional until an explicit legResolution. Other eligible players finish the same round; multiple finishers play three-dart highest-score tiebreaks (points count UP), repeating with tied leaders. Never declare a winner from a probability or repeat congratulations while others still throw.
 When DartIQ data is present, explain the consequence accurately. DartIQ is the situation; call the result clutch only when the player gained probability.
 Use at most one relevant narrative-memory thread. Build continuity without reciting the memory object or forcing history into every call.
 When broadcastDirection is present, follow its activeStoryArc as the committed angle, ignore backgroundStoryArcs, and honor payoff_due or closure_due callbacks. Otherwise use activeStoryArc. Never invent evidence beyond it.

@@ -6,13 +6,14 @@ import {
   type DartIQDartPacket,
   type DartIQEventPriority,
 } from '../dartiq/events.ts';
-import type { DartIQReplayInput } from '../dartiq/replay.ts';
+import type { DartIQDartEvent, DartIQReplayInput, DartIQReplayState } from '../dartiq/replay.ts';
 import { DartIQTracker } from '../dartiq/tracker.ts';
 import type { FinishRule } from '../../utils/x01.ts';
 import { isNikitaSpecial } from '../../utils/nikitaSpecial.ts';
 import {
-  createAdaptiveDartIQModel,
+  createAdaptiveDartIQModel, landingSegment,
 } from '../dartiq/model/training.ts';
+import { selectDartIQNextDartForecast } from '../dartiq/model/outcomes.ts';
 import { loadFrozenDartIQEvidence } from '../server/dartiqEvidence';
 import {
   buildCommentaryNarrativeMemory,
@@ -62,7 +63,53 @@ export type ScoliaRealtimeDartEvent = {
   shouldSpeak: boolean;
   isLatestDart?: boolean;
   narrative?: CommentaryNarrativeMemory;
+  landing?: { detail: string };
+  landingBefore?: CommentaryLandingForecast;
+  landingNext?: CommentaryLandingForecast;
 };
+
+export type CommentaryLandingForecast = {
+  playerId: string;
+  dartsLeft: number;
+  scoreRemaining: number;
+  artifactId: string;
+  segments: { segment: string; probability: number }[];
+  actualSegmentProbability?: number;
+};
+
+/** Coordinates describe a landing, never an intended target. */
+export function describeCommentaryLanding(segment: string, x?: number | null, y?: number | null) {
+  if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)
+    || Math.hypot(x, y) > 250 || landingSegment(x, y) !== segment) return undefined;
+  const radius = Math.hypot(x, y);
+  // Same-sector radial proximity is exact for these circular ring boundaries.
+  if (segment.startsWith('S') && segment !== 'SB') {
+    const nearby = [
+      { target: `T${segment.slice(1)}`, distance: radius < 99 ? 99 - radius : radius - 107 },
+      { target: `D${segment.slice(1)}`, distance: 162 - radius },
+    ].filter(({ distance }) => distance > 0 && distance <= 5)
+      .sort((a, b) => a.distance - b.distance)[0];
+    if (nearby) return { detail: `Landed in ${segment}, ${nearby.distance.toFixed(1)} mm from the ${nearby.target} scoring region. Intended target unknown.` };
+  }
+  return undefined;
+}
+
+export function commentaryLandingForecast(
+  input: DartIQReplayInput, state: DartIQReplayState, actualSegment?: string
+): CommentaryLandingForecast | undefined {
+  const playerId = state.currentPlayerId;
+  if (!playerId || state.fairEnding?.phase === 'tiebreak' || state.fairEnding?.phase === 'resolved'
+    || state.dartsRemainingInTurn < 1 || state.dartsRemainingInTurn > 3 || state.scores[playerId] <= 170) return undefined;
+  const full = input.outcomeModels?.[playerId]?.predictLanding?.({
+    currentScore: state.scores[playerId], dartsLeft: state.dartsRemainingInTurn as 1 | 2 | 3,
+    finishRule: input.finishRule,
+  });
+  const selected = selectDartIQNextDartForecast(full);
+  if (!selected) return undefined;
+  return { playerId, dartsLeft: state.dartsRemainingInTurn, scoreRemaining: state.scores[playerId],
+    ...selected, actualSegmentProbability: actualSegment
+      ? full?.segments.find((entry) => entry.segment === actualSegment)?.probability : undefined };
+}
 
 export type ScoliaRealtimeDartFacts = Omit<
   ScoliaRealtimeDartEvent,
@@ -108,7 +155,7 @@ export async function loadScoliaRealtimeDartEvent(
 ): Promise<ScoliaRealtimeDartEvent> {
   const { data: dart, error: dartError } = await supabase
     .from('throws')
-    .select('id, turn_id, dart_index, segment, scored')
+    .select('id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm')
     .eq('id', throwId)
     .single();
   if (dartError || !dart) throw new Error(dartError?.message ?? 'Accepted Scolia throw was not found');
@@ -147,6 +194,7 @@ export async function loadScoliaRealtimeDartEvent(
   if (matchError || !match) throw new Error(matchError?.message ?? 'Accepted Scolia match was not found');
   if (playerError || !player) throw new Error(playerError?.message ?? 'Accepted Scolia player was not found');
 
+  const eventCache = dartIQCache ?? new ScoliaDartIQEventCache();
   const dartiq = await loadDartIQPacket(
     supabase,
     matchId,
@@ -163,9 +211,9 @@ export async function loadScoliaRealtimeDartEvent(
       dart: dart as AcceptedDartIQDart['dart'],
       leg: leg as AcceptedDartIQDart['leg'],
     },
-    dartIQCache
+    eventCache
   );
-  const narrativeTimeline = dartIQCache?.timeline(matchId);
+  const narrativeTimeline = eventCache.timeline(matchId);
   const sourceIndex = narrativeTimeline?.findIndex((event) => event.dartId === throwId) ?? -1;
   const narrative = narrativeTimeline
     ? buildCommentaryNarrativeMemory({
@@ -174,7 +222,14 @@ export async function loadScoliaRealtimeDartEvent(
       })
     : undefined;
 
+  const canonical: DartIQDartEvent | undefined = narrativeTimeline?.[sourceIndex];
+  const replayInput = eventCache.get(matchId)?.input;
   return classifyScoliaRealtimeDart({
+    landing: describeCommentaryLanding(dart.segment, dart.impact_x_mm, dart.impact_y_mm),
+    landingBefore: canonical && replayInput ? commentaryLandingForecast(replayInput, canonical.before, dart.segment) : undefined,
+    landingNext: canonical && replayInput && !canonical.legResolution
+      && canonical.after.currentPlayerId === canonical.playerId && canonical.after.dartsRemainingInTurn < 3
+      ? commentaryLandingForecast(replayInput, canonical.after) : undefined,
     matchId,
     legId: leg.id as string,
     legNumber: leg.leg_number as number,

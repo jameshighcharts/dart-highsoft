@@ -3,6 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
   classifyScoliaRealtimeDart,
+  describeCommentaryLanding,
+  commentaryLandingForecast,
   loadScoliaRealtimeDartEvent,
   ScoliaDartIQEventCache,
   type ScoliaRealtimeDartFacts,
@@ -305,15 +307,66 @@ describe('classifyScoliaRealtimeDart', () => {
     const cache = new ScoliaDartIQEventCache();
 
     await loadScoliaRealtimeDartEvent(supabase, 'match', 'dart-1', cache);
-    tables.throws.push({ id: 'dart-2', turn_id: 'turn', dart_index: 2, segment: 'S20', scored: 20 });
+    const cached = cache.get('match')!;
+    const base = cached.input.outcomeModels!.a;
+    cached.input.outcomeModels = { ...cached.input.outcomeModels, a: { ...base,
+      predictLanding: () => ({ artifactId: 'frozen', validation: 'passed', confidence: 'high',
+        segments: [{ segment: 'S20', probability: 0.8 }, { segment: 'T20', probability: 0.2 }] }),
+    } };
+    tables.throws.push({ id: 'dart-2', turn_id: 'turn', dart_index: 2, segment: 'S20', scored: 20,
+      impact_x_mm: 0, impact_y_mm: 110 });
     tables.turns[0].total_scored = 80;
     const second = await loadScoliaRealtimeDartEvent(supabase, 'match', 'dart-2', cache);
 
     expect(second.dartiq).toMatchObject({ dartId: 'dart-2', scoreBefore: 241, scoreAfter: 221 });
+    expect(second.landing?.detail).toContain('3.0 mm from the T20');
+    expect(second.landingBefore).toMatchObject({ scoreRemaining: 241, dartsLeft: 2, actualSegmentProbability: 0.8 });
+    expect(second.landingNext).toMatchObject({ scoreRemaining: 221, dartsLeft: 1 });
     expect(second.narrative).toMatchObject({
       schemaVersion: 1,
       players: expect.arrayContaining([expect.objectContaining({ playerId: 'a' })]),
     });
     expect(cache.get('match')?.timeline).toHaveLength(2);
+  });
+});
+
+
+describe('grounded landing commentary', () => {
+  it('describes real ring proximity without inventing aim or using contradictory coordinates', () => {
+    expect(describeCommentaryLanding('S20', 0, 110)?.detail).toContain('3.0 mm from the T20');
+    expect(describeCommentaryLanding('S20', 0, 160)?.detail).toContain('2.0 mm from the D20');
+    expect(describeCommentaryLanding('S20', 0, 110)?.detail).toContain('Intended target unknown');
+    expect(describeCommentaryLanding('S20', 0, 130)).toBeUndefined();
+    expect(describeCommentaryLanding('T20', 0, 110)).toBeUndefined();
+    expect(describeCommentaryLanding('S20', null, 110)).toBeUndefined();
+    expect(describeCommentaryLanding('S20', NaN, 110)).toBeUndefined();
+  });
+
+  it('uses only validated, high-confidence forecasts and preserves probability outside the top three', () => {
+    const forecast = { artifactId: 'frozen', validation: 'passed' as const, confidence: 'high' as const,
+      segments: [{ segment: 'S20', probability: 0.5 }, { segment: 'T20', probability: 0.3 },
+        { segment: 'S5', probability: 0.15 }, { segment: 'S1', probability: 0.05 }] };
+    const input: Parameters<typeof commentaryLandingForecast>[0] = {
+      playerIds: ['a'], legs: [], turnsByLeg: {}, startScore: 501, finishRule: 'double_out', legsToWin: 1,
+      outcomeModels: { a: { version: 'behavioral-v1', distribution: () => { throw new Error('No projection needed'); },
+        predictLanding: () => forecast } },
+    };
+    const state: Parameters<typeof commentaryLandingForecast>[1] = {
+      legId: 'leg', legNumber: 1, currentPlayerId: 'a', dartsRemainingInTurn: 2,
+      scores: { a: 301 }, legsWon: {}, projections: [], approximationMode: 'standard', fairEnding: null,
+    };
+    expect(commentaryLandingForecast(input, state, 'S1')).toMatchObject({ playerId: 'a', dartsLeft: 2,
+      scoreRemaining: 301, artifactId: 'frozen', actualSegmentProbability: 0.05,
+      segments: forecast.segments.slice(0, 3) });
+    expect(commentaryLandingForecast(input, { ...state, scores: { a: 170 } })).toBeUndefined();
+    expect(commentaryLandingForecast(input, { ...state, currentPlayerId: null })).toBeUndefined();
+    expect(commentaryLandingForecast(input, { ...state, fairEnding: {
+      phase: 'tiebreak', checkedOutPlayerIds: ['a'], tiebreakRound: 1, tiebreakPlayerIds: ['a'],
+      tiebreakScores: {}, winnerId: null, pendingPlayerIds: ['a'], tiebreakDartsThrown: {}, approximationMode: 'fair-ending-weighted',
+    } })).toBeUndefined();
+    input.outcomeModels!.a.predictLanding = () => ({ ...forecast, validation: 'pending' });
+    expect(commentaryLandingForecast(input, state)).toBeUndefined();
+    input.outcomeModels!.a.predictLanding = () => ({ ...forecast, confidence: 'low' });
+    expect(commentaryLandingForecast(input, state)).toBeUndefined();
   });
 });

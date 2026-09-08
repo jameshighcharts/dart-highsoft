@@ -17,6 +17,13 @@ export function buildRealtimeSessionInstructions(persona: CommentaryPersona) {
 - Every factual claim must trace to a supplied event, memory fact, or promoted story. Invent no aim, intent, miss, record, or history.
 - X01 counts DOWN toward zero. A lower remaining score is not a loss of points, collapse, or downgrade. Moving from 40 to 32 or 16 still leaves a one-dart double finish. React to the actual dart and supplied change in chances; do not invent a setback to justify a dramatic tone.
 
+# Fair Ending and Landing Facts
+- A checkout is not a confirmed leg or match win in fair ending. Eligible players finish the same round; multiple finishers play three-dart highest-score tiebreaks, repeating with tied leaders. During the tiebreak points count UP, there are no checkout targets, and a leader is not a winner until authoritative resolution.
+- Only an explicit confirmed result authorizes a winner announcement. Even a displayed 100% chance is not a result. Celebrate a provisional checkout briefly without declaring victory; on following darts focus on the player still throwing rather than repeating the earlier finisher or congratulations.
+- Supplied landing proximity describes physical location, never intended aim. Say it landed close to a region; never claim a missed target without supplied intent.
+- Validated landing forecasts are optional background context. Use them sparingly for anticipation or a fresh reaction to an unexpected result. They predict historical scoring patterns, not exact coordinates, intended targets, or grouping around the previous dart. Never invent a forecast or recite predictions every dart.
+- A PRE-DART forecast describes only the dart just thrown. Only the latest NEXT LANDING forecast applies to an upcoming dart, and it expires on the next dart, correction, or turn change. If absent, there is no current landing prediction.
+
 # Character Continuity
 - The fictional commentator premise supplies a private starting mood. Express it through timing, tone, and occasional asides; do not announce the premise or mention it every call.
 - Carry the emotional residue of earlier calls into the next relevant moment. Let actual match events change your mood: forget your own situation during a tense finish, get unexpectedly attached to a player's struggle, or let composure crack. A later callback may reveal that change. A quiet reaction can be more intense than shouting.
@@ -66,7 +73,7 @@ function visitOpeningBrief(personaId?: CommentaryPersonaId) {
   return [
     realtimePersonaResponseInstruction(personaId),
     'CALL · visit opening · takeout finished · 2–8 words',
-    'Name the incoming player AND their remaining score from the latest takeout context. Make it a characterful entrance: a tiny affectionate jab, mock ceremony, or swaggering challenge if it fits. Supplied recent darts, real history, or an established obviously pretend feud can color the entrance; invent no factual failure or rivalry. A fresh visit has three darts; no recap, and no dart has landed.',
+    'Name the incoming player AND their remaining score from the latest takeout context. During an active fair-ending tiebreak, name the incoming player for their high-score visit instead; zero X01 remaining is not a checkout or win. Make it a characterful entrance: a tiny affectionate jab, mock ceremony, or swaggering challenge if it fits. Supplied recent darts, real history, or an established obviously pretend feud can color the entrance; invent no factual failure or rivalry. A fresh visit has three darts; no recap, and no dart has landed.',
   ].join('\n');
 }
 
@@ -86,6 +93,7 @@ type RealtimeResponseBrief = {
   nextLegAvailable?: boolean;
   nextPlayerAvailable?: boolean;
   historicalFocus?: boolean;
+  fairEndingPending?: boolean;
 };
 
 export function realtimeRivalryTexture(direction: BroadcastDirection | null | undefined) {
@@ -154,6 +162,9 @@ function responseBrief(input: RealtimeResponseBrief) {
     `DELIVERY · ${anticipating ? '2–6 words' : input.direction?.rivalry ? '6–12 words' : input.historicalFocus ? '6–12 words' : realtimeLengthInstruction(input)} · ${realtimeRivalryTexture(input.direction) || realtimeTextureInstruction(input)}${timing ? ` · ${timing}` : ''}`,
     input.historicalFocus && !input.direction?.rivalry
       ? 'HISTORY · Make the supplied personal comparison or shared history the point of this call. Show why it matters for this player using one telling number or a faithful qualitative comparison. If a previous player just got a similar comparison, find a different angle or acknowledge that connection; do not reuse the same sentence with a new name. No invented record, generic substitute, or statistics recital.'
+      : '',
+    input.fairEndingPending
+      ? 'RESULT · unresolved fair ending. No winner announcement or closing payoff; react to the current dart. An earlier checkout remains provisional.'
       : '',
     input.legResolved
       ? `RESULT · leg first${input.nextLegAvailable ? ' · next-leg starter may follow' : ''}`

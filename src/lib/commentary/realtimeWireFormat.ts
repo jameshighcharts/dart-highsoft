@@ -33,6 +33,33 @@ function rarityLine(dartiq: ScoliaRealtimeDartEvent['dartiq']) {
   return `Model rarity: this direction of swing was in the outer ${percent(tail)} tail for this state.`;
 }
 
+function fairEndingLine(
+  fair: { phase: string; checkedOutPlayerIds: string[]; tiebreakRound: number;
+    tiebreakPlayerIds: string[]; tiebreakScores: Record<string, number>; winnerId: string | null;
+    pendingPlayerIds?: string[] } | null | undefined,
+  state: RealtimeNarrativeWireState
+) {
+  if (!fair) return null;
+  const names = (ids: string[]) => ids.map((id) => state.name(id)).join(', ');
+  if (fair.phase === 'completing_round') return `FAIR ENDING · unresolved. Checked out: ${names(fair.checkedOutPlayerIds)}. ${fair.pendingPlayerIds?.length ? `Still entitled to finish this round: ${names(fair.pendingPlayerIds)}. ` : ''}A checkout is provisional; no winner yet. If another player checks out in this round, the tied finishers enter a high-score tiebreak. Follow the current thrower; do not repeat congratulations to an earlier finisher.`;
+  if (fair.phase === 'tiebreak') return `FAIR ENDING · high-score tiebreak round ${fair.tiebreakRound}; unresolved, no winner yet. Players: ${names(fair.tiebreakPlayerIds)}. Round totals: ${fair.tiebreakPlayerIds.map((id) => `${state.name(id)} ${fair.tiebreakScores[id] ?? 0}`).join(', ')}. Each player gets three darts; highest visit total wins after everyone finishes. Tied leaders play another round. These scores count UP; there is no checkout target. React to the current dart, not an earlier X01 checkout.`;
+  if (fair.phase === 'resolved') return `FAIR ENDING · resolved${fair.winnerId ? `; confirmed leg winner ${state.name(fair.winnerId)}` : ''}. Announce this result once; subsequent play moves on.`;
+  return 'FAIR ENDING · enabled. The first checkout does not end the leg: eligible players finish the same round. Multiple finishers play three-dart high-score tiebreaks; tied leaders repeat until resolved.';
+}
+
+function landingLines(event: ScoliaRealtimeDartEvent, state: RealtimeNarrativeWireState) {
+  const before = event.landingBefore;
+  const next = event.landingNext;
+  const segments = (forecast: NonNullable<typeof next>) => forecast.segments
+    .map((entry) => `${entry.segment} ${percent(entry.probability)}`).join(', ');
+  return [
+    'Landing forecasts from earlier events are expired. Only NEXT LANDING below, if present, applies now; correction or turn change also expires it.',
+    event.landing?.detail,
+    before ? `PRE-DART LANDING · ${state.name(before.playerId)}, ${before.dartsLeft} darts left at ${before.scoreRemaining}: ${segments(before)}.${before.actualSegmentProbability !== undefined ? ` Observed ${event.segment} had ${percent(before.actualSegmentProbability)} probability.` : ''} This was the frozen-model forecast before this dart, not hindsight or an intended target.` : null,
+    next ? `NEXT LANDING · ${state.name(next.playerId)}, ${next.dartsLeft} darts left at ${next.scoreRemaining}: ${segments(next)}. Valid only until the next dart. Historical scoring-context distribution; does not infer aim or account for where the previous dart landed. Background context; optional brief anticipation, never a promise or routine probability recital.` : null,
+  ].filter(Boolean);
+}
+
 function legResolutionLine(
   resolution: NonNullable<ScoliaRealtimeDartEvent['dartiq']>['legResolution'],
   state: RealtimeNarrativeWireState
@@ -383,6 +410,7 @@ export function renderRealtimeSnapshot(
     ...players,
     renderPlayerNicknames(snapshot.players),
     current,
+    fairEndingLine(snapshot.currentLeg?.fairEndingState, state),
     rematch,
     ...history,
     ...narrative,
@@ -484,6 +512,8 @@ export function renderScoliaRealtimeEvent(
     `AUTHORITATIVE EVENT · epoch ${epoch}`,
     `${event.playerName} · leg ${event.legNumber} · dart ${event.dartIndex}: ${event.segment} for ${event.scored}${dartiq ? `; score ${dartiq.scoreBefore} → ${dartiq.scoreAfter}` : ''}${result ? `; ${result}` : ''}.`,
     visit,
+    fairEndingLine(dartiq?.fairEnding, state),
+    ...landingLines(event, state),
     probability,
     consequence,
     opportunityLine(dartiq),
@@ -509,7 +539,7 @@ export function renderScoliaTakeoutFinished(input: {
 }) {
   return [
     `AUTHORITATIVE TAKEOUT · epoch ${input.epoch} · ${input.takeoutEventId}`,
-    'The previous player has removed the darts; the board is clear.',
+    'The previous player has removed the darts; the board is clear. All earlier next-landing forecasts have expired.',
     `Visit opening: ${input.playerName} is now up with ${input.scoreRemaining} remaining. No dart has landed yet.`,
   ].join('\n');
 }
@@ -579,6 +609,7 @@ export function renderManualRealtimeEvent(
   return [
     `AUTHORITATIVE EVENT · epoch ${epoch}`,
     `${context.playerName} · leg ${context.gameContext.currentLegNumber} · visit ${context.gameContext.playerTurnNumber}: ${context.throws.map((dart) => dart.segment).join(' · ')} = ${context.totalScore}; score ${currentScoreBefore} → ${context.remainingScore}${context.busted ? '; bust' : dartiq?.checkedOut ? '; checkout' : ''}.`,
+    fairEndingLine(dartiq?.fairEnding, state),
     probability,
     dartiq ? `Full-field consequence: leg ${points(dartiq.peakLegConsequence ?? Math.abs(dartiq.legWpa))}; match ${points(dartiq.peakMatchConsequence ?? Math.abs(dartiq.matchWpa))}.` : null,
     dartiq?.peakLegOpportunity !== undefined

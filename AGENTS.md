@@ -141,7 +141,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `dartiq/tracker.ts` | Correction-safe verified replay-prefix owner used by live UI and the Scolia commentary worker |
 | `dartiq/liveWorker.ts` | Serializable live-worker protocol and worker-owned model/tracker processor; regression tests cover protocol lifecycle and canonical replay parity |
 | `dartiq/insights.ts` | Turning points, lead changes, stolen/thrown-away legs, and ranked commentary moments |
-| `dartiq/events.ts` | Compact provider-neutral dart packets plus deterministic editorial classification |
+| `dartiq/events.ts` | Compact provider-neutral dart packets plus deterministic editorial classification; match-win signals require explicit resolution, and fair-ending packets retain pending players |
 | `dartiq/calibration.ts` | Pure full-vector calibration metrics, chronological match-level temperature fitting/validation, and geometry coverage diagnostics; never promotes models automatically |
 | `dartiq/model/{outcomes,visit,race}.ts` | Behavioral outcomes, double-out visit transitions, and ordered multiplayer race math |
 | `dartiq/model/training.ts` | Bounded empirical behavioural fitting, scoring-only spatial smoothing, fixed-artifact follow-up validation, adaptive inference, and regression monitoring |
@@ -175,7 +175,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `games/engines/*.ts` | Pure replay engines for Cricket, Killer, Shanghai, and Around the Clock |
 | `commentary/personas.ts` | Chad and Bob commentary personas (retired IDs fall back to Chad) and shared voice instructions for nicknames and signature-event celebrations |
 | `commentary/promptBuilder.ts` | Builds LLM prompts from game context |
-| `commentary/realtimePrompt.ts` | Builds compact labeled Realtime session prompts and per-call briefs |
+| `commentary/realtimePrompt.ts` | Builds compact labeled Realtime session prompts and per-call briefs, with provisional fair-ending and forecast-expiry rules |
 | `commentary/realtimePlayback.ts` | Tracks generation separately from audible playback, recognizes GA `output_audio` and legacy `audio` content, and ignores stale stop events after interruptions |
 | `commentary/realtimeResponseQueue.ts` | Serializes latest-wins Realtime response replacement across asynchronous provider cancellation |
 | `commentary/commentaryPolicy.ts` | Listener-local deterministic speech policy: loose office-match cooldowns, observation memory, live reaction windows, guaranteed calls, and major-event interruption while notable observations preserve ongoing speech |
@@ -186,7 +186,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/commentaryDemoScenario.ts` | Deterministic six-player 301 double-out office broadcast demo with scrappy scoring, isolated trebles/doubles, clustered finish tension, and a D16 payoff, with synthetic Ada/Ben rivalry evidence for the local demo |
 | `commentary/realtimeTypes.ts` | Shared Realtime session/correction-envelope contracts, model default, UUID validation, and legacy-to-Realtime voice mapping |
 | `commentary/realtimeSnapshot.ts` | Builds compact authoritative match snapshots for new, reconnected, and rotated Realtime sessions |
-| `commentary/scoliaRealtimeEvent.ts` | Loads an accepted Scolia throw from canonical rows, attaches its deterministic DartIQ packet, and classifies speech priority without waiting for Supabase Realtime |
+| `commentary/scoliaRealtimeEvent.ts` | Loads an accepted Scolia throw from canonical rows, attaches its deterministic DartIQ packet, adds coordinate-verified ring proximity and frozen-model before/next-dart landing forecasts, and classifies speech priority without waiting for Supabase Realtime |
 | `avatars.ts` | Shared avatar sizes, initials, colors, escaped grid HTML, and storage URL parsing |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
 | `supabaseServer.ts` | Server-side Supabase client (API routes) |
