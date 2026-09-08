@@ -503,7 +503,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
     playerLocations,
     playerAvatarUrls,
     matchActivity,
-    weeklyEloClimber,
+    weeklyEloClimber: candidateWeeklyEloClimber,
     loading,
   } = useLeaderboardData();
   const [locationFilter, setLocationFilter] = useState<LeaderboardLocationFilter>(loadLeaderboardLocationFilter);
@@ -531,8 +531,8 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           avatar_url: playerAvatarUrls.get(id) ?? null,
           location: playerLocations.get(id) ?? null,
           wins: null,
-          games_played: null,
-          game_win_rate: null,
+          games_played: playerGameStats.get(id)?.games_played ?? null,
+          game_win_rate: playerGameStats.get(id)?.game_win_rate ?? null,
           avg_per_turn: null,
           elo_1v1: null,
           elo_multi: null,
@@ -564,13 +564,17 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
       for (const mock of MOCK_ELO_PLAYERS) map.set(mock.player_id, { ...mock });
     }
 
-    return Array.from(map.values());
+    return Array.from(map.values()).filter((player) => (player.games_played ?? 0) >= 3);
   }, [leaders, eloLeaders, eloMultiLeaders, playerGameStats, playerLocations, playerAvatarUrls, mockEloRows]);
 
   const filteredMerged = useMemo(() => {
     if (locationFilter === 'all') return merged;
     return merged.filter((p) => p.location === locationFilter);
   }, [merged, locationFilter]);
+
+  const weeklyEloClimber = candidateWeeklyEloClimber && merged.some(
+    (player) => player.player_id === candidateWeeklyEloClimber.player_id
+  ) ? candidateWeeklyEloClimber : null;
 
   const hotStreak = useMemo(() => {
     let best: { playerId: string; player: string; streak: number; wins: number; recent: number[] } | null = null;
@@ -934,7 +938,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         ]
       },
       lang: {
-        noData: 'No leaderboard data yet. Play some matches!',
+        noData: 'Complete at least 3 X01 matches to appear on the leaderboard.',
       },
     };
   }, [filteredMerged, eloHistory, multiEloHistory, recentWinsByPlayer, eloViewFilter]);
@@ -947,6 +951,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
     <div className={`grid-leaderboard highcharts-dark${eloBadgeStyle === 'full' ? ' elo-style-full' : ''}`}>
       <div className="leaderboard-header">
         <div className="leaderboard-heading">{headerContent}</div>
+        <p className="text-sm text-muted-foreground">Complete 3 X01 matches to appear here with your Elo rating.</p>
       </div>
 
       <div className="leaderboard-toolbar">

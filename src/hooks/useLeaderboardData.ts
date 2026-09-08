@@ -85,7 +85,7 @@ function buildGameStatsByPlayer(rows: MatchParticipationRow[]): Map<string, Play
 
   for (const row of rows) {
     const match = Array.isArray(row.matches) ? row.matches[0] : row.matches;
-    if (!match || match.ended_early) continue;
+    if (!match || match.ended_early || !match.winner_player_id) continue;
 
     const current = counts.get(row.player_id) ?? { games_played: 0, wins: 0 };
     current.games_played += 1;

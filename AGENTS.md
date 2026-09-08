@@ -242,7 +242,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `PlayerAvatarById.tsx` | Avatar lookup for ID-only rows, with one shared cached player query |
 | `Dartboard.tsx` | SVG interactive dartboard (desktop) |
 | `MobileKeypad.tsx` | Touch number pad (mobile) |
-| `GridLeaderboard.tsx` | Home page leaderboard grid |
+| `GridLeaderboard.tsx` | Home page leaderboard grid; players and their Elo appear after 3 completed X01 matches, excluding early endings |
 | `EloLeaderboard.tsx` | 1v1 Elo leaderboard |
 | `MultiEloLeaderboard.tsx` | Multiplayer Elo leaderboard |
 | `AroundTheWorldGame.tsx` | Around the World game UI |
