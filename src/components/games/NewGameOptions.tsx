@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ComponentType } from "react";
-import { Check, Info } from "lucide-react";
+import { Check, Info, ShieldAlert, Target, FastForward, Scale } from "lucide-react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +60,7 @@ export type SavedGameSetup = {
   finish: "single_out" | "double_out";
   legsToWin: number;
   fairEnding: boolean;
+  commentaryEnabled?: boolean;
 };
 
 /** Restore only recognized options; stale or malformed preferences use defaults. */
@@ -106,6 +107,7 @@ export function loadStoredSetup(): SavedGameSetup | null {
       finish: saved.finish === "double_out" ? "double_out" : "single_out",
       legsToWin,
       fairEnding: legsToWin === 1 && saved.fairEnding === true,
+      commentaryEnabled: saved.commentaryEnabled === true,
     };
   } catch {
     return null;
@@ -518,14 +520,19 @@ export function GameConfigFields({
             );
           }
           const id = `game-field-${mode}-${field.key}`;
+          const checked = config[field.key] === true;
+          const Icon = field.key === "selfHitPenalty" ? ShieldAlert
+            : field.key === "skipOnDoubleTreble" ? FastForward
+            : field.key === "fairFinish" ? Scale : Target;
           return (
-            <div key={field.key} className="sm:col-span-2 flex items-center justify-between gap-4 rounded border p-3">
-              <label htmlFor={id} className="text-sm font-medium">
-                {field.label}
-                {field.help && <span className="block text-xs font-normal text-muted-foreground">{field.help}</span>}
-              </label>
-              <Switch id={id} checked={config[field.key] === true} onCheckedChange={(checked) => set(field.key, checked)} />
-            </div>
+            <label key={field.key} htmlFor={id} className={`sm:col-span-2 flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${checked ? "border-cyan-400/30 bg-cyan-400/10" : "border-white/10 bg-white/[0.03] hover:bg-white/5"}`}>
+              <Icon className={`h-5 w-5 shrink-0 ${checked ? "text-cyan-300" : "text-slate-400"}`} aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">{field.label}</span>
+                {field.help && <span id={`${id}-description`} className="mt-0.5 block text-xs leading-relaxed text-slate-400">{field.help}</span>}
+              </span>
+              <Switch id={id} aria-label={field.label} aria-describedby={field.help ? `${id}-description` : undefined} checked={checked} onCheckedChange={(next) => set(field.key, next)} className="data-[state=checked]:bg-cyan-400" />
+            </label>
           );
         })}
         {showKillerAssignment && (

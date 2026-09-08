@@ -1,3 +1,4 @@
+import { createElement, StrictMode } from 'react';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useCommentary, MAX_COMMENTARY_TRANSCRIPTS, appendCommentaryTranscript } from './useCommentary';
@@ -17,6 +18,33 @@ vi.mock('@/hooks/useRealtimeCommentary', () => ({ useRealtimeCommentary: mocks.u
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
 
 describe('one-tap commentary', () => {
+  it('auto-starts with Verse in spectator mode and respects a subsequent manual stop', () => {
+    mocks.useRealtime.mockReturnValue({ serviceRef: { current: mocks.realtime }, status: 'idle' });
+    const { result, rerender } = renderHook(({ spectator }) => useCommentary('match', spectator), {
+      initialProps: { spectator: false },
+      wrapper: ({ children }) => createElement(StrictMode, null, children),
+    });
+    expect(result.current.commentaryEnabled).toBe(false);
+    rerender({ spectator: true });
+    expect(result.current.commentaryEnabled).toBe(true);
+    expect(result.current.audioEnabled).toBe(true);
+    expect(result.current.voice).toBe('verse');
+    act(() => result.current.toggleQuickCommentary());
+    rerender({ spectator: false });
+    rerender({ spectator: true });
+    expect(result.current.commentaryEnabled).toBe(false);
+  });
+
+  it('keeps auto-start enabled through Strict Mode effect replay', () => {
+    mocks.useRealtime.mockReturnValue({ serviceRef: { current: mocks.realtime }, status: 'idle' });
+    const { result } = renderHook(() => useCommentary('match', true), {
+      wrapper: ({ children }) => createElement(StrictMode, null, children),
+    });
+    expect(result.current.commentaryEnabled).toBe(true);
+    expect(result.current.audioEnabled).toBe(true);
+    expect(result.current.voice).toBe('verse');
+  });
+
   it('unlocks both outputs in the gesture and connects with Verse from both toggles off', () => {
     mocks.useRealtime.mockReturnValue({ serviceRef: { current: mocks.realtime }, status: 'idle' });
     const { result } = renderHook(() => useCommentary('match'));

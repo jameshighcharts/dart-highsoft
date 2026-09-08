@@ -18,7 +18,7 @@ export function BracketMatchCard({ tm, playerName, onMatchClick }: Props) {
       className={`
         rounded border px-2 py-1.5 text-xs w-[160px] shrink-0 transition-colors
         ${isPlayable ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-950/50' : ''}
-        ${isComplete ? 'border-green-300 bg-green-50/50 dark:bg-green-950/20' : ''}
+        ${isComplete ? 'border-emerald-400/30 bg-green-50/50 dark:bg-green-950/20' : ''}
         ${isPending ? 'border-dashed border-muted-foreground/30 opacity-50' : ''}
         ${tm.is_bye ? 'border-dashed opacity-60' : ''}
       `}

@@ -395,7 +395,7 @@ export default function GamesPage() {
   };
 
   const renderLiveGameSession = (game: GameSessionWithDetails) => (
-    <Card key={game.id} className="hover:shadow-md transition-shadow border-red-200">
+    <Card key={game.id} className="border-cyan-400/20 bg-cyan-400/[0.025] transition-[border-color,box-shadow] hover:border-cyan-400/30 hover:shadow-md">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -585,7 +585,7 @@ export default function GamesPage() {
               if (item.kind === 'game') return renderLiveGameSession(item.game);
               const match = item.match;
               return (
-              <Card key={match.id} className="hover:shadow-md transition-shadow border-red-200">
+              <Card key={match.id} className="border-cyan-400/20 bg-cyan-400/[0.025] transition-[border-color,box-shadow] hover:border-cyan-400/30 hover:shadow-md">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-lg">
@@ -681,7 +681,7 @@ export default function GamesPage() {
               return (
                 <Card
                   key={match.id}
-                  className="group relative cursor-pointer transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/20"
+                  className="group relative cursor-pointer transition-all hover:-translate-y-0.5 hover:border-cyan-400/30 hover:shadow-md focus-within:border-cyan-400/30 focus-within:ring-2 focus-within:ring-cyan-400/20"
                 >
                   <Link
                     href={`/match/${match.id}?spectator=true&history=true`}

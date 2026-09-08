@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTournamentData } from '@/hooks/useTournamentData';
 import { BracketView } from '@/components/tournament/BracketView';
@@ -17,10 +17,15 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import Link from 'next/link';
+import { apiRequest } from '@/lib/apiClient';
+import { isTVModeEnabled, requestTVModeFullscreen } from '@/lib/tvMode';
 
 export default function TournamentClient({ tournamentId }: { tournamentId: string }) {
   const router = useRouter();
   const { loading, error, tournament, matches, players, playerMap } = useTournamentData(tournamentId);
+  const openingRef = useRef(false);
+  const [openingMatch, setOpeningMatch] = useState(false);
+  const [openError, setOpenError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -48,8 +53,25 @@ export default function TournamentClient({ tournamentId }: { tournamentId: strin
     return playerMap.get(id)?.display_name ?? 'Unknown';
   }
 
-  function handleMatchClick(matchId: string) {
-    router.push(`/match/${matchId}`);
+  async function handleMatchClick(matchId: string) {
+    if (openingRef.current) return;
+    openingRef.current = true;
+    setOpeningMatch(true);
+    setOpenError(null);
+    const spectator = isTVModeEnabled();
+    requestTVModeFullscreen();
+    try {
+      const result = await apiRequest<{ commentaryEnabled: boolean }>(`/api/tournaments/${tournamentId}/matches/${matchId}/open`, { body: {} });
+      const params = new URLSearchParams();
+      if (spectator) params.set('spectator', 'true');
+      if (result.commentaryEnabled) params.set('commentary', 'true');
+      router.push(`/match/${matchId}${params.size ? `?${params}` : ''}`);
+    } catch (error) {
+      setOpenError(error instanceof Error ? error.message : 'Failed to open match');
+    } finally {
+      openingRef.current = false;
+      setOpeningMatch(false);
+    }
   }
 
   if (loading) return <div className="p-4">Loading tournament...</div>;
@@ -134,6 +156,9 @@ export default function TournamentClient({ tournamentId }: { tournamentId: strin
           </div>
         </div>
       )}
+
+      {openingMatch && <p role="status" className="text-sm text-cyan-300">Opening match…</p>}
+      {openError && <p role="alert" className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-200">{openError}</p>}
 
       {/* Bracket + Standings side by side on desktop */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">

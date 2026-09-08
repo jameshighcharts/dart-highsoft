@@ -3,6 +3,8 @@ import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { captureDartIQMatchEvidence } from '@/lib/server/dartiqEvidence';
 import { generateBracket } from '@/lib/tournament/bracket';
 import { fisherYatesShuffle } from '@/lib/tournament/shuffle';
+import { assertScoliaBoardAvailable } from '@/lib/server/scoliaBoardTarget';
+import { isUuid } from '@/lib/commentary/realtimeTypes';
 import { cleanupTournament } from '@/lib/server/cleanupTournament';
 
 type CreateTournamentRequest = {
@@ -12,6 +14,8 @@ type CreateTournamentRequest = {
   legsToWin: number;
   fairEnding?: boolean;
   playerIds: string[];
+  scoliaBoardId?: string | null;
+  commentaryEnabled?: boolean;
 };
 
 export async function POST(request: Request) {
@@ -39,6 +43,16 @@ export async function POST(request: Request) {
     if (new Set(body.playerIds).size !== body.playerIds.length) {
       return NextResponse.json({ error: 'Duplicate player IDs' }, { status: 400 });
     }
+    if (body.scoliaBoardId != null && !isUuid(body.scoliaBoardId)) {
+      return NextResponse.json({ error: 'Invalid Scolia board' }, { status: 400 });
+    }
+    if (body.commentaryEnabled !== undefined && typeof body.commentaryEnabled !== 'boolean') {
+      return NextResponse.json({ error: 'Invalid commentary preference' }, { status: 400 });
+    }
+    if (body.scoliaBoardId) {
+      const availability = await assertScoliaBoardAvailable(supabase, body.scoliaBoardId);
+      if (!availability.ok) return NextResponse.json({ error: availability.error }, { status: availability.status });
+    }
     const startScore = String(body.startScore) as '201' | '301' | '501';
     const fairEnding = body.fairEnding && body.legsToWin === 1 ? true : false;
 
@@ -55,6 +69,8 @@ export async function POST(request: Request) {
         finish: body.finishRule,
         legs_to_win: body.legsToWin,
         fair_ending: fairEnding,
+        scolia_board_id: body.scoliaBoardId ?? null,
+        commentary_enabled: body.commentaryEnabled ?? false,
         status: 'in_progress',
       })
       .select()

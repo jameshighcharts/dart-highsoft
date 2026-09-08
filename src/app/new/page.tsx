@@ -15,8 +15,9 @@ import type {
 } from "@/lib/scolia/types";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { ArrowRight, Search, X } from "lucide-react";
+import { ArrowRight, Search, Scale, Volume2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -45,6 +46,7 @@ import {
   loadStoredBoardId,
   storeBoardId,
 } from "@/components/games/BoardPicker";
+import { SelectedPlayerLineup } from "@/components/games/SelectedPlayerLineup";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 
 type Player = { id: string; display_name: string; location: string | null; avatar_url?: string | null; gamesPlayed?: number };
@@ -105,6 +107,7 @@ export default function NewMatchPage() {
   const [finish, setFinish] = useState<FinishRule>("single_out");
   const [legsToWin, setLegsToWin] = useState(1);
   const [fairEnding, setFairEnding] = useState(false);
+  const [commentaryEnabled, setCommentaryEnabled] = useState(false);
   // Start on X01 for SSR and pick up the stored choice after hydration.
   const [gameType, setGameType] = useState<GameType>("x01");
   const [gameConfig, setGameConfig] = useState<Record<string, unknown>>({});
@@ -120,6 +123,7 @@ export default function NewMatchPage() {
       setFinish(setup.finish);
       setLegsToWin(setup.legsToWin);
       setFairEnding(setup.fairEnding);
+      setCommentaryEnabled(setup.commentaryEnabled === true);
     } else {
       const stored = loadStoredGameType();
       if (stored !== "x01") {
@@ -203,8 +207,8 @@ export default function NewMatchPage() {
   useEffect(() => {
     // Do not overwrite saved players before hydration and roster reconciliation.
     if (!setupLoaded || !playersLoaded) return;
-    storeSetup({ gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding });
-  }, [setupLoaded, playersLoaded, gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding]);
+    storeSetup({ gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, commentaryEnabled });
+  }, [setupLoaded, playersLoaded, gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, commentaryEnabled]);
 
   useScoliaBoardRealtime({
     onUpsert: (status) =>
@@ -409,7 +413,10 @@ export default function NewMatchPage() {
             selectedBoardId === MANUAL_BOARD_VALUE ? null : selectedBoardId,
         },
       });
-      router.push(`/match/${result.matchId}${isTVModeEnabled() ? '?spectator=true' : ''}`);
+      const params = new URLSearchParams();
+      if (isTVModeEnabled()) params.set('spectator', 'true');
+      if (commentaryEnabled) params.set('commentary', 'true');
+      router.push(`/match/${result.matchId}${params.size ? `?${params}` : ''}`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to create match";
@@ -419,9 +426,9 @@ export default function NewMatchPage() {
   }
 
   return (
-    <div className="w-full space-y-5 px-4 pt-4 pb-44 md:px-6 lg:px-8">
-      <div className="grid items-start gap-5 lg:grid-cols-[300px_minmax(0,1fr)] xl:gap-8 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <div className="min-w-0 space-y-5 rounded-2xl bg-slate-900/40 p-4 [&_button[data-slot=select-trigger]]:border-white/10 [&_input]:border-white/10 [&_button[data-variant=outline]]:border-white/10">
+    <div className="w-full space-y-5 px-4 pt-4 pb-44 md:px-6 lg:h-[calc(100dvh-113px)] lg:pb-0 lg:px-8">
+      <div className="grid items-start gap-5 lg:h-full lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)] xl:gap-8 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-5 rounded-2xl bg-slate-900/40 p-4 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain [scrollbar-width:thin] [&_button[data-slot=select-trigger]]:border-white/10 [&_input]:border-white/10 [&_button[data-variant=outline]]:border-white/10">
           <h1 className="text-3xl font-black tracking-tight">New Game</h1>
           <div className="space-y-2">
             <div className="font-medium">Game type</div>
@@ -516,19 +523,26 @@ export default function NewMatchPage() {
                   </div>
                 </div>
               </div>
-              {legsToWin === 1 && (
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={fairEnding}
-                    onChange={(e) => setFairEnding(e.target.checked)}
-                  />
-                  <span className="text-sm">
-                    Fair ending — all players complete the round before a winner is
-                    declared
+              <div className="space-y-2">
+                {legsToWin === 1 && (
+                  <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${fairEnding ? "border-cyan-400/30 bg-cyan-400/10" : "border-white/10 bg-white/[0.03] hover:bg-white/5"}`}>
+                    <Scale className={`h-5 w-5 shrink-0 ${fairEnding ? "text-cyan-300" : "text-slate-400"}`} aria-hidden="true" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold">Fair ending</span>
+                      <span id="fair-ending-description" className="mt-0.5 block text-xs leading-relaxed text-slate-400">Everyone finishes the round before a winner is declared.</span>
+                    </span>
+                    <Switch aria-label="Fair ending" aria-describedby="fair-ending-description" checked={fairEnding} onCheckedChange={setFairEnding} className="data-[state=checked]:bg-cyan-400" />
+                  </label>
+                )}
+                <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${commentaryEnabled ? "border-cyan-400/30 bg-cyan-400/10" : "border-white/10 bg-white/[0.03] hover:bg-white/5"}`}>
+                  <Volume2 className={`h-5 w-5 shrink-0 ${commentaryEnabled ? "text-cyan-300" : "text-slate-400"}`} aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold">Commentary</span>
+                    <span id="commentary-description" className="mt-0.5 block text-xs leading-relaxed text-slate-400">Automatically play live commentary in spectator mode.</span>
                   </span>
+                  <Switch aria-label="Commentary" aria-describedby="commentary-description" checked={commentaryEnabled} onCheckedChange={setCommentaryEnabled} className="data-[state=checked]:bg-cyan-400" />
                 </label>
-              )}
+              </div>
             </div>
           )}
 
@@ -560,7 +574,7 @@ export default function NewMatchPage() {
                   type="button"
                   size="sm"
                   variant="outline"
-                  className={enabledLocations.includes(loc.value) ? "border border-sky-400/20 bg-sky-400/10 font-bold text-sky-300 hover:bg-sky-400/20" : "border border-white/10 bg-transparent font-bold text-slate-400 hover:bg-white/5"}
+                  className={enabledLocations.includes(loc.value) ? "border border-sky-400/20 bg-sky-400/10 font-bold text-sky-300 hover:bg-sky-400/20 hover:text-sky-300" : "border border-white/10 bg-transparent font-bold text-slate-400 hover:bg-white/5 hover:text-slate-300"}
                   aria-pressed={enabledLocations.includes(loc.value)}
                   onClick={() => toggleLocation(loc.value)}
                 >
@@ -596,7 +610,7 @@ export default function NewMatchPage() {
               />
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-2.5 min-[480px]:grid-cols-2 md:grid-cols-3 lg:max-h-[calc(100dvh-324px)] lg:min-h-64 lg:overflow-y-auto xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-2.5 min-[480px]:grid-cols-2 md:grid-cols-3 lg:max-h-[calc(100dvh-324px)] lg:min-h-0 lg:overflow-y-auto xl:grid-cols-4">
             {filteredPlayers.map((p) => {
               const loc = LOCATIONS.find((l) => l.value === p.location);
               const checked = selectedIds.includes(p.id);
@@ -677,31 +691,7 @@ export default function NewMatchPage() {
           )}
             </div>
             <div className="start-action-bar grid grid-cols-2 items-center gap-3">
-            <div className="flex h-16 min-w-0 items-center justify-center px-3" aria-label="Selected players">
-              <div className="flex w-full items-center" style={{ maxWidth: selectedPlayers.length ? selectedPlayers.length * 56 - 8 : undefined }}>
-              {selectedIds.length === 0 && <span className="w-full text-center text-xs text-slate-500">Choose your lineup</span>}
-              {selectedPlayers.map((p, index) => (
-                <div key={p.id} style={{ animationDelay: `${-index * 0.09}s` }} className="lineup-avatar-slot relative min-w-0 flex-[1_1_56px] last:flex-[0_0_48px] hover:z-10 focus-within:z-10">
-                <button
-                  type="button"
-                  onClick={() => toggle(p.id)}
-                  aria-label={`Remove ${p.name}`}
-                  title={`${p.name} · Click to remove`}
-                  style={{
-                    animationDelay: `0s, ${0.56 + index * 0.28}s`,
-                    animationDuration: "560ms, 6s",
-                  }}
-                  className="selected-lineup-avatar pointer-events-auto group relative isolate shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                >
-                  <PlayerAvatar player={p} size="lg" className="size-12 ring-0" />
-                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-slate-950/65 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true">
-                    <X className="size-4" />
-                  </span>
-                </button>
-                </div>
-              ))}
-            </div>
-          </div>
+            <SelectedPlayerLineup players={selectedPlayers} onRemove={toggle} />
             <Button
               size="lg"
               className="start-match-button group relative h-16 w-full min-w-0 gap-2 overflow-hidden rounded-xl border border-blue-300/30 bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 px-3 text-base font-semibold sm:px-6 sm:text-xl tracking-normal text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_6px_24px_rgba(37,99,235,0.2)] transition-[filter,box-shadow,border-color] duration-200 hover:border-cyan-100 hover:brightness-110 hover:shadow-[inset_0_0_0_1px_rgba(165,243,252,0.8),0_0_0_2px_rgba(56,189,248,0.65),0_0_18px_rgba(56,189,248,0.65),0_0_38px_rgba(99,102,241,0.4)]"

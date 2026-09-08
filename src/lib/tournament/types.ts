@@ -9,6 +9,8 @@ export type TournamentRecord = {
   finish: 'single_out' | 'double_out';
   legs_to_win: number;
   fair_ending: boolean;
+  scolia_board_id?: string | null;
+  commentary_enabled?: boolean;
   status: TournamentStatus;
   winner_player_id: string | null;
   created_at: string;
