@@ -1,3 +1,5 @@
+import { renderRivalryBeat } from './realtimeWireFormat';
+import type { RivalryBeat } from './commentaryNarrative';
 import { describe, expect, it } from 'vitest';
 
 import type { BroadcastDirection } from './broadcastDirector';
@@ -444,5 +446,107 @@ describe('Realtime commentary wire format', () => {
     const text = renderScoliaRealtimeEvent(1, event(changed), state);
 
     expect(text).not.toContain('Memory update');
+  });
+});
+
+
+describe('rivalry speech briefs', () => {
+  const beat: RivalryBeat = {
+    rivalry: { key: 'streak', kind: 'streak', subjectId: PLAYER_A, counterpartId: PLAYER_B,
+      scope: 'shared', fieldSize: 6, meetings: 5, subjectWins: 1, counterpartWins: 3, streak: 3 },
+    stage: 'resolve', development: 'other_won', eventId: 'finish', sequence: 99,
+    winnerId: 'other', callbackExcerpt: null,
+  };
+  it('names the third-player winner and requires a self-contained ending without delivered history', () => {
+    const line = renderRivalryBeat(beat, (id) => id === PLAYER_A ? 'Nikita' : id === PLAYER_B ? 'Ken' : 'Alex');
+    expect(line).toContain('Alex is the confirmed match winner');
+    expect(line).toContain('shared multiplayer/mixed-field meetings');
+    expect(line).toContain('No confirmed earlier rivalry audio');
+    expect(line).not.toContain(PLAYER_A);
+    expect(line).not.toContain(PLAYER_B);
+  });
+  it('does not turn a multiplayer win into a direct-series breakthrough', () => {
+    const line = renderRivalryBeat({ ...beat, development: 'subject_won', winnerId: PLAYER_A,
+      rivalry: { ...beat.rivalry, kind: 'breakthrough', scope: 'direct', subjectWins: 0 } }, () => 'Player');
+    expect(line).toContain('direct record and direct winning streak are unchanged');
+  });
+  it('carries the selected brief even when a dart has no full narrative payload', () => {
+    const state = new RealtimeNarrativeWireState(); state.reset(snapshot());
+    const source = event(); delete source.narrative;
+    const line = renderScoliaRealtimeEvent(0, source, state, {
+      schemaVersion: 1, sequence: 99, activeStoryArc: null, backgroundStoryArcs: [],
+      transition: 'none', callback: null, shouldPromote: false, lifecycleEvents: [],
+      rivalry: { ...beat, callbackExcerpt: 'The tenant has ideas.' },
+    });
+    expect(line).toContain('RIVALRY · resolve');
+    expect(line).toContain('EARLIER COMPLETED AUDIO');
+  });
+  it.each([
+    ['double finish', 32, 1, 'double_out', false, true, 'D16'],
+    ['bull finish', 50, 2, 'double_out', false, true, 'bull (50)'],
+    ['single-out finish', 20, 1, 'single_out', false, true, null],
+    ['no darts left', 32, 3, 'double_out', false, true, undefined],
+    ['odd double-out leave', 31, 1, 'double_out', false, true, undefined],
+    ['leg dart only', 32, 1, 'double_out', false, false, undefined],
+    ['fair ending', 32, 1, 'double_out', true, true, undefined],
+    ['unknown rules', 32, 1, undefined, false, true, undefined],
+  ] as const)('checks the actual post-dart opportunity: %s', (_label, score, dartIndex, finishRule, fair, matchChance, target) => {
+    const state = new RealtimeNarrativeWireState(); state.reset(snapshot()); state.rivalry.reset(beat.rivalry, true);
+    const source = event(); source.checkedOut = false; source.dartIndex = dartIndex; source.priority = 'notable';
+    source.dartiq!.checkedOut = false; source.dartiq!.scoreAfter = score; source.dartiq!.finishRule = finishRule;
+    source.dartiq!.semanticStakes.matchWinAvailableThisVisit = matchChance;
+    if (fair) source.dartiq!.fairEnding = { enabled: true, phase: 'normal', checkedOutPlayerIds: [],
+      tiebreakRound: 0, tiebreakPlayerIds: [], tiebreakScores: {}, winnerId: null, approximationMode: 'standard' };
+    const result = state.observeRivalryDart(source);
+    if (target === undefined) expect(result?.stage).not.toBe('anticipate');
+    else expect(result).toMatchObject({ stage: 'anticipate', matchDart: { score, target } });
+  });
+
+  it('renders an available finish and accountability without inventing elapsed rivalry history', () => {
+    const line = renderRivalryBeat({ ...beat, stage: 'anticipate', development: 'match_dart', actorId: PLAYER_A,
+      matchDart: { score: 32, target: 'D16' }, winnerId: null }, (id) => id === PLAYER_A ? 'Nikita' : 'Ken');
+    expect(line).toContain('D16 can win this match now');
+    expect(line).toContain('not a claimed aim');
+    expect(line).toContain('expires on the next dart');
+    expect(line).not.toContain('months');
+    const payoff = renderRivalryBeat({ ...beat, setupExcerpt: 'Ken has this sewn up.', callbackExcerpt: 'Oh dear.' }, () => 'Player');
+    expect(payoff).toContain('COMPLETED OPENING LINE');
+    expect(payoff).toContain('ACCOUNTABILITY');
+  });
+
+  it('still establishes the rivalry when the worker attaches after the first dart', () => {
+    const state = new RealtimeNarrativeWireState(); const current = snapshot();
+    current.narrative.sequence = 1;
+    current.narrative.players = current.narrative.players.map((player) => ({ ...player, completedVisits: 0 }));
+    current.historicalFacts = [{ kind: 'matchup_history', subjectPlayerId: PLAYER_A,
+      counterpartPlayerId: PLAYER_B, support: 5, confidenceTier: 'supported', evidence: {
+        sharedMatches: 5, subjectWins: 1, counterpartWins: 4, otherWinnerMatches: 0,
+        twoPlayerMatches: 5, latestWinnerPlayerId: PLAYER_B, currentWinnerStreak: 3,
+      } }];
+    state.reset(current);
+    const source = event(); source.checkedOut = false; source.dartIndex = 3; source.priority = 'ordinary';
+    source.dartiq!.checkedOut = false; source.dartiq!.sequence = 3;
+    expect(state.observeRivalryDart(source)?.stage).toBe('establish');
+    current.narrative.players[0].completedVisits = 1;
+    state.reset(current);
+    expect(state.observeRivalryDart(source)?.stage).not.toBe('establish');
+  });
+
+  it('seeds from frozen facts and clears the old thread on snapshot reset', () => {
+    const state = new RealtimeNarrativeWireState(); const current = snapshot();
+    current.narrative.sequence = 0;
+    current.narrative.players = current.narrative.players.map((player) => ({ ...player, completedVisits: 0 }));
+    current.historicalFacts = [{ kind: 'matchup_history', subjectPlayerId: PLAYER_A,
+      counterpartPlayerId: PLAYER_B, support: 5, confidenceTier: 'supported', evidence: {
+        sharedMatches: 5, subjectWins: 1, counterpartWins: 4, otherWinnerMatches: 0,
+        twoPlayerMatches: 5, latestWinnerPlayerId: PLAYER_B, currentWinnerStreak: 3,
+      } }];
+    state.reset(current);
+    const source = event(); source.checkedOut = false; source.dartIndex = 3; source.priority = 'ordinary';
+    source.dartiq!.checkedOut = false;
+    expect(state.observeRivalryDart(source)?.stage).toBe('establish');
+    state.reset(snapshot());
+    source.dartiq!.sequence += 1;
+    expect(state.observeRivalryDart(source)).toBeNull();
   });
 });

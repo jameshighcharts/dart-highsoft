@@ -1,3 +1,4 @@
+import type { BroadcastDirection } from './broadcastDirector';
 import { describe, expect, it } from 'vitest';
 
 import { realtimePersonaResponseInstruction, resolvePersona } from './personas';
@@ -35,7 +36,7 @@ describe('Realtime commentary prompts', () => {
     expect(ordinary).not.toContain('HISTORY ·');
   });
 
-  it.each(['chad', 'bob', 'nord'] as const)('preserves the full %s contract in every response override', (personaId) => {
+  it.each(['chad', 'bob'] as const)('preserves the full %s contract in every response override', (personaId) => {
     const contract = buildRealtimeSessionInstructions(resolvePersona(personaId));
     const calls = [
       buildRealtimeOpeningInstructions(personaId),
@@ -79,17 +80,17 @@ describe('Realtime commentary prompts', () => {
     expect(prompt).not.toContain('editorial unit');
   });
 
-  it('keeps every Nordlending opening and response in Norwegian', () => {
-    const opening = buildRealtimeOpeningInstructions('nord');
-    const response = buildRealtimeResponseInstructions({
-      personaId: 'nord', priority: 'ordinary', dartIndex: 1, turnScore: 20,
+  it('uses Chad throughout Realtime calls for a retired Nord preference', () => {
+    expect(buildRealtimeOpeningInstructions('nord')).toBe(buildRealtimeOpeningInstructions('chad'));
+    expect(buildRealtimeVisitOpeningInstructions('nord')).toBe(buildRealtimeVisitOpeningInstructions('chad'));
+    expect(buildRealtimeIdleInstructions('nord')).toBe(buildRealtimeIdleInstructions('chad'));
+    const event = {
+      priority: 'ordinary' as const, dartIndex: 1, turnScore: 20,
       checkedOut: false, busted: false, nextPlayerAlreadyThrowing: false,
-    });
-
-    expect(resolvePersona('nord').systemPrompt).toContain('All tale skal være på norsk');
-    expect(opening).toContain('nordnorsk');
-    expect(opening).toContain('Aldri en hel engelsk setning');
-    expect(response).toContain('SPRÅK · nordnorsk · aldri en hel engelsk setning');
+    };
+    expect(buildRealtimeResponseInstructions({ ...event, personaId: 'nord' })).toBe(
+      buildRealtimeResponseInstructions({ ...event, personaId: 'chad' })
+    );
   });
 
   it('keeps per-call guidance compact while reinforcing Chad on every call', () => {
@@ -197,14 +198,6 @@ describe('Realtime commentary prompts', () => {
     expect(instructions).toContain('2–8 words');
   });
 
-  it('opens Nordlending visits in Norwegian after takeout', () => {
-    const instructions = buildRealtimeVisitOpeningInstructions('nord');
-
-    expect(instructions).toContain('besøksåpning');
-    expect(instructions).toContain('pilene er hentet');
-    expect(instructions).toContain('ingen pil har landet');
-  });
-
   it('tells Chad to roast a bust directly', () => {
     const prompt = buildRealtimeResponseInstructions({
       personaId: 'chad',
@@ -234,5 +227,38 @@ describe('Realtime commentary prompts', () => {
 
     expect(prompt).toContain('RESULT · leg first');
     expect(prompt).toContain('next-leg starter may follow');
+  });
+});
+
+
+describe('rivalry drama delivery', () => {
+  const direction: BroadcastDirection = {
+    schemaVersion: 1, sequence: 9, activeStoryArc: null, backgroundStoryArcs: [], transition: 'none',
+    callback: null, shouldPromote: false, lifecycleEvents: [], rivalry: {
+      rivalry: { key: 'streak', kind: 'streak', subjectId: 'a', counterpartId: 'b', scope: 'direct',
+        fieldSize: 2, meetings: 5, subjectWins: 1, counterpartWins: 4, streak: 3 },
+      eventId: 'live-finish', sequence: 9, stage: 'anticipate', development: 'match_dart', winnerId: null,
+      callbackExcerpt: null, matchDart: { score: 32, target: 'D16' }, actorId: 'a',
+    },
+  };
+  it.each(['chad', 'bob'] as const)('gives %s a short anticipatory hush without an incompatible mid-dart reaction instruction', (personaId) => {
+    const prompt = buildRealtimeResponseInstructions({ personaId, priority: 'notable', dartIndex: 1,
+      turnScore: 20, checkedOut: false, busted: false, nextPlayerAlreadyThrowing: false, direction });
+    const brief = prompt.split('# THIS CALL')[1];
+    expect(brief).toContain('DELIVERY · 2–6 words');
+    expect(brief).toContain('sudden hush');
+    expect(brief).toContain('no celebration yet');
+    expect(brief).not.toContain('no sentence needed');
+    expect(brief).not.toContain('result first');
+  });
+  it('directs an emotional reversal and then a winner-first payoff', () => {
+    const input = { personaId: 'chad' as const, priority: 'terminal' as const, dartIndex: 3,
+      turnScore: 32, checkedOut: true, busted: false, nextPlayerAlreadyThrowing: false };
+    const payoff = buildRealtimeResponseInstructions({ ...input,
+      direction: { ...direction, rivalry: { ...direction.rivalry!, stage: 'resolve', development: 'subject_won' } } });
+    expect(payoff).toContain('own any misplaced earlier swagger');
+    const twist = buildRealtimeResponseInstructions({ ...input, checkedOut: false, priority: 'notable',
+      direction: { ...direction, rivalry: { ...direction.rivalry!, stage: 'twist', development: 'rival_response' } } });
+    expect(twist).toContain('allegiance and confidence sideways');
   });
 });

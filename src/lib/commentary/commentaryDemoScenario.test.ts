@@ -1,3 +1,5 @@
+import { commentaryDemoRivalryFacts } from './commentaryDemoScenario';
+import { selectCommentaryRivalry } from './commentaryNarrative';
 import { describe, expect, it } from 'vitest';
 
 import { detectedThrowFromMessage } from '@/lib/scolia/protocol';
@@ -76,4 +78,12 @@ describe('BROADCAST_DIRECTOR_DEMO', () => {
       }
     }
   });
+});
+
+
+it('seeds a synthetic shared-field streak that the existing Ada ending breaks', () => {
+  expect(selectCommentaryRivalry({ playerIds: COMMENTARY_DEMO_PLAYERS,
+    historicalFacts: commentaryDemoRivalryFacts((name) => name) }))
+    .toMatchObject({ kind: 'streak', subjectId: 'Ada', counterpartId: 'Ben', scope: 'shared', streak: 3 });
+  expect(BROADCAST_DIRECTOR_DEMO.at(-1)?.player).toBe('Ada');
 });

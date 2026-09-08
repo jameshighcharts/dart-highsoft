@@ -65,9 +65,6 @@ function getFallbackCommentary(
   if (personaId === 'bob') {
     return getBobFallback(context);
   }
-  if (personaId === 'nord') {
-    return `${context.playerName} sett ${context.totalScore}. ${context.remainingScore} igjen—sjarken flyt nu ennå.`;
-  }
   return getChadFallback(context);
 }
 
@@ -229,9 +226,6 @@ function getMatchRecapFallback(
     return `${context.winnerName} takes the match ${score}! Brilliant performance from start to finish. That's darts at its finest, folks.`;
   }
 
-  if (personaId === 'nord') {
-    return `${context.winnerName} tar matchen ${score}. Der la sjarken endelig til kai.`;
-  }
 
   return `${context.winnerName} just closed out the W ${score}! Absolute main character energy all match. No cap, that was bussin'.`;
 }

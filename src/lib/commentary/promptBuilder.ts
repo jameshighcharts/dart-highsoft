@@ -151,7 +151,7 @@ export function buildCommentaryPrompt(
     ? JSON.stringify(payload.narrative)
     : 'none yet';
 
-  const allowSlang = persona.id === 'chad' || persona.id === 'nord' || rng() < style.slangUseProbability;
+  const allowSlang = persona.id === 'chad' || rng() < style.slangUseProbability;
   const humorStyle = humorStyleFromScore(payload.totalScore);
 
   const ordinalPosition = formatOrdinal(gameContext.positionInMatch);
@@ -163,8 +163,6 @@ export function buildCommentaryPrompt(
     ? 'Write one explosive 6–16 word celebration in your persona. Name the Nikita Special; let the joy be comically disproportionate.'
     : persona.id === 'chad'
       ? `Write ONE concise, deadpan line (≤ ${style.maxWords} words) in Chad's original California surf-bro voice.`
-    : persona.id === 'nord'
-      ? `Skriv ÉN kort replikk (maks ${style.maxWords} ord) med Olufs tørre, frittalende nordnorske energi.`
       : `Write ONE concise line (≤ ${style.maxWords} words).`;
 
   const prompt = `
@@ -192,7 +190,7 @@ Tone guide:
 - roast-lite: gentle ribbing, not mean
 - wry-quiet: minimal, resigned humor`}
 
-Slang policy: ${persona.id === 'chad' || persona.id === 'nord'
+Slang policy: ${persona.id === 'chad'
     ? 'let the persona and the moment decide naturally; do not follow a numeric slang quota.'
     : allowSlang ? `optional (≤${style.maxSlangPerLine} natural ${slangTermLabel}).` : 'avoid all slang this line.'}
 Stay clear of hashtags, emojis, or filler catchphrases.

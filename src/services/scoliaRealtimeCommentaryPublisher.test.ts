@@ -1,3 +1,4 @@
+import { RealtimeNarrativeWireState } from '../lib/commentary/realtimeWireFormat';
 import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CommentaryPolicy } from '../lib/commentary/commentaryPolicy';
@@ -185,6 +186,7 @@ describe('Scolia stale speech', () => {
       visitTiming: new CommentaryVisitTiming(),
       responseQueue: new RealtimeResponseQueue<Record<string, unknown>>(),
       pendingStoryResponses: new Map(), activeStoryResponse: null, transcript: '',
+      wireState: new RealtimeNarrativeWireState(),
     };
     const internals = publisher as unknown as {
       enqueueProviderResponse: (liveConnection: typeof connection, event: Record<string, unknown>) => void;

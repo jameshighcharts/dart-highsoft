@@ -7,6 +7,7 @@ export type CommentaryTimingEvent = {
   dartIndex: number;
   priority: DartIQEventPriority;
   guaranteed: boolean;
+  expiresOnNextDart?: boolean;
 };
 
 export type CommentaryTimingObservation = {
@@ -51,7 +52,7 @@ export class CommentaryVisitTiming {
     const speech = this.speech;
     if (speech && speech.event.eventId !== event.eventId
       && speech.event.priority !== 'terminal' && speech.event.priority !== 'marquee'
-      && (speech.event.turnId !== event.turnId || Date.now() - speech.startedAt >= 2_000)) {
+      && (speech.event.expiresOnNextDart || speech.event.turnId !== event.turnId || Date.now() - speech.startedAt >= 2_000)) {
       this.finishSpeech();
       speech.expire();
     }

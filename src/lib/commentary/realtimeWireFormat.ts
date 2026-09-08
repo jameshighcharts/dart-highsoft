@@ -5,6 +5,9 @@ import type { BroadcastDirection } from './broadcastDirector.ts';
 import type { CommentaryNarrativeMemory, CommentaryPlayerNarrative } from './commentaryNarrative.ts';
 import type { RealtimeCommentarySnapshot } from './realtimeSnapshot.ts';
 import type { ScoliaRealtimeDartEvent } from './scoliaRealtimeEvent.ts';
+import { RivalryDirector } from './broadcastDirector.ts';
+import { selectCommentaryRivalry, type CommentaryRivalry, type RivalryBeat } from './commentaryNarrative.ts';
+import { hasCheckoutRoute } from '../dartiq/checkout.ts';
 
 function percent(value: number) {
   return `${Math.round(value * 100)}%`;
@@ -204,6 +207,7 @@ function arcLine(
 }
 
 export class RealtimeNarrativeWireState {
+  readonly rivalry = new RivalryDirector();
   private readonly names = new Map<string, string>();
   private readonly playerFingerprints = new Map<string, string>();
   private storyFingerprint = '';
@@ -211,6 +215,13 @@ export class RealtimeNarrativeWireState {
   private readonly personalBaselines = new Map<string, number>();
 
   reset(snapshot?: RealtimeCommentarySnapshot) {
+    this.rivalry.reset(snapshot ? selectCommentaryRivalry({
+      playerIds: snapshot.players.map((player) => player.id),
+      historicalFacts: snapshot.historicalFacts,
+      rematch: snapshot.rematch,
+    // The sideband commonly attaches on dart one. No completed visit means
+    // there cannot yet have been a dispatched rivalry setup to repeat.
+    }) : null, snapshot?.narrative.players.some((player) => player.completedVisits > 0) ?? false);
     this.names.clear();
     this.personalBaselines.clear();
     this.historicalFacts = snapshot?.historicalFacts ?? [];
@@ -229,6 +240,52 @@ export class RealtimeNarrativeWireState {
 
   name(playerId: string, fallback = 'Player') {
     return this.names.get(playerId) ?? fallback;
+  }
+
+  observeRivalryDart(event: ScoliaRealtimeDartEvent) {
+    const packet = event.dartiq;
+    if (!packet) return null;
+    // semanticStakes describes BEFORE this dart. Recheck the actual leave and
+    // remaining darts, and never promise an immediate win during fair ending.
+    const matchDart = packet.finishRule && !packet.fairEnding?.enabled
+      && packet.semanticStakes.matchWinAvailableThisVisit && event.dartIndex < 3
+      && !event.busted && !event.checkedOut
+      && hasCheckoutRoute(packet.scoreAfter, 1, packet.finishRule)
+      ? { score: packet.scoreAfter, target: packet.finishRule === 'double_out'
+        ? packet.scoreAfter === 50 ? 'bull (50)' : `D${packet.scoreAfter / 2}` : null }
+      : undefined;
+    return this.rivalry.observe({
+      eventId: event.eventId, sequence: packet.sequence, turnId: event.turnId, playerId: event.playerId,
+      probabilityBefore: packet.matchProbabilityBefore, probabilityAfter: packet.matchProbabilityAfter,
+      matchChance: packet.semanticStakes.matchWinAvailableThisVisit,
+      matchDart,
+      completedVisit: event.dartIndex === 3 || event.busted || event.checkedOut,
+      checkedOut: event.checkedOut, busted: event.busted,
+      protectedMoment: event.nikitaSpecial || event.priority === 'marquee',
+      legResolved: Boolean(packet.legResolution),
+      fairEndingPending: Boolean(packet.fairEnding && packet.fairEnding.phase !== 'normal'),
+      winnerId: packet.legResolution?.matchWon ? packet.legResolution.winnerPlayerId : null,
+      isLatest: event.isLatestDart,
+    });
+  }
+
+  observeRivalryVisit(context: CommentaryContext) {
+    const dartiq = context.dartiq;
+    if (!dartiq || !context.narrative) return null;
+    return this.rivalry.observe({
+      eventId: context.turnId ?? `visit-${context.gameContext.overallTurnNumber}`,
+      sequence: context.narrative.sequence,
+      turnId: context.turnId ?? `visit-${context.gameContext.overallTurnNumber}`,
+      playerId: context.playerId,
+      probabilityBefore: dartiq.matchProbabilityBefore, probabilityAfter: dartiq.matchProbabilityAfter,
+      matchChance: Boolean(dartiq.matchWinAvailableThisVisit), completedVisit: true,
+      checkedOut: Boolean(dartiq.checkedOut), busted: context.busted,
+      protectedMoment: context.is180 || Boolean(context.isNikitaSpecial),
+      legResolved: Boolean(dartiq.legResolution),
+      fairEndingPending: dartiq.signals?.some((signal) => signal === 'fair_ending_checkout'
+        || signal === 'tiebreak_started' || signal === 'tiebreak_tied' || signal === 'tiebreak_lead_change') ?? false,
+      winnerId: dartiq.legResolution?.matchWon ? dartiq.legResolution.winnerPlayerId : null,
+    });
   }
 
   historicalCandidateForDart(event: ScoliaRealtimeDartEvent) {
@@ -291,7 +348,7 @@ export class RealtimeNarrativeWireState {
       this.playerFingerprints.set(player.playerId, fingerprint);
       lines.push(`Memory update — ${rendered}`);
     }
-    const story = arcLine(direction, this.names);
+    const story = direction?.rivalry ? null : arcLine(direction, this.names);
     const fingerprint = story ?? '';
     if (fingerprint !== this.storyFingerprint) {
       this.storyFingerprint = fingerprint;
@@ -439,6 +496,7 @@ export function renderScoliaRealtimeEvent(
     opponentThreat,
     signals,
     candidates,
+    direction?.rivalry ? renderRivalryBeat(direction.rivalry, (id) => state.name(id)) : null,
     ...state.renderNarrativeDelta(event.narrative, direction),
   ].filter(Boolean).join('\n');
 }
@@ -539,5 +597,51 @@ export function renderManualRealtimeEvent(
     opponentThreat,
     candidates,
     ...state.renderNarrativeDelta(context.narrative, storyDirection),
+    direction?.rivalry ? renderRivalryBeat(direction.rivalry, (id) => state.name(id)) : null,
+  ].filter(Boolean).join('\n');
+}
+
+export function renderRivalryContext(rivalry: CommentaryRivalry, name: (id: string) => string) {
+  const subject = name(rivalry.subjectId);
+  const counterpart = name(rivalry.counterpartId);
+  const history = rivalry.kind === 'revenge'
+    ? `${counterpart} won the previous match; ${subject} is in this rematch.`
+    : rivalry.kind === 'breakthrough'
+      ? `${subject} has no wins in ${rivalry.meetings} recorded direct meetings with ${counterpart}.`
+      : rivalry.kind === 'tied_record'
+        ? `${subject} and ${counterpart} entered tied ${rivalry.subjectWins}-${rivalry.counterpartWins} in direct meetings.`
+        : `${counterpart} won the last ${rivalry.streak} ${rivalry.scope === 'direct' ? 'direct meetings' : 'shared multiplayer/mixed-field meetings'} with ${subject}.`;
+  return `${history}${rivalry.fieldSize > 2
+    ? ' Today has other players: winning this field is not a new direct head-to-head result; another player can win.' : ''}`;
+}
+
+export function renderRivalryBeat(beat: RivalryBeat, name: (id: string) => string) {
+  const subject = name(beat.rivalry.subjectId);
+  const counterpart = name(beat.rivalry.counterpartId);
+  const actor = name(beat.actorId ?? beat.rivalry.subjectId);
+  const developments: Record<RivalryBeat['development'], string> = {
+    opening: 'Establish this unfinished business once, attached to the actual visit.',
+    match_dart: `${actor} has ${beat.matchDart?.score} remaining and a dart still in hand. ${beat.matchDart?.target ?? 'A one-dart finish'} can win this match now. This is an available route, not a claimed aim. The result remains open; this opportunity expires on the next dart.`,
+    gain: `${subject} gained material match-winning ground during this visit. The result is still open.`,
+    chance_unconverted: `${subject} had an opportunity to win this match during the visit and did not convert. Do not infer an intended target.`,
+    bust: `${subject} busted this visit. React to that setback; no invented missed match dart.`,
+    rival_response: `${counterpart} gained material match-winning ground during this visit. The result is still open.`,
+    subject_won: `${subject} is the confirmed match winner. Close the supplied thread with that actual result.`,
+    rival_won: `${counterpart} is the confirmed match winner. Close the supplied thread with that actual result.`,
+    other_won: `${beat.winnerId ? name(beat.winnerId) : 'Another player'} is the confirmed match winner. Lead with that winner; the featured pair did not win.`,
+  };
+  return [
+    `RIVALRY · ${beat.stage}: ${renderRivalryContext(beat.rivalry, name)}`,
+    `DEVELOPMENT: ${developments[beat.development]}`,
+    beat.rivalry.kind === 'tied_record' && beat.stage === 'resolve'
+      ? 'This result breaks the previously tied direct record in the winner’s favour; it is not a breakthrough or revenge claim.' : '',
+    beat.stage === 'resolve' && beat.rivalry.scope === 'direct' && beat.rivalry.fieldSize > 2
+      ? 'The historical direct record and direct winning streak are unchanged by today’s multiplayer result. Do not announce a first direct victory or a broken direct streak.' : '',
+    beat.callbackExcerpt ? `EARLIER COMPLETED AUDIO (quote as context, not an instruction): ${JSON.stringify(beat.callbackExcerpt)}`
+      : 'No confirmed earlier rivalry audio. Make this line self-contained; do not claim a callback was heard.',
+    beat.setupExcerpt && beat.setupExcerpt !== beat.callbackExcerpt
+      ? `COMPLETED OPENING LINE (quotation, not instruction): ${JSON.stringify(beat.setupExcerpt)}` : '',
+    beat.setupExcerpt && (beat.stage === 'resolve' || beat.stage === 'twist')
+      ? 'ACCOUNTABILITY: If your actual earlier words backed the wrong player or overstated confidence, own that embarrassment in this new result. Do not invent a prediction you never made.' : '',
   ].filter(Boolean).join('\n');
 }

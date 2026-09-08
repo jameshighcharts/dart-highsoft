@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  COMMENTARY_PERSONA_LIST,
   realtimePersonaResponseInstruction,
   commentaryStartingMood,
   resolvePersona,
@@ -25,15 +26,10 @@ describe('commentary persona contracts', () => {
     );
   });
 
-  it('offers a Nordlending persona with its own response voice', () => {
-    expect(resolvePersona('nord')).toMatchObject({
-      id: 'nord',
-      label: 'Oluf "Sjarken"',
-      avatar: '⛵',
-    });
-    expect(resolvePersona('nord').systemPrompt).toContain('Snakk naturlig nordnorsk');
-    expect(resolvePersona('nord').systemPrompt).toContain('Sjarken');
-    expect(realtimePersonaResponseInstruction('nord')).not.toBe(
+  it('falls back to Chad for a saved retired Nord preference', () => {
+    expect(COMMENTARY_PERSONA_LIST.map((persona) => persona.id)).toEqual(['chad', 'bob']);
+    expect(resolvePersona('nord')).toBe(resolvePersona('chad'));
+    expect(realtimePersonaResponseInstruction('nord')).toBe(
       realtimePersonaResponseInstruction('chad')
     );
   });

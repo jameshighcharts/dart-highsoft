@@ -136,14 +136,6 @@ function buildInstructions(
     return `You are Bob "Steel-Tip" Harrison, an English darts commentator. Speak in a clear British broadcast accent with rich stage presence. ${excitementNotes[excitement]} ${tempoNote}`;
   }
 
-  if (personaId === 'nord') {
-    const excitementNotes = {
-      high: 'Slipp jubelen løs, men hold det kort og ekte.',
-      medium: 'Vær varm, rask og småfrekk.',
-      low: 'Hold det avslappet og tørt.',
-    } as const;
-    return `Du er Oluf, en frittalende nordlending fra en liten sjark som kommenterer kontordarts. Snakk naturlig nordnorsk uten å gjøre fakta utydelige. ${excitementNotes[excitement]} ${tempoNote}`;
-  }
 
   const excitementNotes = {
     high: 'Let some stoke through the mic but stay smooth and relaxed.',

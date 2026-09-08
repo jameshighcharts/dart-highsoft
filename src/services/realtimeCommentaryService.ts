@@ -224,6 +224,8 @@ export class RealtimeCommentaryService {
       this.sessionId = payload.sessionId;
       this.epoch = payload.epoch;
       this.policy.reset(payload.epoch);
+      // Keep local fallback history ready even when the worker sends the snapshot.
+      this.wireState.reset(payload.snapshot);
       this.broadcastDirector.reset({
         sequence: payload.snapshot.narrative.sequence,
         candidates: payload.snapshot.narrative.storyArcCandidates,
@@ -259,15 +261,14 @@ export class RealtimeCommentaryService {
       ...(context.dartiq?.legResolution ? ['leg_resolution' as const] : []),
       ...(context.dartiq?.legResolution?.matchWon ? ['match_resolution' as const] : []),
     ];
-    const direction = context.narrative
-      ? this.broadcastDirector.direct({
-          sequence: context.narrative.sequence,
-          candidates: context.narrative.storyArcCandidates,
-          matchWinnerId: resolvedWinnerId,
-          observedTriggers,
-          triggerPlayerId: context.dartiq?.legResolution?.winnerPlayerId ?? context.playerId,
-        })
-      : null;
+    const direction = this.broadcastDirector.direct({
+      sequence: context.narrative?.sequence ?? 0,
+      candidates: context.narrative?.storyArcCandidates ?? [],
+      matchWinnerId: resolvedWinnerId,
+      observedTriggers,
+      triggerPlayerId: context.dartiq?.legResolution?.winnerPlayerId ?? context.playerId,
+      rivalry: this.wireState.observeRivalryVisit(context),
+    });
     const directedContext: CommentaryContext = direction && context.narrative
       ? {
           ...context,
@@ -321,7 +322,9 @@ export class RealtimeCommentaryService {
     this.visitTiming.schedule(timingEvent, () => {
       this.transcript = '';
       this.callbacks.onPlaying?.(true);
-      const storyToken = direction?.shouldPromote && direction.activeStoryArc
+      const storyToken = direction?.rivalry
+        ? `${this.epoch}:${eventId}:${direction.rivalry.rivalry.key}`
+        : direction?.shouldPromote && direction.activeStoryArc
         ? `${this.epoch}:${eventId}:${storyArcKey(direction.activeStoryArc)}`
         : null;
       if (storyToken && direction) {
@@ -361,7 +364,9 @@ export class RealtimeCommentaryService {
         },
       });
       if (!sent && storyToken) this.pendingStoryResponses.delete(storyToken);
-      if (sent && direction?.shouldPromote) {
+      if (sent && direction?.rivalry) {
+        this.wireState.rivalry.dispatched(direction.rivalry);
+      } else if (sent && direction?.shouldPromote) {
         this.broadcastDirector.markMentioned(direction);
       }
       return sent;
@@ -389,6 +394,7 @@ export class RealtimeCommentaryService {
 
   correct(reason: RealtimeCommentaryCorrectionReason) {
     this.cancelSpeech();
+    this.wireState.rivalry.reset(null);
     const sessionId = this.sessionId;
     const matchId = this.matchId;
     if (!sessionId || !matchId || this.status !== 'ready') return;
@@ -524,6 +530,9 @@ export class RealtimeCommentaryService {
       this.activeStoryResponse = responseId && pendingStory
         ? { ...pendingStory, responseId }
         : null;
+      if (responseId && pendingStory?.direction.rivalry) {
+        this.wireState.rivalry.responseCreated(responseId, pendingStory.direction.rivalry);
+      }
       this.transcript = '';
       this.callbacks.onTranscript?.('');
       this.callbacks.onPlaying?.(true);
@@ -557,9 +566,12 @@ export class RealtimeCommentaryService {
       this.playback.generationFinished(responseId, completed && !completion.discarded
         && hasRealtimeAudioOutput(event.response));
       const completedTranscript = this.transcript.trim();
+      this.wireState.rivalry.generationFinished(responseId, completedTranscript,
+        completed && !completion.discarded && hasRealtimeAudioOutput(event.response));
       this.openingResponseInFlight = false;
       if (!completion.discarded && completed && completedTranscript) {
-        if (this.activeStoryResponse && this.activeStoryResponse.responseId === responseId) {
+        if (this.activeStoryResponse && this.activeStoryResponse.responseId === responseId
+          && !this.activeStoryResponse.direction.rivalry) {
           this.broadcastDirector.markResponseCompleted(
             this.activeStoryResponse.direction
           );
@@ -588,6 +600,7 @@ export class RealtimeCommentaryService {
       return;
     }
     if (event.type === 'output_audio_buffer.stopped' || event.type === 'output_audio_buffer.cleared') {
+      this.wireState.rivalry.playbackStopped(event.response_id, event.type === 'output_audio_buffer.cleared');
       if (this.playback.stopped(event.response_id) && !this.responseQueue.busy) {
         this.policy.responseFinished();
         this.callbacks.onPlaying?.(false);
@@ -651,6 +664,7 @@ export class RealtimeCommentaryService {
     this.policy.reset(0);
     this.visitTiming.reset();
     this.broadcastDirector.reset();
+    this.wireState.reset();
     this.responseQueue.reset();
     this.playback.reset();
     this.openingResponseInFlight = false;
@@ -666,6 +680,7 @@ export class RealtimeCommentaryService {
   }
 
   private clearProviderSpeech() {
+    this.wireState.rivalry.cancelPending();
     this.playback.reset();
     const cancellation = this.responseQueue.requestCancellation();
     if (cancellation.discardedResponseId) {

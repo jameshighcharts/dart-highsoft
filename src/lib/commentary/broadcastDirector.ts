@@ -1,5 +1,6 @@
 import type { DartIQDartEvent } from '@/lib/dartiq/replay';
 import type { FinishRule } from '@/utils/x01';
+import type { CommentaryRivalry, RivalryBeat } from './commentaryNarrative.ts';
 import {
   rankCommentaryStoryArcs,
   type CommentaryStoryArc,
@@ -36,6 +37,7 @@ export type BroadcastDirection = {
   callback: BroadcastCallbackObligation | null;
   shouldPromote: boolean;
   lifecycleEvents: BroadcastArcLifecycleEvent[];
+  rivalry?: RivalryBeat;
 };
 
 export type BroadcastArcLifecycleEvent = {
@@ -103,6 +105,7 @@ export class BroadcastDirector {
     matchWinnerId?: string | null;
     observedTriggers?: readonly BroadcastCallbackTrigger[];
     triggerPlayerId?: string | null;
+    rivalry?: RivalryBeat | null;
   }): BroadcastDirection {
     const candidates = input.candidates.slice(0, 3);
     const proposal = candidates[0] ?? null;
@@ -206,6 +209,10 @@ export class BroadcastDirector {
       callback: this.callback,
       shouldPromote,
       lifecycleEvents,
+      ...(input.rivalry && (input.rivalry.stage === 'resolve'
+        || (input.rivalry.stage === 'anticipate' && transition !== 'payoff_due' && transition !== 'closure_due')
+        || !shouldPromote)
+        ? { rivalry: input.rivalry } : {}),
     };
   }
 
@@ -338,6 +345,14 @@ export function observedBroadcastTriggers(event: Pick<
 }
 
 export function broadcastDirectionInstruction(direction: BroadcastDirection | null | undefined) {
+  if (direction?.rivalry) {
+    if (direction.rivalry.stage === 'anticipate') {
+      return 'RIVALRY MATCH DART: hush the swagger; name the supplied live finish and let its stakes hang. No victory claim, no predicted hit, no history recital.';
+    }
+    return direction.rivalry.stage === 'resolve'
+      ? 'Resolve the supplied rivalry with the confirmed winner first. Develop an earlier completed-audio joke only if this outcome earns it.'
+      : 'Use the selected RIVALRY development as this call’s one thought. Let this new event change the meaning of the earlier line; no repeated history recital.';
+  }
   if (!direction?.activeStoryArc) return '';
   if (direction.transition === 'payoff_due' || direction.transition === 'closure_due') {
     return 'Pay off the supplied earlier thread with this new result.';
@@ -346,4 +361,156 @@ export function broadcastDirectionInstruction(direction: BroadcastDirection | nu
     return '';
   }
   return 'Use the newly supplied match pattern once, in fresh natural language.';
+}
+
+export type RivalryObservation = {
+  eventId: string;
+  sequence: number;
+  turnId: string;
+  playerId: string;
+  probabilityBefore: number;
+  probabilityAfter: number;
+  matchChance: boolean;
+  matchDart?: { score: number; target: string | null };
+  completedVisit: boolean;
+  checkedOut: boolean;
+  busted: boolean;
+  protectedMoment: boolean;
+  legResolved: boolean;
+  fairEndingPending: boolean;
+  winnerId: string | null;
+  isLatest?: boolean;
+};
+
+/** One persistent factual thread, with a small listener-local delivery budget. */
+export class RivalryDirector {
+  private rivalry: CommentaryRivalry | null = null;
+  private lastSequence = -1;
+  private established = false;
+  private developments = 0;
+  private resolved = false;
+  private lastDispatchSequence = -Infinity;
+  private lastDevelopment: RivalryBeat['development'] | null = null;
+  private lastAdvancingPlayerId: string | null = null;
+  private lastAnticipationTurnId: string | null = null;
+  private setupExcerpt: string | null = null;
+  private callbackExcerpt: string | null = null;
+  private lastDeliveredSequence = -1;
+  private visit: { turnId: string; before: number; matchChance: boolean } | null = null;
+  private responses = new Map<string, { beat: RivalryBeat; transcript: string | null; stopped: boolean }>();
+
+  reset(rivalry: CommentaryRivalry | null, inProgress = false) {
+    this.rivalry = rivalry;
+    this.lastSequence = -1;
+    // A reconnect gets self-contained developments, never a repeated introduction.
+    this.established = inProgress;
+    this.developments = 0;
+    this.resolved = false;
+    this.lastDispatchSequence = -Infinity;
+    this.lastDevelopment = null;
+    this.lastAdvancingPlayerId = null;
+    this.lastAnticipationTurnId = null;
+    this.setupExcerpt = null;
+    this.callbackExcerpt = null;
+    this.lastDeliveredSequence = -1;
+    this.visit = null;
+    this.responses.clear();
+  }
+
+  observe(event: RivalryObservation): RivalryBeat | null {
+    const rivalry = this.rivalry;
+    if (!rivalry || event.isLatest === false || this.resolved
+      || event.sequence <= this.lastSequence) return null;
+    this.lastSequence = event.sequence;
+    if (this.visit?.turnId !== event.turnId) {
+      this.visit = { turnId: event.turnId, before: event.probabilityBefore, matchChance: false };
+    }
+    this.visit.matchChance ||= event.matchChance;
+    const winner = event.winnerId;
+    const beat = (stage: RivalryBeat['stage'], development: RivalryBeat['development']): RivalryBeat => ({
+      rivalry, stage, development, eventId: event.eventId, sequence: event.sequence,
+      winnerId: winner, callbackExcerpt: this.callbackExcerpt, setupExcerpt: this.setupExcerpt,
+      actorId: event.playerId, ...(event.matchDart ? { matchDart: event.matchDart } : {}),
+    });
+    // Probabilities and provisional fair-ending checkouts never resolve a rivalry.
+    if (winner) return beat('resolve', winner === rivalry.subjectId ? 'subject_won'
+      : winner === rivalry.counterpartId ? 'rival_won' : 'other_won');
+    const involved = event.playerId === rivalry.subjectId || event.playerId === rivalry.counterpartId;
+    const completed = event.completedVisit;
+    if (!involved || event.checkedOut || event.protectedMoment
+      || event.legResolved || event.fairEndingPending) return null;
+    if (event.matchDart && !completed && this.developments < 6
+      && this.lastAnticipationTurnId !== event.turnId) return beat('anticipate', 'match_dart');
+    if (!completed || event.sequence - this.lastDispatchSequence < 6) return null;
+    if (!this.established) return beat('establish', 'opening');
+    if (this.developments >= 6) return null;
+    const gain = event.probabilityAfter - this.visit.before;
+    let development: RivalryBeat['development'] | null = null;
+    if (event.playerId === rivalry.subjectId) {
+      if (this.visit.matchChance) development = 'chance_unconverted';
+      else if (event.busted && this.callbackExcerpt) development = 'bust';
+      else if (gain >= Math.max(0.04, 0.3 / rivalry.fieldSize)) development = 'gain';
+    } else if (gain >= Math.max(0.04, 0.3 / rivalry.fieldSize)) development = 'rival_response';
+    if (!development || development === this.lastDevelopment) return null;
+    // Extra airtime has to be earned by a reversal or a new squandered match
+    // opportunity. Repeated routine gains/busts do not lengthen the thread.
+    const reversal = (development === 'gain' || development === 'rival_response')
+      && this.lastAdvancingPlayerId !== null && this.lastAdvancingPlayerId !== event.playerId;
+    if (this.developments >= 2 && !reversal && development !== 'chance_unconverted') return null;
+    return beat(development === 'gain' ? 'threaten' : 'twist', development);
+  }
+
+  /** Spend an editorial slot on dispatch, not on speculative observation. */
+  dispatched(beat: RivalryBeat) {
+    if (beat.rivalry.key !== this.rivalry?.key) return;
+    this.lastDispatchSequence = beat.sequence;
+    if (beat.stage === 'establish') this.established = true;
+    else if (beat.stage !== 'resolve') {
+      this.established = true;
+      this.developments += 1;
+      this.lastDevelopment = beat.development;
+      if (beat.development === 'gain' || beat.development === 'rival_response' || beat.development === 'match_dart') {
+        this.lastAdvancingPlayerId = beat.actorId ?? beat.rivalry.subjectId;
+      }
+      if (beat.development === 'match_dart') this.lastAnticipationTurnId = this.visit?.turnId ?? null;
+    } else this.resolved = true;
+  }
+
+  responseCreated(id: string, beat: RivalryBeat) {
+    if (beat.rivalry.key !== this.rivalry?.key) return;
+    // At most a draining response and its replacement; old replies cannot grow memory.
+    if (this.responses.size >= 2) this.responses.delete(this.responses.keys().next().value!);
+    this.responses.set(id, { beat, transcript: null, stopped: false });
+  }
+
+  generationFinished(id: string | undefined, transcript: string, successfulAudio: boolean) {
+    if (!id) return;
+    const response = this.responses.get(id);
+    if (!response) return;
+    if (!successfulAudio || !transcript.trim()) { this.responses.delete(id); return; }
+    response.transcript = transcript.trim().slice(0, 240);
+    this.commitDelivered(id);
+  }
+
+  playbackStopped(id: string | undefined, cleared: boolean) {
+    if (!id) return;
+    const response = this.responses.get(id);
+    if (!response) return;
+    if (cleared) { this.responses.delete(id); return; }
+    response.stopped = true;
+    this.commitDelivered(id);
+  }
+
+  cancelPending() { this.responses.clear(); }
+
+  private commitDelivered(id: string) {
+    const response = this.responses.get(id);
+    if (!response?.stopped || !response.transcript) return;
+    if (response.beat.sequence >= this.lastDeliveredSequence) {
+      this.callbackExcerpt = response.transcript;
+      this.lastDeliveredSequence = response.beat.sequence;
+    }
+    if (response.beat.stage === 'establish' && !this.setupExcerpt) this.setupExcerpt = response.transcript;
+    this.responses.delete(id);
+  }
 }
