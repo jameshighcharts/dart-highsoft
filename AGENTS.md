@@ -37,7 +37,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | Path | Purpose |
 |------|---------|
 | `page.tsx` | Home — leaderboard grid, nav to new match/practice/players |
-| `new/page.tsx` | New X01 or party-game form with optional ready Scolia board selection |
+| `new/page.tsx` | New X01 or party-game form with locally remembered rules, party options, and ordered active-player lineup; stacked game cards with blue/cyan gradient selection outlines in a narrow settings column alongside a full-width, scrollable grid of large avatar/name player tiles and a fixed bottom bar with a half-width start action and centered avatar lineup that overlaps to fit, with entry bounces, staggered reduced-motion-aware pulses, excited hops on Start hover/focus, and click-to-remove, with optional ready Scolia board selection; opens new games in spectator mode when browser-local TV mode is enabled |
 | `match/[id]/page.tsx` | Match page (server component) |
 | `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator/history stats view; development performance overlay is opt-in via `perf=true` |
 | `match/[id]/report/page.tsx` | Server-rendered DartIQ replay data, deterministic match story, player baseline/WPA breakdowns, and initial URL-selected dart hydration for the client-local report explorer |
@@ -45,7 +45,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `game/[id]/GameClient.tsx` | Party-game scoring and spectator client |
 | `games/page.tsx` | Player-searchable X01 and party-game history with paginated loading, daily activity filtering, completed X01 stats links, and development-only dummy data at `?preview=1` |
 | `players/page.tsx` | Player management (list non-test players, create, edit location) |
-| `boards/page.tsx` | Scolia board management (connectivity, availability, active match/game links, connect/disconnect) |
+| `boards/page.tsx` | Scolia board management (connectivity, availability, active match/game links, connect/disconnect) and browser-local TV mode toggle |
 | `stats/page.tsx` | Stats and leaderboards |
 | `leaderboards/page.tsx` | Detailed X01, Elo, and party-mode leaderboards |
 | `elo-multi/page.tsx` | Multiplayer Elo leaderboard |
@@ -189,6 +189,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/realtimeSnapshot.ts` | Builds compact authoritative match snapshots for new, reconnected, and rotated Realtime sessions |
 | `commentary/scoliaRealtimeEvent.ts` | Shares canonical replay/model construction with listener-triggered cache preparation; loads an accepted Scolia throw and its turn/leg/match/player facts in one joined canonical read, attaches its deterministic DartIQ packet, adds coordinate-verified ring proximity, current-visit grouping distances, and frozen-model before/next-dart landing forecasts, and classifies speech priority without waiting for Supabase Realtime |
 | `avatars.ts` | Shared avatar sizes, default goblin icon assignment (`public/avatars/default`, keyed `goblin-01..40`, picked per player id), escaped grid HTML, and storage URL parsing |
+| `tvMode.ts` | Browser-local TV mode preference and click-triggered fullscreen request for new-game spectator navigation; fullscreen denial never blocks starting a game |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
 | `supabaseServer.ts` | Server-side Supabase client (API routes) |
 | `apiClient.ts` | Typed fetch wrapper: `apiRequest<T>()` |

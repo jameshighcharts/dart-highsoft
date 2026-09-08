@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ComponentType } from "react";
-import { Info } from "lucide-react";
+import { Check, Info } from "lucide-react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +47,76 @@ export function storeGameType(type: GameType) {
     localStorage.setItem(GAME_TYPE_STORAGE_KEY, type);
   } catch {
     /* ignore */
+  }
+}
+
+export const SETUP_STORAGE_KEY = "new-game-setup:v1";
+
+export type SavedGameSetup = {
+  gameType: GameType;
+  gameConfig: Record<string, unknown>;
+  selectedIds: string[];
+  startScore: "201" | "301" | "501";
+  finish: "single_out" | "double_out";
+  legsToWin: number;
+  fairEnding: boolean;
+};
+
+/** Restore only recognized options; stale or malformed preferences use defaults. */
+export function loadStoredSetup(): SavedGameSetup | null {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(SETUP_STORAGE_KEY) ?? "null");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const saved = parsed as Record<string, unknown>;
+    const gameType = saved.gameType;
+    if (!isGameType(gameType)) return null;
+    const gameConfig: Record<string, unknown> = gameType === "x01" ? {} : defaultConfigFor(gameType);
+    const raw = saved.gameConfig && typeof saved.gameConfig === "object" && !Array.isArray(saved.gameConfig)
+      ? saved.gameConfig as Record<string, unknown>
+      : null;
+    if (gameType !== "x01" && raw && typeof raw === "object") {
+      for (const field of GAME_MODE_INFO[gameType].fields) {
+        const value = raw[field.key];
+        if (field.kind === "switch" && typeof value === "boolean") {
+          gameConfig[field.key] = value;
+        } else if (field.kind === "select" && field.options.some((o) => o.value === String(value))) {
+          gameConfig[field.key] = coerceSelectValue(gameType, field.key, String(value));
+        } else if (field.kind === "stepper" && (
+          (value === null && field.nullable) ||
+          (typeof value === "number" && Number.isInteger(value) && value >= field.min && value <= field.max)
+        )) {
+          gameConfig[field.key] = value;
+        }
+      }
+      if (gameType === "killer" && raw.assignedNumbers && typeof raw.assignedNumbers === "object") {
+        gameConfig.assignedNumbers = Object.fromEntries(
+          Object.entries(raw.assignedNumbers).filter(([, n]) =>
+            typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= 20),
+        );
+      }
+    }
+    const legsToWin = typeof saved.legsToWin === "number" && Number.isSafeInteger(saved.legsToWin) && saved.legsToWin > 0 ? saved.legsToWin : 1;
+    return {
+      gameType,
+      gameConfig,
+      selectedIds: Array.isArray(saved.selectedIds)
+        ? [...new Set(saved.selectedIds.filter((id: unknown): id is string => typeof id === "string" && id.length > 0))]
+        : [],
+      startScore: (saved.startScore === "201" || saved.startScore === "301" || saved.startScore === "501") ? saved.startScore : "301",
+      finish: saved.finish === "double_out" ? "double_out" : "single_out",
+      legsToWin,
+      fairEnding: legsToWin === 1 && saved.fairEnding === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function storeSetup(setup: SavedGameSetup) {
+  try {
+    localStorage.setItem(SETUP_STORAGE_KEY, JSON.stringify(setup));
+  } catch {
+    // Setup remains usable when browser storage is unavailable.
   }
 }
 
@@ -179,7 +249,7 @@ export function HowToPlayDialog({
   );
 }
 
-/** Stacked full-width rows: artwork on the left, name and tagline, plus a "How to play" popup. */
+/** Responsive game cards: artwork on the left, name and tagline, plus a "How to play" popup. */
 export function GameTypePicker({
   value,
   onChange,
@@ -190,17 +260,17 @@ export function GameTypePicker({
   const [infoType, setInfoType] = useState<GameType | null>(null);
   return (
     <>
-      <div className="flex flex-col gap-2" role="radiogroup" aria-label="Game type">
+      <div className="grid grid-cols-1 gap-2" role="radiogroup" aria-label="Game type">
         {GAME_TYPE_CARDS.map((card) => {
           const Icon = card.icon;
           const selected = card.type === value;
           return (
             <div
               key={card.type}
-              className={`flex items-center gap-3 rounded-xl border p-2 pr-3 transition-colors ${
+              className={`flex items-center gap-2 rounded-xl border p-2.5 transition-colors ${
                 selected
-                  ? "border-accent bg-accent/30"
-                  : "border-border hover:border-accent/60 hover:bg-accent/15"
+                  ? "border-transparent bg-[linear-gradient(115deg,#102033,#0c1425),linear-gradient(120deg,#4fe3f5,#5c8dff_55%,#a78bfa)] [background-origin:border-box] [background-clip:padding-box,border-box] text-sky-100 shadow-[0_0_20px_rgba(79,163,245,0.08)]"
+                  : "border-white/5 bg-white/[0.025] text-slate-300 hover:border-white/15 hover:bg-white/5"
               }`}
             >
               <button
@@ -208,24 +278,23 @@ export function GameTypePicker({
                 role="radio"
                 aria-checked={selected}
                 onClick={() => onChange(card.type)}
-                className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <span className="flex size-16 shrink-0 items-center justify-center">
-                  <Icon className="size-16" />
+                <span className="flex size-11 shrink-0 items-center justify-center">
+                  <Icon className="size-11" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-base font-bold leading-tight">{card.name}</span>
-                  <span className="block text-xs leading-snug text-muted-foreground">{card.tagline}</span>
+                  <span className="block text-lg font-extrabold tracking-tight leading-tight">{card.name}</span>
                 </span>
+                {selected && <Check className="size-5 shrink-0" aria-hidden="true" />}
               </button>
               <button
                 type="button"
                 onClick={() => setInfoType(card.type)}
                 aria-label={`How to play ${card.name}`}
-                className="flex shrink-0 items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className={`flex size-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected ? "text-sky-200/60 hover:bg-sky-300/10 hover:text-sky-100" : "text-slate-500 hover:bg-white/10 hover:text-white"}`}
               >
                 <Info className="size-3.5" />
-                <span className="hidden sm:inline">How to play</span>
               </button>
             </div>
           );
@@ -340,7 +409,7 @@ function KillerNumberAssignment({
         <p className="text-xs text-muted-foreground">Numbers must be unique.</p>
       </div>
       {players.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Select players below to assign numbers.</p>
+        <p className="text-sm text-muted-foreground">Select players to assign numbers.</p>
       ) : (
         players.map((player) => {
           const own = assigned[player.id];

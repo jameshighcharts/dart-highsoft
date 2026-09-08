@@ -161,15 +161,15 @@ export function BoardPicker({
 
   return (
     <Select value={current.value} onValueChange={onChange}>
-      <SelectTrigger className="h-12 w-full" aria-label="Board">
+      <SelectTrigger className="data-[size=default]:h-14 w-full rounded-xl px-4 text-base" aria-label="Board">
         <SelectValue>
           <span className="flex items-center gap-2">
             {current.icon === "manual" ? (
-              <PencilLine className="size-4 shrink-0 text-muted-foreground" />
+              <PencilLine className="size-5 shrink-0 text-muted-foreground" />
             ) : (
-              <Wifi className="size-4 shrink-0 text-muted-foreground" />
+              <Wifi className="size-5 shrink-0 text-muted-foreground" />
             )}
-            <span className="font-medium">{current.label}</span>
+            <span className="font-semibold">{current.label}</span>
             {current.icon === "board" && (
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <StatusDot tone={current.tone} />
@@ -181,12 +181,12 @@ export function BoardPicker({
       </SelectTrigger>
       <SelectContent>
         {items.map((item) => (
-          <SelectItem key={item.value} value={item.value} disabled={item.disabled} className="py-2.5">
+          <SelectItem key={item.value} value={item.value} disabled={item.disabled} className="min-h-12 py-3">
             <span className="flex items-center gap-2">
               {item.icon === "manual" ? (
-                <PencilLine className="size-4 shrink-0 text-muted-foreground" />
+                <PencilLine className="size-5 shrink-0 text-muted-foreground" />
               ) : (
-                <Wifi className="size-4 shrink-0 text-muted-foreground" />
+                <Wifi className="size-5 shrink-0 text-muted-foreground" />
               )}
               <span className="font-medium">{item.label}</span>
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">

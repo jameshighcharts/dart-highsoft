@@ -5,6 +5,7 @@ import { LoaderCircle, Plus, RefreshCw, Router, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 
 import { apiRequest } from '@/lib/apiClient';
+import { isTVModeEnabled, TV_MODE_STORAGE_KEY } from '@/lib/tvMode';
 import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
 import { hasFreshScoliaHeartbeat } from '@/lib/scolia/availability';
 import type { ScoliaBoard, ScoliaBoardPublicStatus } from '@/lib/scolia/types';
@@ -14,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 
 function connectionLabel(status: ScoliaBoard['workerConnectionStatus']): string {
   if (status === 'connected') return 'Connected';
@@ -44,6 +46,22 @@ export default function BoardsPage() {
   const [saving, setSaving] = useState(false);
   const [removingSerial, setRemovingSerial] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tvMode, setTVMode] = useState(false);
+  const [tvModeError, setTVModeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTVMode(isTVModeEnabled());
+  }, []);
+
+  function changeTVMode(enabled: boolean) {
+    try {
+      window.localStorage.setItem(TV_MODE_STORAGE_KEY, String(enabled));
+      setTVMode(enabled);
+      setTVModeError(null);
+    } catch {
+      setTVModeError('Unable to save TV mode. Allow browser storage and try again.');
+    }
+  }
 
   const loadBoards = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -283,6 +301,24 @@ export default function BoardsPage() {
           </div>
         )}
       </section>
+
+      <Card>
+        <CardContent className="flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <Label htmlFor="tv-mode" className="text-base font-semibold">TV mode</Label>
+            <p id="tv-mode-description" className="text-sm text-muted-foreground">
+              Open new games in fullscreen spectator mode. Saved in this browser.
+            </p>
+            {tvModeError ? <p role="alert" className="text-sm text-destructive">{tvModeError}</p> : null}
+          </div>
+          <Switch
+            id="tv-mode"
+            aria-describedby="tv-mode-description"
+            checked={tvMode}
+            onCheckedChange={changeTVMode}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }
