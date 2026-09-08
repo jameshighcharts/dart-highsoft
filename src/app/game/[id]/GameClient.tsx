@@ -4,6 +4,8 @@ import { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AlertCircle, Radio } from 'lucide-react';
 
+import { RematchPanel } from '@/components/games/RematchPanel';
+import { GAME_MODE_INFO } from '@/lib/games/labels';
 import { Button } from '@/components/ui/button';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { deriveGameView, gameTurnGuide } from '@/lib/games/presentation';
@@ -68,6 +70,7 @@ function celebrationFor(state: GameState, players: GamePlayerData[]): string | n
 function GameClientInner({ gameId }: GameClientProps) {
   const searchParams = useSearchParams();
   const spectator = searchParams.get('spectator') === 'true';
+  const [rematchOpen, setRematchOpen] = useState(false);
   const [inputMode, setInputMode] = useState<'keypad' | 'board'>('keypad');
 
   const { session, players, orderedPlayerIds, throws, loading, error, refetch, setThrows } = useGameData(gameId);
@@ -172,6 +175,13 @@ function GameClientInner({ gameId }: GameClientProps) {
         </div>
       )}
 
+      {!isActive && <RematchPanel
+        players={players.map(player => ({ id: player.player_id, display_name: player.display_name }))}
+        gameLabel={GAME_MODE_INFO[session.mode].name}
+        minPlayers={GAME_MODE_INFO[session.mode].minPlayers} maxPlayers={GAME_MODE_INFO[session.mode].maxPlayers}
+        showTrigger={spectator} open={rematchOpen} onOpenChange={setRematchOpen}
+        onStart={rematch}
+      />}
       {!isActive && (
         <GameResults
           mode={session.mode}
@@ -188,7 +198,7 @@ function GameClientInner({ gameId }: GameClientProps) {
               busy={busy}
               onUndo={() => void undo()}
               onEndEarly={() => void endEarly()}
-              onRematch={() => void rematch()}
+              onRematch={() => setRematchOpen(true)}
             />
           )}
         </GameResults>

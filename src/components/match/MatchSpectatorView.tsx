@@ -46,6 +46,8 @@ type CelebrationState = {
 } | null;
 
 type Props = {
+  onRematch?: () => void;
+  rematchOpen?: boolean;
   celebration: CelebrationState;
   realtimeConnectionStatus: string;
   realtimeIsConnected: boolean;
@@ -152,6 +154,8 @@ function ConfettiOverlay() {
 }
 
 export function MatchSpectatorView({
+  onRematch,
+  rematchOpen = false,
   celebration,
   realtimeConnectionStatus,
   realtimeIsConnected,
@@ -655,7 +659,7 @@ export function MatchSpectatorView({
         ) : null}
 
         {/* Match winner modal */}
-        <Dialog open={winnerModalOpen && !!matchWinnerId} onOpenChange={setWinnerModalOpen}>
+        <Dialog open={winnerModalOpen && !!matchWinnerId && !rematchOpen} onOpenChange={setWinnerModalOpen}>
           <DialogContent className="sm:max-w-md [&>button]:hidden">
             <DialogTitle className="sr-only">Match Winner</DialogTitle>
             <ConfettiOverlay />
@@ -667,6 +671,10 @@ export function MatchSpectatorView({
               </div>
               <div className="text-base md:text-lg text-muted-foreground">
                 Match complete
+              </div>
+              <div className="flex justify-center gap-2">
+                {onRematch && <Button onClick={() => { setWinnerModalOpen(false); onRematch(); }}>Rematch</Button>}
+                <Button variant="outline" onClick={() => setWinnerModalOpen(false)}>View results</Button>
               </div>
               <EloChangesDisplay
                 eloChanges={eloChanges}

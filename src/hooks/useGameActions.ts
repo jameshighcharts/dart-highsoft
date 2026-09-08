@@ -158,21 +158,20 @@ export function useGameActions({ gameId, state, setThrows, refetch }: UseGameAct
   );
 
   const rematch = useCallback(
-    () =>
+    (playerIds?: string[]) =>
       enqueue(async () => {
-        try {
-          const response = await fetch(`/api/games/${gameId}/rematch`, { method: 'POST' });
-          const data = (await readJson<{ newGameId?: string } & ApiError>(response)) ?? {};
-          if (!response.ok || !data.newGameId) {
-            showMessage(data.error ?? `Could not start rematch (${response.status})`);
-            return;
-          }
-          router.push(`/game/${data.newGameId}`);
-        } catch (err) {
-          showMessage(err instanceof Error ? err.message : 'Could not start rematch');
+        const response = await fetch(`/api/games/${gameId}/rematch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: playerIds ? JSON.stringify({ playerIds }) : undefined,
+        });
+        const data = (await readJson<{ newGameId?: string } & ApiError>(response)) ?? {};
+        if (!response.ok || !data.newGameId) {
+          throw new Error(data.error ?? `Could not start rematch (${response.status})`);
         }
+        router.push(`/game/${data.newGameId}`);
       }),
-    [enqueue, gameId, router, showMessage]
+    [enqueue, gameId, router]
   );
 
   return { throwDart, undo, endEarly, rematch, busy, message, clearMessage: () => setMessage(null) };
