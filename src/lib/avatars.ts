@@ -10,6 +10,28 @@ export function avatarStoragePathFromUrl(url: string | null): string | null {
   return path.startsWith('players/') && !path.includes('..') ? path : null;
 }
 
+// Default profile pictures: 40 goblin icons in public/avatars/default, keyed
+// goblin-01..goblin-40 (row-major order of the source sheet). A player without
+// an uploaded picture gets one picked deterministically from their id, so the
+// same player always shows the same goblin everywhere.
+
+export const DEFAULT_AVATAR_COUNT = 40;
+
+export const DEFAULT_AVATAR_KEYS: readonly string[] = Array.from({ length: DEFAULT_AVATAR_COUNT }, (_, i) => `goblin-${String(i + 1).padStart(2, '0')}`);
+
+export function defaultAvatarKey(seed: string): string {
+  return DEFAULT_AVATAR_KEYS[hashSeed(seed) % DEFAULT_AVATAR_KEYS.length];
+}
+
+export function defaultAvatarUrl(seed: string): string {
+  return `/avatars/default/${defaultAvatarKey(seed)}.png`;
+}
+
+/** Picture to show for a player: their upload, or their assigned default goblin. */
+export function resolveAvatarUrl(player: { id?: string | null; display_name?: string | null; avatar_url?: string | null }): string {
+  return player.avatar_url || defaultAvatarUrl(player.id || player.display_name || '');
+}
+
 // Shared look for player avatars: one set of circle sizes, deterministic
 // fallback colour per player, and initials. Used by the React component and by
 // the HTML-string renderer for the Highcharts Grid leaderboard.
@@ -28,10 +50,14 @@ export const AVATAR_PX: Record<AvatarSize, number> = { xs: 20, sm: 24, md: 32, l
 
 const HUES = [210, 260, 300, 340, 20, 45, 90, 150, 180];
 
-export function avatarHue(seed: string): number {
+function hashSeed(seed: string): number {
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  return HUES[hash % HUES.length];
+  return hash;
+}
+
+export function avatarHue(seed: string): number {
+  return HUES[hashSeed(seed) % HUES.length];
 }
 
 export function avatarFallbackColor(seed: string): string {
@@ -66,8 +92,9 @@ export function renderPlayerAvatarHtml(
   const px = AVATAR_PX[size];
   const name = player.display_name ?? '';
   const common = `display:inline-flex;flex:none;width:${px}px;height:${px}px;border-radius:9999px;overflow:hidden;vertical-align:middle;`;
-  if (player.avatar_url && isSafeImageUrl(player.avatar_url)) {
-    return `<img src="${escapeHtml(player.avatar_url)}" alt="" width="${px}" height="${px}" loading="lazy" decoding="async" style="${common}object-fit:cover;background:rgba(127,127,127,.2)" />`;
+  const url = player.avatar_url && isSafeImageUrl(player.avatar_url) ? player.avatar_url : defaultAvatarUrl(player.id || name);
+  if (url) {
+    return `<img src="${escapeHtml(url)}" alt="" width="${px}" height="${px}" loading="lazy" decoding="async" style="${common}object-fit:cover;background:rgba(127,127,127,.2)" />`;
   }
   const fontSize = Math.max(9, Math.round(px * 0.38));
   return `<span aria-hidden="true" style="${common}align-items:center;justify-content:center;font-weight:600;line-height:1;color:#fff;font-size:${fontSize}px;background:${avatarFallbackColor(player.id ?? name)};box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)">${escapeHtml(playerInitials(name))}</span>`;

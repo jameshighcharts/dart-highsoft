@@ -188,7 +188,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/realtimeTypes.ts` | Shared Realtime session/correction-envelope contracts, model default, UUID validation, and legacy-to-Realtime voice mapping |
 | `commentary/realtimeSnapshot.ts` | Builds compact authoritative match snapshots for new, reconnected, and rotated Realtime sessions |
 | `commentary/scoliaRealtimeEvent.ts` | Shares canonical replay/model construction with listener-triggered cache preparation; loads an accepted Scolia throw and its turn/leg/match/player facts in one joined canonical read, attaches its deterministic DartIQ packet, adds coordinate-verified ring proximity, current-visit grouping distances, and frozen-model before/next-dart landing forecasts, and classifies speech priority without waiting for Supabase Realtime |
-| `avatars.ts` | Shared avatar sizes, initials, colors, escaped grid HTML, and storage URL parsing |
+| `avatars.ts` | Shared avatar sizes, default goblin icon assignment (`public/avatars/default`, keyed `goblin-01..40`, picked per player id), escaped grid HTML, and storage URL parsing |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
 | `supabaseServer.ts` | Server-side Supabase client (API routes) |
 | `apiClient.ts` | Typed fetch wrapper: `apiRequest<T>()` |
@@ -238,7 +238,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `games/ShanghaiBoard.tsx` | Shanghai targets, rounds, and scores display |
 | `games/ClockBoard.tsx` | Around the Clock progress display |
 | `leaderboard/GameModeLeaderboardItem.tsx` | Player row for party-mode leaderboard statistics |
-| `PlayerAvatar.tsx` | Shared avatar rendering with initials fallback |
+| `PlayerAvatar.tsx` | Shared avatar rendering; falls back to the player's assigned default goblin icon |
 | `PlayerAvatarById.tsx` | Avatar lookup for ID-only rows, with one shared cached player query |
 | `Dartboard.tsx` | SVG interactive dartboard (desktop) |
 | `MobileKeypad.tsx` | Touch number pad (mobile) |
