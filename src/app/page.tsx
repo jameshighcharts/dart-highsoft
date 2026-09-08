@@ -10,7 +10,7 @@ const GridLeaderboard = dynamic(
 
 export default function Home() {
   return (
-    <main className="w-[90%] mx-auto p-4 md:p-6 space-y-6">
+    <main className="w-full mx-auto space-y-4 sm:w-[90%] sm:p-4 md:p-6 md:space-y-6">
       <GridLeaderboard
         headerContent={
           <nav className="mx-auto grid w-full max-w-2xl grid-cols-3 gap-2" aria-label="Start playing">
