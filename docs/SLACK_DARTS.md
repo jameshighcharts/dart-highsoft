@@ -39,8 +39,9 @@ Anyone in the channel presses **I'm down** to join or **Not this time** to
 opt out. Pressing the other button changes the answer. Buttons disappear when
 sign-up closes. With fewer than two players the poll is marked cancelled;
 otherwise the match is created with the poll's settings and the message shows
-"Match ready" with scoring and spectator links. Play order follows the order
-people joined, so the first to press I'm down throws first.
+"Match ready" with scoring and spectator links. Play order follows each
+participant's most recent vote. Pressing I'm down again moves that person to
+the end of the lineup.
 
 ## Slack app setup
 
@@ -153,6 +154,19 @@ lists every full, active, human member of the workspace via `users.list`
 Run `npm run slack:sync-players -- --dry` to print the plan without writing.
 
 ## Deployment
+
+Before promoting this app version, run **Deploy Supabase Migrations** against
+the PR branch with `verify_only` enabled. It tries the migration and SQL
+regression against the configured database in a bounded transaction, then
+rolls back the schema changes, test players, matches, polls, and queued jobs.
+The checks use the service role and raise SQL errors on failure.
+
+After that passes, run the same workflow with `verify_only` disabled to apply
+the migration before merging. Old app versions continue to create 501,
+one-leg, double-out polls through the column defaults. Rolling the app back
+does not require dropping the new columns or reverting the function.
+The workflow also runs the SQL check before automatic deployments on `main`.
+Deploying the app before the migration finishes makes new poll inserts fail.
 
 1. Apply migrations `0057_slack_dart_polls.sql`,
    `0058_background_jobs.sql` and
