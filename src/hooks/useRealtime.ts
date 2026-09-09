@@ -7,6 +7,7 @@ import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 export function useRealtime(matchId: string) {
+  const [lastError, setLastError] = useState<{ matchId: string; message: string } | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const channelRef = useRef<RealtimeChannel | null>(null);
   const generationRef = useRef(0);
@@ -84,6 +85,7 @@ export function useRealtime(matchId: string) {
             console.warn('Realtime postgres_changes subscription warning:', payload);
             if (status === 'error') {
               incrementRealtimeMetric(matchId, 'channelErrorTransitions');
+              setLastError({ matchId, message: text || 'Database subscription failed.' });
               setConnectionStatus('error');
             }
           }
@@ -169,19 +171,24 @@ export function useRealtime(matchId: string) {
       channelRef.current = newChannel;
       connectingRef.current = false;
       // Subscribe to the channel
-      newChannel.subscribe((status) => {
+      newChannel.subscribe((status, error) => {
         if (!current()) return;
         if (status === 'SUBSCRIBED') {
           incrementRealtimeMetric(matchId, 'channelConnectedTransitions');
           setConnectionStatus('connected');
           setRecoveryVersion(value => value + 1);
         } else if (status === 'CHANNEL_ERROR') {
+          setLastError(previous => ({ matchId, message: error?.message
+            || (previous?.matchId === matchId ? previous.message : 'Database channel failed; the server supplied no error details.') }));
           incrementRealtimeMetric(matchId, 'channelErrorTransitions');
           setConnectionStatus('error');
         } else if (status === 'TIMED_OUT') {
+          setLastError({ matchId, message: error?.message || 'Database subscription timed out.' });
           incrementRealtimeMetric(matchId, 'channelErrorTransitions');
           setConnectionStatus('error');
         } else if (status === 'CLOSED') {
+          setLastError(previous => previous?.matchId === matchId ? previous
+            : { matchId, message: 'Database channel closed unexpectedly; no reason was supplied.' });
           incrementRealtimeMetric(matchId, 'channelClosedTransitions');
           setConnectionStatus('disconnected');
         }
@@ -190,6 +197,7 @@ export function useRealtime(matchId: string) {
       if (!current()) return;
       connectingRef.current = false;
       console.error('💥 Failed to connect to realtime:', error);
+      setLastError({ matchId, message: error instanceof Error ? error.message : 'Could not initialize the database connection.' });
       setConnectionStatus('error');
     }
   }, [matchId]);
@@ -328,6 +336,7 @@ export function useRealtime(matchId: string) {
   }, [connectionStatus, connect, disconnect, retryVersion]);
 
   return {
+    connectionError: lastError?.matchId === matchId ? lastError.message : null,
     connectionStatus,
     recoveryVersion,
     connect,

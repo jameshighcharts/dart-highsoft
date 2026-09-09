@@ -1,3 +1,4 @@
+import { RealtimeConnectionError } from './RealtimeConnectionError';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,7 @@ import { Pause, Play } from 'lucide-react';
 
 type Props = {
   realtimeConnectionStatus: string;
+  realtimeConnectionError?: string | null;
   currentPlayer: Player | null;
   getScoreForPlayer: (playerId: string) => number;
   localTurn: { playerId: string | null; darts: { scored: number; label: string; kind: SegmentResult['kind'] }[] };
@@ -86,6 +88,7 @@ type Props = {
 
 export function MatchScoringView({
   realtimeConnectionStatus,
+  realtimeConnectionError,
   currentPlayer,
   getScoreForPlayer,
   localTurn,
@@ -176,7 +179,8 @@ export function MatchScoringView({
   return (
     <div className="w-full space-y-3 md:space-y-6 md:-ml-[calc(50vw-50%)] md:-mr-6 md:pl-4 md:pr-4 lg:pr-6 md:max-w-none relative">
       {/* Connection status indicator */}
-      <div className="fixed bottom-4 right-4 z-50">
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+        <RealtimeConnectionError message={realtimeConnectionError} connected={realtimeConnectionStatus === 'connected'} />
         <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 dark:bg-gray-800/90 shadow-sm text-xs">
           <div
             className={`w-2 h-2 rounded-full ${

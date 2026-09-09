@@ -607,6 +607,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           onRematch={!match.tournament_match_id ? () => setRematchOpen(true) : undefined}
           celebration={celebration}
           realtimeConnectionStatus={realtime.connectionStatus}
+          realtimeConnectionError={realtime.connectionError}
           realtimeIsConnected={realtime.isConnected}
           spectatorLoading={spectatorLoading}
           matchUrl={matchUrl}
@@ -669,6 +670,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
       {rematchPanel}
       <MatchScoringView
         realtimeConnectionStatus={realtime.connectionStatus}
+          realtimeConnectionError={realtime.connectionError}
         currentPlayer={currentPlayer}
         getScoreForPlayer={getScoreForPlayer}
         localTurn={localTurn}

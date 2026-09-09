@@ -559,3 +559,4 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/lib/supabaseClient.ts` and its test: Concurrent first-mount callers share one cached Supabase client after the dynamic import, avoiding duplicate socket clients.
 
 - `src/hooks/useMatchData.ts` and its tests: Full HTTP snapshots are invalidated by live events received during the read, with three bounded retries and match-owner guards before state replacement. Insert/edit/delete race tests include rejected WAL echoes and authoritative deletion recovery; live events cannot be overwritten by an older in-flight snapshot.
+- `src/components/match/RealtimeConnectionError.tsx`: Scoring/spectator connection indicators show the actual last database subscription error, retaining it through retries and recovery so flickering status cannot hide the cause. `useRealtime` scopes errors to the match and captures SDK, system, timeout, unexpected-close, and initialization failures.

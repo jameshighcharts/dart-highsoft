@@ -103,6 +103,7 @@ describe('useRealtime', () => {
     expect(warnSpy).toHaveBeenCalled();
     await waitFor(() => {
       expect(result.current.connectionStatus).toBe('error');
+      expect(result.current.connectionError).toBe('Unable to subscribe to changes with given parameters');
     });
     warnSpy.mockRestore();
   });
@@ -270,6 +271,25 @@ describe('useRealtime', () => {
     await act(async () => wal('SUBSCRIBED'));
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     expect(channelMock.mock.calls.filter(([name]) => name === 'dart_match_match-123')).toHaveLength(1);
+  });
+
+  it('exposes the SDK failure and retains it after recovery without accepting stale failures', async () => {
+    const statuses: Array<(status: string, error?: Error) => void> = [];
+    subscribeMock.mockImplementation(callback => { statuses.push(callback); return mockChannel; });
+    const { result, rerender } = renderHook(id => useRealtime(id), { initialProps: 'match-123' });
+    await act(async () => {});
+    const wal = statuses[channelMock.mock.calls.findIndex(([name]) => name === 'dart_match_match-123')];
+    await act(async () => wal('CHANNEL_ERROR', new Error('mismatch between server and client bindings')));
+    expect(result.current.connectionError).toBe('mismatch between server and client bindings');
+    await act(async () => wal('CHANNEL_ERROR'));
+    expect(result.current.connectionError).toBe('mismatch between server and client bindings');
+    await act(async () => wal('SUBSCRIBED'));
+    expect(result.current.isConnected).toBe(true);
+    expect(result.current.connectionError).toBe('mismatch between server and client bindings');
+    await act(async () => rerender('other-match'));
+    expect(result.current.connectionError).toBeNull();
+    await act(async () => wal('CHANNEL_ERROR', new Error('late error')));
+    expect(result.current.connectionError).toBeNull();
   });
 
 });
