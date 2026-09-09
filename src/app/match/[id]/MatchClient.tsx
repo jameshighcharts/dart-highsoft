@@ -22,7 +22,7 @@ import { useRealtime } from '@/hooks/useRealtime';
 import type { LegRecord, MatchRecord, Player, TurnRecord } from '@/lib/match/types';
 import { PendingThrowBuffer } from '@/lib/match/realtime';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { incrementRealtimeMetric } from '@/lib/match/realtimeMetrics';
+import { useSpectatorRecovery } from '@/hooks/useSpectatorRecovery';
 import {
   selectCurrentLeg,
   selectOrderPlayers,
@@ -334,23 +334,14 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     };
   }, [isSpectatorMode, router]);
 
-  // Auto-refresh in spectator mode (fallback when real-time is not available)
-  useEffect(() => {
-    if (!isSpectatorMode) return;
-    
-    // Only use polling if real-time is not connected or disabled
-    if (realtimeIsConnected && realtimeEnabled) return;
-    
-    const interval = setInterval(() => {
-      // Only reload if not currently loading to prevent flickering
-      if (!spectatorLoading) {
-        incrementRealtimeMetric(matchId, 'fallbackPollTicks');
-        void loadAllSpectator();
-      }
-    }, 2000); // Refresh every 2 seconds as fallback
-    
-    return () => clearInterval(interval);
-  }, [matchId, isSpectatorMode, loadAllSpectator, spectatorLoading, realtimeIsConnected, realtimeEnabled]);
+  useSpectatorRecovery({
+    matchId,
+    enabled: isSpectatorMode && !match?.winner_player_id && !match?.ended_early,
+    connected: realtimeIsConnected && realtimeEnabled,
+    recoveryVersion: realtime.recoveryVersion ?? 0,
+    hasSnapshot: Boolean(match),
+    refresh: () => loadAllSpectator(true),
+  });
 
   const currentLeg = useMemo(() => selectCurrentLeg(legs ?? []), [legs]);
 

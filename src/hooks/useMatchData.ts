@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { loadMatchData } from '@/lib/match/loadMatchData';
 import { recordPerfMetric } from '@/lib/match/perfMetrics';
@@ -26,7 +26,7 @@ type UseMatchDataResult = {
   spectatorLoading: boolean;
   setSpectatorLoading: (value: boolean) => void;
   loadAll: () => Promise<void>;
-  loadAllSpectator: () => Promise<void>;
+  loadAllSpectator: (throwOnError?: boolean) => Promise<void>;
   loadMatchOnly: () => Promise<MatchRecord | null>;
   loadLegsOnly: () => Promise<LegRecord[]>;
   loadPlayersOnly: () => Promise<Player[]>;
@@ -46,6 +46,46 @@ export function useMatchData(matchId: string): UseMatchDataResult {
 
   const loadAllRequestIdRef = useRef(0);
   const loadAllSpectatorRequestIdRef = useRef(0);
+  // A multi-query HTTP snapshot has no ordering against incoming live events.
+  // Invalidate the entire read if any relevant event arrives while it is in
+  // flight; applying only selected rows would also need deletion tombstones.
+  const liveEpochRef = useRef(0);
+  const ownerRef = useRef(0);
+  useEffect(() => {
+    const events = ['supabase-scoring-commit', 'supabase-throws-change',
+      'supabase-turns-change', 'supabase-legs-change', 'supabase-matches-change',
+      'supabase-match-players-change'];
+    const invalidate = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const eventMatch = detail?.matchId ?? detail?.new?.match_id ?? detail?.old?.match_id
+        ?? (event.type === 'supabase-matches-change' ? detail?.new?.id ?? detail?.old?.id : undefined);
+      if (!eventMatch || eventMatch === matchId) liveEpochRef.current += 1;
+    };
+    events.forEach(event => window.addEventListener(event, invalidate));
+    return () => {
+      events.forEach(event => window.removeEventListener(event, invalidate));
+      ownerRef.current += 1;
+      liveEpochRef.current += 1;
+      loadAllRequestIdRef.current += 1;
+      loadAllSpectatorRequestIdRef.current += 1;
+    };
+  }, [matchId]);
+
+  const readSnapshot = useCallback(async (options: Parameters<typeof loadMatchData>[2]) => {
+    const owner = ownerRef.current;
+    const supabase = await getSupabaseClient();
+    // Bounded retries preserve live updates even during sustained play. A busy
+    // or failed recovery remains unacknowledged and can retry on the next check.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (owner !== ownerRef.current) throw new Error('Match snapshot owner changed');
+      const epoch = liveEpochRef.current;
+      const result = await loadMatchData(supabase, matchId, options);
+      if (owner !== ownerRef.current) throw new Error('Match snapshot owner changed');
+      if (epoch === liveEpochRef.current) return { result, epoch };
+    }
+    throw new Error('Match changed during snapshot recovery');
+  }, [matchId]);
+
 
   const loadAll = useCallback(async () => {
     const requestId = ++loadAllRequestIdRef.current;
@@ -53,8 +93,8 @@ export function useMatchData(matchId: string): UseMatchDataResult {
     setLoading(true);
     setError(null);
     try {
-      const supabase = await getSupabaseClient();
-      const result = await loadMatchData(supabase, matchId, { includeTurnsByLegSummary: true });
+      const { result, epoch } = await readSnapshot({ includeTurnsByLegSummary: true });
+      if (epoch !== liveEpochRef.current) throw new Error('Match changed before snapshot application');
 
       if (requestId !== loadAllRequestIdRef.current) return;
 
@@ -78,22 +118,25 @@ export function useMatchData(matchId: string): UseMatchDataResult {
         setLoading(false);
       }
     }
-  }, [matchId]);
+  }, [matchId, readSnapshot]);
 
   // Separate loading function for spectator mode that doesn't show loading screen
-  const loadAllSpectator = useCallback(async () => {
+  const loadAllSpectator = useCallback(async (throwOnError = false) => {
     const requestId = ++loadAllSpectatorRequestIdRef.current;
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     setSpectatorLoading(true);
     setError(null);
     try {
-      const supabase = await getSupabaseClient();
-      const result = await loadMatchData(supabase, matchId, {
+      const { result, epoch } = await readSnapshot({
         includeTurnsByLegSummary: false,
         includeTurnsByLegThrows: true,
       });
+      if (epoch !== liveEpochRef.current) throw new Error('Match changed before snapshot application');
 
-      if (requestId !== loadAllSpectatorRequestIdRef.current) return;
+      if (requestId !== loadAllSpectatorRequestIdRef.current) {
+        if (throwOnError) throw new Error('Spectator recovery was superseded');
+        return;
+      }
 
       if (result.match) setMatch(result.match);
       setPlayers(result.players);
@@ -108,6 +151,8 @@ export function useMatchData(matchId: string): UseMatchDataResult {
         'Spectator mode refresh error:',
         e instanceof Error ? e.message : JSON.stringify(e)
       );
+      // Recovery must not acknowledge a revision when the snapshot failed.
+      if (throwOnError) throw e;
       // Don't set error state in spectator mode to avoid disrupting the view
     } finally {
       if (process.env.NODE_ENV !== 'production') {
@@ -121,7 +166,7 @@ export function useMatchData(matchId: string): UseMatchDataResult {
         setLoading(false);
       }
     }
-  }, [matchId]);
+  }, [matchId, readSnapshot]);
 
   const loadMatchOnly = useCallback(async () => {
     try {

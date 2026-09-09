@@ -550,3 +550,12 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/services/scoliaRealtimeCommentaryPublisher.ts`: Delivery persistence and connection preparation overlap event analysis; generation still waits for successful durable delivery persistence. Colocated tests cover persistence failure.
 
 - `src/lib/match/realtimeMetrics.ts` and `src/components/match/RealtimeDebugPanel.tsx`: Existing opt-in debug panel also shows private broadcast status and received committed-score broadcast count; channel failures warn without per-dart timing/token logs.
+
+### Spectator connection recovery
+- `src/hooks/useRealtime.ts`: Stable ref-owned database channel with stale-callback/async-unmount guards, bounded channel replacement after SDK recovery time, online/visibility wakeups, and independently retried private score broadcasts. `recoveryVersion` requests catch-up after subscription/rejoin.
+- `src/hooks/useMatchRealtime.ts`: Event consumers remain installed during database-channel outages so private committed-score broadcasts still update the match.
+- `src/hooks/useSpectatorRecovery.ts` and its tests: Single-flight, revision-gated spectator recovery; 15-second outage grace, 15–60-second outage checks, a 60-second revision health check while connected, 20-second error retry, recovery for failed initial loads, no checks while hidden/offline/completed, and catch-up on rejoin/foreground. Failed snapshots never acknowledge a revision. Changed state still uses the authoritative full snapshot for correction/deletion safety.
+- `src/app/api/matches/[matchId]/revision/route.ts` and its tests: Authenticated-proxy-protected, no-store compact source revision plus player-profile token; unchanged matches require no dart/turn history downloads. Uses existing `dartiq_source_revisions`; no new migration.
+- `src/lib/supabaseClient.ts` and its test: Concurrent first-mount callers share one cached Supabase client after the dynamic import, avoiding duplicate socket clients.
+
+- `src/hooks/useMatchData.ts` and its tests: Full HTTP snapshots are invalidated by live events received during the read, with three bounded retries and match-owner guards before state replacement. Insert/edit/delete race tests include rejected WAL echoes and authoritative deletion recovery; live events cannot be overwritten by an older in-flight snapshot.

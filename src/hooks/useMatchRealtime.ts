@@ -233,7 +233,9 @@ export function useMatchRealtime({
   }, [realtime.isConnected, realtime.updatePresence, realtimeEnabled, isSpectatorMode, latestStateRef]);
 
   useEffect(() => {
-    if (!realtime.isConnected || !realtimeEnabled) {
+    // Keep consumers installed while WAL reconnects: the independent score
+    // broadcast can continue delivering committed darts during that outage.
+    if (!realtimeEnabled) {
       return;
     }
 

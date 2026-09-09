@@ -9,14 +9,14 @@ const getClient = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: getClient }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-function setup() {
+function setup(connected = true) {
   let resolve!: (result: { data: TurnWithThrows[]; error: null }) => void;
   const response = new Promise<{ data: TurnWithThrows[]; error: null }>((done) => { resolve = done; });
   const query = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnValue(response) };
   getClient.mockResolvedValue({ from: vi.fn().mockReturnValue(query) });
   const leg = createMockLeg({ id: 'leg', match_id: 'match', winner_player_id: null });
   const args: Parameters<typeof useMatchRealtime>[0] = {
-    matchId: 'match', realtime: { isConnected: true, connectionStatus: 'connected', updatePresence: vi.fn() },
+    matchId: 'match', realtime: { isConnected: connected, connectionStatus: connected ? 'connected' : 'error', updatePresence: vi.fn() },
     realtimeEnabled: true, isSpectatorMode: true,
     loadAll: vi.fn(), loadAllSpectator: vi.fn(), loadMatchOnly: vi.fn(), loadLegsOnly: vi.fn(), loadPlayersOnly: vi.fn(), loadTurnsForLeg: vi.fn(),
     latestStateRef: { current: { isSpectatorMode: true, playerById: {}, turnThrowCounts: {}, turns: [], turnsByLeg: {}, legs: [leg], players: [],
@@ -91,8 +91,8 @@ describe('payload-first scoring and direct broadcasts', () => {
     expect(getClient).not.toHaveBeenCalled();
   });
 
-  it.each([true, false])('broadcasts a first dart without parent recovery and rejects stale edits/undo echoes (spectator %s)', async spectator => {
-    const test = setup();
+  it.each([[true, true], [true, false], [false, true], [false, false]])('broadcasts a first dart and rejects stale edits/undo echoes (spectator %s, connected %s)', async (spectator, connected) => {
+    const test = setup(connected);
     test.args.latestStateRef.current.isSpectatorMode = spectator;
     const packet = { matchId: 'match', turn: { ...turn, throws: undefined, live_revision: '10' },
       throws: [{ ...first, live_revision: '11' }] };

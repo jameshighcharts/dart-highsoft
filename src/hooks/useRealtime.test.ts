@@ -1,5 +1,5 @@
-import { renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, act, renderHook, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getRealtimeMetricsSnapshot } from '@/lib/match/realtimeMetrics';
 import { useRealtime } from './useRealtime';
@@ -15,6 +15,7 @@ vi.mock('@/lib/supabaseClient', () => ({
 }));
 
 describe('useRealtime', () => {
+  afterEach(() => { cleanup(); vi.useRealTimers(); });
   beforeEach(() => {
     vi.clearAllMocks();
     window.__dartRealtimeMetrics = {};
@@ -200,4 +201,75 @@ describe('useRealtime', () => {
       expect(result.current.connectionStatus).toBe('error');
     });
   });
+  it('replaces a failed WAL channel and ignores its late status callbacks', async () => {
+    vi.useFakeTimers();
+    const statuses: Array<(status: string) => void> = [];
+    subscribeMock.mockImplementation(callback => { statuses.push(callback); return mockChannel; });
+    const { result, unmount } = renderHook(() => useRealtime('match-123'));
+    await act(async () => {});
+    const wal = statuses[channelMock.mock.calls.findIndex(([name]) => name === 'dart_match_match-123')];
+    await act(async () => wal('CHANNEL_ERROR'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(channelMock.mock.calls.filter(([name]) => name === 'dart_match_match-123')).toHaveLength(2);
+    const replacement = statuses.at(-1)!;
+    await act(async () => replacement('SUBSCRIBED'));
+    expect(result.current.isConnected).toBe(true);
+    await act(async () => wal('CLOSED'));
+    expect(result.current.isConnected).toBe(true);
+    unmount();
+  });
+
+  it('does not create channels after an unmounted async initialization resolves', async () => {
+    let resolve!: (value: unknown) => void;
+    const pending = new Promise(value => { resolve = value; });
+    getSupabaseClientMock.mockReturnValue(pending);
+    const { unmount } = renderHook(() => useRealtime('match-123'));
+    unmount();
+    await act(async () => resolve({ channel: channelMock, removeChannel: vi.fn() }));
+    expect(channelMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps healthy subscriptions across rerenders and releases both on unmount', async () => {
+    const { rerender, unmount } = renderHook(() => useRealtime('match-123'));
+    await act(async () => {});
+    rerender();
+    expect(channelMock).toHaveBeenCalledTimes(2);
+    const client = await getSupabaseClientMock.mock.results[0].value;
+    expect(client.removeChannel).not.toHaveBeenCalled();
+    unmount();
+    expect(client.removeChannel).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits for removal before joining the same topic again', async () => {
+    vi.useFakeTimers();
+    const statuses: Array<(status: string) => void> = [];
+    subscribeMock.mockImplementation(callback => { statuses.push(callback); return mockChannel; });
+    const { unmount } = renderHook(() => useRealtime('match-123'));
+    await act(async () => {});
+    const client = await getSupabaseClientMock.mock.results[0].value;
+    let removed!: () => void;
+    client.removeChannel.mockReturnValueOnce(new Promise<void>(resolve => { removed = resolve; }));
+    const wal = statuses[channelMock.mock.calls.findIndex(([name]) => name === 'dart_match_match-123')];
+    await act(async () => wal('CLOSED'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(channelMock.mock.calls.filter(([name]) => name === 'dart_match_match-123')).toHaveLength(1);
+    await act(async () => removed());
+    expect(channelMock.mock.calls.filter(([name]) => name === 'dart_match_match-123')).toHaveLength(2);
+    unmount();
+  });
+
+  it('lets the SDK recover without replacing a healthy channel', async () => {
+    vi.useFakeTimers();
+    const statuses: Array<(status: string) => void> = [];
+    subscribeMock.mockImplementation(callback => { statuses.push(callback); return mockChannel; });
+    renderHook(() => useRealtime('match-123'));
+    await act(async () => {});
+    const wal = statuses[channelMock.mock.calls.findIndex(([name]) => name === 'dart_match_match-123')];
+    await act(async () => wal('CHANNEL_ERROR'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    await act(async () => wal('SUBSCRIBED'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(channelMock.mock.calls.filter(([name]) => name === 'dart_match_match-123')).toHaveLength(1);
+  });
+
 });

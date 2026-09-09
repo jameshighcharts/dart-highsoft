@@ -8,15 +8,40 @@ type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 export function useRealtime(matchId: string) {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
-  const [channel, setChannel] = useState<RealtimeChannel | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const generationRef = useRef(0);
+  const connectingRef = useRef(false);
+  const removalRef = useRef<Promise<unknown>>(Promise.resolve());
+  const [recoveryVersion, setRecoveryVersion] = useState(0);
   const supabaseRef = useRef<SupabaseClient | null>(null);
 
+  const disconnect = useCallback(() => {
+    generationRef.current += 1;
+    connectingRef.current = false;
+    const previous = channelRef.current;
+    channelRef.current = null;
+    if (previous && supabaseRef.current) {
+      removalRef.current = supabaseRef.current.removeChannel(previous).catch(error => {
+        console.warn('Could not remove old match channel', error);
+      });
+    }
+    setConnectionStatus('disconnected');
+  }, []);
+
   const connect = useCallback(async () => {
-    if (channel) return; // Already connected
+    if (channelRef.current || connectingRef.current) return;
+    connectingRef.current = true;
+    const generation = ++generationRef.current;
+    const current = () => generationRef.current === generation;
 
     try {
       setConnectionStatus('connecting');
+      // Supabase retains a topic until removal completes. Joining too early can
+      // return the same closing channel rather than a fresh subscription.
+      await removalRef.current;
+      if (!current()) return;
       const supabase = await getSupabaseClient();
+      if (!current()) return;
       supabaseRef.current = supabase;
       
       const newChannel = supabase
@@ -28,9 +53,11 @@ export function useRealtime(matchId: string) {
           },
         })
         .on('broadcast', { event: 'rematch-created' }, (payload) => {
+          if (!current()) return;
           window.dispatchEvent(new CustomEvent('supabase-rematch-created', { detail: payload?.payload }));
         })
         .on('system', {}, (payload) => {
+          if (!current()) return;
           // Realtime can report postgres subscription errors via system events even when
           // channel status is "SUBSCRIBED". Surface this as an error so spectator mode
           // can fall back to polling instead of appearing connected but stale.
@@ -71,6 +98,7 @@ export function useRealtime(matchId: string) {
             filter: `match_id=eq.${matchId}`,
           },
           (payload) => {
+            if (!current()) return;
             incrementRealtimeMetric(matchId, 'throwsEvents');
             recordRealtimeDeliveryDelay(matchId, payload);
             window.dispatchEvent(new CustomEvent('supabase-throws-change', { detail: payload }));
@@ -85,6 +113,7 @@ export function useRealtime(matchId: string) {
             filter: `match_id=eq.${matchId}`,
           },
           (payload) => {
+            if (!current()) return;
             incrementRealtimeMetric(matchId, 'turnsEvents');
             recordRealtimeDeliveryDelay(matchId, payload);
             window.dispatchEvent(new CustomEvent('supabase-turns-change', { detail: payload }));
@@ -99,6 +128,7 @@ export function useRealtime(matchId: string) {
             filter: `match_id=eq.${matchId}`,
           },
           (payload) => {
+            if (!current()) return;
             incrementRealtimeMetric(matchId, 'legsEvents');
             recordRealtimeDeliveryDelay(matchId, payload);
             window.dispatchEvent(new CustomEvent('supabase-legs-change', { detail: payload }));
@@ -113,12 +143,12 @@ export function useRealtime(matchId: string) {
             filter: `id=eq.${matchId}`,
           },
           (payload) => {
+            if (!current()) return;
             incrementRealtimeMetric(matchId, 'matchesEvents');
             recordRealtimeDeliveryDelay(matchId, payload);
             window.dispatchEvent(new CustomEvent('supabase-matches-change', { detail: payload }));
           }
-        )
-;
+        );
 
       for (const event of ['INSERT', 'UPDATE', 'DELETE'] as const) {
         newChannel.on('postgres_changes', {
@@ -126,6 +156,7 @@ export function useRealtime(matchId: string) {
           // Supabase cannot filter DELETE events; retain client filtering for those only.
           ...(event === 'DELETE' ? {} : { filter: `match_id=eq.${matchId}` }),
         }, payload => {
+          if (!current()) return;
           const record = payload.eventType === 'DELETE' ? payload.old : payload.new;
           if (record && 'match_id' in record && record.match_id === matchId) {
             incrementRealtimeMetric(matchId, 'matchPlayersEvents');
@@ -135,11 +166,15 @@ export function useRealtime(matchId: string) {
         });
       }
 
+      channelRef.current = newChannel;
+      connectingRef.current = false;
       // Subscribe to the channel
       newChannel.subscribe((status) => {
+        if (!current()) return;
         if (status === 'SUBSCRIBED') {
           incrementRealtimeMetric(matchId, 'channelConnectedTransitions');
           setConnectionStatus('connected');
+          setRecoveryVersion(value => value + 1);
         } else if (status === 'CHANNEL_ERROR') {
           incrementRealtimeMetric(matchId, 'channelErrorTransitions');
           setConnectionStatus('error');
@@ -151,24 +186,17 @@ export function useRealtime(matchId: string) {
           setConnectionStatus('disconnected');
         }
       });
-
-      setChannel(newChannel);
     } catch (error) {
+      if (!current()) return;
+      connectingRef.current = false;
       console.error('💥 Failed to connect to realtime:', error);
       setConnectionStatus('error');
     }
-  }, [matchId, channel]);
-
-  const disconnect = useCallback(() => {
-    if (channel) {
-      channel.unsubscribe();
-      setChannel(null);
-      setConnectionStatus('disconnected');
-    }
-  }, [channel]);
+  }, [matchId]);
 
   // Update presence (indicate this user is viewing the match)
   const updatePresence = useCallback(async (isSpectator = false) => {
+    const channel = channelRef.current;
     if (channel && connectionStatus === 'connected') {
       await channel.track({
         user_id: Math.random().toString(36).substr(2, 9), // Generate a temp user ID
@@ -176,10 +204,11 @@ export function useRealtime(matchId: string) {
         timestamp: new Date().toISOString(),
       });
     }
-  }, [channel, connectionStatus]);
+  }, [connectionStatus]);
 
   const broadcastRematch = useCallback(
     async (newMatchId: string) => {
+      const channel = channelRef.current;
       if (channel && connectionStatus === 'connected') {
         await channel.send({
           type: 'broadcast',
@@ -188,8 +217,12 @@ export function useRealtime(matchId: string) {
         });
       }
     },
-    [channel, connectionStatus]
+    [connectionStatus]
   );
+
+  const [broadcastAttempt, setBroadcastAttempt] = useState(0);
+  const broadcastFailures = useRef(0);
+  const broadcastRemoval = useRef<Promise<unknown>>(Promise.resolve());
 
   // Separate private channel: clients may receive committed scores, never publish them.
   useEffect(() => {
@@ -197,8 +230,21 @@ export function useRealtime(matchId: string) {
     let broadcastChannel: RealtimeChannel | null = null;
     let client: SupabaseClient | null = null;
     let lastStatus: string | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const retryBroadcast = () => {
+      if (disposed || document.hidden || !navigator.onLine) return;
+      setBroadcastAttempt(value => value + 1);
+    };
+    const scheduleRetry = () => {
+      clearTimeout(retry);
+      retry = setTimeout(retryBroadcast, Math.min(60_000, 5_000 * 2 ** broadcastFailures.current++));
+    };
+    const wake = () => { if (lastStatus !== 'SUBSCRIBED') retryBroadcast(); };
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', wake);
+    scheduleRetry();
     recordBroadcastStatus(matchId, 'connecting');
-    void getSupabaseClient().then(supabase => {
+    void broadcastRemoval.current.then(() => getSupabaseClient()).then(supabase => {
       if (disposed) return;
       client = supabase;
       broadcastChannel = supabase.channel(liveMatchTopic(matchId), { config: { private: true } })
@@ -215,30 +261,75 @@ export function useRealtime(matchId: string) {
         if (status !== 'SUBSCRIBED' && status !== lastStatus) {
           console.warn('Live score broadcast unavailable; database realtime remains active', status, error);
         }
+        if (status === 'SUBSCRIBED') {
+          clearTimeout(retry);
+          broadcastFailures.current = 0;
+        } else scheduleRetry();
         lastStatus = status;
       });
     }).catch(error => {
       if (disposed) return;
       recordBroadcastStatus(matchId, 'error');
       console.warn('Live score broadcast unavailable; database realtime remains active', error);
+      scheduleRetry();
     });
     return () => {
       disposed = true;
+      clearTimeout(retry);
+      window.removeEventListener('online', wake);
+      document.removeEventListener('visibilitychange', wake);
       recordBroadcastStatus(matchId, 'disconnected');
-      if (broadcastChannel && client) void client.removeChannel(broadcastChannel);
+      if (broadcastChannel && client) {
+        broadcastRemoval.current = client.removeChannel(broadcastChannel).catch(error => {
+          console.warn('Could not remove old score channel', error);
+        });
+      }
     };
-  }, [matchId]);
+  }, [matchId, broadcastAttempt]);
 
-  // Auto-connect on mount
+  // Stable ownership: state changes never tear down a healthy subscription.
   useEffect(() => {
-    connect();
-    return () => {
-      disconnect();
-    };
+    void connect();
+    return disconnect;
   }, [connect, disconnect]);
+
+  const retryAttempt = useRef(0);
+  const [retryVersion, setRetryVersion] = useState(0);
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      retryAttempt.current = 0;
+      return;
+    }
+    // Give the SDK time to rejoin first, then replace a stuck/closed channel.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const recover = () => {
+      if (document.hidden || !navigator.onLine) return;
+      retryAttempt.current += 1;
+      disconnect();
+      void connect();
+      setRetryVersion(value => value + 1);
+    };
+    const schedule = () => {
+      if (document.hidden || !navigator.onLine) return;
+      clearTimeout(timer);
+      timer = setTimeout(recover, Math.min(30_000, (connectionStatus === 'connecting' ? 10_000 : 3_000) * 2 ** retryAttempt.current));
+    };
+    const wake = () => {
+      if (!document.hidden && navigator.onLine) recover();
+    };
+    schedule();
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', wake);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('online', wake);
+      document.removeEventListener('visibilitychange', wake);
+    };
+  }, [connectionStatus, connect, disconnect, retryVersion]);
 
   return {
     connectionStatus,
+    recoveryVersion,
     connect,
     disconnect,
     updatePresence,
