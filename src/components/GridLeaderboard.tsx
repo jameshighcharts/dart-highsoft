@@ -1193,7 +1193,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         }
         .leaderboard-toolbar {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+          grid-template-columns: minmax(0, 1fr) auto;
           gap: 16px;
           align-items: center;
           justify-content: space-between;

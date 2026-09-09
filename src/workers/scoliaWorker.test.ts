@@ -7,7 +7,11 @@ import type { ScoliaRealtimeCommentaryPublisher } from '../services/scoliaRealti
 import type { ScoliaMessage } from '../lib/scolia/protocol';
 
 vi.mock('../lib/server/scoliaThrowIngestion', () => ({ ingestScoliaThrowEvent: vi.fn() }));
-afterEach(() => vi.restoreAllMocks());
+const cleanups: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0)) await cleanup();
+  vi.restoreAllMocks();
+});
 
 function deferred() {
   let resolve!: () => void;
@@ -18,12 +22,15 @@ function deferred() {
 
 function setup() {
   const status = deferred();
-  const stored = { id: 'event', processing_status: 'pending' };
-  const persisted = vi.fn(async () => ({ data: stored, error: null }));
-  const query = { upsert: () => query, select: () => query, maybeSingle: persisted };
+  const stored = { id: 1, board_id: 'board', message_id: 'dart-message',
+    event_type: 'THROW_DETECTED', payload: {}, processing_status: 'pending' };
+  const prepared = { kind: 'x01', matchId: 'match', revision: '1' };
+  const persisted = vi.fn(async () => ({ data: { event: { ...stored },
+    prepared: stored.processing_status === 'pending' ? prepared : null }, error: null }));
+  const from = vi.fn(() => { throw new Error('Dart persistence must use the combined RPC'); });
   const publishAcceptedThrow = vi.fn(async () => {});
   const connection = new BoardConnection({ id: 'board', name: 'Board', serialNumber: 'serial', isHomeSbc: false },
-    'token', { from: () => query } as unknown as SupabaseClient,
+    'token', { from, rpc: persisted } as unknown as SupabaseClient,
     { publishAcceptedThrow } as unknown as ScoliaRealtimeCommentaryPublisher);
   const internals = connection as unknown as {
     persistMessage: (message: ScoliaMessage) => Promise<void>;
@@ -31,24 +38,36 @@ function setup() {
     enqueue: (work: () => Promise<void>) => void;
   };
   vi.spyOn(internals, 'updateBoard').mockImplementation(() => status.promise);
+  cleanups.push(async () => {
+    status.resolve();
+    vi.mocked(internals.updateBoard).mockResolvedValue();
+    await connection.stop();
+  });
   vi.spyOn(console, 'info').mockImplementation(() => {});
   const message = { id: 'dart-message', type: 'THROW_DETECTED', payload: {} };
   vi.mocked(ingestScoliaThrowEvent).mockReset().mockImplementation(async () => {
     stored.processing_status = 'processed';
     return { status: 'processed', target: { kind: 'match', id: 'match' }, throwId: 'dart' };
   });
-  return { status, stored, persisted, internals, message, publishAcceptedThrow };
+  return { status, stored, prepared, persisted, from, internals, message, publishAcceptedThrow };
 }
 
 describe('Scolia board-status overlap', () => {
   it('scores and publishes before status completes, but keeps later board messages ordered', async () => {
-    const { status, internals, message, publishAcceptedThrow, persisted } = setup();
+    const { status, internals, message, publishAcceptedThrow, persisted, prepared, from } = setup();
     const later = vi.fn(async () => {});
     internals.enqueue(() => internals.persistMessage(message));
     internals.enqueue(later);
     await vi.waitFor(() => expect(publishAcceptedThrow).toHaveBeenCalledOnce());
     expect(persisted).toHaveBeenCalledOnce();
+    expect(persisted).toHaveBeenCalledWith('persist_and_prepare_scolia_throw', {
+      p_event: expect.objectContaining({ board_id: 'board', message_id: message.id,
+        event_type: 'THROW_DETECTED', payload: message.payload }),
+      p_known_match_id: null, p_known_revision: null,
+    });
+    expect(from).not.toHaveBeenCalled();
     expect(ingestScoliaThrowEvent).toHaveBeenCalledOnce();
+    expect(vi.mocked(ingestScoliaThrowEvent).mock.calls[0][3]).toBe(prepared);
     expect(publishAcceptedThrow.mock.calls[0].slice(0, 2)).toEqual(['match', 'dart']);
     expect(later).not.toHaveBeenCalled();
     status.resolve();
