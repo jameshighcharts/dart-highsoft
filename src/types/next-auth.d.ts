@@ -14,6 +14,7 @@ declare module 'next-auth' {
 declare module 'next-auth/jwt' {
   interface JWT {
     slackUserId?: string;
+    slackIdentityCheckedAt?: number;
     slackTeamId?: string;
     isAdmin?: boolean;
     provider?: string;
