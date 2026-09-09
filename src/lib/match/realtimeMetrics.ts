@@ -1,4 +1,5 @@
 type RealtimeMetricKey =
+  | 'scoringCommitBroadcasts'
   | 'throwsEvents'
   | 'turnsEvents'
   | 'legsEvents'
@@ -12,6 +13,8 @@ type RealtimeMetricKey =
   | 'channelClosedTransitions';
 
 export type RealtimeMetricsSnapshot = {
+  scoringCommitBroadcasts: number;
+  broadcastStatus: 'connecting' | 'connected' | 'disconnected' | 'error';
   throwsEvents: number;
   turnsEvents: number;
   legsEvents: number;
@@ -36,6 +39,8 @@ declare global {
 }
 
 const initialSnapshot = (): RealtimeMetricsSnapshot => ({
+  scoringCommitBroadcasts: 0,
+  broadcastStatus: 'disconnected',
   throwsEvents: 0,
   turnsEvents: 0,
   legsEvents: 0,
@@ -100,4 +105,9 @@ export function recordRealtimeDeliveryDelay(matchId: string, payload: unknown): 
     store.avgDeliveryDelayMs = ((store.avgDeliveryDelayMs * (n - 1)) + delay) / n;
   }
   store.lastEventAt = Date.now();
+}
+
+export function recordBroadcastStatus(matchId: string, status: RealtimeMetricsSnapshot['broadcastStatus']): void {
+  const store = getStore(matchId);
+  if (store) store.broadcastStatus = status;
 }

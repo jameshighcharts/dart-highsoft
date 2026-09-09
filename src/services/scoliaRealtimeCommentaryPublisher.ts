@@ -152,14 +152,23 @@ export class ScoliaRealtimeCommentaryPublisher {
     const sessions = await this.activeSessions(matchId);
     if (sessions.length === 0) return;
     this.observeEpochs(matchId, sessions);
-    let event = await this.analyzeEvent(matchId, throwId, accepted);
+    const [analyzed, preparedDeliveries] = await Promise.all([
+      this.analyzeEvent(matchId, throwId, accepted),
+      Promise.all(sessions.map(async session => {
+        const delivery = await this.ensureDelivery(session.id, throwId);
+        if (delivery.status === 'pending') await this.connection(session);
+        return [session.id, delivery] as const;
+      })),
+    ]);
+    const deliveryBySession = new Map(preparedDeliveries);
+    let event = analyzed;
     const currentSessions = await this.activeSessions(matchId);
     if (currentSessions.some(current => !sessions.some(previous => previous.id === current.id && previous.epoch === current.epoch))) {
       this.observeEpochs(matchId, currentSessions);
       event = await this.analyzeEvent(matchId, throwId);
     }
     await Promise.all(currentSessions.map(async (session) => {
-      const delivery = await this.ensureDelivery(session.id, throwId);
+      const delivery = deliveryBySession.get(session.id) ?? await this.ensureDelivery(session.id, throwId);
       if (delivery.status === 'sent' || delivery.status === 'failed') return;
       await this.deliver(session, event, delivery, isCurrent);
     }));

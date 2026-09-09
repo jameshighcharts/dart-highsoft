@@ -331,11 +331,14 @@ do not hold up the next dart. Persisted pending darts are recovered on reconnect
 and while the worker is idle.
 
 Apply `20260909150000_compact_scolia_selection.sql`,
-`20260909160000_atomic_scolia_scoring.sql`, and
-`20260909170000_persist_prepare_scolia_throw.sql` before deploying the web app and worker.
+`20260909160000_atomic_scolia_scoring.sql`,
+`20260909170000_persist_prepare_scolia_throw.sql`,
+`20260909180000_speculative_scolia_commit.sql`, and
+`20260909181000_live_scoring_broadcast.sql` before deploying the web app and worker.
 The web app needs the new revision-checked edit/undo recomputation RPCs. The worker
-uses two sequential requests per normal X01 dart: persist-and-prepare with a
-revision-validated scoring cache, then an atomic dart/settlement/job commit;
+uses one request per warm X01 dart: persist the event and validate/commit its
+speculative cached plan atomically. Cold starts use persist-and-prepare followed
+by commit; stale plans return fresh state for retry;
 bull-off, party games, and partially processed legacy events retain their existing
 paths. These additive migrations remain compatible with the previous application.
 
@@ -346,6 +349,22 @@ separate Node worker thread. Deploy the complete repository image, including
 Thread failures reject commentary work for retry without moving analysis onto the
 scoring thread.
 
+After commit, the worker broadcasts versioned turn/dart facts on the private
+`live_match_<matchId>` channel. Browser access follows the existing match-read
+RLS; only the service role publishes scores. Postgres Changes and reconciliation
+remain active if broadcasts fail. The `debugRealtime=1` panel shows private-channel
+status and received `liveBroadcasts`; channel failures also emit a warning. These
+counters verify use of the fast path without timing or token-usage logs. Row versions reject stale broadcasts/WAL echoes
+and preserve edits/undo. The scoring view applies payloads immediately, retaining
+optimistic local darts and refetching only when reconciliation is needed.
+
+Board status uses a separate ordered retry queue: unchanged states coalesce,
+heartbeats refresh after five seconds of active traffic, and status writes cannot
+hold the scoring queue. Commentary delivery persistence overlaps analysis and
+connection preparation; speech still requires successful delivery persistence.
+Lineup INSERT/UPDATE subscriptions filter by match; DELETE retains client filtering
+because Postgres Changes cannot filter deletes.
+
 Scolia commentary retains at most 6,000 post-instruction conversation tokens,
 trimming to 70% at the limit, and supplies current facts with each worker response.
 Persona and per-call instructions remain reinforced in response instructions.
@@ -353,7 +372,8 @@ New settings apply when the worker attaches to a Realtime session.
 
 Run `scripts/scoliaAtomic.integration.mjs` with the standalone TypeScript loader
 against local Supabase to verify seven-player long games, duplicate/undo recovery,
-correction races, fair-ending tiebreaks, next-leg rotation, and Elo completion. The
+correction races, fair-ending tiebreaks, next-leg rotation, Elo completion, speculative failure recovery, and private
+broadcast permissions. The
 harness rejects remote database URLs and rolls back its migrations and fixtures.
 
 ### Render

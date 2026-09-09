@@ -73,7 +73,7 @@ export function applyThrowChange(
   state: SpectatorReducerState
 ): SpectatorReducerResult {
   const effects: SpectatorReducerEffects = {};
-  const record = payload.new ?? payload.old;
+  const record = payload.eventType === 'DELETE' ? payload.old : payload.new ?? payload.old;
   if (!record?.turn_id) {
     return { turns: state.turns, turnThrowCounts: state.turnThrowCounts, effects };
   }
@@ -100,6 +100,7 @@ export function applyThrowChange(
     }
   } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
     const nextThrow: ThrowRecord = {
+      live_revision: record.live_revision ?? throws[existingIndex]?.live_revision,
       id: record.id ?? throws[existingIndex]?.id ?? `temp-${record.turn_id}-${record.dart_index ?? throws.length + 1}`,
       turn_id: record.turn_id ?? target.id,
       dart_index: record.dart_index ?? throws[existingIndex]?.dart_index ?? throws.length + 1,
@@ -134,7 +135,7 @@ export function applyTurnChange(
   state: SpectatorReducerState
 ): SpectatorReducerResult {
   const effects: SpectatorReducerEffects = {};
-  const record = payload.new ?? payload.old;
+  const record = payload.eventType === 'DELETE' ? payload.old : payload.new ?? payload.old;
   if (!record?.id) {
     return { turns: state.turns, turnThrowCounts: state.turnThrowCounts, effects };
   }
@@ -159,6 +160,7 @@ export function applyTurnChange(
   if (payload.eventType === 'INSERT') {
     if (turnIdx < 0) {
       turns.push({
+        live_revision: record.live_revision,
         id: record.id,
         leg_id: record.leg_id ?? state.currentLegId ?? '',
         player_id: record.player_id ?? '',

@@ -313,10 +313,11 @@ export async function loadScoliaRealtimeDartEvent(
 
 type AcceptedDartIQDart = {
   turn: {
+    live_revision?: string | null;
     id: string; leg_id: string; player_id: string; turn_number: number;
     total_scored: number; busted: boolean; tiebreak_round: number | null;
   };
-  dart: { id: string; turn_id: string; dart_index: number; segment: string; scored: number };
+  dart: { live_revision?: string | null; id: string; turn_id: string; dart_index: number; segment: string; scored: number };
   leg: {
     id: string; match_id: string; leg_number: number; starting_player_id: string;
     winner_player_id: string | null;

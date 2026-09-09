@@ -314,3 +314,32 @@ describe('Scolia stale speech', () => {
     }
   });
 });
+
+describe('parallel commentary preparation', () => {
+  it.each([false, true])('starts analysis alongside delivery persistence and never sends before persistence succeeds (failure %s)', async fail => {
+    const publisher = new ScoliaRealtimeCommentaryPublisher({} as SupabaseClient, 'test');
+    let resolveDelivery!: (value: unknown) => void;
+    let rejectDelivery!: (error: Error) => void;
+    const delivery = new Promise((resolve, reject) => { resolveDelivery = resolve; rejectDelivery = reject; });
+    const internals = publisher as unknown as {
+      activeSessions: () => Promise<unknown[]>; observeEpochs: () => void;
+      analyzeEvent: () => Promise<unknown>; ensureDelivery: () => Promise<unknown>;
+      connection: () => Promise<unknown>; deliver: () => Promise<void>;
+    };
+    vi.spyOn(internals, 'activeSessions').mockResolvedValue([{ id: 'session', epoch: 0 }]);
+    vi.spyOn(internals, 'observeEpochs').mockImplementation(() => {});
+    const analyze = vi.spyOn(internals, 'analyzeEvent').mockResolvedValue({});
+    const persist = vi.spyOn(internals, 'ensureDelivery').mockReturnValue(delivery);
+    vi.spyOn(internals, 'connection').mockResolvedValue({});
+    const send = vi.spyOn(internals, 'deliver').mockResolvedValue();
+    const work = publisher.publishAcceptedThrow('match', 'dart');
+    const finished = fail ? expect(work).rejects.toThrow('storage failed') : expect(work).resolves.toBeUndefined();
+    await vi.waitFor(() => { expect(analyze).toHaveBeenCalledOnce(); expect(persist).toHaveBeenCalledOnce(); });
+    expect(send).not.toHaveBeenCalled();
+    if (fail) rejectDelivery(new Error('storage failed'));
+    else resolveDelivery({ status: 'pending' });
+    await finished;
+    expect(send).toHaveBeenCalledTimes(fail ? 0 : 1);
+    publisher.close();
+  });
+});

@@ -20,7 +20,7 @@ function setup() {
     realtimeEnabled: true, isSpectatorMode: true,
     loadAll: vi.fn(), loadAllSpectator: vi.fn(), loadMatchOnly: vi.fn(), loadLegsOnly: vi.fn(), loadPlayersOnly: vi.fn(), loadTurnsForLeg: vi.fn(),
     latestStateRef: { current: { isSpectatorMode: true, playerById: {}, turnThrowCounts: {}, turns: [], turnsByLeg: {}, legs: [leg], players: [],
-      match: createMockMatch({ id: 'match', scolia_board_id: 'board' }), knownLegIds: new Set(['leg']), knownTurnIds: new Set() } },
+      match: { ...createMockMatch({ id: 'match' }), scolia_board_id: 'board' }, knownLegIds: new Set(['leg']), knownTurnIds: new Set() } },
     pendingThrowBufferRef: { current: new PendingThrowBuffer() }, pendingTurnReconcileRef: { current: new Set() },
     setTurns: vi.fn(), setTurnsByLeg: vi.fn(), setTurnThrowCounts: vi.fn(), setMatch: vi.fn(),
     ongoingTurnRef: { current: null }, setLocalTurn: vi.fn(), setCelebration: vi.fn(), celebratedTurns: { current: new Set() },
@@ -65,5 +65,48 @@ describe('spectator immediate turn recovery', () => {
     test.unmount();
     await act(async () => { test.resolve({ data: [turn], error: null }); });
     expect(test.args.setTurns).not.toHaveBeenCalled();
+  });
+});
+
+describe('payload-first scoring and direct broadcasts', () => {
+  it('applies scoring-view darts immediately without a debounce or leg query, preserving optimistic darts', async () => {
+    const test = setup();
+    const state = test.args.latestStateRef.current;
+    state.isSpectatorMode = false;
+    const emptyTurn: TurnWithThrows = { ...turn, throws: [] };
+    state.turns = [emptyTurn];
+    state.knownTurnIds.add('turn');
+    const optimistic = { turnId: 'turn', playerId: 'a', startScore: 301,
+      darts: [{ scored: 20, label: 'S20', kind: 'Single' as const }, { scored: 60, label: 'T20', kind: 'Triple' as const }] };
+    test.args.ongoingTurnRef.current = optimistic;
+    await emit({ eventType: 'INSERT', new: { ...first, live_revision: '10' } });
+    expect((test.args.latestStateRef.current.turns[0] as TurnWithThrows).throws).toHaveLength(1);
+    expect(test.args.ongoingTurnRef.current).toBe(optimistic);
+    expect(getClient).not.toHaveBeenCalled();
+    await act(async () => window.dispatchEvent(new CustomEvent('supabase-turns-change', {
+      detail: { eventType: 'UPDATE', new: { ...turn, throws: undefined, busted: true, live_revision: '11' } },
+    })));
+    expect(test.args.ongoingTurnRef.current).toBeNull();
+    expect(test.args.latestStateRef.current.turns[0].busted).toBe(true);
+    expect(getClient).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('broadcasts a first dart without parent recovery and rejects stale edits/undo echoes (spectator %s)', async spectator => {
+    const test = setup();
+    test.args.latestStateRef.current.isSpectatorMode = spectator;
+    const packet = { matchId: 'match', turn: { ...turn, throws: undefined, live_revision: '10' },
+      throws: [{ ...first, live_revision: '11' }] };
+    const broadcast = async () => act(async () => {
+      window.dispatchEvent(new CustomEvent('supabase-scoring-commit', { detail: packet }));
+    });
+    await broadcast();
+    expect((test.args.latestStateRef.current.turns[0] as TurnWithThrows).throws).toHaveLength(1);
+    expect(getClient).not.toHaveBeenCalled();
+    await emit({ eventType: 'UPDATE', new: { ...first, segment: 'T20', scored: 60, live_revision: '12' } });
+    await broadcast();
+    expect((test.args.latestStateRef.current.turns[0] as TurnWithThrows).throws[0].scored).toBe(60);
+    await emit({ eventType: 'DELETE', new: {}, old: { ...first, live_revision: '12' } });
+    await broadcast();
+    expect((test.args.latestStateRef.current.turns[0] as TurnWithThrows).throws).toHaveLength(0);
   });
 });
