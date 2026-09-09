@@ -143,6 +143,25 @@ function statusUpdate(supabase: ReturnType<typeof createSupabaseMock>) {
 }
 
 describe('ingestScoliaThrowEvent dispatch', () => {
+  it('uses total turn count to rotate after a long leg when selection only returns the latest turn', async () => {
+    const match = activeMatchRow();
+    const latest = { id: 'turn-100', leg_id: 'leg-1', player_id: PLAYER_B, turn_number: 100,
+      total_scored: 0, busted: false, tiebreak_round: null, throws: [], throw_count: 3, throws_total: 0 };
+    const turns: MockRow[] = [];
+    const supabase = createSupabaseMock({
+      bull_off_events: [], matches: [match], game_sessions: [], game_throws: [], throws: [], turns,
+      scolia_events: scoliaEventsTable(),
+    }, {
+      load_scolia_match_selection: () => ({ data: { match,
+        leg: { id: 'leg-1', starting_player_id: PLAYER_A }, playerIds: ORDER,
+        turns: [latest], turnCount: 100,
+      }, error: null }),
+      // Stop after recording: this check is about selection, not settlement.
+      load_scolia_match_snapshot: () => ({ data: null, error: null }),
+    });
+    await expect(ingestScoliaThrowEvent(supabase as never, throwEvent())).rejects.toThrow('Could not reload');
+    expect(supabase.opsFor('turns', 'insert')[0]?.payload).toEqual(expect.objectContaining({ player_id: PLAYER_A }));
+  });
   it('settles against fresh post-insert rows and retains idempotent retry after a concurrent correction', async () => {
     const match = activeMatchRow();
     const leg = { id: 'leg-1', match_id: match.id, leg_number: 1, starting_player_id: PLAYER_A, winner_player_id: null };
@@ -166,6 +185,10 @@ describe('ingestScoliaThrowEvent dispatch', () => {
       },
       scolia_events: scoliaEventsTable(),
     }, {
+      load_scolia_match_selection: () => ({ data: structuredClone({
+        match, leg, playerIds: ORDER,
+        turns: turns.map((turn) => ({ ...turn, throws: [], throw_count: darts.filter((dart) => dart.turn_id === turn.id).length })),
+      }), error: null }),
       load_scolia_match_snapshot: () => ({ data: structuredClone({
         match, leg, playerIds: ORDER,
         turns: turns.map((turn) => ({ ...turn, throws: darts.filter((dart) => dart.turn_id === turn.id) })),
@@ -174,7 +197,7 @@ describe('ingestScoliaThrowEvent dispatch', () => {
     const result = await ingestScoliaThrowEvent(supabase as never, throwEvent());
     expect(result.status).toBe('processed');
     expect(turns[0].total_scored).toBe(85); // 5 + 20 + 60, not the pre-insert 20 + 20 + 60.
-    expect(supabase.rpcFor('load_scolia_match_snapshot').map((op) => op.args.p_turn_id)).toEqual([null, 'turn-1']);
+    expect(supabase.rpcFor('load_scolia_match_snapshot').map((op) => op.args.p_turn_id)).toEqual(['turn-1']);
     expect(supabase.opsFor('throws', 'insert')).toHaveLength(1);
     await expect(ingestScoliaThrowEvent(supabase as never, throwEvent())).resolves.toEqual(result);
     expect(supabase.opsFor('throws', 'insert')).toHaveLength(1);
@@ -373,14 +396,14 @@ describe('ingestScoliaThrowEvent dispatch', () => {
       game_sessions: [],
       legs: [],
       scolia_events: scoliaEventsTable(),
-    }, { load_scolia_match_snapshot: () => ({ data: null, error: null }) });
+    }, { load_scolia_match_selection: () => ({ data: null, error: null }) });
 
     const result = await ingestScoliaThrowEvent(supabase as never, throwEvent());
 
     // No open leg in this fixture, so the X01 snapshot stops early.
     expect(result).toEqual({ status: 'ignored', reason: 'The assigned match has no active leg' });
-    expect(supabase.rpcFor('load_scolia_match_snapshot')).toEqual([
-      { name: 'load_scolia_match_snapshot', args: { p_match_id: 'match-1', p_leg_id: null, p_turn_id: null } },
+    expect(supabase.rpcFor('load_scolia_match_selection')).toEqual([
+      { name: 'load_scolia_match_selection', args: { p_match_id: 'match-1', p_leg_id: null } },
     ]);
     expect(supabase.opsFor('game_throws', 'insert')).toHaveLength(0);
     expect(supabase.opsFor('game_session_players')).toHaveLength(0);
@@ -394,7 +417,7 @@ it('records a bull-off measurement without creating a scoring turn and ignores a
   const supabase = createSupabaseMock({
     bull_off_events: events, throws: [], game_throws: [], matches: [match], game_sessions: [], scolia_events: scoliaEventsTable(),
   }, {
-    load_scolia_match_snapshot: () => ({ data: { match, leg: { id: 'leg-1', starting_player_id: PLAYER_A }, playerIds: ORDER, turns: [] }, error: null }),
+    load_scolia_match_selection: () => ({ data: { match, leg: { id: 'leg-1', starting_player_id: PLAYER_A }, playerIds: ORDER, turns: [] }, error: null }),
     update_bull_off_atomic: (args) => { match.bull_off = args.p_state as typeof match.bull_off; events.push({ event_id: EVENT_ID, match_id: match.id }); return { data: true, error: null }; },
   });
   await ingestScoliaThrowEvent(supabase as never, throwEvent());

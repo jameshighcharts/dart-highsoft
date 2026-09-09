@@ -1,3 +1,5 @@
+import type { ScoliaAtomicIngestion, Prepared } from './scoliaAtomicIngestion.ts';
+import type { AcceptedScoliaDart } from '../commentary/scoliaRealtimeEvent.ts';
 import { updateBullOff } from './bullOff.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -34,6 +36,8 @@ type TurnRow = {
   busted: boolean;
   tiebreak_round: number | null;
   throws: ThrowRow[];
+  throw_count?: number;
+  throws_total?: number;
 };
 
 type LegRow = {
@@ -50,11 +54,12 @@ type MatchSnapshot = {
   playerIds: string[];
   orderPlayerIds: string[];
   turns: TurnRow[];
+  turnCount?: number;
   fairEndingState: FairEndingState;
 };
 
 export type ScoliaThrowIngestionResult =
-  | { status: 'processed'; target: ScoliaBoardTarget; throwId: string }
+  | { status: 'processed'; target: ScoliaBoardTarget; throwId: string; accepted?: AcceptedScoliaDart }
   | { status: 'ignored'; reason: string };
 
 function eventMessage(event: StoredScoliaEvent): ScoliaMessage {
@@ -67,8 +72,8 @@ function turnInputs(turns: TurnRow[]) {
     total_scored: turn.total_scored,
     busted: turn.busted,
     tiebreak_round: turn.tiebreak_round,
-    throw_count: turn.throws.length,
-    throws_total: turn.throws.reduce((sum, dart) => sum + dart.scored, 0),
+    throw_count: turn.throw_count ?? turn.throws.length,
+    throws_total: turn.throws_total ?? turn.throws.reduce((sum, dart) => sum + dart.scored, 0),
   }));
 }
 
@@ -95,14 +100,16 @@ async function loadSnapshot(
   requestedLegId?: string,
   settlingTurnId?: string
 ): Promise<MatchSnapshot | null> {
-  const { data, error } = await supabase.rpc('load_scolia_match_snapshot', {
+  // Selection needs counts/totals, while settlement must replay fresh raw darts
+  // to respect corrections made during the insert.
+  const { data, error } = await supabase.rpc(settlingTurnId ? 'load_scolia_match_snapshot' : 'load_scolia_match_selection', {
     p_match_id: matchId,
     p_leg_id: requestedLegId ?? null,
-    p_turn_id: settlingTurnId ?? null,
+    ...(settlingTurnId ? { p_turn_id: settlingTurnId } : {}),
   });
   if (error) throw new Error(error.message);
   if (!data) return null;
-  const { match, leg, playerIds, turns } = data as Pick<MatchSnapshot, 'match' | 'leg' | 'playerIds' | 'turns'>;
+  const { match, leg, playerIds, turns, turnCount } = data as Pick<MatchSnapshot, 'match' | 'leg' | 'playerIds' | 'turns' | 'turnCount'>;
   if (playerIds.length === 0) throw new Error('Scolia match has no players');
   const startIndex = playerIds.indexOf(leg.starting_player_id);
   const orderPlayerIds = startIndex < 0
@@ -115,7 +122,7 @@ async function loadSnapshot(
     match.fair_ending
   );
 
-  return { match, leg, playerIds, orderPlayerIds, turns, fairEndingState };
+  return { match, leg, playerIds, orderPlayerIds, turns, turnCount, fairEndingState };
 }
 
 function selectCurrentPlayerId(snapshot: MatchSnapshot): string | null {
@@ -130,8 +137,8 @@ function selectCurrentPlayerId(snapshot: MatchSnapshot): string | null {
   }
 
   const latest = turns.at(-1);
-  if (latest && latest.throws.length < 3 && !latest.busted) return latest.player_id;
-  return orderPlayerIds[turns.length % orderPlayerIds.length] ?? null;
+  if (latest && (latest.throw_count ?? latest.throws.length) < 3 && !latest.busted) return latest.player_id;
+  return orderPlayerIds[(snapshot.turnCount ?? turns.length) % orderPlayerIds.length] ?? null;
 }
 
 async function finishThrowLifecycle(
@@ -243,7 +250,9 @@ async function matchAndLegForTurn(
  */
 export async function ingestScoliaThrowEvent(
   supabase: SupabaseClient,
-  event: StoredScoliaEvent
+  event: StoredScoliaEvent,
+  atomic?: ScoliaAtomicIngestion,
+  prepared?: Prepared | null
 ): Promise<ScoliaThrowIngestionResult> {
   try {
     const detected = detectedThrowFromMessage(eventMessage(event));
@@ -251,6 +260,11 @@ export async function ingestScoliaThrowEvent(
       const reason = 'Invalid THROW_DETECTED payload';
       await updateEvent(supabase, event.id, 'ignored', reason);
       return { status: 'ignored', reason };
+    }
+
+    if (atomic) {
+      const result = await atomic.ingest(event, detected, prepared);
+      if (result) return result;
     }
 
     const [existingThrow, existingGameThrow, bullEventResult] = await Promise.all([

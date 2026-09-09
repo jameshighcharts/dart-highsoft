@@ -330,6 +330,32 @@ events in order; commentary delivery runs on a separate queue so provider delays
 do not hold up the next dart. Persisted pending darts are recovered on reconnect
 and while the worker is idle.
 
+Apply `20260909150000_compact_scolia_selection.sql`,
+`20260909160000_atomic_scolia_scoring.sql`, and
+`20260909170000_persist_prepare_scolia_throw.sql` before deploying the web app and worker.
+The web app needs the new revision-checked edit/undo recomputation RPCs. The worker
+uses two sequential requests per normal X01 dart: persist-and-prepare with a
+revision-validated scoring cache, then an atomic dart/settlement/job commit;
+bull-off, party games, and partially processed legacy events retain their existing
+paths. These additive migrations remain compatible with the previous application.
+
+Commentary receives committed dart facts directly, caches active listeners with
+notification invalidation and heartbeat expiry, and runs replay/model work in a
+separate Node worker thread. Deploy the complete repository image, including
+`scripts/workerLoader.mjs`, `scripts/workerResolve.mjs`, and the analysis worker.
+Thread failures reject commentary work for retry without moving analysis onto the
+scoring thread.
+
+Scolia commentary retains at most 6,000 post-instruction conversation tokens,
+trimming to 70% at the limit, and supplies current facts with each worker response.
+Persona and per-call instructions remain reinforced in response instructions.
+New settings apply when the worker attaches to a Realtime session.
+
+Run `scripts/scoliaAtomic.integration.mjs` with the standalone TypeScript loader
+against local Supabase to verify seven-player long games, duplicate/undo recovery,
+correction races, fair-ending tiebreaks, next-leg rotation, and Elo completion. The
+harness rejects remote database URLs and rolls back its migrations and fixtures.
+
 ### Render
 
 1. Create a **Background Worker** from this GitHub repository.

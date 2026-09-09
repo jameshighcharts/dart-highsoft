@@ -1,3 +1,6 @@
+import { ThreadedScoliaCommentaryAnalysis } from '../services/scoliaCommentaryAnalysis.ts';
+import { ScoliaAtomicIngestion, type Prepared } from '../lib/server/scoliaAtomicIngestion.ts';
+import type { AcceptedScoliaDart } from '../lib/commentary/scoliaRealtimeEvent.ts';
 import { updateBullOff } from '../lib/server/bullOff.ts';
 import { loadMatch as loadBullOffMatch } from '../lib/server/matchGuards.ts';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -74,6 +77,7 @@ export class BoardConnection {
   private stopped = false;
   private readonly messageQueue: OrderedWorkQueue;
   private readonly commentaryQueue: OrderedWorkQueue;
+  private readonly atomicIngestion: ScoliaAtomicIngestion;
   private flushingCommands = false;
   private commandRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private latestAcceptedThrowId: string | null = null;
@@ -88,6 +92,7 @@ export class BoardConnection {
     this.accessToken = accessToken;
     this.supabase = supabase;
     this.commentaryPublisher = commentaryPublisher;
+    this.atomicIngestion = new ScoliaAtomicIngestion(supabase);
     this.messageQueue = new OrderedWorkQueue((error) => {
       console.error(`[scolia] ${this.board.name}: retrying queued event`, error);
     });
@@ -142,7 +147,8 @@ export class BoardConnection {
         console.warn(`[scolia] ${this.board.name}: ignored invalid message`);
         return;
       }
-      this.enqueue(() => this.persistMessage(message));
+      const receivedAtMs = Date.now();
+      this.enqueue(() => this.persistMessage(message, receivedAtMs));
     });
 
     socket.addEventListener('error', () => {
@@ -274,41 +280,53 @@ export class BoardConnection {
       .order('id', { ascending: true });
     if (error) throw new Error(error.message);
     for (const event of (data ?? []) as StoredScoliaEvent[]) {
-      const result = await ingestScoliaThrowEvent(this.supabase, event);
+      const result = await ingestScoliaThrowEvent(this.supabase, event, this.atomicIngestion);
       if (result.status === 'processed') {
         console.info(`[scolia] ${this.board.name}: recovered throw ${event.message_id}`);
         if (result.target.kind === 'match') {
-          this.publishCommentary(result.target.id, result.throwId);
+          this.publishCommentary(result.target.id, result.throwId, result.accepted);
         }
       }
     }
   }
 
-  private async persistMessage(message: ScoliaMessage) {
+  private async persistMessage(message: ScoliaMessage, receivedAtMs = Date.now()) {
     const now = new Date().toISOString();
-    const { data: insertedEvent, error: eventError } = await this.supabase.from('scolia_events').upsert(
-      {
-        board_id: this.board.id,
-        message_id: message.id,
-        event_type: message.type,
-        payload: message.payload ?? {},
-        occurred_at: occurredAtForMessage(message),
-        received_at: now,
-      },
-      { onConflict: 'board_id,message_id', ignoreDuplicates: true }
-    ).select('id, board_id, message_id, event_type, payload, processing_status').maybeSingle();
-    if (eventError) throw new Error(eventError.message);
+    let storedEvent: (StoredScoliaEvent & { processing_status: string }) | null;
+    let prepared: Prepared | null = null;
+    if (message.type === 'THROW_DETECTED') {
+      const persisted = await this.atomicIngestion.persistAndPrepare({
+        board_id: this.board.id, message_id: message.id, event_type: message.type,
+        payload: message.payload ?? {}, occurred_at: occurredAtForMessage(message),
+        received_at: new Date(receivedAtMs).toISOString(),
+      });
+      storedEvent = persisted.event;
+      prepared = persisted.prepared;
+    } else {
+      const { data: insertedEvent, error: eventError } = await this.supabase.from('scolia_events').upsert(
+        {
+          board_id: this.board.id,
+          message_id: message.id,
+          event_type: message.type,
+          payload: message.payload ?? {},
+          occurred_at: occurredAtForMessage(message),
+          received_at: new Date(receivedAtMs).toISOString(),
+        },
+        { onConflict: 'board_id,message_id', ignoreDuplicates: true }
+      ).select('id, board_id, message_id, event_type, payload, processing_status').maybeSingle();
+      if (eventError) throw new Error(eventError.message);
 
-    let storedEvent = insertedEvent;
-    if (!storedEvent) {
-      const { data, error } = await this.supabase
-        .from('scolia_events')
-        .select('id, board_id, message_id, event_type, payload, processing_status')
-        .eq('board_id', this.board.id)
-        .eq('message_id', message.id)
-        .single();
-      if (error || !data) throw new Error(error?.message ?? 'Could not reload Scolia event');
-      storedEvent = data;
+      storedEvent = insertedEvent;
+      if (!storedEvent) {
+        const { data, error } = await this.supabase
+          .from('scolia_events')
+          .select('id, board_id, message_id, event_type, payload, processing_status')
+          .eq('board_id', this.board.id)
+          .eq('message_id', message.id)
+          .single();
+        if (error || !data) throw new Error(error?.message ?? 'Could not reload Scolia event');
+        storedEvent = data;
+      }
     }
 
     const boardUpdate = this.updateBoard({
@@ -323,11 +341,12 @@ export class BoardConnection {
       // Persist the event first, then overlap independent status/scoring work.
       // Wait for both before advancing the board queue, even if either fails.
       const results = await Promise.allSettled([boardUpdate, (async () => {
-        const result = await ingestScoliaThrowEvent(this.supabase, storedEvent as StoredScoliaEvent);
+        const result = await ingestScoliaThrowEvent(this.supabase, storedEvent as StoredScoliaEvent, this.atomicIngestion, prepared);
+        if (result.status === 'processed' && result.accepted) result.accepted.workerReceivedAtMs = receivedAtMs;
         if (result.status === 'processed') {
           console.info(`[scolia] ${this.board.name}: scored throw ${message.id}`);
           if (result.target.kind === 'match') {
-            this.publishCommentary(result.target.id, result.throwId);
+            this.publishCommentary(result.target.id, result.throwId, result.accepted);
           }
         } else {
           console.info(`[scolia] ${this.board.name}: ignored throw ${message.id}: ${result.reason}`);
@@ -374,10 +393,10 @@ export class BoardConnection {
     if (ignoreError) throw new Error(ignoreError.message);
   }
 
-  private publishCommentary(matchId: string, throwId: string) {
+  private publishCommentary(matchId: string, throwId: string, accepted?: AcceptedScoliaDart) {
     this.latestAcceptedThrowId = throwId;
     this.commentaryQueue.enqueue(async () => {
-      await this.commentaryPublisher.publishAcceptedThrow(matchId, throwId, () => this.latestAcceptedThrowId === throwId);
+      await this.commentaryPublisher.publishAcceptedThrow(matchId, throwId, () => this.latestAcceptedThrowId === throwId, accepted);
     });
   }
 
@@ -418,7 +437,8 @@ async function startScoliaWorker() {
   const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
   const commentaryPublisher = new ScoliaRealtimeCommentaryPublisher(
     supabase,
-    process.env.OPENAI_API_KEY?.trim() || null
+    process.env.OPENAI_API_KEY?.trim() || null,
+    new ThreadedScoliaCommentaryAnalysis(supabaseUrl, serviceRoleKey)
   );
   if (!commentaryPublisher.enabled) {
     console.info('[commentary] OPENAI_API_KEY is absent; Scolia sideband commentary is disabled');
@@ -444,12 +464,15 @@ async function startScoliaWorker() {
       notificationWork.change('commands', payload);
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'commentary_realtime_sessions' }, (payload) => {
+      const row = payload.eventType === 'DELETE' ? payload.old : payload.new;
+      commentaryPublisher.listenerChanged(row, payload.eventType === 'DELETE');
       notificationWork.change('sessions', payload);
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'commentary_realtime_deliveries' }, (payload) => {
       notificationWork.change('deliveries', payload);
     })
     .subscribe((status) => {
+      commentaryPublisher.invalidateListeners();
       if (status === 'SUBSCRIBED') notificationWork.reconnect();
     });
 

@@ -1,8 +1,20 @@
+import { Worker } from 'node:worker_threads';
 // @vitest-environment node
 import { execFileSync, spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
 describe('standalone worker runtime', () => {
+  it('starts the actual commentary analysis thread and serves a health probe without network calls', async () => {
+    const worker = new Worker(new URL('../src/workers/scoliaCommentaryAnalysisWorker.ts', import.meta.url), {
+      workerData: { supabaseUrl: 'https://unused.invalid', serviceRoleKey: 'test-only' },
+      execArgv: ['--experimental-strip-types', '--import', new URL('./workerLoader.mjs', import.meta.url).href],
+    });
+    try {
+      const response = new Promise((resolve, reject) => { worker.once('message', resolve); worker.once('error', reject); });
+      worker.postMessage({ id: 1, task: { kind: 'ping' } });
+      expect(await response).toEqual({ id: 1, result: 'pong' });
+    } finally { await worker.terminate(); }
+  });
   it('loads the full worker entry point before validating configuration', () => {
     const result = spawnSync(process.execPath, [
       '--experimental-strip-types', '--import', './scripts/workerLoader.mjs',

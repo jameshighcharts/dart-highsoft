@@ -1,3 +1,5 @@
+import type { ScoliaCommentaryAnalysis } from './scoliaCommentaryAnalysis.ts';
+import { RealtimeSessionCache } from '../lib/commentary/realtimeSessionCache.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { WebSocket } from 'ws';
 
@@ -6,6 +8,7 @@ import {
   warmScoliaDartIQContext,
   ScoliaDartIQEventCache,
   type ScoliaRealtimeDartEvent,
+  type AcceptedScoliaDart,
 } from '../lib/commentary/scoliaRealtimeEvent.ts';
 import {
   isSuccessfulRealtimeResponse,
@@ -63,6 +66,7 @@ type SidebandConnection = {
   pendingStoryResponses: Map<string, WorkerStoryResponse>;
   activeStoryResponse: (WorkerStoryResponse & { responseId: string }) | null;
   transcript: string;
+  contextBrief?: string;
   openingGraceUntilMs: number;
   openingClaimedAtMs: number;
   pendingTakeoutHandoff: {
@@ -86,7 +90,7 @@ const ACTIVE_HEARTBEAT_WINDOW_MS = 45_000;
 const SESSION_LIFETIME_MS = 55 * 60_000;
 const MAX_DELIVERY_ATTEMPTS = 3;
 const OPENING_GRACE_MS = 15_000;
-const SESSION_COLUMNS = 'id, match_id, openai_call_id, persona_id, voice, epoch, last_correction_id, last_correction_reason, opening_call_claimed_at';
+const SESSION_COLUMNS = 'last_seen_at, created_at, id, match_id, openai_call_id, persona_id, voice, epoch, last_correction_id, last_correction_reason, opening_call_claimed_at';
 
 function realtimeEventId(prefix: string, id: string) {
   return `${prefix}_${id.replaceAll('-', '')}`;
@@ -106,14 +110,21 @@ export class ScoliaRealtimeCommentaryPublisher {
   private flushingPending = false;
   private controlEventSequence = 0;
   private readonly matchWork = new Map<string, Promise<void>>();
+  private readonly listenerVersions = new Map<string, string>();
+  private readonly correctionTimes = new Map<string, number>();
+  private readonly usedAcceptedFacts = new WeakSet<AcceptedScoliaDart>();
+  private readonly listeners = new RealtimeSessionCache();
+  private readonly analysis?: ScoliaCommentaryAnalysis;
   private readonly cacheWarmups = new Map<string, Promise<void>>();
 
   constructor(
     supabase: SupabaseClient,
-    apiKey: string | null
+    apiKey: string | null,
+    analysis?: ScoliaCommentaryAnalysis
   ) {
     this.supabase = supabase;
     this.apiKey = apiKey;
+    this.analysis = analysis;
   }
 
   get enabled() {
@@ -130,22 +141,24 @@ export class ScoliaRealtimeCommentaryPublisher {
     return run;
   }
 
-  publishAcceptedThrow(matchId: string, throwId: string, isCurrent?: () => boolean): Promise<void> {
-    return this.serialize(matchId, () => this.publishAcceptedThrowNow(matchId, throwId, isCurrent));
+  publishAcceptedThrow(matchId: string, throwId: string, isCurrent?: () => boolean, accepted?: AcceptedScoliaDart): Promise<void> {
+    const facts = accepted && !this.usedAcceptedFacts.has(accepted) ? accepted : undefined;
+    if (accepted) this.usedAcceptedFacts.add(accepted);
+    return this.serialize(matchId, () => this.publishAcceptedThrowNow(matchId, throwId, isCurrent, facts));
   }
 
-  private async publishAcceptedThrowNow(matchId: string, throwId: string, isCurrent?: () => boolean): Promise<void> {
+  private async publishAcceptedThrowNow(matchId: string, throwId: string, isCurrent?: () => boolean, accepted?: AcceptedScoliaDart): Promise<void> {
     if (!this.apiKey) return;
     const sessions = await this.activeSessions(matchId);
     if (sessions.length === 0) return;
     this.observeEpochs(matchId, sessions);
-    const event = await loadScoliaRealtimeDartEvent(
-      this.supabase,
-      matchId,
-      throwId,
-      this.dartIQCache
-    );
-    await Promise.all(sessions.map(async (session) => {
+    let event = await this.analyzeEvent(matchId, throwId, accepted);
+    const currentSessions = await this.activeSessions(matchId);
+    if (currentSessions.some(current => !sessions.some(previous => previous.id === current.id && previous.epoch === current.epoch))) {
+      this.observeEpochs(matchId, currentSessions);
+      event = await this.analyzeEvent(matchId, throwId);
+    }
+    await Promise.all(currentSessions.map(async (session) => {
       const delivery = await this.ensureDelivery(session.id, throwId);
       if (delivery.status === 'sent' || delivery.status === 'failed') return;
       await this.deliver(session, event, delivery, isCurrent);
@@ -277,7 +290,7 @@ export class ScoliaRealtimeCommentaryPublisher {
             try {
               const currentDelivery = await this.ensureDelivery(session.id, delivery.throw_id);
               if (currentDelivery.status !== 'pending') continue;
-              const event = await loadScoliaRealtimeDartEvent(this.supabase, matchId, delivery.throw_id, this.dartIQCache);
+              const event = await this.analyzeEvent(matchId, delivery.throw_id);
               await this.deliver(session, event, currentDelivery);
             } catch (error) {
               await this.recordFailure(delivery, error);
@@ -300,11 +313,63 @@ export class ScoliaRealtimeCommentaryPublisher {
     }
     this.connections.clear();
     this.dartIQCache.clear();
+    this.listeners.invalidate();
+    this.listenerVersions.clear();
+    this.correctionTimes.clear();
+    this.analysis?.close();
     this.matchEpochs.clear();
     this.cacheWarmups.clear();
   }
 
+  private analyzeEvent(matchId: string, throwId: string, accepted?: AcceptedScoliaDart) {
+    const correctedAt = this.correctionTimes.get(matchId);
+    if (correctedAt && (!accepted?.workerReceivedAtMs || accepted.workerReceivedAtMs <= correctedAt)) accepted = undefined;
+    return this.analysis ? this.analysis.event(matchId, throwId, accepted)
+      : loadScoliaRealtimeDartEvent(this.supabase, matchId, throwId, this.dartIQCache, accepted);
+  }
+
+  invalidateListeners(matchId?: string) { this.listeners.invalidate(matchId); }
+
+  private listenerVersion(session: Partial<ActiveRealtimeCommentarySession> & { status?: string }) {
+    return JSON.stringify([session.openai_call_id, session.epoch, session.persona_id, session.voice, session.status ?? 'active']);
+  }
+
+  listenerChanged(row: Record<string, unknown>, deleted = false) {
+    const matchId = typeof row.match_id === 'string' ? row.match_id : undefined;
+    this.listeners.invalidate(matchId);
+    if (typeof row.id !== 'string') return;
+    const session = row as Partial<ActiveRealtimeCommentarySession> & { status?: string };
+    const previousVersion = this.listenerVersions.get(row.id);
+    const nextVersion = deleted ? 'deleted' : this.listenerVersion(session);
+    this.listenerVersions.set(row.id, nextVersion);
+    if (this.listenerVersions.size > 1_000) this.listenerVersions.delete(this.listenerVersions.keys().next().value!);
+    const connection = this.connections.get(row.id);
+    if (matchId && !deleted && previousVersion !== nextVersion && typeof row.epoch === 'number'
+      && row.epoch > 0 && (!connection || row.epoch > connection.session.epoch)) {
+      this.correctionTimes.set(matchId, Date.now());
+      if (this.correctionTimes.size > 100) this.correctionTimes.delete(this.correctionTimes.keys().next().value!);
+      this.dartIQCache.delete(matchId);
+      this.analysis?.invalidate(matchId);
+    }
+    if (connection && (deleted || row.status !== 'active')) {
+      this.connections.delete(row.id); connection.visitTiming.reset();
+      connection.socket.close(1000, 'Realtime listener closed');
+      if (matchId && ![...this.connections.values()].some(active => active.session.match_id === matchId)) {
+        this.analysis?.invalidate(matchId); this.dartIQCache.delete(matchId);
+      }
+    }
+  }
+
+  private listenerIsCurrent(session: ActiveRealtimeCommentarySession) {
+    const version = this.listenerVersions.get(session.id);
+    return version === undefined || version === this.listenerVersion(session);
+  }
+
   private warmCache(matchId: string) {
+    if (this.analysis) {
+      void this.analysis.warm(matchId).catch(error => console.warn("[commentary] Analysis warm-up failed:", error.message));
+      return;
+    }
     if (this.dartIQCache.get(matchId) || this.cacheWarmups.has(matchId)) return;
     const epoch = this.matchEpochs.get(matchId);
     // Preparation is speculative and never holds the per-match delivery queue.
@@ -324,7 +389,11 @@ export class ScoliaRealtimeCommentaryPublisher {
     this.cacheWarmups.set(matchId, warmup);
   }
 
-  private async activeSessions(matchId: string): Promise<ActiveRealtimeCommentarySession[]> {
+  private activeSessions(matchId: string): Promise<ActiveRealtimeCommentarySession[]> {
+    return this.listeners.load(matchId, () => this.fetchActiveSessions(matchId));
+  }
+
+  private async fetchActiveSessions(matchId: string): Promise<ActiveRealtimeCommentarySession[]> {
     const now = Date.now();
     const { data, error } = await this.supabase
       .from('commentary_realtime_sessions')
@@ -338,6 +407,7 @@ export class ScoliaRealtimeCommentaryPublisher {
   }
 
   private async loadActiveSessions(sessionIds?: readonly string[]) {
+    this.listeners.invalidate();
     const now = Date.now();
     let query = this.supabase
       .from('commentary_realtime_sessions')
@@ -356,6 +426,10 @@ export class ScoliaRealtimeCommentaryPublisher {
       this.connections.delete(sessionId);
       connection.visitTiming.reset();
       connection.socket.close(1000, 'Realtime listener expired');
+      if (![...this.connections.values()].some(active => active.session.match_id === connection.session.match_id)) {
+        this.analysis?.invalidate(connection.session.match_id);
+        this.dartIQCache.delete(connection.session.match_id);
+      }
     }
     return sessions;
   }
@@ -390,6 +464,8 @@ export class ScoliaRealtimeCommentaryPublisher {
     delivery: DeliveryRow,
     isCurrent?: () => boolean,
   ) {
+    const originalCurrent = isCurrent;
+    isCurrent = () => originalCurrent?.() !== false && this.listenerIsCurrent(session);
     const deliveryKey = `${delivery.session_id}:${delivery.throw_id}`;
     if (this.inFlight.has(deliveryKey)) return;
     this.inFlight.add(deliveryKey);
@@ -450,6 +526,12 @@ export class ScoliaRealtimeCommentaryPublisher {
             scoreRemaining: nextPlayer.scoreRemaining,
           }
         : connection.pendingTakeoutHandoff;
+      const eventBrief = renderScoliaRealtimeEvent(session.epoch, directedEvent, connection.wireState, direction);
+      const currentState = event.currentState ?? this.dartIQCache.timeline(session.match_id)?.find((entry) => entry.dartId === event.dartId)?.after;
+      connection.contextBrief = [
+        connection.wireState.renderCurrentContext(currentState),
+        renderScoliaRealtimeEvent(session.epoch, directedEvent, connection.wireState, direction, true),
+      ].join('\n');
       this.send(connection, {
         event_id: realtimeEventId('scolia_context', event.dartId),
         type: 'conversation.item.create',
@@ -458,12 +540,7 @@ export class ScoliaRealtimeCommentaryPublisher {
           role: 'user',
           content: [{
             type: 'input_text',
-            text: renderScoliaRealtimeEvent(
-              session.epoch,
-              directedEvent,
-              connection.wireState,
-              direction ?? undefined
-            ),
+            text: eventBrief,
           }],
         },
       });
@@ -993,14 +1070,29 @@ export class ScoliaRealtimeCommentaryPublisher {
     return connection;
   }
 
+  private async analysisSnapshot(matchId: string) {
+    if (this.analysis) return this.analysis.snapshot(matchId);
+    const match = await loadMatch(this.supabase, matchId);
+    if (!match) throw new Error('Could not load match for commentary snapshot');
+    return loadRealtimeCommentarySnapshot(this.supabase, match);
+  }
+
   private async seedConnection(connection: SidebandConnection) {
-    const match = await loadMatch(this.supabase, connection.session.match_id);
-    if (!match) throw new Error('Could not load match for Realtime snapshot');
-    const snapshot = await loadRealtimeCommentarySnapshot(this.supabase, match);
+    const snapshot = await this.analysisSnapshot(connection.session.match_id);
     connection.broadcastDirector.reset({
       sequence: snapshot.narrative.sequence,
       candidates: snapshot.narrative.storyArcCandidates,
     });
+    // Provider-managed truncation preserves the WebRTC transport and playback.
+    // Every worker response carries current facts independently of old items.
+    this.send(connection, {
+      type: 'session.update',
+      session: { type: 'realtime', truncation: {
+        type: 'retention_ratio', retention_ratio: 0.7,
+        token_limits: { post_instructions: 6_000 },
+      } },
+    });
+    connection.contextBrief = renderRealtimeSnapshot(connection.session.epoch, snapshot, connection.wireState);
     this.send(connection, {
       event_id: realtimeEventId('match_snapshot', connection.session.id),
       type: 'conversation.item.create',
@@ -1009,7 +1101,7 @@ export class ScoliaRealtimeCommentaryPublisher {
         role: 'user',
         content: [{
           type: 'input_text',
-          text: renderRealtimeSnapshot(connection.session.epoch, snapshot, connection.wireState),
+          text: connection.contextBrief,
         }],
       },
     });
@@ -1025,14 +1117,14 @@ export class ScoliaRealtimeCommentaryPublisher {
     connection.visitTiming.reset();
     connection.broadcastDirector.reset();
     connection.pendingTakeoutHandoff = null;
+    connection.contextBrief = undefined;
     connection.session = session;
-    const match = await loadMatch(this.supabase, session.match_id);
-    if (!match) throw new Error('Could not load corrected match snapshot');
-    const snapshot = await loadRealtimeCommentarySnapshot(this.supabase, match);
+    const snapshot = await this.analysisSnapshot(session.match_id);
     connection.broadcastDirector.reset({
       sequence: snapshot.narrative.sequence,
       candidates: snapshot.narrative.storyArcCandidates,
     });
+    connection.contextBrief = `AUTHORITATIVE CORRECTION · ${session.last_correction_reason ?? 'throw updated'}\n${renderRealtimeSnapshot(session.epoch, snapshot, connection.wireState)}`;
     this.send(connection, {
       event_id: realtimeEventId('match_correction', `${session.id}-${session.epoch}`),
       type: 'conversation.item.create',
@@ -1041,7 +1133,7 @@ export class ScoliaRealtimeCommentaryPublisher {
         role: 'user',
         content: [{
           type: 'input_text',
-          text: `AUTHORITATIVE CORRECTION · ${session.last_correction_reason ?? 'throw updated'}\n${renderRealtimeSnapshot(session.epoch, snapshot, connection.wireState)}`,
+          text: connection.contextBrief,
         }],
       },
     });
@@ -1109,13 +1201,24 @@ export class ScoliaRealtimeCommentaryPublisher {
   private observeEpochs(matchId: string, sessions: ActiveRealtimeCommentarySession[]) {
     const newestEpoch = sessions.reduce((latest, session) => Math.max(latest, session.epoch), 0);
     const knownEpoch = this.matchEpochs.get(matchId);
-    if (knownEpoch !== undefined && newestEpoch > knownEpoch) this.dartIQCache.delete(matchId);
+    if (knownEpoch !== undefined && newestEpoch > knownEpoch) {
+      this.correctionTimes.set(matchId, Date.now());
+      if (this.correctionTimes.size > 100) this.correctionTimes.delete(this.correctionTimes.keys().next().value!);
+      this.dartIQCache.delete(matchId);
+      this.analysis?.invalidate(matchId);
+    }
     this.matchEpochs.set(matchId, Math.max(knownEpoch ?? 0, newestEpoch));
   }
 
   private send(connection: SidebandConnection, event: Record<string, unknown>) {
     if (connection.socket.readyState !== WebSocket.OPEN) {
       throw new Error('OpenAI Realtime sideband is not open');
+    }
+    if (event.type === 'response.create' && connection.contextBrief) {
+      const response = event.response as Record<string, unknown>;
+      event = { ...event, response: { ...response,
+        instructions: `${response.instructions ?? ''}\n\n# CURRENT AUTHORITATIVE CONTEXT\n${connection.contextBrief}\nUse this current brief over older conversation. Memory facts are background, not new events to announce again.`,
+      } };
     }
     connection.socket.send(JSON.stringify(event));
   }
