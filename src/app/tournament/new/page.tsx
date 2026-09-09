@@ -6,9 +6,10 @@ import { apiRequest } from '@/lib/apiClient';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
-import { ArrowRight, Search, Scale, Trophy, Volume2 } from 'lucide-react';
+import { ArrowRight, UserPlus, Search, Scale, Trophy, Volume2 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { BoardPicker, MANUAL_BOARD_VALUE, loadStoredBoardId, storeBoardId } from '@/components/games/BoardPicker';
 import type { ScoliaBoardOption } from '@/lib/scolia/types';
@@ -43,15 +44,22 @@ export default function NewTournamentPage() {
   const [name, setName] = useState('');
   const [playerSearch, setPlayerSearch] = useState('');
   const [newPlayerName, setNewPlayerName] = useState('');
+  const [addPlayerOpen, setAddPlayerOpen] = useState(false);
+  const [addingPlayer, setAddingPlayer] = useState(false);
+  const [addPlayerError, setAddPlayerError] = useState<string | null>(null);
   const [startScore, setStartScore] = useState<StartScore>('301');
   const [finish, setFinish] = useState<FinishRule>('single_out');
   const [legsToWin, setLegsToWin] = useState(1);
   const [fairEnding, setFairEnding] = useState(false);
+  const [includeNoLocation, setIncludeNoLocation] = useState(true);
   const [enabledLocations, setEnabledLocations] = useState<LocationValue[]>(() => LOCATIONS.map((location) => location.value));
   const [locationsLoaded, setLocationsLoaded] = useState(false);
 
   useEffect(() => {
     setEnabledLocations(loadEnabledLocations());
+    try {
+      setIncludeNoLocation(localStorage.getItem("match-include-no-location") !== "false");
+    } catch { /* Keep the default when storage is unavailable. */ }
     setLocationsLoaded(true);
   }, []);
   const [creating, setCreating] = useState(false);
@@ -101,24 +109,30 @@ export default function NewTournamentPage() {
     } catch { /* Keep filters usable when browser storage is unavailable. */ }
   }, [enabledLocations, locationsLoaded]);
 
+  function toggleNoLocation() {
+    const next = !includeNoLocation;
+    setIncludeNoLocation(next);
+    try {
+      localStorage.setItem("match-include-no-location", String(next));
+    } catch { /* Filtering still works without storage. */ }
+  }
+
   function toggleLocation(loc: LocationValue) {
     setEnabledLocations((prev) => {
       const next = prev.includes(loc) ? prev.filter((l) => l !== loc) : [...prev, loc];
-      const hiddenIds = new Set(
-        players
-          .filter((p) => p.location !== null && !next.includes(p.location as LocationValue))
-          .map((p) => p.id)
-      );
-      if (hiddenIds.size > 0) {
-        setSelectedIds((ids) => ids.filter((id) => !hiddenIds.has(id)));
-      }
       return next;
     });
   }
 
-  const filteredPlayers = players.filter(
-    (p) => (p.location === null || enabledLocations.includes(p.location as LocationValue))
+  const matchingPlayers = players.filter(
+    (p) => (p.location === null ? includeNoLocation : enabledLocations.includes(p.location as LocationValue))
       && p.display_name.toLocaleLowerCase().includes(playerSearch.trim().toLocaleLowerCase())
+  );
+
+  const selectedPlayerIds = new Set(selectedIds);
+  const matchingPlayerIds = new Set(matchingPlayers.map((player) => player.id));
+  const filteredPlayers = players.filter((player) =>
+    selectedPlayerIds.has(player.id) || matchingPlayerIds.has(player.id),
   );
 
   const selectedPlayers = selectedIds.flatMap((id) => {
@@ -128,15 +142,21 @@ export default function NewTournamentPage() {
 
   async function createPlayer() {
     const trimmed = newPlayerName.trim();
-    if (!trimmed) return;
+    if (!trimmed || addingPlayer) return;
+    setAddingPlayer(true);
+    setAddPlayerError(null);
     try {
       const result = await apiRequest<{ player: Player }>('/api/players', { body: { displayName: trimmed } });
       setPlayers((prev) => [...prev, result.player]);
       setSelectedIds((prev) => [...prev, result.player.id]);
       setNewPlayerName('');
+      setPlayerSearch('');
+      setAddPlayerOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create player';
-      alert(message);
+      setAddPlayerError(message);
+    } finally {
+      setAddingPlayer(false);
     }
   }
 
@@ -172,7 +192,7 @@ export default function NewTournamentPage() {
   }
 
   return (
-    <div className="w-full px-4 pt-4 pb-52 md:px-6 lg:h-[calc(100dvh-113px)] lg:pb-0 lg:px-8">
+    <div className="w-full px-4 pt-4 pb-40 md:px-6 lg:h-[calc(100dvh-113px)] lg:pb-0 lg:px-8">
       <div className="grid items-start gap-5 lg:h-full lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)] xl:gap-8">
         <section aria-label="Tournament settings" className="min-w-0 space-y-5 rounded-2xl bg-slate-900/40 p-4 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain [scrollbar-width:thin]">
           <div>
@@ -251,13 +271,46 @@ export default function NewTournamentPage() {
             <Switch aria-label="Commentary" aria-describedby="tournament-commentary-description" checked={commentaryEnabled} onCheckedChange={(enabled) => { setCommentaryEnabled(enabled); try { localStorage.setItem(COMMENTARY_STORAGE_KEY, String(enabled)); } catch { /* optional preference */ } }} className="data-[state=checked]:bg-cyan-400" />
           </label>
         </section>
-        <section aria-label="Tournament players" className="min-w-0 space-y-3 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:pb-40">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <section aria-label="Tournament players" className="min-w-0 space-y-3 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:pb-28">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
             <h2 className="mr-auto shrink-0 whitespace-nowrap text-lg font-bold">Players <span className="text-sm font-normal text-slate-400">{selectedIds.length} selected · min 3</span></h2>
+            <Dialog open={addPlayerOpen} onOpenChange={(open) => {
+              if (addingPlayer) return;
+              setAddPlayerOpen(open);
+              setAddPlayerError(null);
+              if (open) setNewPlayerName(playerSearch.trim());
+            }}>
+              <DialogTrigger asChild>
+                <Button type="button" variant="ghost" size="sm" className="shrink-0 gap-2 text-slate-400 hover:bg-white/5 hover:text-slate-300">
+                  <UserPlus className="size-4" aria-hidden="true" />
+                  Add player
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[90dvh] overflow-y-auto" showCloseButton={!addingPlayer}>
+                <DialogHeader>
+                  <DialogTitle>Add player</DialogTitle>
+                  <DialogDescription>Create a new player and add them to your lineup.</DialogDescription>
+                </DialogHeader>
+                <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void createPlayer(); }}>
+                  <div className="space-y-2">
+                    <label htmlFor="new-player-name" className="text-sm font-medium">Player name</label>
+                    <Input id="new-player-name" placeholder="New player name" value={newPlayerName} onChange={(event) => setNewPlayerName(event.target.value)} disabled={addingPlayer} autoComplete="off" className="border-white/10 bg-slate-900/40" />
+                  </div>
+                  {addPlayerError && <p role="alert" className="text-sm text-destructive">{addPlayerError}</p>}
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setAddPlayerOpen(false)} disabled={addingPlayer}>Cancel</Button>
+                    <Button type="submit" disabled={!newPlayerName.trim() || addingPlayer}>{addingPlayer ? 'Adding…' : 'Add player'}</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
             <div className="flex flex-wrap gap-1.5">
               {LOCATIONS.map((loc) => (
                 <Button key={loc.value} type="button" size="sm" variant="outline" aria-pressed={enabledLocations.includes(loc.value)} onClick={() => toggleLocation(loc.value)} className={enabledLocations.includes(loc.value) ? 'border-sky-400/20 bg-sky-400/10 font-bold text-sky-300 hover:bg-sky-400/20 hover:text-sky-300' : 'border-white/10 bg-transparent text-slate-400 hover:bg-white/5 hover:text-slate-300'}>{loc.label}</Button>
               ))}
+              <Button type="button" size="sm" variant="outline" aria-pressed={includeNoLocation} onClick={toggleNoLocation} className={includeNoLocation ? "border-sky-400/20 bg-sky-400/10 font-bold text-sky-300 hover:bg-sky-400/20 hover:text-sky-300" : "border-white/10 bg-transparent text-slate-400 hover:bg-white/5 hover:text-slate-300"}>
+                No location
+              </Button>
             </div>
             <div className="relative w-full max-w-80 min-w-0 xl:w-80">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
@@ -278,10 +331,6 @@ export default function NewTournamentPage() {
             {filteredPlayers.length === 0 && <p className="col-span-full py-6 text-center text-sm text-slate-400">No players match your filters.</p>}
           </div>
           <div className="fixed inset-x-7 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 space-y-3 rounded-t-2xl bg-background/95 px-1 py-3 shadow-[0_-12px_32px_rgba(3,7,18,0.8)] backdrop-blur-xl md:inset-x-12 lg:right-14 lg:bottom-0 lg:left-[376px] xl:left-[408px]">
-            <div className="flex gap-2">
-              <Input aria-label="New player name" placeholder="New player name" value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void createPlayer(); } }} className="flex-1 border-white/10 bg-slate-900/40" />
-              <Button type="button" variant="outline" onClick={() => void createPlayer()} disabled={!newPlayerName.trim()}>Add player</Button>
-            </div>
             <div className="start-action-bar grid grid-cols-2 items-center gap-3">
               <SelectedPlayerLineup players={selectedPlayers} onRemove={toggle} />
               <Button type="button" onClick={() => void onStart()} disabled={creating || selectedIds.length < 3 || !name.trim() || boardUnavailable} className="start-match-button group h-16 w-full min-w-0 gap-2 rounded-xl border border-blue-300/30 bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 px-3 text-base font-semibold text-white shadow-[0_6px_24px_rgba(37,99,235,0.2)] transition-[filter,box-shadow,border-color] hover:border-cyan-100 hover:brightness-110 hover:shadow-[0_0_18px_rgba(56,189,248,0.45)] sm:text-xl">

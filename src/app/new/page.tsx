@@ -17,7 +17,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { ArrowRight, Search, Scale, Target, Volume2 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ArrowRight, UserPlus, Search, Scale, Target, Volume2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -102,6 +103,9 @@ export default function NewMatchPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [newName, setNewName] = useState("");
+  const [addPlayerOpen, setAddPlayerOpen] = useState(false);
+  const [addingPlayer, setAddingPlayer] = useState(false);
+  const [addPlayerError, setAddPlayerError] = useState<string | null>(null);
   const [playerSearch, setPlayerSearch] = useState("");
   const [startScore, setStartScore] = useState<StartScore>("301");
   const [finish, setFinish] = useState<FinishRule>("single_out");
@@ -148,11 +152,15 @@ export default function NewMatchPage() {
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const boardsRequestInFlight = useRef(false);
   // Start with every location for SSR and pick up the stored filter after hydration.
+  const [includeNoLocation, setIncludeNoLocation] = useState(true);
   const [enabledLocations, setEnabledLocations] = useState<LocationValue[]>(
     () => LOCATIONS.map((l) => l.value),
   );
   useEffect(() => {
     setEnabledLocations(loadEnabledLocations());
+    try {
+      setIncludeNoLocation(localStorage.getItem("match-include-no-location") !== "false");
+    } catch { /* Keep the default when storage is unavailable. */ }
   }, []);
 
   const loadBoards = useCallback(async (initialLoad = false) => {
@@ -263,24 +271,19 @@ export default function NewMatchPage() {
     storeBoardId(boardId);
   }
 
+  function toggleNoLocation() {
+    const next = !includeNoLocation;
+    setIncludeNoLocation(next);
+    try {
+      localStorage.setItem("match-include-no-location", String(next));
+    } catch { /* Filtering still works without storage. */ }
+  }
+
   function toggleLocation(loc: LocationValue) {
     setEnabledLocations((prev) => {
       const next = prev.includes(loc)
         ? prev.filter((l) => l !== loc)
         : [...prev, loc];
-      // Deselect players that will be hidden by the new filter
-      const hiddenIds = new Set(
-        players
-          .filter(
-            (p) =>
-              p.location !== null &&
-              !next.includes(p.location as LocationValue),
-          )
-          .map((p) => p.id),
-      );
-      if (hiddenIds.size > 0) {
-        setSelectedIds((ids) => ids.filter((id) => !hiddenIds.has(id)));
-      }
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       } catch {
@@ -296,22 +299,29 @@ export default function NewMatchPage() {
   ), [players]);
   const locationPlayers = sortedPlayers.filter(
     (p) =>
-      p.location === null ||
+      p.location === null ? includeNoLocation :
       enabledLocations.includes(p.location as LocationValue),
   );
   const searchTerm = playerSearch.trim().toLowerCase();
-  const filteredPlayers = searchTerm
+  const matchingPlayers = searchTerm
     ? locationPlayers.filter((p) =>
         p.display_name.toLowerCase().includes(searchTerm),
       )
     : locationPlayers;
+  const selectedPlayerIds = new Set(selectedIds);
+  const matchingPlayerIds = new Set(matchingPlayers.map((player) => player.id));
+  const filteredPlayers = sortedPlayers.filter((player) =>
+    selectedPlayerIds.has(player.id) || matchingPlayerIds.has(player.id),
+  );
   const searchMatchesExisting = players.some(
     (p) => p.display_name.trim().toLowerCase() === searchTerm,
   );
 
-  async function createPlayer(nameOverride?: string) {
-    const name = (nameOverride ?? newName).trim();
-    if (!name) return;
+  async function createPlayer() {
+    const name = newName.trim();
+    if (!name || addingPlayer) return;
+    setAddingPlayer(true);
+    setAddPlayerError(null);
     try {
       const result = await apiRequest<{ player: Player }>("/api/players", {
         body: { displayName: name },
@@ -319,11 +329,14 @@ export default function NewMatchPage() {
       setPlayers((prev) => [...prev, result.player]);
       setSelectedIds((prev) => [...prev, result.player.id]);
       setNewName("");
+      setAddPlayerOpen(false);
       setPlayerSearch("");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to create player";
-      alert(message);
+      setAddPlayerError(message);
+    } finally {
+      setAddingPlayer(false);
     }
   }
 
@@ -429,7 +442,7 @@ export default function NewMatchPage() {
   }
 
   return (
-    <div className="w-full space-y-5 px-4 pt-4 pb-44 md:px-6 lg:h-[calc(100dvh-113px)] lg:pb-0 lg:px-8">
+    <div className="w-full space-y-5 px-4 pt-4 pb-32 md:px-6 lg:h-[calc(100dvh-113px)] lg:pb-0 lg:px-8">
       <div className="grid items-start gap-5 lg:h-full lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)] xl:gap-8 xl:grid-cols-[320px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-5 rounded-2xl bg-slate-900/40 p-4 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain [scrollbar-width:thin] [&_button[data-slot=select-trigger]]:border-white/10 [&_input]:border-white/10 [&_button[data-variant=outline]]:border-white/10">
           <h1 className="text-3xl font-black tracking-tight">New Game</h1>
@@ -570,15 +583,45 @@ export default function NewMatchPage() {
           )}
 
         </div>
-        <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 space-y-3 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:pb-28">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
             <div className="mr-auto shrink-0 whitespace-nowrap text-2xl font-extrabold tracking-tight">
               Players
               <span className="ml-3 text-sm font-semibold tracking-normal text-sky-300" aria-live="polite">
                 {selectedIds.length} selected
               </span>
             </div>
-            <div className="flex gap-1" role="group" aria-label="Location filter">
+            <Dialog open={addPlayerOpen} onOpenChange={(open) => {
+              if (addingPlayer) return;
+              setAddPlayerOpen(open);
+              setAddPlayerError(null);
+              if (open) setNewName(playerSearch.trim());
+            }}>
+              <DialogTrigger asChild>
+                <Button type="button" variant="ghost" size="sm" className="shrink-0 gap-2 text-slate-400 hover:bg-white/5 hover:text-slate-300">
+                  <UserPlus className="size-4" aria-hidden="true" />
+                  Add player
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[90dvh] overflow-y-auto" showCloseButton={!addingPlayer}>
+                <DialogHeader>
+                  <DialogTitle>Add player</DialogTitle>
+                  <DialogDescription>Create a new player and add them to your lineup.</DialogDescription>
+                </DialogHeader>
+                <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void createPlayer(); }}>
+                  <div className="space-y-2">
+                    <label htmlFor="new-player-name" className="text-sm font-medium">Player name</label>
+                    <Input id="new-player-name" placeholder="New player name" value={newName} onChange={(event) => setNewName(event.target.value)} disabled={addingPlayer} autoComplete="off" className="border-white/10 bg-slate-900/40" />
+                  </div>
+                  {addPlayerError && <p role="alert" className="text-sm text-destructive">{addPlayerError}</p>}
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setAddPlayerOpen(false)} disabled={addingPlayer}>Cancel</Button>
+                    <Button type="submit" disabled={!newName.trim() || addingPlayer}>{addingPlayer ? 'Adding…' : 'Add player'}</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Location filter">
               {LOCATIONS.map((loc) => (
                 <Button
                   key={loc.value}
@@ -592,6 +635,9 @@ export default function NewMatchPage() {
                   {loc.label}
                 </Button>
               ))}
+              <Button type="button" size="sm" variant="outline" aria-pressed={includeNoLocation} onClick={toggleNoLocation} className={includeNoLocation ? "border-sky-400/20 bg-sky-400/10 font-bold text-sky-300 hover:bg-sky-400/20 hover:text-sky-300" : "border-white/10 bg-transparent text-slate-400 hover:bg-white/5 hover:text-slate-300"}>
+                No location
+              </Button>
             </div>
             <div className="relative w-full max-w-80 min-w-0 xl:w-80">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -607,21 +653,23 @@ export default function NewMatchPage() {
                 onKeyDown={(e) => {
                   if (e.key !== "Enter") return;
                   e.preventDefault();
-                  if (filteredPlayers.length === 1) {
-                    toggle(filteredPlayers[0].id);
+                  if (matchingPlayers.length === 1) {
+                    if (!selectedPlayerIds.has(matchingPlayers[0].id)) toggle(matchingPlayers[0].id);
                     setPlayerSearch("");
                   } else if (
-                    filteredPlayers.length === 0 &&
+                    matchingPlayers.length === 0 &&
                     searchTerm &&
                     !searchMatchesExisting
                   ) {
-                    void createPlayer(playerSearch);
+                    setNewName(playerSearch.trim());
+                    setAddPlayerError(null);
+                    setAddPlayerOpen(true);
                   }
                 }}
               />
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-2.5 min-[480px]:grid-cols-2 md:grid-cols-3 lg:max-h-[calc(100dvh-324px)] lg:min-h-0 lg:overflow-y-auto xl:grid-cols-4">
+          <div className="grid min-h-0 grid-cols-1 content-start gap-2.5 min-[480px]:grid-cols-2 md:grid-cols-3 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain xl:grid-cols-4">
             {filteredPlayers.map((p) => {
               const loc = LOCATIONS.find((l) => l.value === p.location);
               const checked = selectedIds.includes(p.id);
@@ -671,36 +719,6 @@ export default function NewMatchPage() {
           )}
 
           <div className="fixed inset-x-7 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 rounded-t-2xl bg-background/95 px-1 pt-3 pb-3 shadow-[0_-12px_32px_rgba(3,7,18,0.8)] backdrop-blur-xl md:inset-x-12 lg:right-14 lg:bottom-0 lg:left-[376px] xl:left-[408px]">
-            <div className="mb-3">
-{searchTerm && !searchMatchesExisting ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              onClick={() => void createPlayer(playerSearch)}
-            >
-              Add “{playerSearch.trim()}” as a new player
-            </Button>
-          ) : (
-            <div className="flex gap-2">
-              <Input
-                className="flex-1 border-white/10 bg-slate-900/40"
-                placeholder="New player name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void createPlayer();
-                  }
-                }}
-              />
-              <Button type="button" className="border border-white/10 bg-slate-800 font-semibold text-slate-200 hover:bg-slate-700" onClick={() => void createPlayer()}>
-                Add player
-              </Button>
-            </div>
-          )}
-            </div>
             <div className="start-action-bar grid grid-cols-2 items-center gap-3">
             <SelectedPlayerLineup players={selectedPlayers} onRemove={toggle} />
             <Button
