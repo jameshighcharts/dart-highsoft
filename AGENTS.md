@@ -33,6 +33,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 
 ## File Map
 
+- `src/proxy.ts`: Accepts authenticated Slack and Google sessions with email and workspace identity, including Google users without a Slack link. `src/proxy.test.ts` covers redirect-loop prevention and anonymous access restrictions.
+
 ### Pages (`src/app`)
 | Path | Purpose |
 |------|---------|
