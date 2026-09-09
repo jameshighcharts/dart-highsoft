@@ -214,7 +214,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `slack/playerImport.ts` | Plans and applies the Slack member → player import with the first-name / `First L` naming rule; synchronizes linked names atomically while preserving old names as nicknames |
 | `auth/slackWorkspace.ts` | Pure Slack sign-in gate helpers (team id, verified email, allowed domains, admin list) |
 | `auth/requireAdmin.ts` | Session guard for `/api/admin` routes |
-| `slack/dartTime.ts` | Parses `/dart HH:MM` in the configured IANA time zone |
+| `slack/dartTime.ts` | Parses the `/dart` command (optional time or `now`, start score, legs, finish rule) in the configured IANA time zone |
 | `slack/messages.ts` | Builds accessible Slack Block Kit poll messages |
 | `slack/signature.ts` | Verifies Slack request signatures and rejects replayed requests |
 
@@ -295,7 +295,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 ### Release Tooling
 | Path | Purpose |
 |------|---------|
-| `scripts/supabase-migrations.mjs` | Validates timestamped names, deploys migrations by exact name, and verifies production migration history plus database writes |
+| `scripts/supabase-migrations.mjs` | Validates timestamped names, deploys migrations by exact name, verifies production migration history, and prints the bounded rollback SQL for the Slack settings regression with `slack-settings-sql` |
 | `scripts/supabase-migrations.test.mjs` | Regression tests for exact-name selection and migration filename policy |
 | `supabase/migrations/legacy-numbered-migrations.txt` | Immutable allowlist for the repository's historical numbered migrations |
 | `supabase/migrations/20260908180500_tournament_board_preferences.sql` | Persist tournament board/commentary preferences; matching SQL regression test checks exclusive board assignment and reuse after completion |
@@ -444,10 +444,10 @@ Scolia spectator loads include throw geometry across every leg for per-player wh
 Recent Games card → `/match/:id?spectator=true&history=true` → spectator data load includes every leg and Scolia throw geometry → read-only result hero, whole-match KPIs/player performance/top visits, final-leg score progression, Elo changes, and whole-match heatmaps. Live-only board status, QR code, current-player state, commentary, and winner popup are suppressed.
 
 **Slack dart poll:**
-`/dart HH:MM` → signed `POST /api/slack/darts` → insert poll and its `background_jobs` row atomically → publish a Yes/No Block Kit poll → signed button actions upsert one vote per Slack user → one Supabase Cron job checks for due work every five seconds → `dispatch_due_background_jobs()` atomically claims a batch and makes no HTTP request for an empty batch → authenticated `POST /api/background-jobs` dispatches `slack_dart_poll` → fewer than two Yes votes cancel; otherwise `claim_slack_player_atomic` resolves or creates each stable Slack identity without exposing a half-created player → `create_slack_x01_match_atomic` creates a manual 501 double-out match → Slack message links to scoring. Self-service claims use the same RPC; admin replacements use `set_slack_player_link_atomic`, so link changes roll back together. See `docs/SLACK_DARTS.md` for setup and Vault configuration.
+`/dart [HH:MM|now] [201|301|501] [legs] [single|double]` → signed `POST /api/slack/darts` → insert poll and its `background_jobs` row atomically → publish an I'm down / Not this time Block Kit poll → signed button actions upsert one vote per Slack user → one Supabase Cron job checks for due work every five seconds → `dispatch_due_background_jobs()` atomically claims a batch and makes no HTTP request for an empty batch → authenticated `POST /api/background-jobs` dispatches `slack_dart_poll` → fewer than two Yes votes cancel; otherwise `claim_slack_player_atomic` resolves or creates each stable Slack identity without exposing a half-created player → `create_slack_x01_match_atomic` creates a manual match using the stored poll settings → Slack message links to scoring and spectator mode. Self-service claims use the same RPC; admin replacements use `set_slack_player_link_atomic`, so link changes roll back together. See `docs/SLACK_DARTS.md` for setup and Vault configuration.
 
 **Production release gate:**
-Pull request or merge queue → `Tests / test` validates migration filenames, runs lint, unit tests, a production build, and five Lighthouse samples of the real home page through a loopback-only CI auth bypass → GitHub branch protection permits merge only after success. On a push to `main`, the Supabase workflow deploys every migration after the exact `0055_game_sessions` baseline by full migration name. The timestamped production smoke migration is recorded only after it verifies `matches.paused_at`, creates an X01 match and throw, and removes its test rows. `Tests / test` waits for that exact production history before Vercel Deployment Checks can promote the commit.
+Pull request or merge queue → `Tests / test` validates migration filenames, runs lint, unit tests, a production build, and five Lighthouse samples of the real home page through a loopback-only CI auth bypass → GitHub branch protection permits merge only after success. Before releasing Slack poll settings, run the output of `node scripts/supabase-migrations.mjs slack-settings-sql` in the Supabase SQL Editor, deploy the migration, then rerun with `--installed`. These bounded rollback checks exercise service-role match creation without leaving fixtures. On a push to `main`, the Supabase workflow deploys every migration after the exact `0055_game_sessions` baseline by full migration name. The timestamped production smoke migration is recorded only after it verifies `matches.paused_at`, creates an X01 match and throw, and removes its test rows. `Tests / test` waits for that exact production history before Vercel Deployment Checks can promote the commit.
 
 Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. A missing acknowledgement resets a stale command for retry; after three attempts it becomes `failed`. Deploy `Dockerfile.scolia-worker` as exactly one always-on worker replica outside Vercel.
 
@@ -456,14 +456,26 @@ Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. 
 Local development recovery (2026-09-07): `supabase_db_dart-highsoft` had legacy Pressure/commentary migrations occupying versions `0055`–`0059`. Those history rows were preserved; current files were backfilled and recorded by full filename, source SHA-256, actual executed SQL, and compatibility notes in the private `supabase_migrations.local_reconciled_migrations` table. Existing rematch and commentary objects were retained and brought up to the current shape. Check this ledger as well as `schema_migrations` before rerunning migrations on this local instance. The repository still contains duplicate numeric prefixes (`0055`, `0059`); a clean CLI/deployment migration-history reconciliation remains separate work. Never assume this local recovery was applied to production. Pre-recovery backup: `/private/tmp/dart-highsoft-before-migrations-20260907.dump`.
 
 - Do not use `ALTER FUNCTION` in Supabase migrations. For function changes, use drop + recreate.
-- Never modify existing Supabase migration files after they are created/committed.
-- Any schema/function/policy change must be done by adding a new migration that supersedes earlier ones.
+- Existing Supabase migration files are immutable except under the failed, unapplied migration recovery procedure below.
+- Changes to applied migrations require a new migration that supersedes them. New schema/function/policy work also requires a new migration.
 - Name every new migration with a unique 14-digit UTC timestamp: `YYYYMMDDHHMMSS_description.sql`. The numbered migrations in `legacy-numbered-migrations.txt` are the only exceptions.
 - Migration deployment and verification track the complete migration name, never only its numeric or timestamp prefix.
 
+### Failed, unapplied migration recovery
+
+Within an already authorized deployment, an agent may correct a failed migration in place, including after commit or merge, when all of these conditions hold. This procedure supplies the exception; do not request another policy waiver once the evidence is complete.
+
+1. Identify every retained database that could have received the migration. Verify the complete name is absent from each migration history, and check manual application records and reconciliation ledgers, including `local_reconciled_migrations` where present. A recorded no-op counts as applied. Disposable test databases may be recreated; never reset a retained database to qualify for this exception.
+2. Confirm the failed attempt fully rolled back by checking its transaction boundaries, failure output, and affected schema/data. Missing history alone does not prove rollback. Resolve partial writes or uncertain application state before considering an edit.
+3. Limit the correction to the original migration's intended behavior. Preserve its filename, timestamp, identity/data guards, and history. Reproduce the failure with the relevant real constraints, then verify the corrected SQL, data preservation, and retry behavior in disposable PostgreSQL.
+4. Record the failed run, original commit, databases checked, rollback evidence, correction, and test results in the corrective PR or durable deployment notes. Commit the correction as a new commit; do not rewrite merged Git history.
+5. Recheck history before retrying through the serialized deployment workflow at the corrected commit. Verify the complete migration history, affected data, and required release checks before reporting success. See [DEPLOYMENT.md](DEPLOYMENT.md#recover-a-failed-unapplied-migration).
+
+If any retained database applied the migration, keep its file unchanged and plan a forward recovery with a new timestamped migration. If evidence is missing, continue read-only investigation and local reproduction; do not assume the exception applies. Never delete history rows, mark failed SQL as applied, disable constraints, or bypass release checks to unblock deployment. This exception does not authorize additional data changes or a deployment outside the user's existing request.
+
 ## Boundaries / Do Not Touch
 - `.env*` files, secrets, production credentials.
-- Existing migration files in `supabase/migrations/` — never edit, only add new ones.
+- Existing migration files in `supabase/migrations/`, except through the failed, unapplied migration recovery procedure above. Applied migrations remain immutable.
 - `package-lock.json` unless dependency changes are required.
 - Generated artifacts (`coverage/`, `playwright-report/`, `.next/`, `node_modules/`).
 
@@ -491,4 +503,4 @@ Rivalry commentary uses `selectCommentaryRivalry` in `commentaryNarrative.ts` ov
 
 `20260909071500_sync_slack_player_names.sql` adds the service-only, team-scoped name sync RPC used by Slack imports. Renames preserve player IDs, history, existing nicknames, and inactive status.
 
-`20260909071600_consolidate_mustapha_player.sql` retains the confirmed original player and its history, moves the Slack identity, preserves nicknames, and deactivates the unused imported duplicate. It aborts if the duplicate has acquired referenced data. SQL regression coverage lives in the matching `supabase/tests/20260909071500_sync_slack_player_names.sql` and `20260909071600_consolidate_mustapha_player.sql` files.
+`20260909071600_consolidate_mustapha_player.sql` retains the confirmed original player and its history, moves the Slack identity, preserves nicknames, and renames and deactivates the unused imported duplicate before reusing its name. The regression requires the real unique display-name constraint and checks retry rejection plus rollback when the duplicate has history. It aborts if the duplicate has acquired referenced data. SQL regression coverage lives in the matching `supabase/tests/20260909071500_sync_slack_player_names.sql` and `20260909071600_consolidate_mustapha_player.sql` files.

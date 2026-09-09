@@ -42,6 +42,10 @@ begin
     end if;
   end loop;
 
+  update public.players
+  set display_name = 'Mustapha (imported duplicate)', is_active = false
+  where id = v_imported;
+
   update public.players p
   set display_name = 'Mustapha',
       nicknames = array(
@@ -53,6 +57,5 @@ begin
         ) deduplicated order by position
       )
   where p.id = v_keep;
-  update public.players set is_active = false where id = v_imported;
 end;
 $$;

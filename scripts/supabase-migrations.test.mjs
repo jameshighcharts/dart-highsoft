@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   selectPendingMigrations,
   validateMigrationFiles,
+  slackSettingsVerificationQuery,
 } from './supabase-migrations.mjs';
 
 const baseline = '0055_game_sessions';
@@ -12,6 +13,31 @@ const legacyNames = new Set([
   '0056_game_session_integrity',
 ]);
 const files = [...legacyNames].map((name) => `${name}.sql`);
+
+describe('Slack migration verification', () => {
+  it('runs the trial migration and assertions inside the regression rollback', () => {
+    const query = slackSettingsVerificationQuery(
+      'alter table public.slack_dart_polls add column example integer;',
+      'begin;\ndo $$ begin raise exception \'failed assertion\'; end $$;\nrollback;\n',
+    );
+    expect(query).toMatch(/^begin;/);
+    expect(query).toContain("set local lock_timeout = '2s'");
+    expect(query.indexOf('alter table')).toBeLessThan(query.indexOf('failed assertion'));
+    expect(query).toMatch(/rollback;\s*$/);
+    expect(query).not.toMatch(/\bcommit\s*;/i);
+  });
+
+  it('refuses a regression that does not end with rollback', () => {
+    expect(() => slackSettingsVerificationQuery('', 'begin; select 1; commit;'))
+      .toThrow(/roll it back/);
+  });
+
+  it('preserves PostgreSQL dollar quoting in the migration', () => {
+    const migration = 'do $$ begin perform 1; end $$;';
+    expect(slackSettingsVerificationQuery(migration, 'begin; select 1; rollback;'))
+      .toContain(migration);
+  });
+});
 
 describe('Supabase migration selection', () => {
   it('tracks applied migrations by full name instead of a shared numeric prefix', () => {
