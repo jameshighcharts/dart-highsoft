@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { createClient } from '@supabase/supabase-js';
 
 import type { SlackMember } from './members';
-import { planSlackPlayerImport, preferredPlayerNames } from './playerImport';
+import { importSlackMembersAsPlayers, planSlackPlayerImport, preferredPlayerNames } from './playerImport';
 
 function member(id: string, realName: string, extra: Partial<SlackMember> = {}): SlackMember {
   return { id, realName, firstName: null, lastName: null, displayName: null, email: null, ...extra };
@@ -91,5 +92,30 @@ describe('planSlackPlayerImport', () => {
       [],
     );
     expect(plan.create.map((entry) => entry.displayName)).toEqual(['Kim', 'Kim L']);
+  });
+});
+
+
+describe('importSlackMembersAsPlayers', () => {
+  it('syncs preferred names for existing identities without creating players', async () => {
+    const requests: Array<{ path: string; body: string | undefined }> = [];
+    const supabase = createClient('https://example.supabase.co', 'test-key', {
+      global: {
+        fetch: async (input, init) => {
+          const path = String(input);
+          requests.push({ path, body: typeof init?.body === 'string' ? init.body : undefined });
+          if (path.includes('/rpc/sync_slack_player_names')) return Response.json(1);
+          if (path.includes('/players?')) return Response.json([{ id: 'p1', display_name: 'Old alias' }]);
+          if (path.includes('/slack_player_links?')) return Response.json([{ slack_user_id: 'U1', player_id: 'p1' }]);
+          throw new Error(`Unexpected request: ${path}`);
+        },
+      },
+    });
+    const result = await importSlackMembersAsPlayers(supabase, 'T1', [member('U1', 'Ada Lovelace')]);
+    expect(result).toMatchObject({ created: 0, linked: 0, renamed: 1, alreadyLinked: ['U1'] });
+    expect(requests).toHaveLength(3);
+    expect(JSON.parse(requests[2].body ?? '{}')).toEqual({
+      p_team_id: 'T1', p_names: [{ slack_user_id: 'U1', display_name: 'Ada' }],
+    });
   });
 });
