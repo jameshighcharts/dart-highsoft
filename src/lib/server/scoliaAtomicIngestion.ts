@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { replayTurn } from '../../utils/legScoreCalculator.ts';
 import { computeFairEndingState, getNextFairEndingPlayer } from '../../utils/fairEnding.ts';
-import type { ScoliaDetectedThrow } from '../scolia/protocol.ts';
+import { detectedThrowFromMessage, type ScoliaDetectedThrow } from '../scolia/protocol.ts';
 import type { MatchRow } from './matchGuards.ts';
 import type { TurnWithThrows, LegRecord } from '../match/types.ts';
 import type { StoredScoliaEvent, ScoliaThrowIngestionResult } from './scoliaThrowIngestion.ts';
@@ -71,13 +71,33 @@ export class ScoliaAtomicIngestion {
   async persistAndPrepare(event: {
     board_id: string; message_id: string; event_type: string; payload: unknown;
     occurred_at: string | null; received_at: string;
-  }): Promise<{ event: StoredScoliaEvent & { processing_status: string }; prepared: Prepared | null }> {
-    const { data, error } = await this.supabase.rpc('persist_and_prepare_scolia_throw', {
-      p_event: event, p_known_match_id: this.cached?.matchId ?? null,
-      p_known_revision: this.cached?.revision ?? null,
+  }): Promise<{ event: StoredScoliaEvent & { processing_status: string }; prepared: Prepared | null; result?: ScoliaThrowIngestionResult }> {
+    const cached = this.cached;
+    const detected = detectedThrowFromMessage({ id: event.message_id, type: event.event_type,
+      payload: event.payload as Record<string, unknown> });
+    let plan: ScoliaScoringPlan | null = null;
+    if (cached && detected) {
+      try { plan = planScoliaThrow(cached.snapshot, detected); } catch { /* Refresh authoritative state below. */ }
+    }
+    const { data, error } = await this.supabase.rpc('persist_and_commit_scolia_throw', {
+      p_event: event, p_known_match_id: cached?.matchId ?? null,
+      p_known_revision: cached?.revision ?? null, p_plan: plan, p_detected: detected,
     });
-    if (error) throw new Error(error.message);
+    if (error) { this.cached = null; throw new Error(error.message); }
+    if (data.committed && cached && plan) {
+      return { ...data, result: this.acceptCommit(cached.matchId, cached.snapshot, plan, data.committed) };
+    }
     return data;
+  }
+
+  private acceptCommit(matchId: string, snapshot: ScoliaScoringSnapshot, plan: ScoliaScoringPlan,
+    commit: { accepted: AcceptedScoliaDart; match: MatchRow; duplicate?: boolean }): ScoliaThrowIngestionResult {
+    const accepted = commit.accepted;
+    const turn = { ...plan.turn, throws: accepted.rows.turn!.throws };
+    this.cached = plan.winnerId || commit.duplicate ? null : { matchId, revision: accepted.revision,
+      snapshot: { ...snapshot, match: commit.match,
+        turns: plan.createTurn ? [...snapshot.turns, turn] : snapshot.turns.map(t => t.id === turn.id ? turn : t) } };
+    return { status: 'processed', target: { kind: 'match', id: matchId }, throwId: accepted.rows.id, accepted };
   }
 
   async ingest(event: StoredScoliaEvent, detected: ScoliaDetectedThrow, initialPrepared?: Prepared | null): Promise<ScoliaThrowIngestionResult | null> {
@@ -107,12 +127,7 @@ export class ScoliaAtomicIngestion {
         throw new Error(commit.error.message);
       }
       if (commit.data?.stale) { this.cached = null; continue; }
-      const accepted = commit.data.accepted as AcceptedScoliaDart;
-      const turn = { ...plan.turn, throws: accepted.rows.turn!.throws };
-      this.cached = plan.winnerId || commit.data.duplicate ? null : { matchId: prepared.matchId, revision: accepted.revision,
-        snapshot: { ...snapshot, match: commit.data.match,
-          turns: plan.createTurn ? [...snapshot.turns, turn] : snapshot.turns.map(t => t.id === turn.id ? turn : t) } };
-      return { status: 'processed', target: { kind: 'match', id: prepared.matchId }, throwId: accepted.rows.id, accepted };
+      return this.acceptCommit(prepared.matchId, snapshot, plan, commit.data);
     }
     throw new Error('Scolia scoring changed concurrently; retry event');
   }

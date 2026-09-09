@@ -4,6 +4,7 @@ import type { FinishRule } from '@/utils/x01';
 export type Player = { id: string; display_name: string; location?: string | null; avatar_url?: string | null; nicknames?: string[] };
 
 export type MatchRecord = {
+  live_revision?: string | null;
   id: string;
   mode: 'x01';
   start_score: '201' | '301' | '501';
@@ -20,6 +21,7 @@ export type MatchRecord = {
 };
 
 export type LegRecord = {
+  live_revision?: string | null;
   id: string;
   match_id: string;
   leg_number: number;
@@ -28,6 +30,7 @@ export type LegRecord = {
 };
 
 export type TurnRecord = {
+  live_revision?: string | null;
   id: string;
   leg_id: string;
   player_id: string;
@@ -45,6 +48,7 @@ export type MatchPlayersRow = {
 };
 
 export type ThrowRecord = {
+  live_revision?: string | null;
   id: string;
   turn_id: string;
   dart_index: number;

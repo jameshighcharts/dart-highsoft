@@ -1,6 +1,7 @@
+import { isLiveScoringBroadcast, liveMatchTopic } from '@/lib/match/liveScoringBroadcast';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { incrementRealtimeMetric, recordRealtimeDeliveryDelay } from '@/lib/match/realtimeMetrics';
+import { incrementRealtimeMetric, recordRealtimeDeliveryDelay, recordBroadcastStatus } from '@/lib/match/realtimeMetrics';
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -117,24 +118,22 @@ export function useRealtime(matchId: string) {
             window.dispatchEvent(new CustomEvent('supabase-matches-change', { detail: payload }));
           }
         )
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'match_players',
-          },
-          (payload) => {
-            // Filter on client side to handle DELETE events properly
-            // For DELETE events, payload.new is null and we need payload.old
-            const record = payload.new || payload.old;
-            if (record && typeof record === 'object' && 'match_id' in record && record.match_id === matchId) {
-              incrementRealtimeMetric(matchId, 'matchPlayersEvents');
-              recordRealtimeDeliveryDelay(matchId, payload);
-              window.dispatchEvent(new CustomEvent('supabase-match-players-change', { detail: payload }));
-            }
+;
+
+      for (const event of ['INSERT', 'UPDATE', 'DELETE'] as const) {
+        newChannel.on('postgres_changes', {
+          event, schema: 'public', table: 'match_players',
+          // Supabase cannot filter DELETE events; retain client filtering for those only.
+          ...(event === 'DELETE' ? {} : { filter: `match_id=eq.${matchId}` }),
+        }, payload => {
+          const record = payload.eventType === 'DELETE' ? payload.old : payload.new;
+          if (record && 'match_id' in record && record.match_id === matchId) {
+            incrementRealtimeMetric(matchId, 'matchPlayersEvents');
+            recordRealtimeDeliveryDelay(matchId, payload);
+            window.dispatchEvent(new CustomEvent('supabase-match-players-change', { detail: payload }));
           }
-        );
+        });
+      }
 
       // Subscribe to the channel
       newChannel.subscribe((status) => {
@@ -191,6 +190,44 @@ export function useRealtime(matchId: string) {
     },
     [channel, connectionStatus]
   );
+
+  // Separate private channel: clients may receive committed scores, never publish them.
+  useEffect(() => {
+    let disposed = false;
+    let broadcastChannel: RealtimeChannel | null = null;
+    let client: SupabaseClient | null = null;
+    let lastStatus: string | undefined;
+    recordBroadcastStatus(matchId, 'connecting');
+    void getSupabaseClient().then(supabase => {
+      if (disposed) return;
+      client = supabase;
+      broadcastChannel = supabase.channel(liveMatchTopic(matchId), { config: { private: true } })
+        .on('broadcast', { event: 'scoring-commit' }, event => {
+          if (!disposed && isLiveScoringBroadcast(event.payload, matchId)) {
+            incrementRealtimeMetric(matchId, 'scoringCommitBroadcasts');
+            window.dispatchEvent(new CustomEvent('supabase-scoring-commit', { detail: event.payload }));
+          }
+        });
+      broadcastChannel.subscribe((status, error) => {
+        if (disposed) return;
+        recordBroadcastStatus(matchId, status === 'SUBSCRIBED' ? 'connected'
+          : status === 'CLOSED' ? 'disconnected' : 'error');
+        if (status !== 'SUBSCRIBED' && status !== lastStatus) {
+          console.warn('Live score broadcast unavailable; database realtime remains active', status, error);
+        }
+        lastStatus = status;
+      });
+    }).catch(error => {
+      if (disposed) return;
+      recordBroadcastStatus(matchId, 'error');
+      console.warn('Live score broadcast unavailable; database realtime remains active', error);
+    });
+    return () => {
+      disposed = true;
+      recordBroadcastStatus(matchId, 'disconnected');
+      if (broadcastChannel && client) void client.removeChannel(broadcastChannel);
+    };
+  }, [matchId]);
 
   // Auto-connect on mount
   useEffect(() => {

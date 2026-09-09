@@ -35,12 +35,14 @@ function setup() {
   const internals = connection as unknown as {
     persistMessage: (message: ScoliaMessage) => Promise<void>;
     updateBoard: () => Promise<void>;
+    writeBoard: () => Promise<void>;
     enqueue: (work: () => Promise<void>) => void;
   };
-  vi.spyOn(internals, 'updateBoard').mockImplementation(() => status.promise);
+  vi.spyOn(internals, 'updateBoard');
+  vi.spyOn(internals, 'writeBoard').mockImplementation(() => status.promise);
   cleanups.push(async () => {
     status.resolve();
-    vi.mocked(internals.updateBoard).mockResolvedValue();
+    vi.mocked(internals.writeBoard).mockResolvedValue();
     await connection.stop();
   });
   vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -53,51 +55,50 @@ function setup() {
 }
 
 describe('Scolia board-status overlap', () => {
-  it('scores and publishes before status completes, but keeps later board messages ordered', async () => {
+  it('scores, publishes, and advances the board queue without waiting for status', async () => {
     const { status, internals, message, publishAcceptedThrow, persisted, prepared, from } = setup();
     const later = vi.fn(async () => {});
     internals.enqueue(() => internals.persistMessage(message));
     internals.enqueue(later);
     await vi.waitFor(() => expect(publishAcceptedThrow).toHaveBeenCalledOnce());
     expect(persisted).toHaveBeenCalledOnce();
-    expect(persisted).toHaveBeenCalledWith('persist_and_prepare_scolia_throw', {
+    expect(persisted).toHaveBeenCalledWith('persist_and_commit_scolia_throw', {
       p_event: expect.objectContaining({ board_id: 'board', message_id: message.id,
         event_type: 'THROW_DETECTED', payload: message.payload }),
-      p_known_match_id: null, p_known_revision: null,
+      p_known_match_id: null, p_known_revision: null, p_plan: null, p_detected: null,
     });
     expect(from).not.toHaveBeenCalled();
     expect(ingestScoliaThrowEvent).toHaveBeenCalledOnce();
     expect(vi.mocked(ingestScoliaThrowEvent).mock.calls[0][3]).toBe(prepared);
     expect(publishAcceptedThrow.mock.calls[0].slice(0, 2)).toEqual(['match', 'dart']);
-    expect(later).not.toHaveBeenCalled();
-    status.resolve();
     await vi.waitFor(() => expect(later).toHaveBeenCalledOnce());
+    status.resolve();
   });
 
   it('retries a failed status write without scoring or publishing the accepted dart again', async () => {
     const { status, internals, message, publishAcceptedThrow } = setup();
-    const pending = internals.persistMessage(message);
-    const failure = expect(pending).rejects.toThrow('status failed');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await internals.persistMessage(message);
     await vi.waitFor(() => expect(publishAcceptedThrow).toHaveBeenCalledOnce());
+    vi.mocked(internals.writeBoard).mockResolvedValueOnce();
     status.reject(new Error('status failed'));
-    await failure;
-    vi.mocked(internals.updateBoard).mockResolvedValueOnce();
+    await vi.waitFor(() => expect(internals.writeBoard).toHaveBeenCalledTimes(2), { timeout: 2_000 });
     await internals.persistMessage(message);
     expect(ingestScoliaThrowEvent).toHaveBeenCalledOnce();
     expect(publishAcceptedThrow).toHaveBeenCalledOnce();
   });
 
-  it('waits for an in-flight status write even if ingestion fails', async () => {
+  it('reports ingestion failure without waiting for an in-flight status write', async () => {
     const { status, internals, message, publishAcceptedThrow } = setup();
     vi.mocked(ingestScoliaThrowEvent).mockRejectedValueOnce(new Error('scoring failed'));
     const finished = vi.fn();
     const pending = internals.persistMessage(message).finally(finished);
     const failure = expect(pending).rejects.toThrow('scoring failed');
     await vi.waitFor(() => expect(ingestScoliaThrowEvent).toHaveBeenCalledOnce());
-    expect(finished).not.toHaveBeenCalled();
+    await failure;
+    expect(finished).toHaveBeenCalledOnce();
     expect(publishAcceptedThrow).not.toHaveBeenCalled();
     status.resolve();
-    await failure;
   });
 
   it('does not score or write status when durable event persistence fails', async () => {

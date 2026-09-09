@@ -184,7 +184,7 @@ export function useMatchData(matchId: string): UseMatchDataResult {
         .select(
           `
             *,
-            throws:throws(id, turn_id, dart_index, segment, scored)
+            throws:throws(id, live_revision, turn_id, dart_index, segment, scored)
           `
         )
         .eq('leg_id', legId)

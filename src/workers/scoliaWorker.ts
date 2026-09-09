@@ -1,3 +1,5 @@
+import { ScoliaScoreBroadcaster } from '../services/scoliaScoreBroadcaster.ts';
+import { BoardStatusWriter } from '../lib/scolia/boardStatusWriter.ts';
 import { ThreadedScoliaCommentaryAnalysis } from '../services/scoliaCommentaryAnalysis.ts';
 import { ScoliaAtomicIngestion, type Prepared } from '../lib/server/scoliaAtomicIngestion.ts';
 import type { AcceptedScoliaDart } from '../lib/commentary/scoliaRealtimeEvent.ts';
@@ -16,6 +18,7 @@ import {
 import {
   ingestScoliaThrowEvent,
   type StoredScoliaEvent,
+  type ScoliaThrowIngestionResult,
 } from '../lib/server/scoliaThrowIngestion.ts';
 import { findActiveScoliaBoardTarget } from '../lib/server/scoliaBoardTarget.ts';
 import {
@@ -78,6 +81,8 @@ export class BoardConnection {
   private readonly messageQueue: OrderedWorkQueue;
   private readonly commentaryQueue: OrderedWorkQueue;
   private readonly atomicIngestion: ScoliaAtomicIngestion;
+  private readonly scoreBroadcaster: ScoliaScoreBroadcaster;
+  private readonly statusWriter: BoardStatusWriter;
   private flushingCommands = false;
   private commandRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private latestAcceptedThrowId: string | null = null;
@@ -92,7 +97,10 @@ export class BoardConnection {
     this.accessToken = accessToken;
     this.supabase = supabase;
     this.commentaryPublisher = commentaryPublisher;
+    this.scoreBroadcaster = new ScoliaScoreBroadcaster(supabase);
     this.atomicIngestion = new ScoliaAtomicIngestion(supabase);
+    this.statusWriter = new BoardStatusWriter(value => this.writeBoard(value),
+      error => console.warn(`[scolia] ${this.board.name}: retrying board status`, error));
     this.messageQueue = new OrderedWorkQueue((error) => {
       console.error(`[scolia] ${this.board.name}: retrying queued event`, error);
     });
@@ -109,6 +117,7 @@ export class BoardConnection {
 
   async stop() {
     this.stopped = true;
+    this.scoreBroadcaster.close();
     this.messageQueue.stop();
     this.commentaryQueue.stop();
     if (this.commandRecoveryTimer) clearTimeout(this.commandRecoveryTimer);
@@ -117,7 +126,8 @@ export class BoardConnection {
     const socket = this.socket;
     this.socket = null;
     if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, 'Worker stopping');
-    await this.updateBoard({ worker_connection_status: 'disconnected', worker_heartbeat_at: new Date().toISOString() });
+    await this.statusWriter.stop();
+    await this.writeBoard({ worker_connection_status: 'disconnected', worker_heartbeat_at: new Date().toISOString() });
   }
 
   private async connect() {
@@ -294,6 +304,7 @@ export class BoardConnection {
     const now = new Date().toISOString();
     let storedEvent: (StoredScoliaEvent & { processing_status: string }) | null;
     let prepared: Prepared | null = null;
+    let committed: ScoliaThrowIngestionResult | undefined;
     if (message.type === 'THROW_DETECTED') {
       const persisted = await this.atomicIngestion.persistAndPrepare({
         board_id: this.board.id, message_id: message.id, event_type: message.type,
@@ -302,6 +313,7 @@ export class BoardConnection {
       });
       storedEvent = persisted.event;
       prepared = persisted.prepared;
+      committed = persisted.result;
     } else {
       const { data: insertedEvent, error: eventError } = await this.supabase.from('scolia_events').upsert(
         {
@@ -329,7 +341,7 @@ export class BoardConnection {
       }
     }
 
-    const boardUpdate = this.updateBoard({
+    void this.updateBoard({
       ...boardStatePatchForMessage(message),
       worker_connection_status: 'connected',
       worker_heartbeat_at: now,
@@ -337,11 +349,10 @@ export class BoardConnection {
     });
 
     const processingStatus = storedEvent.processing_status as string;
-    if (message.type === 'THROW_DETECTED' && processingStatus !== 'processed' && processingStatus !== 'ignored') {
-      // Persist the event first, then overlap independent status/scoring work.
-      // Wait for both before advancing the board queue, even if either fails.
-      const results = await Promise.allSettled([boardUpdate, (async () => {
-        const result = await ingestScoliaThrowEvent(this.supabase, storedEvent as StoredScoliaEvent, this.atomicIngestion, prepared);
+    if (message.type === 'THROW_DETECTED' && (committed || (processingStatus !== 'processed' && processingStatus !== 'ignored'))) {
+      // Status writes are independently ordered/retried and never hold this queue.
+      {
+        const result = committed ?? await ingestScoliaThrowEvent(this.supabase, storedEvent as StoredScoliaEvent, this.atomicIngestion, prepared);
         if (result.status === 'processed' && result.accepted) result.accepted.workerReceivedAtMs = receivedAtMs;
         if (result.status === 'processed') {
           console.info(`[scolia] ${this.board.name}: scored throw ${message.id}`);
@@ -351,13 +362,9 @@ export class BoardConnection {
         } else {
           console.info(`[scolia] ${this.board.name}: ignored throw ${message.id}: ${result.reason}`);
         }
-      })()]);
-      for (const result of results) {
-        if (result.status === 'rejected') throw result.reason;
       }
       return;
     }
-    await boardUpdate;
     await this.handleCommandResponse(message, now);
 
     if (
@@ -394,6 +401,7 @@ export class BoardConnection {
   }
 
   private publishCommentary(matchId: string, throwId: string, accepted?: AcceptedScoliaDart) {
+    if (accepted) this.scoreBroadcaster.publish(matchId, accepted);
     this.latestAcceptedThrowId = throwId;
     this.commentaryQueue.enqueue(async () => {
       await this.commentaryPublisher.publishAcceptedThrow(matchId, throwId, () => this.latestAcceptedThrowId === throwId, accepted);
@@ -421,6 +429,10 @@ export class BoardConnection {
   }
 
   private async updateBoard(values: Record<string, unknown>) {
+    this.statusWriter.update(values);
+  }
+
+  private async writeBoard(values: Record<string, unknown>) {
     const { error } = await this.supabase
       .from('scolia_boards')
       .update({ ...values, updated_at: new Date().toISOString() })

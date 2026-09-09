@@ -1,5 +1,6 @@
 "use client";
 
+import { LiveScoringVersions, isLiveScoringBroadcast } from '@/lib/match/liveScoringBroadcast';
 import { useEffect, useRef } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { computeRemainingScore, computeTurnTotal } from '@/lib/commentary/stats';
@@ -72,6 +73,7 @@ function areTurnsEqual(a: TurnRecord[], b: TurnRecord[]): boolean {
     const left = a[i] as TurnWithThrows;
     const right = b[i] as TurnWithThrows;
     if (
+      left.live_revision !== right.live_revision ||
       left.id !== right.id ||
       left.leg_id !== right.leg_id ||
       left.player_id !== right.player_id ||
@@ -90,6 +92,7 @@ function areTurnsEqual(a: TurnRecord[], b: TurnRecord[]): boolean {
       const leftThrow = leftThrows[j];
       const rightThrow = rightThrows[j];
       if (
+        leftThrow.live_revision !== rightThrow.live_revision ||
         leftThrow.id !== rightThrow.id ||
         leftThrow.turn_id !== rightThrow.turn_id ||
         leftThrow.dart_index !== rightThrow.dart_index ||
@@ -216,6 +219,8 @@ export function useMatchRealtime({
   dartIQModelsByPlayerId,
   dartIQWorkerEvidence,
 }: UseMatchRealtimeArgs) {
+  const liveVersionsRef = useRef({ matchId, versions: new LiveScoringVersions() });
+  if (liveVersionsRef.current.matchId !== matchId) liveVersionsRef.current = { matchId, versions: new LiveScoringVersions() };
   const spectatorTurnsFetchRef = useRef<Promise<void> | null>(null);
   const spectatorTurnsFetchQueuedRef = useRef(false);
   const matchTurnsFetchRef = useRef<Promise<void> | null>(null);
@@ -270,6 +275,10 @@ export function useMatchRealtime({
         new?: Partial<ThrowRecord>;
         old?: Partial<ThrowRecord>;
       };
+      const currentDart = (latestStateRef.current.turns as TurnWithThrows[])
+        .flatMap(turn => turn.throws ?? []).find(dart => dart.id === (payload.new?.id ?? payload.old?.id));
+      if (payload.eventType === 'DELETE' && currentDart) payload.old = { ...currentDart, ...payload.old };
+      if (!liveVersionsRef.current.versions.accept('throws', payload, currentDart)) return;
       const legId = getRealtimePayloadLegId(payload);
       const turnId = getRealtimePayloadTurnId(payload);
       const payloadMatchId = (payload.new as { match_id?: string } | undefined)?.match_id
@@ -583,8 +592,8 @@ export function useMatchRealtime({
         const { data: updatedTurns } = await supabase
           .from('turns')
           .select(`
-                id, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round, created_at,
-                throws:throws(id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)
+                id, live_revision, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round, created_at,
+                throws:throws(id, live_revision, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)
               `)
           .eq('leg_id', currentLeg.id)
           .order('turn_number', { ascending: true });
@@ -630,8 +639,8 @@ export function useMatchRealtime({
           .from('turns')
           .select(
             `
-            id, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round, created_at,
-            throws:throws(id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)
+            id, live_revision, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round, created_at,
+            throws:throws(id, live_revision, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm, angle_horizontal_deg, angle_vertical_deg)
           `
           )
           .eq('id', turnId)
@@ -843,7 +852,87 @@ export function useMatchRealtime({
       }
     };
 
+    let matchPayloadVersion = 0;
+    const applyMatchUITurns = (legId: string, updatedTurns: TurnWithThrows[]) => {
+      // Check if our ongoing turn is still valid/current
+      const ongoing = ongoingTurnRef.current;
+      let shouldClearOngoing = false;
+      let nextLocalTurn:
+        | { playerId: string | null; darts: { scored: number; label: string; kind: SegmentResult['kind'] }[] }
+        | null = null;
+
+      if (ongoing) {
+        // Check if someone else finished this turn or if there's a newer turn
+        const ourTurn = updatedTurns.find((t) => t.id === ongoing.turnId) as TurnWithThrows | undefined;
+        const persistedThrows = (ourTurn?.throws ?? []).slice().sort((a, b) => a.dart_index - b.dart_index);
+        shouldClearOngoing = shouldClearLocalOngoingTurn({
+          ongoingTurnId: ongoing.turnId,
+          localDartCount: ongoing.darts.length,
+          persistedTurn: ourTurn
+            ? { busted: ourTurn.busted, throwCount: persistedThrows.length }
+            : null,
+        });
+
+        if (!shouldClearOngoing && ourTurn) {
+          const persistedDarts = persistedThrows.map((thr) => ({
+            scored: thr.scored,
+            label: thr.segment,
+            kind: segmentLabelToKind(thr.segment),
+          }));
+          // Avoid regressing local optimistic darts while a throw request is in flight.
+          // Reconcile only when server has at least as many darts as local.
+          const canReconcileFromServer = persistedDarts.length >= ongoing.darts.length;
+          const drifted =
+            canReconcileFromServer &&
+            (persistedDarts.length !== ongoing.darts.length ||
+              persistedDarts.some((dart, idx) => {
+                const local = ongoing.darts[idx];
+                return !local || local.scored !== dart.scored || local.label !== dart.label;
+              }));
+
+          // Keep local in-memory turn fully aligned with server throws so score math stays consistent.
+          if (drifted) {
+            const syncedOngoingDarts = persistedDarts.map((dart) => ({ ...dart }));
+            const syncedLocalDarts = persistedDarts.map((dart) => ({ ...dart }));
+            ongoingTurnRef.current = {
+              ...ongoing,
+              darts: syncedOngoingDarts,
+            };
+            nextLocalTurn = {
+              playerId: ongoing.playerId,
+              darts: syncedLocalDarts,
+            };
+          }
+        }
+      }
+
+      if (shouldClearOngoing) {
+        ongoingTurnRef.current = null;
+        nextLocalTurn = { playerId: null, darts: [] };
+      }
+
+      if (nextLocalTurn) {
+        setLocalTurn(nextLocalTurn);
+      }
+
+      // Update state with functional updates
+      publishTurnsForLeg(legId, updatedTurns as unknown as TurnRecord[]);
+
+      // Update throw counts
+      const throwCounts: Record<string, number> = {};
+      for (const turn of updatedTurns) {
+        const throws = (turn as TurnWithThrows).throws || [];
+        throwCounts[turn.id] = throws.length;
+      }
+
+      setTurnThrowCounts((prev) => {
+        return areThrowCountsEqual(prev, throwCounts) ? prev : throwCounts;
+      });
+      latestStateRef.current = { ...latestStateRef.current, turnThrowCounts: throwCounts };
+    };
+
     const runMatchUIRefresh = async () => {
+      const version = matchPayloadVersion;
       try {
         if (latestStateRef.current.isSpectatorMode) return;
 
@@ -867,87 +956,15 @@ export function useMatchRealtime({
           const { data: updatedTurns } = await supabase
             .from('turns')
             .select(`
-                id, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round, created_at,
-                throws:throws(id, turn_id, dart_index, segment, scored)
+                id, live_revision, leg_id, player_id, turn_number, total_scored, busted, tiebreak_round, created_at,
+                throws:throws(id, live_revision, turn_id, dart_index, segment, scored)
               `)
             .eq('leg_id', currentLeg.id)
             .order('turn_number', { ascending: true });
 
           if (updatedTurns) {
-            // Check if our ongoing turn is still valid/current
-            const ongoing = ongoingTurnRef.current;
-            let shouldClearOngoing = false;
-            let nextLocalTurn:
-              | { playerId: string | null; darts: { scored: number; label: string; kind: SegmentResult['kind'] }[] }
-              | null = null;
-
-            if (ongoing) {
-              // Check if someone else finished this turn or if there's a newer turn
-              const ourTurn = updatedTurns.find((t) => t.id === ongoing.turnId) as TurnWithThrows | undefined;
-              const persistedThrows = (ourTurn?.throws ?? []).slice().sort((a, b) => a.dart_index - b.dart_index);
-              shouldClearOngoing = shouldClearLocalOngoingTurn({
-                ongoingTurnId: ongoing.turnId,
-                localDartCount: ongoing.darts.length,
-                persistedTurn: ourTurn
-                  ? { busted: ourTurn.busted, throwCount: persistedThrows.length }
-                  : null,
-              });
-
-              if (!shouldClearOngoing && ourTurn) {
-                const persistedDarts = persistedThrows.map((thr) => ({
-                  scored: thr.scored,
-                  label: thr.segment,
-                  kind: segmentLabelToKind(thr.segment),
-                }));
-                // Avoid regressing local optimistic darts while a throw request is in flight.
-                // Reconcile only when server has at least as many darts as local.
-                const canReconcileFromServer = persistedDarts.length >= ongoing.darts.length;
-                const drifted =
-                  canReconcileFromServer &&
-                  (persistedDarts.length !== ongoing.darts.length ||
-                    persistedDarts.some((dart, idx) => {
-                      const local = ongoing.darts[idx];
-                      return !local || local.scored !== dart.scored || local.label !== dart.label;
-                    }));
-
-                // Keep local in-memory turn fully aligned with server throws so score math stays consistent.
-                if (drifted) {
-                  const syncedOngoingDarts = persistedDarts.map((dart) => ({ ...dart }));
-                  const syncedLocalDarts = persistedDarts.map((dart) => ({ ...dart }));
-                  ongoingTurnRef.current = {
-                    ...ongoing,
-                    darts: syncedOngoingDarts,
-                  };
-                  nextLocalTurn = {
-                    playerId: ongoing.playerId,
-                    darts: syncedLocalDarts,
-                  };
-                }
-              }
-            }
-
-            if (shouldClearOngoing) {
-              ongoingTurnRef.current = null;
-              nextLocalTurn = { playerId: null, darts: [] };
-            }
-
-            if (nextLocalTurn) {
-              setLocalTurn(nextLocalTurn);
-            }
-
-            // Update state with functional updates
-            publishTurnsForLeg(currentLeg.id, updatedTurns as unknown as TurnRecord[]);
-
-            // Update throw counts
-            const throwCounts: Record<string, number> = {};
-            for (const turn of updatedTurns) {
-              const throws = (turn as TurnWithThrows).throws || [];
-              throwCounts[turn.id] = throws.length;
-            }
-
-            setTurnThrowCounts((prev) => {
-              return areThrowCountsEqual(prev, throwCounts) ? prev : throwCounts;
-            });
+            if (version === matchPayloadVersion) applyMatchUITurns(currentLeg.id, updatedTurns as TurnWithThrows[]);
+            else scheduleMatchUIRefresh();
           }
         }
       } catch {
@@ -986,7 +1003,7 @@ export function useMatchRealtime({
     };
 
     // Handle real-time updates for normal match UI (non-spectator)
-    const handleMatchUIUpdate = (event: CustomEvent) => {
+    const handleMatchUIUpdate = (event: CustomEvent, kind: 'throw' | 'turn' = 'throw') => {
       if (latestStateRef.current.isSpectatorMode) return; // Only for normal match UI
 
       const payload = event.detail;
@@ -1000,7 +1017,17 @@ export function useMatchRealtime({
         return;
       }
 
-      scheduleMatchUIRefresh();
+      const state = latestStateRef.current;
+      const currentLeg = state.legs.find(leg => !leg.winner_player_id) ?? state.legs.at(-1);
+      if (!currentLeg) { scheduleMatchUIRefresh(); return; }
+      const reducerState = { currentLegId: currentLeg.id, turns: state.turns as TurnWithThrows[],
+        turnThrowCounts: state.turnThrowCounts };
+      const result = kind === 'turn'
+        ? applySpectatorTurnChange(payload, reducerState)
+        : applySpectatorThrowChange(payload, reducerState);
+      if (result.effects.needsReconcile) { scheduleMatchUIRefresh(); return; }
+      matchPayloadVersion += 1;
+      applyMatchUITurns(currentLeg.id, result.turns);
     };
 
     // Handle turn changes - hot update
@@ -1013,6 +1040,9 @@ export function useMatchRealtime({
         new?: Partial<TurnRecord>;
         old?: Partial<TurnRecord>;
       };
+      const currentTurn = latestStateRef.current.turns.find(turn => turn.id === (payload.new?.id ?? payload.old?.id));
+      if (payload.eventType === 'DELETE' && currentTurn) payload.old = { ...currentTurn, ...payload.old };
+      if (!liveVersionsRef.current.versions.accept('turns', payload, currentTurn)) return;
       const legId = payload?.new?.leg_id ?? payload?.old?.leg_id ?? null;
       const turnId = payload?.new?.id ?? payload?.old?.id ?? null;
       const { knownLegIds, knownTurnIds } = latestStateRef.current;
@@ -1155,13 +1185,13 @@ export function useMatchRealtime({
           }
         }
       } else {
+        handleMatchUIUpdate(event, 'turn');
         if (turnId) {
           const pending = pendingThrowBuffer.take(turnId);
           if (pending) {
             await processThrowChange({ detail: pending } as unknown as CustomEvent);
           }
         }
-        handleMatchUIUpdate(event);
       }
     };
 
@@ -1225,7 +1255,24 @@ export function useMatchRealtime({
       }
     };
 
+    const handleScoringCommit = async (event: CustomEvent) => {
+      if (!isLiveScoringBroadcast(event.detail, matchId)) return;
+      const packet = event.detail;
+      const currentLeg = latestStateRef.current.legs.find(leg => !leg.winner_player_id) ?? latestStateRef.current.legs.at(-1);
+      if (currentLeg?.id !== packet.turn.leg_id) return; // Leg transitions reconcile through WAL.
+      if (!latestStateRef.current.turns.some(turn => turn.id === packet.turn.id)) {
+        await handleTurnChange(new CustomEvent('turn', { detail: { eventType: 'INSERT',
+          new: { ...packet.turn, live_revision: undefined, total_scored: 0, busted: false } } }));
+      }
+      for (const dart of packet.throws) {
+        if (disposed) return;
+        await handleThrowChange(new CustomEvent('throw', { detail: { eventType: 'INSERT', new: dart } }));
+      }
+      if (!disposed) await handleTurnChange(new CustomEvent('turn', { detail: { eventType: 'UPDATE', new: packet.turn } }));
+    };
+
     // Add event listeners
+    window.addEventListener('supabase-scoring-commit', handleScoringCommit as unknown as EventListener);
     window.addEventListener('supabase-throws-change', handleThrowChange as unknown as EventListener);
     window.addEventListener('supabase-turns-change', handleTurnChange as unknown as EventListener);
     window.addEventListener('supabase-legs-change', handleLegChange as unknown as EventListener);
@@ -1245,6 +1292,7 @@ export function useMatchRealtime({
         matchTurnsDebounceTimerRef.current = null;
       }
 
+      window.removeEventListener('supabase-scoring-commit', handleScoringCommit as unknown as EventListener);
       window.removeEventListener('supabase-throws-change', handleThrowChange as unknown as EventListener);
       window.removeEventListener('supabase-turns-change', handleTurnChange as unknown as EventListener);
       window.removeEventListener('supabase-legs-change', handleLegChange as unknown as EventListener);

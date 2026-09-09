@@ -27,7 +27,7 @@ let fullReads=0, commits=0, beforeCommit=null;
 const rpcCalls=[];
 const supabase={rpc:async(name,args)=>{
   rpcCalls.push(name);
-  if(name==='commit_scolia_x01_throw'){commits++;if(beforeCommit){const hook=beforeCommit;beforeCommit=null;await hook();}}
+  if(name==='commit_scolia_x01_throw' || (name==='persist_and_commit_scolia_throw' && args.p_plan)){commits++;if(beforeCommit){const hook=beforeCommit;beforeCommit=null;await hook();}}
   const parameters=Object.entries(args).map(([key,value])=>`${key} => ${value===null?'null':typeof value==='object'?`${quote(JSON.stringify(value))}::jsonb`:typeof value==='number'?value:quote(value)}`).join(',');
   const data=await scalar(`public.${name}(${parameters})`);
   if((name==='prepare_scolia_x01_throw' && data.snapshot) || data?.prepared?.snapshot)fullReads++;
@@ -41,10 +41,10 @@ async function fixture(count,fair=false,legs=1){
   await sql(`update public.matches set scolia_board_id=${quote(board)} where id=${quote(match)}`);
   const owner=new ScoliaAtomicIngestion(supabase);const results=[];
   async function dart(segment='Miss',scored=0){
-    const raw={board_id:board,message_id:randomUUID(),event_type:'THROW_DETECTED',payload:{sector:segment},
+    const raw={board_id:board,message_id:randomUUID(),event_type:'THROW_DETECTED',payload:{sector:segment==='Miss'?'None':segment,bounceout:false},
       occurred_at:null,received_at:new Date().toISOString()};
-    const {event,prepared}=await owner.persistAndPrepare(raw);
-    const result=await owner.ingest(event,{segment,scored},prepared);results.push({event,result});return result;
+    const {event,prepared,result:committed}=await owner.persistAndPrepare(raw);
+    const result=committed ?? await owner.ingest(event,{segment,scored},prepared);results.push({event,result});return result;
   }
   return {ids,match,owner,results,dart};
 }
@@ -54,10 +54,31 @@ try{
   if(!bullExists)await sql(await readFile(new URL('../supabase/migrations/20260909120000_x01_bull_off.sql',import.meta.url),'utf8'));
   await sql(await readFile(new URL('../supabase/migrations/20260909160000_atomic_scolia_scoring.sql',import.meta.url),'utf8'));
   await sql(await readFile(new URL('../supabase/migrations/20260909170000_persist_prepare_scolia_throw.sql',import.meta.url),'utf8'));
+  await sql(await readFile(new URL('../supabase/migrations/20260909180000_speculative_scolia_commit.sql',import.meta.url),'utf8'));
+  await sql(await readFile(new URL('../supabase/migrations/20260909181000_live_scoring_broadcast.sql',import.meta.url),'utf8'));
   const long=await fixture(7);const baseline=fullReads;
   const callBaseline=rpcCalls.length;
   for(let i=0;i<420;i++)assert.equal((await long.dart()).status,'processed');
-  assert.deepEqual(rpcCalls.slice(callBaseline),Array.from({length:420},()=>['persist_and_prepare_scolia_throw','commit_scolia_x01_throw']).flat());
+  assert.deepEqual(rpcCalls.slice(callBaseline),['persist_and_commit_scolia_throw','commit_scolia_x01_throw',...Array(419).fill('persist_and_commit_scolia_throw')]);
+  // A direct packet must carry versions for both the parent turn and all darts.
+  assert.ok(long.results.at(-1).result.accepted.rows.turn.live_revision);
+  assert.ok(long.results.at(-1).result.accepted.rows.live_revision);
+  const topic='live_match_'+long.match;
+  await sql(`insert into realtime.messages(topic,extension,event,payload,private)
+    values(${quote(topic)},'broadcast','scoring-commit','{}',true),('other-topic','broadcast','scoring-commit','{}',true)`);
+  for(const role of ['anon','authenticated']){
+    await sql(`set local role ${role}`);
+    await scalar(`set_config('realtime.topic',${quote(topic)},true)`);
+    assert.equal(await scalar(`(select count(*) from realtime.messages where topic=${quote(topic)})`),1);
+    assert.equal(await scalar("(select count(*) from realtime.messages where topic='other-topic')"),0);
+    await sql(`do $$ begin
+      begin insert into realtime.messages(topic,extension,event,payload,private)
+        values(${quote(topic)},'broadcast','scoring-commit','{}',true);
+        raise exception 'browser unexpectedly authorized to publish';
+      exception when insufficient_privilege then null; end;
+    end $$`);
+    await sql('reset role');
+  }
   const original=long.results[0].event;
   const duplicate=await long.owner.persistAndPrepare({...original,payload:{sector:'T20'}});
   assert.deepEqual(duplicate.event.payload,original.payload);
@@ -97,14 +118,25 @@ try{
   const legs=await fixture(2,false,2);for(let i=0;i<3;i++)await legs.dart('T20',60);for(let i=0;i<3;i++)await legs.dart();await legs.dart('S1',1);await legs.dart('D10',20);
   assert.equal(await scalar(`(select starting_player_id from public.legs where match_id=${quote(legs.match)} and leg_number=2)`),legs.ids[1]);
   assert.equal((await legs.dart()).accepted.rows.turn.player_id,legs.ids[1]);
+  // Failed speculative commit rolls back scoring effects but preserves the event.
+  const originalCommit=await scalar("pg_get_functiondef('public.commit_scolia_x01_throw(bigint,uuid,text,jsonb,jsonb)'::regprocedure)");
+  await sql(`create or replace function public.commit_scolia_x01_throw(p_event_id bigint,p_match_id uuid,p_revision text,p_plan jsonb,p_detected jsonb)
+    returns jsonb language plpgsql volatile security invoker set search_path='' as $$ begin raise exception 'injected commit failure'; end $$`);
+  const failedCommit=await legs.owner.persistAndPrepare({...legs.results.at(-1).event,message_id:randomUUID(),received_at:new Date().toISOString()});
+  assert.equal(failedCommit.result,undefined);
+  assert.equal(failedCommit.prepared.kind,'x01');
+  assert.equal(failedCommit.event.processing_status,'pending');
+  assert.equal(await scalar(`(select count(*) from public.throws where scolia_event_id=${failedCommit.event.id})`),0);
+  await sql(originalCommit);
+  assert.equal((await legs.owner.ingest(failedCommit.event,{segment:'Miss',scored:0},failedCommit.prepared)).status,'processed');
   // A preparation failure must not roll back the raw event needed for recovery.
   const originalPrepare=await scalar("pg_get_functiondef('public.prepare_scolia_x01_throw(bigint,uuid,text)'::regprocedure)");
   await sql(`create or replace function public.prepare_scolia_x01_throw(p_event_id bigint,p_known_match_id uuid default null,p_known_revision text default null)
     returns jsonb language plpgsql stable security invoker set search_path='' as $$ begin raise exception 'injected preparation failure'; end $$`);
-  const failedPrepare=await long.owner.persistAndPrepare({...original,message_id:randomUUID(),received_at:new Date().toISOString()});
+  const failedPrepare=await new ScoliaAtomicIngestion(supabase).persistAndPrepare({...original,message_id:randomUUID(),received_at:new Date().toISOString()});
   assert.equal(failedPrepare.prepared,null);
   assert.equal(await scalar(`exists(select 1 from public.scolia_events where id=${failedPrepare.event.id})`),true);
   await sql(originalPrepare);
   assert.equal((await long.owner.ingest(failedPrepare.event,{segment:'Miss',scored:0})).status,'processed');
-  console.log('Passed: two sequential requests per dart, durable preparation-failure recovery, 420-dart cache reuse, duplicate/undo safety, stale correction retry, fair-ending tiebreaks, 1v1/multiplayer Elo, next-leg rotation, atomic correction recomputation.');
+  console.log('Passed: one request per warm dart, durable preparation-failure recovery, 420-dart cache reuse, duplicate/undo safety, stale correction retry, fair-ending tiebreaks, 1v1/multiplayer Elo, next-leg rotation, atomic correction recomputation.');
 }finally{if(child.exitCode===null){await sql('rollback');child.stdin.end();}}

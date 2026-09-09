@@ -11,6 +11,8 @@ type RealtimeDebugPanelProps = {
 };
 
 const EMPTY_METRICS: RealtimeMetricsSnapshot = {
+  scoringCommitBroadcasts: 0,
+  broadcastStatus: 'disconnected',
   throwsEvents: 0,
   turnsEvents: 0,
   legsEvents: 0,
@@ -53,6 +55,8 @@ export function RealtimeDebugPanel({ matchId, connectionStatus, isSpectatorMode,
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono">
         <div>status: {connectionStatus}</div>
         <div>pollTicks: {metrics.fallbackPollTicks}</div>
+        <div>broadcast: {metrics.broadcastStatus}</div>
+        <div>liveBroadcasts: {metrics.scoringCommitBroadcasts}</div>
         <div>throws: {metrics.throwsEvents}</div>
         <div>turns: {metrics.turnsEvents}</div>
         <div>legs: {metrics.legsEvents}</div>
