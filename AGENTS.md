@@ -60,7 +60,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `players/page.tsx` | Player management (list non-test players, create, edit location) |
 | `boards/page.tsx` | Scolia board management (connectivity, availability, active match/game links, connect/disconnect) and browser-local TV mode toggle with the shared cyan switch-card styling |
 | `stats/page.tsx` | Stats and leaderboards |
-| `leaderboards/page.tsx` | Detailed X01, Elo, and party-mode leaderboards |
+| `leaderboards/page.tsx` | Detailed X01, Elo, party-mode and Top 10 Bullers leaderboards; bullers rank by unrounded average inches ascending with measured-dart and miss counts |
 | `elo-multi/page.tsx` | Multiplayer Elo leaderboard |
 | `practice/page.tsx` | Practice mode (select player) |
 | `practice/[playerId]/page.tsx` | Practice session for a player |
@@ -259,6 +259,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `games/KillerBoard.tsx` | Killer numbers, lives, and elimination display |
 | `games/ShanghaiBoard.tsx` | Shanghai targets, rounds, and scores display |
 | `games/ClockBoard.tsx` | Around the Clock progress display |
+| `leaderboard/BullersLeaderboard.tsx` | Top 10 Bullers card with average inch-mark distances, sample/miss counts, clear loading/empty/error states and colocated UI tests |
 | `leaderboard/GameModeLeaderboardItem.tsx` | Player row for party-mode leaderboard statistics |
 | `SiteChrome.tsx` | Shared page shell and a single measured desktop nav underline that slides between links, responds to keyboard focus/resizing, and respects reduced motion |
 | `PlayerAvatar.tsx` | Shared avatar rendering; falls back to the player's assigned default goblin icon |
@@ -310,6 +311,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `scripts/supabase-migrations.mjs` | Validates timestamped names, deploys migrations by exact name, verifies production migration history, and prints the bounded rollback SQL for the Slack settings regression with `slack-settings-sql` |
 | `scripts/supabase-migrations.test.mjs` | Regression tests for exact-name selection and migration filename policy |
 | `supabase/migrations/legacy-numbered-migrations.txt` | Immutable allowlist for the repository's historical numbered migrations |
+| `supabase/migrations/20260909140000_bull_off_leaderboard.sql` | RLS-preserving aggregate view over completed bull-offs for non-test players; includes measured rethrows and reports misses separately; matching rollback-only SQL regression |
 | `supabase/migrations/20260909120000_x01_bull_off.sql` | Atomic optional Bull-off creation/transitions, immutable per-dart `bull_off_throws` history for future buller leaderboards, service-only event deduplication, scoring/lineup guards and final order handoff; matching rollback-only SQL regression |
 | `supabase/migrations/20260908180500_tournament_board_preferences.sql` | Persist tournament board/commentary preferences; matching SQL regression test checks exclusive board assignment and reuse after completion |
 | `supabase/migrations/20260904091825_verify_match_creation_and_throw.sql` | Production database smoke migration that verifies `matches.paused_at`, creates an X01 match and throw, then removes its test rows |
@@ -521,4 +523,4 @@ Rivalry commentary uses `selectCommentaryRivalry` in `commentaryNarrative.ts` ov
 
 **Bull-off:** New X01's optional saved Bull-off switch sits below Fair ending. `create_bull_off_match_atomic` wraps ordinary atomic creation, preserving default-off callers. `matches.bull_off` carries the correction/concurrency revision, pending players, per-round measurements and derived phase. Each player throws one dart, then removes it; manual scoring records measured inches/mm or a miss, while Scolia stores the radial impact distance and `TAKEOUT_FINISHED` advances the player. At 0.1 mm precision, ties at any rank repeat only among the tied players and earlier rounds keep all other positions locked. The last takeout atomically commits `match_players.play_order` and the first leg's starter. Turns and lineup changes are blocked during the bull-off. Realtime match updates drive the provisional ranked cards, impact/reorder animation and a common-scale distance ruler; pending/rethrow cards stay muted. Browser commentary uses measured bull-off briefs, retains its WebRTC session across the view handoff, and gives one short game-opening hype call using the confirmed starter/rules after the spectator view is ready. An early X01 dart suppresses a stale opening. MatchClient regression tests delay realtime reloads and cover unchanged connections, ordering, full starting scores and an early scoring dart. Rematches preserve the option.
 
-Every attempt, including misses and tie rethrows, is also stored with player/match/round, distance, timestamp and optional Scolia event in `bull_off_throws`, for future dedicated Best bullers statistics. These rows never enter `throws`/`turns`, X01 averages, checkout figures, Elo, heatmaps or DartIQ scoring replay. Deploy `20260909120000_x01_bull_off` before the app and Scolia worker; no production migration was applied as part of implementation.
+Every attempt, including misses and tie rethrows, is also stored with player/match/round, distance, timestamp and optional Scolia event in `bull_off_throws`, for the dedicated Top 10 Bullers leaderboard. `bull_off_leaderboard` averages measured distances across completed bull-offs, including rethrows, converts mm to inches without rounding the ranking, and excludes test players and players with no measured darts. Misses have no measured distance, so they are counted separately rather than included in the average; measured sample sizes are visible. Ties in the average sort by more measured darts, name, then player ID. Deploy `20260909140000_bull_off_leaderboard` before serving the new leaderboard card. These rows never enter `throws`/`turns`, X01 averages, checkout figures, Elo, heatmaps or DartIQ scoring replay. Deploy `20260909120000_x01_bull_off` before the app and Scolia worker; no production migration was applied as part of implementation.
