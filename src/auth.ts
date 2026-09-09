@@ -15,7 +15,7 @@ import {
   normalizeSlackTeamId,
   parseCommaSeparatedList,
 } from '@/lib/auth/slackWorkspace';
-import { lookupSlackUserIdByEmail } from '@/lib/slack/members';
+import { lookupSlackUserIdByEmail, SlackIdentityLookupError } from '@/lib/slack/members';
 
 // Same env contract as the Compass app so one Slack app, one Google OAuth
 // client and one .env block work for both.
@@ -110,20 +110,38 @@ const config: NextAuthConfig = {
         const email = getSlackProfileEmail(profile);
         if (email) token.email = email;
         token.provider = account?.provider;
+        delete token.slackUserId;
+        delete token.slackTeamId;
+        delete token.slackIdentityCheckedAt;
         if (account?.provider === 'slack') {
           const slackUserId = getSlackProfileUserId(profile);
           const slackTeamIdClaim = getSlackProfileTeamId(profile);
           if (slackUserId) token.slackUserId = slackUserId;
           if (slackTeamIdClaim) token.slackTeamId = slackTeamIdClaim;
-        } else if (account?.provider === 'google' && email) {
-          // Resolve the Slack identity by work email so player links (the
-          // /dart poll table) work for Google sign-ins too. Best effort: needs
-          // SLACK_BOT_TOKEN with users:read.email; otherwise the user stays
-          // signed in but unlinked and /profile explains what to do.
-          token.slackUserId = (await lookupSlackUserIdByEmail(email).catch(() => null)) ?? undefined;
         }
       }
       if (!token.slackTeamId && allowedSlackTeamId) token.slackTeamId = allowedSlackTeamId;
+      if (token.provider === 'google') {
+        const email = getSlackProfileEmail(token);
+        if (!email || !isAllowedEmailDomain(email, allowedEmailDomains) || !allowedSlackTeamId) {
+          delete token.slackUserId;
+        } else {
+          const refreshAfter = token.slackUserId ? 5 * 60_000 : 60_000;
+          if (profile || token.slackTeamId !== allowedSlackTeamId || !token.slackIdentityCheckedAt
+            || Date.now() - token.slackIdentityCheckedAt >= refreshAfter) {
+            token.slackTeamId = allowedSlackTeamId;
+            delete token.slackUserId;
+            token.slackIdentityCheckedAt = Date.now();
+            try {
+              token.slackUserId = (await lookupSlackUserIdByEmail(email, allowedSlackTeamId)) ?? undefined;
+            } catch (error) {
+              console.warn('Google Slack identity lookup failed', {
+                reason: error instanceof SlackIdentityLookupError ? error.reason : 'unavailable',
+              });
+            }
+          }
+        }
+      }
       token.isAdmin = isAdminEmail(typeof token.email === 'string' ? token.email : null, adminEmails);
       return token;
     },

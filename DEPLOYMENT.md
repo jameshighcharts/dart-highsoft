@@ -529,3 +529,14 @@ $$;
 - Vercel deploy command: `https://vercel.com/docs/cli/deploy`
 - Supabase CLI reference: `https://supabase.com/docs/reference/cli/supabase-bootstrap`
 - Supabase linking / deploy flow: `https://supabase.com/docs/guides/functions/deploy`
+
+
+### Google sign-in and the primary Slack identity
+
+Google is an alternate sign-in method. Player ownership remains keyed by the configured Slack workspace and Slack user ID in `slack_player_links`; Google sign-in reuses the same player and does not create or reassign player links.
+
+Set `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_SLACK_TEAM_ID`, and `AUTH_SLACK_ALLOWED_EMAIL_DOMAINS`. The production `SLACK_BOT_TOKEN` must belong to that workspace and include `users:read.email` for `users.lookupByEmail`. `users:read` alone is insufficient. After adding the email scope to the Slack app, reinstall/reauthorize it in the workspace and update the deployed bot token if Slack issues a new one. See [Slack lookup documentation](https://docs.slack.dev/reference/methods/users.lookupByEmail/).
+
+The verified Google email must exactly match the active full Slack member's email, ignoring case and surrounding whitespace. Email aliases, names, guests, bots, deactivated users, and other workspaces are not automatically linked. If the emails differ, sign in with Slack or correct the workspace directory email through its administrator.
+
+An unresolved Google session retries on its next request after one minute. Resolved Google identities revalidate after five minutes; a failed revalidation disables player editing until Slack confirms the identity again, without logging the user out of the app. Concurrent lookups share a bounded one-minute process cache and time out after four seconds. The profile error state offers Retry and direct Slack sign-in. Server warnings report a safe failure reason such as `missing_scope`, `not_configured`, or `rate_limited`, without emails or credentials. Existing Google sessions are checked automatically after deployment.

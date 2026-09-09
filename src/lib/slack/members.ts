@@ -96,23 +96,72 @@ export async function listSlackMembers(): Promise<SlackMember[]> {
   return members.sort((a, b) => a.realName.localeCompare(b.realName));
 }
 
-/**
- * Slack user id for a work email via users.lookupByEmail (bot scope
- * users:read.email). Returns null when not found; throws on config/API errors.
- */
-export async function lookupSlackUserIdByEmail(email: string): Promise<string | null> {
-  const token = process.env.SLACK_BOT_TOKEN;
-  if (!token) return null;
+type SlackLookupFailure = 'not_configured' | 'missing_scope' | 'invalid_auth' | 'rate_limited' | 'invalid_response' | 'unavailable';
+
+export class SlackIdentityLookupError extends Error {
+  readonly reason: SlackLookupFailure;
+
+  constructor(reason: SlackLookupFailure) {
+    super(`Slack identity lookup failed: ${reason}`);
+    this.reason = reason;
+  }
+}
+
+const identityLookups = new Map<string, { expiresAt: number; result: Promise<string | null> }>();
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+async function fetchSlackIdentity(email: string, teamId: string, token: string): Promise<string | null> {
   const response = await fetch('https://slack.com/api/users.lookupByEmail', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ email }).toString(),
+    signal: AbortSignal.timeout(4000),
+    cache: 'no-store',
   });
-  const result = (await response.json()) as { ok: boolean; error?: string; user?: { id?: string; deleted?: boolean } };
-  if (!response.ok || !result.ok) {
+  if (response.status === 429) throw new SlackIdentityLookupError('rate_limited');
+  if (!response.ok) throw new SlackIdentityLookupError('unavailable');
+  const result: unknown = await response.json();
+  if (!isObject(result) || typeof result.ok !== 'boolean') throw new SlackIdentityLookupError('invalid_response');
+  if (result.ok !== true) {
     if (result.error === 'users_not_found') return null;
-    throw new Error(`Slack users.lookupByEmail failed: ${result.error ?? response.status}`);
+    const reason = result.error === 'missing_scope' || result.error === 'invalid_auth'
+      ? result.error : 'unavailable';
+    throw new SlackIdentityLookupError(reason);
   }
-  const id = result.user?.id?.trim();
-  return id && !result.user?.deleted ? id : null;
+  const user = result.user;
+  if (!isObject(user) || typeof user.id !== 'string' || !user.id.trim()
+    || typeof user.team_id !== 'string' || !isObject(user.profile)
+    || typeof user.profile.email !== 'string') {
+    throw new SlackIdentityLookupError('invalid_response');
+  }
+  if (user.team_id !== teamId || user.profile.email.trim().toLowerCase() !== email
+    || user.deleted !== false || user.is_bot !== false || user.is_app_user === true
+    || user.is_restricted === true || user.is_ultra_restricted === true || user.id === 'USLACKBOT') {
+    return null;
+  }
+  return user.id.trim();
+}
+
+/** Exact work-email match to an active full member of the configured Slack workspace. */
+export function lookupSlackUserIdByEmail(email: string, teamId: string): Promise<string | null> {
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token || !teamId) return Promise.reject(new SlackIdentityLookupError('not_configured'));
+  const normalizedEmail = email.trim().toLowerCase();
+  const key = JSON.stringify([token, teamId, normalizedEmail]);
+  const now = Date.now();
+  const cached = identityLookups.get(key);
+  if (cached && cached.expiresAt > now) return cached.result;
+  for (const [entryKey, entry] of identityLookups) {
+    if (entry.expiresAt <= now) identityLookups.delete(entryKey);
+  }
+  if (identityLookups.size >= 500) {
+    const oldest = identityLookups.keys().next();
+    if (!oldest.done) identityLookups.delete(oldest.value);
+  }
+  const result = fetchSlackIdentity(normalizedEmail, teamId, token);
+  identityLookups.set(key, { expiresAt: now + 60_000, result });
+  return result;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { signIn } from 'next-auth/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BarChart3, Camera, Trash2 } from 'lucide-react';
 
@@ -128,6 +129,12 @@ export function ProfileClient() {
         <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
           {error ?? 'Could not load your profile.'}
         </p>
+        <div className="mt-4 flex gap-3">
+          <Button onClick={() => void load()}>Retry</Button>
+          <Button variant="outline" onClick={() => void signIn('slack', { redirectTo: '/profile' })}>
+            Sign in with Slack
+          </Button>
+        </div>
       </div>
     );
   }

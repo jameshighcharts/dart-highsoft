@@ -46,7 +46,7 @@ the end of the lineup.
 ## Slack app setup
 
 1. Create a Slack app for the workspace.
-2. Add the bot scopes `chat:write` and `users:read`, then install the app.
+2. Add the bot scopes `chat:write`, `users:read`, and `users:read.email`, then install the app.
 3. Create the `/dart` slash command with this request URL:
    `https://YOUR_APP/api/slack/darts`.
 4. Enable Interactivity and use the same request URL.
@@ -120,8 +120,12 @@ list, requires a verified email, and registers the redirect URL
 users get their Slack identity resolved by work email through
 `users.lookupByEmail`, so player linking and `/profile` work the same; that
 needs `SLACK_BOT_TOKEN` to carry the `users:read.email` scope. If the lookup
-fails the user is still signed in, and `/profile` asks them to sign in with
-Slack once or to have an admin link their player.
+fails the user stays signed in and retries on the next request after one minute.
+`/profile` offers Retry and direct Slack sign-in. Resolved Google identities
+revalidate every five minutes. Only exact email matches to active full members
+of the configured workspace are accepted; player ownership remains in
+`slack_player_links`. Adding the scope requires reinstalling/reauthorizing the
+Slack app. An admin player link alone cannot repair a missing email-lookup scope.
 
 On the Slack app, enable **Sign in with Slack** (OpenID Connect) and register
 `https://YOUR_APP/api/auth/callback/slack` as a redirect URL. Slack requires
