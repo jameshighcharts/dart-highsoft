@@ -977,7 +977,6 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
             Multiplayer
           </button>
         </div>
-        <p className="w-full text-center text-sm text-muted-foreground">Complete 3 X01 matches to appear here with your Elo rating.</p>
         <div className="leaderboard-actions">
           <div className="location-filter-tabs" aria-label="Filter leaderboard by location">
             <button

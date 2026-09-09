@@ -43,6 +43,5 @@ describe('home leaderboard qualification', () => {
     const columns = JSON.parse(screen.getByTestId('leaderboard').textContent ?? '{}');
     expect(columns.playerId).toEqual(['player-3', 'player-4', 'player-5']);
     expect(columns.elo1v1).toEqual([1203, 1204, 1205]);
-    expect(screen.getByText('Complete 3 X01 matches to appear here with your Elo rating.')).toBeInTheDocument();
   });
 });
