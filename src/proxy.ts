@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { isAuthDevBypassEnabled, isAuthPerformanceBypassEnabled } from '@/lib/auth/devBypass';
 
-// The whole app sits behind Sign in with Slack. `/login` is the gate for the
+// The whole app sits behind Slack or Google sign-in. `/login` is the gate for the
 // game, `/signin` the gate for `/admin` (admin role is checked on the page and
 // in every /api/admin handler). Server-to-server endpoints authenticate on
 // their own (Slack request signatures, background-job bearer secret).
@@ -19,8 +19,8 @@ export default auth((request) => {
   const { nextUrl } = request;
   const { pathname, search } = nextUrl;
   // Auth.js can attach an error-shaped object on configuration failures.
-  // Require a real, fully identified Slack user so failures fail closed.
-  const isAuthenticated = Boolean(request.auth?.user?.slackUserId)
+  // Match getAuthenticatedSession; Google users may not have a Slack link yet.
+  const isAuthenticated = Boolean(request.auth?.user?.email && request.auth.user.slackTeamId)
     || isAuthDevBypassEnabled()
     || isAuthPerformanceBypassEnabled(request);
 
