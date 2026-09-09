@@ -60,6 +60,7 @@ export type SavedGameSetup = {
   finish: "single_out" | "double_out";
   legsToWin: number;
   fairEnding: boolean;
+  closestToBull?: boolean;
   commentaryEnabled?: boolean;
 };
 
@@ -106,6 +107,7 @@ export function loadStoredSetup(): SavedGameSetup | null {
       startScore: (saved.startScore === "201" || saved.startScore === "301" || saved.startScore === "501") ? saved.startScore : "301",
       finish: saved.finish === "double_out" ? "double_out" : "single_out",
       legsToWin,
+      closestToBull: saved.closestToBull === true,
       fairEnding: legsToWin === 1 && saved.fairEnding === true,
       commentaryEnabled: saved.commentaryEnabled === true,
     };

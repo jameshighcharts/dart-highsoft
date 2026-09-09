@@ -4,6 +4,7 @@ import {
   type CommentaryPolicyEvent,
 } from '@/lib/commentary/commentaryPolicy';
 import {
+  buildBullOffResponseInstructions,
   buildRealtimeOpeningInstructions,
   buildRealtimeResponseInstructions,
 } from '@/lib/commentary/realtimePrompt';
@@ -468,6 +469,21 @@ export class RealtimeCommentaryService {
       this.policy.recordAmbientCall(Date.now(), true);
       this.callbacks.onPlaying?.(true);
     }
+  }
+
+  publishBullOff(brief: string, gameOpening = false): boolean {
+    if (this.channel?.readyState !== 'open') return false;
+    this.visitTiming.cancelSpeech();
+    this.clearProviderSpeech();
+    this.openingResponseInFlight = false;
+    const id = crypto.randomUUID();
+    if (!this.send({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: brief }] } })) return false;
+    return this.enqueueProviderResponse({
+      event_id: `bull-off-${id}`, type: 'response.create', response: {
+        output_modalities: ['audio'], instructions: buildBullOffResponseInstructions(brief, this.personaId, gameOpening),
+        metadata: { source: 'browser-bull-off', epoch: String(this.epoch), priority: 'notable' },
+      },
+    });
   }
 
   skip() {

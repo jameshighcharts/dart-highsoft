@@ -50,9 +50,9 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `tournament/[id]/TournamentClient.test.tsx` | TV/commentary navigation and busy-board failure regression checks |
 | `tournament/new/page.test.tsx` | Hydration regression tests for saved location filters, including empty selections and preserving preferences during mount |
 | `tournament/new/page.tsx` | New Tournament restores location/board/commentary preferences after hydration, offers ready Scolia board selection and persisted per-tournament commentary, and uses the New Match desktop layout: full-height scrolling settings, styled fair-ending switch, inline player heading/location/search toolbar, large player tiles, and fixed gradient start action with removable avatar lineup using the same entry bounce, staggered pulse, and start-hover hops as New Match (respects reduced motion) |
-| `new/page.tsx` | New X01 or party-game form with styled fair-ending and saved spectator-commentary switches (carried into the match URL), locally remembered rules, party options, and ordered active-player lineup; stacked game cards with blue/cyan gradient selection outlines in a narrow full-height independently scrolling desktop settings column within a viewport-height desktop layout alongside a full-width, scrollable player grid with four columns from xl, large avatar/name tiles, and most-played-first ordering (X01 plus party-game participation counts, then alphabetical) and a fixed bottom bar with a half-width start action and centered avatar lineup that overlaps to fit, with entry bounces, staggered reduced-motion-aware pulses, excited hops on Start hover/focus, and click-to-remove, with optional ready Scolia board selection; opens new games in spectator mode when browser-local TV mode is enabled |
+| `new/page.tsx` | New X01 or party-game form with a saved optional Bull-off toggle below fair ending with a bullseye icon that is slate when off and cyan when on and styled fair-ending and saved spectator-commentary switches (carried into the match URL), locally remembered rules, party options, and ordered active-player lineup; stacked game cards with blue/cyan gradient selection outlines in a narrow full-height independently scrolling desktop settings column within a viewport-height desktop layout alongside a full-width, scrollable player grid with four columns from xl, large avatar/name tiles, and most-played-first ordering (X01 plus party-game participation counts, then alphabetical) and a fixed bottom bar with a half-width start action and centered avatar lineup that overlaps to fit, with entry bounces, staggered reduced-motion-aware pulses, excited hops on Start hover/focus, and click-to-remove, with optional ready Scolia board selection; opens new games in spectator mode when browser-local TV mode is enabled |
 | `match/[id]/page.tsx` | Match page (server component) |
-| `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator/history stats view; development performance overlay is opt-in via `perf=true` |
+| `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator/history stats view; development performance overlay is opt-in via `perf=true`; bull-off handoff preloads spectator UI and waits for the confirmed order/starter before switching, retaining the commentary connection and issuing one game-opening call unless scoring already started |
 | `match/[id]/report/page.tsx` | Server-rendered DartIQ replay data, deterministic match story, player baseline/WPA breakdowns, and initial URL-selected dart hydration for the client-local report explorer |
 | `game/[id]/page.tsx` | Party-game page (server component) |
 | `game/[id]/GameClient.tsx` | Party-game scoring and spectator client |
@@ -60,7 +60,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `players/page.tsx` | Player management (list non-test players, create, edit location) |
 | `boards/page.tsx` | Scolia board management (connectivity, availability, active match/game links, connect/disconnect) and browser-local TV mode toggle with the shared cyan switch-card styling |
 | `stats/page.tsx` | Stats and leaderboards |
-| `leaderboards/page.tsx` | Detailed X01, Elo, and party-mode leaderboards |
+| `leaderboards/page.tsx` | Detailed X01, Elo, party-mode and Top 10 Bullers leaderboards; bullers rank by unrounded average inches ascending with measured-dart and miss counts |
 | `elo-multi/page.tsx` | Multiplayer Elo leaderboard |
 | `practice/page.tsx` | Practice mode (select player) |
 | `practice/[playerId]/page.tsx` | Practice session for a player |
@@ -70,7 +70,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 |-------|---------|---------|
 | `tournaments/` | POST | Create a tournament with validated board and commentary preferences; bracket matches initially remain unassigned |
 | `tournaments/[id]/matches/[matchId]/open/` | POST | Verify bracket membership, claim the preferred board for the active match using database occupancy guards, and return the persisted commentary preference; route tests cover conflicts, manual and completed matches |
-| `matches/` | POST | Create a new match |
+| `matches/` | POST | Create a new match, optionally with a pre-game Bull-off |
+| `matches/[matchId]/bull-off/` | POST | Revision-checked manual bull-off distance/miss recording and dart-removal handoff; hardware matches reject manual entry |
 | `matches/[matchId]/` | DELETE | Passcode-protected permanent deletion of a standalone match and its dependent game data |
 | `matches/[matchId]/throws/` | POST, DELETE | Record or delete a dart throw |
 | `matches/[matchId]/throws/[throwId]/` | PATCH, DELETE | Edit or delete a specific throw |
@@ -160,6 +161,9 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `dartiq/calibration.ts` | Pure full-vector calibration metrics, chronological match-level temperature fitting/validation, and geometry coverage diagnostics; never promotes models automatically |
 | `dartiq/model/{outcomes,visit,race}.ts` | Behavioral outcomes, double-out visit transitions, and ordered multiplayer race math |
 | `dartiq/model/training.ts` | Bounded empirical behavioural fitting, scoring-only spatial smoothing, fixed-artifact follow-up validation, adaptive inference, and regression monitoring |
+| `match/bullOff.ts` | Pure one-dart bull-off state machine, 0.1 mm measurement precision, repeated tied-position rethrows, takeout gating, inch-mark display formatting, and provisional live ranking; colocated regression tests |
+| `server/bullOff.ts` | Service-only atomic compare-and-swap bull-off transitions and Scolia event deduplication |
+| `commentary/bullOff.ts` | Authoritative bull-off distance/order briefs with inches reactions and explicit separation from X01 results; colocated tests |
 | `match/types.ts` | Core types: `Player`, `MatchRecord`, `LegRecord`, `TurnRecord`, `ThrowRecord` |
 | `match/selectors.ts` | Pure selectors: `selectCurrentPlayer`, `selectPlayerStats`, `canEditPlayers`, etc. |
 | `match/loadMatchData.ts` | Parallel fetch of match + players + legs + turns from Supabase |
@@ -230,6 +234,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 |------|---------|
 | `profile/ProfileClient.tsx` | Own profile and stats, with admin-only player nickname editing |
 | `profile/AdminNicknameEditor.tsx` | Admin player picker and nickname form using the protected admin API; regression tests cover saving, clearing, and failures |
+| `match/BullOffRound.tsx` | Pre-game manual/Scolia Bull-off view with a full-screen navigation-free spectator shell: a large centered gradient Bull-off heading, viewport-centered expanded layout, provisional sorted cards, muted pending states, a bright cyan pulsing current-player card with Your throw/Remove dart badges instead of a separate status box, impact pops and rank movement, a minimal shared animated distance ruler with inch marks, takeout controls and commentary; reduced-motion support and UI regression tests |
 | `match/MatchScoringView.tsx` | Active scoring view — scores, dartboard/keypad, actions |
 | `match/MatchSpectatorView.tsx` | Read-only spectator view |
 | `match/SpectatorLiveMatchCard.tsx` | Responsive live player scoreboard grid with a compact inline match header, compact viewport-aware tile heights, container-scaled avatars, names, and larger scores with correction-safe impact motion, on-throw light sweeps, reduced-motion support, bold names, lime on-throw tiles, dart indicators, and compact stats with a chunkier responsive AVG value and average-rating emojis, retaining small Last/Best labels without a separate current-turn header; desktop grid fills the stretched card, with overflow scrolling and larger collapsed-board tiles sized for balanced six- and eight-player layouts |
@@ -254,6 +259,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `games/KillerBoard.tsx` | Killer numbers, lives, and elimination display |
 | `games/ShanghaiBoard.tsx` | Shanghai targets, rounds, and scores display |
 | `games/ClockBoard.tsx` | Around the Clock progress display |
+| `leaderboard/BullersLeaderboard.tsx` | Top 10 Bullers card with average inch-mark distances, sample/miss counts, clear loading/empty/error states and colocated UI tests |
 | `leaderboard/GameModeLeaderboardItem.tsx` | Player row for party-mode leaderboard statistics |
 | `SiteChrome.tsx` | Shared page shell and a single measured desktop nav underline that slides between links, responds to keyboard focus/resizing, and respects reduced motion |
 | `PlayerAvatar.tsx` | Shared avatar rendering; falls back to the player's assigned default goblin icon |
@@ -305,6 +311,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `scripts/supabase-migrations.mjs` | Validates timestamped names, deploys migrations by exact name, verifies production migration history, and prints the bounded rollback SQL for the Slack settings regression with `slack-settings-sql` |
 | `scripts/supabase-migrations.test.mjs` | Regression tests for exact-name selection and migration filename policy |
 | `supabase/migrations/legacy-numbered-migrations.txt` | Immutable allowlist for the repository's historical numbered migrations |
+| `supabase/migrations/20260909140000_bull_off_leaderboard.sql` | RLS-preserving aggregate view over completed bull-offs for non-test players; includes measured rethrows and reports misses separately; matching rollback-only SQL regression |
+| `supabase/migrations/20260909120000_x01_bull_off.sql` | Atomic optional Bull-off creation/transitions, immutable per-dart `bull_off_throws` history for future buller leaderboards, service-only event deduplication, scoring/lineup guards and final order handoff; matching rollback-only SQL regression |
 | `supabase/migrations/20260908180500_tournament_board_preferences.sql` | Persist tournament board/commentary preferences; matching SQL regression test checks exclusive board assignment and reuse after completion |
 | `supabase/migrations/20260904091825_verify_match_creation_and_throw.sql` | Production database smoke migration that verifies `matches.paused_at`, creates an X01 match and throw, then removes its test rows |
 
@@ -511,3 +519,8 @@ Rivalry commentary uses `selectCommentaryRivalry` in `commentaryNarrative.ts` ov
 `20260909071500_sync_slack_player_names.sql` adds the service-only, team-scoped name sync RPC used by Slack imports. Renames preserve player IDs, history, existing nicknames, and inactive status.
 
 `20260909071600_consolidate_mustapha_player.sql` retains the confirmed original player and its history, moves the Slack identity, preserves nicknames, and renames and deactivates the unused imported duplicate before reusing its name. The regression requires the real unique display-name constraint and checks retry rejection plus rollback when the duplicate has history. It aborts if the duplicate has acquired referenced data. SQL regression coverage lives in the matching `supabase/tests/20260909071500_sync_slack_player_names.sql` and `20260909071600_consolidate_mustapha_player.sql` files.
+
+
+**Bull-off:** New X01's optional saved Bull-off switch sits below Fair ending. `create_bull_off_match_atomic` wraps ordinary atomic creation, preserving default-off callers. `matches.bull_off` carries the correction/concurrency revision, pending players, per-round measurements and derived phase. Each player throws one dart, then removes it; manual scoring records measured inches/mm or a miss, while Scolia stores the radial impact distance and `TAKEOUT_FINISHED` advances the player. At 0.1 mm precision, ties at any rank repeat only among the tied players and earlier rounds keep all other positions locked. The last takeout atomically commits `match_players.play_order` and the first leg's starter. Turns and lineup changes are blocked during the bull-off. Realtime match updates drive the provisional ranked cards, impact/reorder animation and a common-scale distance ruler; pending/rethrow cards stay muted. Browser commentary uses measured bull-off briefs, retains its WebRTC session across the view handoff, and gives one short game-opening hype call using the confirmed starter/rules after the spectator view is ready. An early X01 dart suppresses a stale opening. MatchClient regression tests delay realtime reloads and cover unchanged connections, ordering, full starting scores and an early scoring dart. Rematches preserve the option.
+
+Every attempt, including misses and tie rethrows, is also stored with player/match/round, distance, timestamp and optional Scolia event in `bull_off_throws`, for the dedicated Top 10 Bullers leaderboard. `bull_off_leaderboard` averages measured distances across completed bull-offs, including rethrows, converts mm to inches without rounding the ranking, and excludes test players and players with no measured darts. Misses have no measured distance, so they are counted separately rather than included in the average; measured sample sizes are visible. Ties in the average sort by more measured darts, name, then player ID. Deploy `20260909140000_bull_off_leaderboard` before serving the new leaderboard card. These rows never enter `throws`/`turns`, X01 averages, checkout figures, Elo, heatmaps or DartIQ scoring replay. Deploy `20260909120000_x01_bull_off` before the app and Scolia worker; no production migration was applied as part of implementation.

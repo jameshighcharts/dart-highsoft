@@ -1,3 +1,4 @@
+import type { BullOffState } from './bullOff.ts';
 import type { FinishRule } from '@/utils/x01';
 
 export type Player = { id: string; display_name: string; location?: string | null; avatar_url?: string | null; nicknames?: string[] };
@@ -12,6 +13,7 @@ export type MatchRecord = {
   ended_early?: boolean;
   paused_at?: string | null;
   fair_ending?: boolean;
+  bull_off?: BullOffState | null;
   tournament_match_id?: string | null;
   scolia_board_id?: string | null;
   rematch_of_match_id?: string | null;

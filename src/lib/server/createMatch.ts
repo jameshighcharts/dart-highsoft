@@ -5,6 +5,7 @@ export type CreateMatchForPlayersInput = {
   finish: 'single_out' | 'double_out';
   legsToWin: number;
   fairEnding: boolean;
+  closestToBull?: boolean;
   playerIds: string[];
   scoliaBoardId: string | null;
   rematchOfMatchId?: string | null;
@@ -19,7 +20,7 @@ export async function createMatchForPlayers(
   input: CreateMatchForPlayersInput
 ): Promise<CreateMatchForPlayersResult> {
   const { data, error } = await supabase
-    .rpc('create_x01_match_atomic', {
+    .rpc(input.closestToBull ? 'create_bull_off_match_atomic' : 'create_x01_match_atomic', {
       p_start_score: input.startScore,
       p_finish: input.finish,
       p_legs_to_win: input.legsToWin,

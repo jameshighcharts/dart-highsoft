@@ -1,12 +1,14 @@
 "use client";
 
+import { BullOffRound } from '@/components/match/BullOffRound';
+import { bullOffBrief } from '@/lib/commentary/bullOff';
 import { RematchPanel } from '@/components/games/RematchPanel';
 import { MatchScoringView } from '@/components/match/MatchScoringView';
 import { RealtimeDebugPanel } from '@/components/match/RealtimeDebugPanel';
 import { PerfDebugPanel } from '@/components/match/PerfDebugPanel';
 import { SegmentResult } from '@/utils/dartboard';
 import { FinishRule } from '@/utils/x01';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType } from 'react';
 import dynamic from 'next/dynamic';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCommentary } from '@/hooks/useCommentary';
@@ -35,6 +37,8 @@ import {
   canReorderPlayers as canReorderPlayersSelector,
 } from '@/lib/match/selectors';
 import { computeFairEndingState, type FairEndingState } from '@/utils/fairEnding';
+
+type SpectatorViewComponent = ComponentType<ComponentProps<typeof import('@/components/match/MatchSpectatorView')['MatchSpectatorView']>>;
 
 const MatchSpectatorView = dynamic(
   () => import('@/components/match/MatchSpectatorView').then((module) => module.MatchSpectatorView),
@@ -258,6 +262,59 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     dartIQWorkerEvidence: dartIQ.workerEvidence,
   });
 
+  const [bullOffHandoffPending, setBullOffHandoffPending] = useState(false);
+  const [preparedSpectatorView, setPreparedSpectatorView] = useState<SpectatorViewComponent | null>(null);
+  useEffect(() => {
+    if (!isSpectatorMode || !bullOffHandoffPending) return;
+    let cancelled = false;
+    void import('@/components/match/MatchSpectatorView').then(module => {
+      if (!cancelled) setPreparedSpectatorView(() => module.MatchSpectatorView);
+    }).catch(() => {
+      // Preserve the ordinary dynamic-loader retry path on a failed preload.
+      if (!cancelled) setPreparedSpectatorView(() => MatchSpectatorView);
+    });
+    return () => { cancelled = true; };
+  }, [isSpectatorMode, bullOffHandoffPending]);
+  const SpectatorView = preparedSpectatorView ?? MatchSpectatorView;
+  const bullOffOrderReady = match?.bull_off?.phase === 'complete'
+    && players.length === match.bull_off.order.length
+    && players.every((player, index) => player.id === match.bull_off!.order[index])
+    && legs.find(leg => leg.leg_number === 1)?.starting_player_id === match.bull_off.order[0];
+  const bullOffTransitionReady = bullOffOrderReady && (!isSpectatorMode || preparedSpectatorView !== null);
+  useEffect(() => {
+    if (match?.bull_off?.phase === 'throwing') setBullOffHandoffPending(true);
+    else if (bullOffTransitionReady || !match?.bull_off) setBullOffHandoffPending(false);
+  }, [match?.bull_off, bullOffTransitionReady]);
+
+  const bullOffSeen = useRef<string | null>(null);
+  const bullOffReloaded = useRef<string | null>(null);
+  useEffect(() => {
+    bullOffSeen.current = null;
+    bullOffReloaded.current = null;
+  }, [matchId]);
+  useEffect(() => {
+    const state = match?.bull_off;
+    if (!state || match.id !== matchId) return;
+    const key = `${state.shots.length}:${state.phase}:${state.round}`;
+    if (bullOffSeen.current === null) { bullOffSeen.current = key; return; }
+    if (bullOffSeen.current === key) return;
+    if (state.phase === 'complete') {
+      if (bullOffReloaded.current !== key) {
+        bullOffReloaded.current = key;
+        void loadAllSpectator();
+      }
+      if (!bullOffTransitionReady) return;
+    }
+    bullOffSeen.current = key;
+    const scoringAlreadyStarted = state.phase === 'complete' && Object.values(turnThrowCounts).some(count => count > 0);
+    if (commentaryEnabled && realtimeCommentaryStatus === 'ready' && !scoringAlreadyStarted) {
+      realtimeCommentaryRef.current?.publishBullOff(
+        bullOffBrief(state, Object.fromEntries(players.map(player => [player.id, player.display_name])), match),
+        state.phase === 'complete'
+      );
+    }
+  }, [matchId, match, players, commentaryEnabled, realtimeCommentaryStatus, realtimeCommentaryRef, loadAllSpectator, bullOffTransitionReady, turnThrowCounts]);
+
   // Check for spectator mode from URL params
   useEffect(() => {
     setIsSpectatorMode(spectatorParam);
@@ -293,7 +350,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     }, 2000); // Refresh every 2 seconds as fallback
     
     return () => clearInterval(interval);
-  }, [isSpectatorMode, loadAllSpectator, spectatorLoading, realtimeIsConnected, realtimeEnabled]);
+  }, [matchId, isSpectatorMode, loadAllSpectator, spectatorLoading, realtimeIsConnected, realtimeEnabled]);
 
   const currentLeg = useMemo(() => selectCurrentLeg(legs ?? []), [legs]);
 
@@ -536,6 +593,12 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   if (loading) return <div className="p-4">Loading…</div>;
   if (error) return <div className="p-4 text-red-600">{error}</div>;
   if (!match || !currentLeg) return <div className="p-4">No leg available</div>;
+  if (match.bull_off && (match.bull_off.phase === 'throwing' || (bullOffHandoffPending && !bullOffTransitionReady)) && !match.ended_early && !matchWinnerId) return (
+    <BullOffRound matchId={matchId} state={match.bull_off} players={players} spectator={isSpectatorMode}
+      hardware={Boolean(match.scolia_board_id)} reload={async () => { await loadMatchOnly(); }}
+      commentaryEnabled={commentaryEnabled} commentaryStatus={realtimeCommentaryStatus} toggleCommentary={toggleQuickCommentary}
+      commentary={currentCommentary ?? ''} toggleSpectator={toggleSpectatorMode} />
+  );
   const matchUrl = origin ? `${origin}/match/${matchId}` : '';
 
   const rematchPanel = (matchWinnerId || match.ended_early) && !match.tournament_match_id ? (
@@ -548,7 +611,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     return (
       <>
         {rematchPanel}
-        <MatchSpectatorView
+        <SpectatorView
           rematchOpen={rematchOpen}
           onRematch={!match.tournament_match_id ? () => setRematchOpen(true) : undefined}
           celebration={celebration}

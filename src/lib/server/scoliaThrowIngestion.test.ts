@@ -126,9 +126,9 @@ function gameSupabase(
     rpcs?: Record<string, RpcHandler>;
   } = {}
 ) {
-  const tables = { ...gameTables(rows, options.session), ...options.tables };
+  const tables = { bull_off_events: [], ...gameTables(rows, options.session), ...options.tables };
   const gameSessions = tables.game_sessions as MockRow[];
-  return createSupabaseMock(tables, {
+  return createSupabaseMock({ bull_off_events: [], ...tables }, {
     append_game_throw_atomic: appendGameRpc(gameSessions),
     finalize_game_session_atomic: finalizeGameRpc(gameSessions),
     ...options.rpcs,
@@ -154,6 +154,7 @@ describe('ingestScoliaThrowEvent dispatch', () => {
       id: `dart-${index}`, turn_id: 'turn-1', dart_index: index, segment: 'S20', scored: 20, scolia_event_id: null,
     }));
     const supabase = createSupabaseMock({
+      bull_off_events: [],
       matches: [match], game_sessions: [], game_throws: [], legs: [leg],
       turns: (op) => op.type === 'select'
         ? rowsHandler(turns.map((turn) => ({ ...turn, throws: darts.filter((dart) => dart.turn_id === turn.id) })))(op)
@@ -189,6 +190,7 @@ describe('ingestScoliaThrowEvent dispatch', () => {
 
   it('ignores the event when the board has no active match or game', async () => {
     const supabase = createSupabaseMock({
+      bull_off_events: [],
       throws: [],
       game_throws: [],
       matches: [],
@@ -246,7 +248,7 @@ describe('ingestScoliaThrowEvent dispatch', () => {
   it('finalizes the game session when the Scolia dart wins the game', async () => {
     const rows = scriptCricketRows(ORDER, CRICKET_WIN_SCRIPT.slice(0, -1));
     const tables = gameTables(rows);
-    const supabase = createSupabaseMock(tables, {
+    const supabase = createSupabaseMock({ bull_off_events: [], ...tables }, {
       append_game_throw_atomic: appendGameRpc(tables.game_sessions),
     });
 
@@ -350,6 +352,7 @@ describe('ingestScoliaThrowEvent dispatch', () => {
 
   it('marks the event failed and rethrows when ingestion crashes', async () => {
     const supabase = createSupabaseMock({
+      bull_off_events: [],
       throws: [],
       game_throws: [],
       matches: () => ({ data: null, error: { message: 'matches down' } }),
@@ -363,6 +366,7 @@ describe('ingestScoliaThrowEvent dispatch', () => {
 
   it('routes a match target down the X01 path', async () => {
     const supabase = createSupabaseMock({
+      bull_off_events: [],
       throws: [],
       game_throws: [],
       matches: [activeMatchRow()],
@@ -381,4 +385,23 @@ describe('ingestScoliaThrowEvent dispatch', () => {
     expect(supabase.opsFor('game_throws', 'insert')).toHaveLength(0);
     expect(supabase.opsFor('game_session_players')).toHaveLength(0);
   });
+});
+
+it('records a bull-off measurement without creating a scoring turn and ignores a duplicate event', async () => {
+  const { createBullOff } = await import('../match/bullOff');
+  const match = { ...activeMatchRow(), bull_off: createBullOff(ORDER) };
+  const events: MockRow[] = [];
+  const supabase = createSupabaseMock({
+    bull_off_events: events, throws: [], game_throws: [], matches: [match], game_sessions: [], scolia_events: scoliaEventsTable(),
+  }, {
+    load_scolia_match_snapshot: () => ({ data: { match, leg: { id: 'leg-1', starting_player_id: PLAYER_A }, playerIds: ORDER, turns: [] }, error: null }),
+    update_bull_off_atomic: (args) => { match.bull_off = args.p_state as typeof match.bull_off; events.push({ event_id: EVENT_ID, match_id: match.id }); return { data: true, error: null }; },
+  });
+  await ingestScoliaThrowEvent(supabase as never, throwEvent());
+  expect(match.bull_off.shots[0]).toMatchObject({ playerId: PLAYER_A, distanceMm: 22.6 });
+  expect(match.bull_off.awaitingTakeout).toBe(true);
+  await ingestScoliaThrowEvent(supabase as never, throwEvent());
+  expect(match.bull_off.shots).toHaveLength(1);
+  expect(supabase.opsFor('turns')).toHaveLength(0);
+  expect(supabase.opsFor('throws', 'insert')).toHaveLength(0);
 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
+import { BullersLeaderboard, type BullerEntry } from '@/components/leaderboard/BullersLeaderboard';
 import { useLeaderboardData } from '@/hooks/useLeaderboardData';
 import { LeaderboardSection, EloLeaderboardItem, PlayerSummaryItem, GameModeLeaderboardItem } from '@/components/leaderboard';
 import type { GameModeLeaderboardEntry } from '@/components/leaderboard';
@@ -72,6 +73,32 @@ type TopRoundScorePayload = {
 
 export default function LeaderboardsPage() {
   const { leaders, avgLeaders, eloLeaders, eloMultiLeaders, loading } = useLeaderboardData(10);
+  const [bullers, setBullers] = useState<BullerEntry[]>([]);
+  const [bullersLoading, setBullersLoading] = useState(true);
+  const [bullersError, setBullersError] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const supabase = await getSupabaseClient();
+        const { data, error } = await supabase.from('bull_off_leaderboard')
+          .select('player_id, display_name, measured_darts, misses, bull_offs, average_inches')
+          .order('average_inches', { ascending: true })
+          .order('measured_darts', { ascending: false })
+          .order('display_name', { ascending: true })
+          .order('player_id', { ascending: true })
+          .limit(10);
+        if (error) throw error;
+        if (!cancelled) setBullers((data ?? []) as BullerEntry[]);
+      } catch (error) {
+        console.error('Error loading bullers:', error);
+        if (!cancelled) setBullersError(true);
+      } finally {
+        if (!cancelled) setBullersLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [topRoundScores, setTopRoundScores] = useState<TopRoundScore[]>([]);
   const [highestCheckouts, setHighestCheckouts] = useState<{ player_id: string; display_name: string; score: number; date: string; darts_used: number }[]>([]);
   const [quickestLegsDouble, setQuickestLegsDouble] = useState<{ player_id: string; display_name: string; dart_count: number; date: string; start_score: string }[]>([]);
@@ -282,6 +309,8 @@ export default function LeaderboardsPage() {
             <EloLeaderboardItem key={entry.player_id} entry={entry} index={idx} />
           ))}
         </LeaderboardSection>
+
+        <BullersLeaderboard entries={bullers} loading={bullersLoading} error={bullersError} />
 
         {/* Top 10 Round Scores of All Time */}
         <LeaderboardSection

@@ -40,6 +40,7 @@ export type RealtimeCommentarySnapshot = {
   finishRule: MatchRow['finish'];
   legsToWin: number;
   fairEnding: boolean;
+  bullOff?: MatchRow['bull_off'];
   players: Array<{
     id: string;
     name: string;
@@ -229,6 +230,7 @@ export async function loadRealtimeCommentarySnapshot(
     finishRule: match.finish,
     legsToWin: match.legs_to_win,
     fairEnding: match.fair_ending,
+    bullOff: match.bull_off,
     players: playerRows.map((row) => ({
       id: row.player_id,
       name: row.players?.display_name ?? 'Player',

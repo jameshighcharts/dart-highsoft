@@ -17,7 +17,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { ArrowRight, Search, Scale, Volume2 } from "lucide-react";
+import { ArrowRight, Search, Scale, Target, Volume2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -106,6 +106,7 @@ export default function NewMatchPage() {
   const [startScore, setStartScore] = useState<StartScore>("301");
   const [finish, setFinish] = useState<FinishRule>("single_out");
   const [legsToWin, setLegsToWin] = useState(1);
+  const [closestToBull, setClosestToBull] = useState(false);
   const [fairEnding, setFairEnding] = useState(false);
   const [commentaryEnabled, setCommentaryEnabled] = useState(false);
   // Start on X01 for SSR and pick up the stored choice after hydration.
@@ -123,6 +124,7 @@ export default function NewMatchPage() {
       setFinish(setup.finish);
       setLegsToWin(setup.legsToWin);
       setFairEnding(setup.fairEnding);
+      setClosestToBull(setup.closestToBull === true);
       setCommentaryEnabled(setup.commentaryEnabled === true);
     } else {
       const stored = loadStoredGameType();
@@ -207,8 +209,8 @@ export default function NewMatchPage() {
   useEffect(() => {
     // Do not overwrite saved players before hydration and roster reconciliation.
     if (!setupLoaded || !playersLoaded) return;
-    storeSetup({ gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, commentaryEnabled });
-  }, [setupLoaded, playersLoaded, gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, commentaryEnabled]);
+    storeSetup({ gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, commentaryEnabled });
+  }, [setupLoaded, playersLoaded, gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, commentaryEnabled]);
 
   useScoliaBoardRealtime({
     onUpsert: (status) =>
@@ -407,6 +409,7 @@ export default function NewMatchPage() {
           startScore: parseInt(startScore, 10),
           finishRule: finish,
           legsToWin,
+          closestToBull,
           fairEnding: legsToWin === 1 ? fairEnding : false,
           playerIds: selectedIds,
           scoliaBoardId:
@@ -534,6 +537,14 @@ export default function NewMatchPage() {
                     <Switch aria-label="Fair ending" aria-describedby="fair-ending-description" checked={fairEnding} onCheckedChange={setFairEnding} className="data-[state=checked]:bg-cyan-400" />
                   </label>
                 )}
+                <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${closestToBull ? "border-cyan-400/30 bg-cyan-400/10" : "border-white/10 bg-white/[0.03] hover:bg-white/5"}`}>
+                  <Target className={`h-5 w-5 shrink-0 transition-colors ${closestToBull ? "text-cyan-300" : "text-slate-400"}`} aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold">Bull-off</span>
+                    <span id="bull-off-description" className="mt-0.5 block text-xs leading-relaxed text-slate-400">One dart each decides the order. Tied players throw again.</span>
+                  </span>
+                  <Switch aria-label="Bull-off" aria-describedby="bull-off-description" checked={closestToBull} onCheckedChange={setClosestToBull} className="data-[state=checked]:bg-cyan-400" />
+                </label>
                 <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${commentaryEnabled ? "border-cyan-400/30 bg-cyan-400/10" : "border-white/10 bg-white/[0.03] hover:bg-white/5"}`}>
                   <Volume2 className={`h-5 w-5 shrink-0 ${commentaryEnabled ? "text-cyan-300" : "text-slate-400"}`} aria-hidden="true" />
                   <span className="min-w-0 flex-1">

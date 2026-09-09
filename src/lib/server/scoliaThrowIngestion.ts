@@ -1,3 +1,4 @@
+import { updateBullOff } from './bullOff.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { detectedThrowFromMessage, type ScoliaMessage } from '../scolia/protocol.ts';
@@ -252,10 +253,16 @@ export async function ingestScoliaThrowEvent(
       return { status: 'ignored', reason };
     }
 
-    const [existingThrow, existingGameThrow] = await Promise.all([
+    const [existingThrow, existingGameThrow, bullEventResult] = await Promise.all([
       findExistingThrow(supabase, event.id),
       findExistingGameThrow(supabase, event.id),
+      supabase.from('bull_off_events').select('match_id').eq('event_id', event.id).maybeSingle(),
     ]);
+    if (bullEventResult.error) throw new Error(bullEventResult.error.message);
+    if (bullEventResult.data) {
+      await updateEvent(supabase, event.id, 'processed', null);
+      return { status: 'ignored', reason: 'Bull-off dart already recorded' };
+    }
     if (existingGameThrow) {
       await settleExistingGameThrow(supabase, existingGameThrow);
       await updateEvent(supabase, event.id, 'processed', null);
@@ -298,6 +305,18 @@ export async function ingestScoliaThrowEvent(
 
     const matchId = target.id;
     const snapshot = await loadSnapshot(supabase, matchId);
+    const bullMatch = snapshot?.match;
+    if (bullMatch?.bull_off?.phase === 'throwing' && isMatchScoringActive(bullMatch)) {
+      if (bullMatch.bull_off.awaitingTakeout) {
+        await updateEvent(supabase, event.id, 'ignored', 'One dart each: remove the dart before the next player');
+        return { status: 'ignored', reason: 'Waiting for bull-off takeout' };
+      }
+      const distanceMm = event.payload.bounceout === true || detected.impactXmm === undefined || detected.impactYmm === undefined
+        ? null : Math.hypot(detected.impactXmm, detected.impactYmm);
+      await updateBullOff(supabase, matchId, bullMatch.bull_off, { playerId: bullMatch.bull_off.pending[0], distanceMm }, event.id);
+      await updateEvent(supabase, event.id, 'processed', null);
+      return { status: 'ignored', reason: 'Bull-off distance recorded separately from X01' };
+    }
     if (!snapshot || !isMatchScoringActive(snapshot.match)) {
       const reason = 'The assigned match has no active leg';
       await updateEvent(supabase, event.id, 'ignored', reason);
