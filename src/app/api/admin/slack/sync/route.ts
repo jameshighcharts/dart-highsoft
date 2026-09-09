@@ -24,6 +24,7 @@ export async function POST() {
       members: members.length,
       created: result.created,
       linked: result.linked,
+      renamed: result.renamed,
       alreadyLinked: result.alreadyLinked.length,
     });
   } catch (error) {

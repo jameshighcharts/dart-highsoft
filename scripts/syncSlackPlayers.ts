@@ -14,6 +14,7 @@ import { listSlackMembers } from '../src/lib/slack/members.ts';
 import {
   importSlackMembersAsPlayers,
   planSlackPlayerImport,
+  preferredPlayerNames,
   type ExistingLink,
   type ExistingPlayer,
 } from '../src/lib/slack/playerImport.ts';
@@ -46,6 +47,15 @@ async function main() {
     if (playersError) throw new Error(playersError.message);
     if (linksError) throw new Error(linksError.message);
     const plan = planSlackPlayerImport(members, (players ?? []) as ExistingPlayer[], (links ?? []) as ExistingLink[]);
+    const preferred = preferredPlayerNames(members);
+    console.log('Name updates, preserving the old name as a nickname:');
+    for (const link of links ?? []) {
+      const player = (players ?? []).find((entry) => entry.id === link.player_id);
+      const wanted = preferred.get(link.slack_user_id);
+      if (player && wanted && player.display_name !== wanted) {
+        console.log(`  ${player.display_name} -> ${wanted}`);
+      }
+    }
     const nameById = new Map(members.map((member) => [member.id, member.realName]));
     console.log(`\nWould create ${plan.create.length} players:`);
     for (const entry of plan.create) console.log(`  + ${entry.displayName}  (${nameById.get(entry.slackUserId)})`);
@@ -56,7 +66,7 @@ async function main() {
   }
 
   const result = await importSlackMembersAsPlayers(supabase, teamId, members);
-  console.log(`Created ${result.created} players, added ${result.linked} links, ${result.alreadyLinked.length} already linked.`);
+  console.log(`Created ${result.created} players, added ${result.linked} links, updated ${result.renamed} names, ${result.alreadyLinked.length} already linked.`);
 }
 
 main().catch((error) => {

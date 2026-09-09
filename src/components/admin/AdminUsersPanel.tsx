@@ -133,11 +133,11 @@ export function AdminUsersPanel({ viewer }: { viewer: Viewer }) {
 
   async function syncSlackMembers() {
     await run('sync', async () => {
-      const result = await apiRequest<{ members: number; created: number; linked: number; alreadyLinked: number }>(
+      const result = await apiRequest<{ members: number; created: number; linked: number; renamed: number; alreadyLinked: number }>(
         '/api/admin/slack/sync',
       );
       setNotice(
-        `Synced ${result.members} Slack members: ${result.created} players created, ${result.linked} links added, ${result.alreadyLinked} already linked.`,
+        `Synced ${result.members} Slack members: ${result.created} players created, ${result.linked} links added, ${result.renamed} names updated, ${result.alreadyLinked} already linked.`,
       );
       await load();
     });
@@ -241,7 +241,7 @@ export function AdminUsersPanel({ viewer }: { viewer: Viewer }) {
           <p className="mt-2 text-xs text-muted-foreground">Slack directory unavailable: {slackMembersError}</p>
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">
-            Import creates one player per Highsoft Slack member (first name, or first name + last initial when shared) and links them for the poll scheduler.
+            Import creates one player per Highsoft Slack member (first name, or first name + last initial when shared) and links them for the poll scheduler. Existing linked players adopt their Slack name and keep their previous name as a nickname.
           </p>
         )}
       </section>
