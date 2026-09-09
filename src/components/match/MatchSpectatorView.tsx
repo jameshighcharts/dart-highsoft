@@ -1,3 +1,4 @@
+import { RealtimeConnectionError } from './RealtimeConnectionError';
 import QRCode from 'react-qr-code';
 import { ArrowLeft, Home } from 'lucide-react';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
@@ -51,6 +52,7 @@ type Props = {
   rematchOpen?: boolean;
   celebration: CelebrationState;
   realtimeConnectionStatus: string;
+  realtimeConnectionError?: string | null;
   realtimeIsConnected: boolean;
   spectatorLoading: boolean;
   matchUrl: string;
@@ -159,6 +161,7 @@ export function MatchSpectatorView({
   rematchOpen = false,
   celebration,
   realtimeConnectionStatus,
+  realtimeConnectionError,
   realtimeIsConnected,
   spectatorLoading,
   matchUrl,
@@ -444,7 +447,8 @@ export function MatchSpectatorView({
         ) : null}
 
         {/* Connection status and refresh indicator */}
-        {!isHistoryView ? <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2">
+        {(!isHistoryView || realtimeConnectionError) ? <div className="fixed bottom-4 right-4 z-50 flex flex-wrap items-center justify-end gap-2 max-w-[calc(100vw-2rem)]">
+          <RealtimeConnectionError message={realtimeConnectionError} connected={realtimeConnectionStatus === 'connected'} />
           {/* Real-time connection status */}
           <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 dark:bg-gray-800/90 shadow-sm text-xs">
             <div
