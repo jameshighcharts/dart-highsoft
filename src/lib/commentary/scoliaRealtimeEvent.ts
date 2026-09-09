@@ -27,13 +27,17 @@ type CachedDartIQContext = {
   legId: string;
   lastTurnNumber: number;
   lastDartIndex: number;
+  revision?: string;
 };
 
 export class ScoliaDartIQEventCache {
   private readonly matches = new Map<string, CachedDartIQContext>();
   get(matchId: string) { return this.matches.get(matchId); }
   timeline(matchId: string) { return this.matches.get(matchId)?.timeline; }
-  set(matchId: string, value: CachedDartIQContext) { this.matches.set(matchId, value); }
+  set(matchId: string, value: CachedDartIQContext) {
+    this.matches.delete(matchId); this.matches.set(matchId, value);
+    if (this.matches.size > 8) this.matches.delete(this.matches.keys().next().value!);
+  }
   delete(matchId: string) { this.matches.delete(matchId); }
   clear() { this.matches.clear(); }
 }
@@ -63,6 +67,7 @@ export type ScoliaRealtimeDartEvent = {
   shouldSpeak: boolean;
   isLatestDart?: boolean;
   narrative?: CommentaryNarrativeMemory;
+  currentState?: DartIQReplayState;
   landing?: { detail: string };
   grouping?: CommentaryGrouping;
   landingBefore?: CommentaryLandingForecast;
@@ -189,16 +194,19 @@ export function classifyScoliaRealtimeDart(
   };
 }
 
+export type AcceptedScoliaDart = { workerReceivedAtMs?: number; rows: AcceptedScoliaDartRows; previousRevision?: string; revision: string };
+
 /** Load the post-ingestion facts directly from canonical rows; no Realtime round trip is involved. */
 export async function loadScoliaRealtimeDartEvent(
   supabase: SupabaseClient,
   matchId: string,
   throwId: string,
-  dartIQCache?: ScoliaDartIQEventCache
+  dartIQCache?: ScoliaDartIQEventCache,
+  accepted?: AcceptedScoliaDart
 ): Promise<ScoliaRealtimeDartEvent> {
   // Read the same facts in one database snapshot instead of three dependent
   // request stages. Explicit FK aliases disambiguate the reverse throws join.
-  const { data, error } = await supabase
+  const { data, error } = accepted ? { data: accepted.rows, error: null } : await supabase
     .from('throws')
     .select(`
       id, turn_id, dart_index, segment, scored, impact_x_mm, impact_y_mm,
@@ -226,6 +234,8 @@ export async function loadScoliaRealtimeDartEvent(
   if (!player) throw new Error('Accepted Scolia player was not found');
 
   const eventCache = dartIQCache ?? new ScoliaDartIQEventCache();
+  const cachedRevision = eventCache.get(matchId)?.revision;
+  if (accepted && cachedRevision !== accepted.previousRevision && cachedRevision !== accepted.revision) eventCache.delete(matchId);
   const dartiq = await loadDartIQPacket(
     supabase,
     matchId,
@@ -244,6 +254,7 @@ export async function loadScoliaRealtimeDartEvent(
     },
     eventCache
   );
+  if (accepted && eventCache.get(matchId)) eventCache.get(matchId)!.revision = accepted.revision;
   const narrativeTimeline = eventCache.timeline(matchId);
   const sourceIndex = narrativeTimeline?.findIndex((event) => event.dartId === throwId) ?? -1;
   const narrative = narrativeTimeline
@@ -256,6 +267,7 @@ export async function loadScoliaRealtimeDartEvent(
   const canonical: DartIQDartEvent | undefined = narrativeTimeline?.[sourceIndex];
   const replayInput = eventCache.get(matchId)?.input;
   return classifyScoliaRealtimeDart({
+    currentState: canonical?.after,
     grouping: measureCommentaryGrouping((turn as { throws?: GroupingDart[] }).throws ?? [], dart.dart_index),
     landing: describeCommentaryLanding(dart.segment, dart.impact_x_mm, dart.impact_y_mm),
     landingBefore: canonical && replayInput ? commentaryLandingForecast(replayInput, canonical.before, dart.segment) : undefined,
@@ -311,7 +323,7 @@ type AcceptedDartIQDart = {
   };
 };
 
-type AcceptedScoliaDartRows = AcceptedDartIQDart['dart'] & {
+export type AcceptedScoliaDartRows = AcceptedDartIQDart['dart'] & {
   impact_x_mm: number | null;
   impact_y_mm: number | null;
   turn: (AcceptedDartIQDart['turn'] & {

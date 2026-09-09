@@ -9,6 +9,7 @@ import type { ScoliaRealtimeDartEvent } from './scoliaRealtimeEvent.ts';
 import { RivalryDirector } from './broadcastDirector.ts';
 import { selectCommentaryRivalry, type CommentaryRivalry, type RivalryBeat } from './commentaryNarrative.ts';
 import { hasCheckoutRoute } from '../dartiq/checkout.ts';
+import type { DartIQReplayState } from '../dartiq/replay.ts';
 
 function percent(value: number) {
   return `${Math.round(value * 100)}%`;
@@ -242,6 +243,7 @@ export class RealtimeNarrativeWireState {
   private storyFingerprint = '';
   private historicalFacts: readonly DartIQHistoricalFact[] = [];
   private readonly personalBaselines = new Map<string, number>();
+  private matchContext = '';
 
   reset(snapshot?: RealtimeCommentarySnapshot) {
     this.rivalry.reset(snapshot ? selectCommentaryRivalry({
@@ -256,6 +258,7 @@ export class RealtimeNarrativeWireState {
     this.historicalFacts = snapshot?.historicalFacts ?? [];
     this.playerFingerprints.clear();
     this.storyFingerprint = '';
+    this.matchContext = '';
     if (snapshot) {
       for (const player of snapshot.players) {
         this.names.set(player.id, player.name);
@@ -264,11 +267,29 @@ export class RealtimeNarrativeWireState {
           this.personalBaselines.set(player.id, baseline.threeDartAverage);
         }
       }
+      this.matchContext = [
+        `Rules: ${snapshot.startScore} ${words(snapshot.finishRule)}, first to ${snapshot.legsToWin}; fair ending ${snapshot.fairEnding ? 'on' : 'off'}.`,
+        `Players: ${snapshot.players.map((player) => player.name).join(', ')}.`,
+        renderPlayerNicknames(snapshot.players),
+        snapshot.rematch?.previousWinnerId ? `Rematch: previous winner ${this.name(snapshot.rematch.previousWinnerId)}.` : null,
+        ...historicalFactLines(snapshot.historicalFacts, this),
+      ].filter(Boolean).join('\n');
     }
   }
 
   name(playerId: string, fallback = 'Player') {
     return this.names.get(playerId) ?? fallback;
+  }
+
+  /** Repeated in response instructions so provider truncation cannot lose rules or scores. */
+  renderCurrentContext(current?: DartIQReplayState) {
+    return [
+      this.matchContext,
+      current ? `Current leg ${current.legNumber}: ${Object.entries(current.scores).map(([id, score]) =>
+        `${this.name(id)} ${score} left (${current.legsWon[id] ?? 0} legs)`
+      ).join('; ')}. ${current.currentPlayerId ? `${this.name(current.currentPlayerId)} to throw, ${current.dartsRemainingInTurn} darts left.` : 'No current thrower.'}` : null,
+      fairEndingLine(current?.fairEnding, this),
+    ].filter(Boolean).join('\n');
   }
 
   observeRivalryDart(event: ScoliaRealtimeDartEvent) {
@@ -366,20 +387,21 @@ export class RealtimeNarrativeWireState {
 
   renderNarrativeDelta(
     narrative: CommentaryNarrativeMemory | undefined,
-    direction?: BroadcastDirection
+    direction?: BroadcastDirection,
+    full = false
   ) {
     if (!narrative) return [];
     const lines: string[] = [];
     for (const player of narrative.players) {
       const rendered = narrativePlayerLine(player, this.name(player.playerId));
       const fingerprint = rendered;
-      if (this.playerFingerprints.get(player.playerId) === fingerprint) continue;
+      if (!full && this.playerFingerprints.get(player.playerId) === fingerprint) continue;
       this.playerFingerprints.set(player.playerId, fingerprint);
       lines.push(`Memory update — ${rendered}`);
     }
     const story = direction?.rivalry ? null : arcLine(direction, this.names);
     const fingerprint = story ?? '';
-    if (fingerprint !== this.storyFingerprint) {
+    if (full || fingerprint !== this.storyFingerprint) {
       this.storyFingerprint = fingerprint;
       if (story) lines.push(story);
     }
@@ -426,7 +448,8 @@ export function renderScoliaRealtimeEvent(
   epoch: number,
   event: ScoliaRealtimeDartEvent,
   state: RealtimeNarrativeWireState,
-  direction?: BroadcastDirection
+  direction?: BroadcastDirection,
+  fullMemory = false
 ) {
   const dartiq = event.dartiq;
   const resolvedMatchWin = event.dartiq?.legResolution?.matchWon ?? event.matchWon;
@@ -530,7 +553,7 @@ export function renderScoliaRealtimeEvent(
     signals,
     candidates,
     direction?.rivalry ? renderRivalryBeat(direction.rivalry, (id) => state.name(id)) : null,
-    ...state.renderNarrativeDelta(event.narrative, direction),
+    ...state.renderNarrativeDelta(event.narrative, direction, fullMemory),
   ].filter(Boolean).join('\n');
 }
 

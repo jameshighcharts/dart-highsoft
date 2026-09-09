@@ -10,6 +10,7 @@ import {
   warmScoliaDartIQContext,
   ScoliaDartIQEventCache,
   type ScoliaRealtimeDartFacts,
+  type AcceptedScoliaDartRows,
 } from './scoliaRealtimeEvent';
 
 type Row = Record<string, unknown>;
@@ -335,6 +336,20 @@ describe('classifyScoliaRealtimeDart', () => {
     const cold = await loadScoliaRealtimeDartEvent(supabase, 'match', 'next');
     expect(warm).toEqual(cold);
     expect(cache.get('match')!.tracker).toBe(tracker);
+    const joined = await supabase.from('throws').select('turn:turn_id').eq('id', 'next').single();
+    cache.get('match')!.revision = 'before';
+    reads.mockClear();
+    const accepted = await loadScoliaRealtimeDartEvent(supabase, 'match', 'next', cache, {
+      rows: joined.data as AcceptedScoliaDartRows, previousRevision: 'before', revision: 'after',
+    });
+    expect(accepted).toEqual(cold);
+    expect(reads).not.toHaveBeenCalled();
+    expect(cache.get('match')!.revision).toBe('after');
+    await loadScoliaRealtimeDartEvent(supabase, 'match', 'next', cache, {
+      rows: joined.data as AcceptedScoliaDartRows, previousRevision: 'correction', revision: 'new',
+    });
+    expect(reads).toHaveBeenCalled();
+    expect(cache.get('match')!.tracker).not.toBe(tracker);
     tables.dartiq_population_evidence = [];
     expect(await warmScoliaDartIQContext(supabase, 'match')).toBeUndefined();
   });

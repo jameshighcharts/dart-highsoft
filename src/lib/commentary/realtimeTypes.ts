@@ -101,6 +101,8 @@ export function createRealtimeCommentaryCorrectionEnvelope(input: {
 }
 
 export type ActiveRealtimeCommentarySession = {
+  last_seen_at?: string;
+  created_at?: string;
   id: string;
   match_id: string;
   openai_call_id: string;

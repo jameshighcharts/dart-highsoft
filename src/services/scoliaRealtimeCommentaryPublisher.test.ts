@@ -15,6 +15,35 @@ vi.mock('../lib/commentary/scoliaRealtimeEvent', async (importOriginal) => ({
 }));
 afterEach(() => vi.mocked(warmScoliaDartIQContext).mockReset().mockResolvedValue(undefined));
 
+describe('Bounded Scolia conversation', () => {
+  it('invalidates in-flight analysis on a correction before connection setup, but not on repeated heartbeats', () => {
+    const analysis = { event: vi.fn(), snapshot: vi.fn(), warm: vi.fn(), invalidate: vi.fn(), close: vi.fn() };
+    const publisher = new ScoliaRealtimeCommentaryPublisher({} as SupabaseClient, 'test-key', analysis);
+    const row = { id: 'listener', match_id: 'match', epoch: 1, status: 'active' };
+    publisher.listenerChanged(row);
+    publisher.listenerChanged({ ...row, last_seen_at: new Date().toISOString() });
+    expect(analysis.invalidate).toHaveBeenCalledExactlyOnceWith('match');
+    publisher.listenerChanged({ ...row, epoch: 2 });
+    expect(analysis.invalidate).toHaveBeenCalledTimes(2);
+    publisher.close();
+  });
+  it('sends fresh authoritative facts with each response even after old conversation is truncated', () => {
+    const publisher = new ScoliaRealtimeCommentaryPublisher({} as SupabaseClient, 'test-key');
+    const connection = { session: { match_id: 'match' }, socket: { readyState: 1, send: vi.fn() }, contextBrief: 'epoch 1: Ken has 40 left' };
+    const internals = publisher as unknown as { send: (connection: unknown, event: Record<string, unknown>) => void };
+    const response = { type: 'response.create', response: { instructions: 'Persona and call rules', output_modalities: ['audio'] } };
+    internals.send(connection, response);
+    connection.contextBrief = 'epoch 2: corrected, Ken has 32 left';
+    internals.send(connection, response);
+    const sent = JSON.parse(connection.socket.send.mock.calls[1][0]);
+    expect(sent.response.instructions).toContain('Persona and call rules');
+    expect(sent.response.instructions).toContain('epoch 2: corrected, Ken has 32 left');
+    expect(sent.response.instructions).not.toContain('40 left');
+    expect(response.response.instructions).toBe('Persona and call rules');
+    expect(sent.response.output_modalities).toEqual(['audio']);
+  });
+});
+
 describe('Scolia delivery persistence', () => {
   it.each(['new', 'pending', 'sent', 'failed', 'insert-error', 'read-error'] as const)(
     'preserves delivery state for %s', async (state) => {

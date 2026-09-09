@@ -118,6 +118,20 @@ function event(narrative = snapshot().narrative): ScoliaRealtimeDartEvent {
 }
 
 describe('Realtime commentary wire format', () => {
+  it('rehydrates unchanged narrative and rules without replaying old conversation', () => {
+    const state = new RealtimeNarrativeWireState();
+    renderRealtimeSnapshot(0, snapshot(), state);
+    const first = renderScoliaRealtimeEvent(0, event(), state, undefined, true);
+    const next = renderScoliaRealtimeEvent(0, event(), state, undefined, true);
+    expect(first).toContain('Memory update');
+    expect(next).toContain('Memory update');
+    const context = state.renderCurrentContext();
+    expect(context).toContain('501 double out, first to 3');
+    expect(context).toContain('Nikita, Ken');
+    expect(context).not.toContain('40 left'); // A seeded score must not linger after a correction.
+    state.reset();
+    expect(state.renderCurrentContext()).toBe('');
+  });
   it('keeps rivalry wording honest for direct and multiplayer history', () => {
     const names = (id: string) => id === PLAYER_A ? 'Nikita' : id === PLAYER_B ? 'Ken' : 'Alex';
     const direct = renderHistoricalFact({
