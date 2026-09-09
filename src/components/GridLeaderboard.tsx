@@ -108,7 +108,9 @@ function renderLocationPillHtml(value: unknown): string {
     ? 'bergen'
     : normalized.includes('vik')
       ? 'vik'
-      : null;
+      : normalized.includes('sogndal')
+        ? 'sogndal'
+        : null;
 
   if (image) {
     return (
