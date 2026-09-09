@@ -456,14 +456,26 @@ Outbound commands transition `pending` → `sent` → `acknowledged`/`refused`. 
 Local development recovery (2026-09-07): `supabase_db_dart-highsoft` had legacy Pressure/commentary migrations occupying versions `0055`–`0059`. Those history rows were preserved; current files were backfilled and recorded by full filename, source SHA-256, actual executed SQL, and compatibility notes in the private `supabase_migrations.local_reconciled_migrations` table. Existing rematch and commentary objects were retained and brought up to the current shape. Check this ledger as well as `schema_migrations` before rerunning migrations on this local instance. The repository still contains duplicate numeric prefixes (`0055`, `0059`); a clean CLI/deployment migration-history reconciliation remains separate work. Never assume this local recovery was applied to production. Pre-recovery backup: `/private/tmp/dart-highsoft-before-migrations-20260907.dump`.
 
 - Do not use `ALTER FUNCTION` in Supabase migrations. For function changes, use drop + recreate.
-- Never modify existing Supabase migration files after they are created/committed.
-- Any schema/function/policy change must be done by adding a new migration that supersedes earlier ones.
+- Existing Supabase migration files are immutable except under the failed, unapplied migration recovery procedure below.
+- Changes to applied migrations require a new migration that supersedes them. New schema/function/policy work also requires a new migration.
 - Name every new migration with a unique 14-digit UTC timestamp: `YYYYMMDDHHMMSS_description.sql`. The numbered migrations in `legacy-numbered-migrations.txt` are the only exceptions.
 - Migration deployment and verification track the complete migration name, never only its numeric or timestamp prefix.
 
+### Failed, unapplied migration recovery
+
+Within an already authorized deployment, an agent may correct a failed migration in place, including after commit or merge, when all of these conditions hold. This procedure supplies the exception; do not request another policy waiver once the evidence is complete.
+
+1. Identify every retained database that could have received the migration. Verify the complete name is absent from each migration history, and check manual application records and reconciliation ledgers, including `local_reconciled_migrations` where present. A recorded no-op counts as applied. Disposable test databases may be recreated; never reset a retained database to qualify for this exception.
+2. Confirm the failed attempt fully rolled back by checking its transaction boundaries, failure output, and affected schema/data. Missing history alone does not prove rollback. Resolve partial writes or uncertain application state before considering an edit.
+3. Limit the correction to the original migration's intended behavior. Preserve its filename, timestamp, identity/data guards, and history. Reproduce the failure with the relevant real constraints, then verify the corrected SQL, data preservation, and retry behavior in disposable PostgreSQL.
+4. Record the failed run, original commit, databases checked, rollback evidence, correction, and test results in the corrective PR or durable deployment notes. Commit the correction as a new commit; do not rewrite merged Git history.
+5. Recheck history before retrying through the serialized deployment workflow at the corrected commit. Verify the complete migration history, affected data, and required release checks before reporting success. See [DEPLOYMENT.md](DEPLOYMENT.md#recover-a-failed-unapplied-migration).
+
+If any retained database applied the migration, keep its file unchanged and plan a forward recovery with a new timestamped migration. If evidence is missing, continue read-only investigation and local reproduction; do not assume the exception applies. Never delete history rows, mark failed SQL as applied, disable constraints, or bypass release checks to unblock deployment. This exception does not authorize additional data changes or a deployment outside the user's existing request.
+
 ## Boundaries / Do Not Touch
 - `.env*` files, secrets, production credentials.
-- Existing migration files in `supabase/migrations/` — never edit, only add new ones.
+- Existing migration files in `supabase/migrations/`, except through the failed, unapplied migration recovery procedure above. Applied migrations remain immutable.
 - `package-lock.json` unless dependency changes are required.
 - Generated artifacts (`coverage/`, `playwright-report/`, `.next/`, `node_modules/`).
 
@@ -491,4 +503,4 @@ Rivalry commentary uses `selectCommentaryRivalry` in `commentaryNarrative.ts` ov
 
 `20260909071500_sync_slack_player_names.sql` adds the service-only, team-scoped name sync RPC used by Slack imports. Renames preserve player IDs, history, existing nicknames, and inactive status.
 
-`20260909071600_consolidate_mustapha_player.sql` retains the confirmed original player and its history, moves the Slack identity, preserves nicknames, and deactivates the unused imported duplicate. It aborts if the duplicate has acquired referenced data. SQL regression coverage lives in the matching `supabase/tests/20260909071500_sync_slack_player_names.sql` and `20260909071600_consolidate_mustapha_player.sql` files.
+`20260909071600_consolidate_mustapha_player.sql` retains the confirmed original player and its history, moves the Slack identity, preserves nicknames, and renames and deactivates the unused imported duplicate before reusing its name. The regression requires the real unique display-name constraint and checks retry rejection plus rollback when the duplicate has history. It aborts if the duplicate has acquired referenced data. SQL regression coverage lives in the matching `supabase/tests/20260909071500_sync_slack_player_names.sql` and `20260909071600_consolidate_mustapha_player.sql` files.

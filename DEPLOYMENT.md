@@ -233,6 +233,20 @@ npm run test:performance
 
 GitHub keeps each run's Lighthouse reports as a `lighthouse-reports` artifact for 14 days. Change a budget only after you measure a new baseline and explain why the old limit is no longer valid.
 
+#### Recover a failed, unapplied migration
+
+Follow the [migration recovery rule in AGENTS.md](AGENTS.md#failed-unapplied-migration-recovery). An already authorized deployment may include a correction to a failed, unapplied migration without another policy waiver. Applied migrations remain immutable.
+
+1. Save the failed workflow URL and source commit. Check current migration history by complete name in every retained database that could have received the SQL, including manual application and local reconciliation records. Inspect affected rows and objects to confirm full rollback. A failed workflow or missing history entry alone is insufficient.
+2. Reproduce the failure in disposable PostgreSQL with the relevant production constraints, indexes, and triggers. Test the smallest correction, rollback on rejected input, retry behavior, and preservation of IDs, links, aliases, and referenced history as applicable. Keep the original filename and timestamp. Do not weaken constraints or guards to make the SQL pass.
+3. Record the evidence and correction in a follow-up PR or durable deployment notes, then use a new corrective commit and the normal review/release gates. Run filename validation and the affected SQL regression checks before deployment. A later migration alone cannot unblock this runner: it stops at the earlier failure.
+4. Recheck application history and run **Deploy Supabase Migrations** against the corrected commit on `main`. Do not rerun the old failed job, which uses the original source commit, or run a manual deployment alongside the workflow. The runner skips previously applied complete names and resumes with pending migrations.
+5. Confirm exact production migration history, the repaired data invariants, and `Tests / test` before production promotion. History verification alone does not validate the repaired data. Keep the existing deployment and Vercel checks enabled.
+
+If the migration applied in any retained database, or has unresolved partial effects, the in-place exception does not apply. Prepare a forward recovery plan that also addresses databases blocked by the original SQL. Never falsify migration history to skip the failure.
+
+For [PR #43](https://github.com/jameshighcharts/dart-highsoft/pull/43), the [original deployment run](https://github.com/jameshighcharts/dart-highsoft/actions/runs/34321917796) applied `20260909071500_sync_slack_player_names.sql`, then failed `20260909071600_consolidate_mustapha_player.sql` on `players_display_name_key`. The name-sync migration must remain unchanged. The consolidation migration is a candidate for this procedure only after fresh history and rollback checks; its regression must include the unique display-name constraint from `0001_init.sql`.
+
 ### Step 8: Verify The Deployment
 
 After Vercel finishes:
