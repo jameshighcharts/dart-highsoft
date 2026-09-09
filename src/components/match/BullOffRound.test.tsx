@@ -1,0 +1,40 @@
+import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { BullOffRound } from './BullOffRound';
+import { createBullOff, recordBullOffShot, finishBullOffTakeout } from '@/lib/match/bullOff';
+const players = [{ id: 'a', display_name: 'Ada' }, { id: 'b', display_name: 'Ben' }];
+const props = { matchId: 'match', players, spectator: false, hardware: false, reload: vi.fn(async () => {}), commentaryEnabled: false, commentaryStatus: 'idle' as const, toggleCommentary: vi.fn(), commentary: '', toggleSpectator: vi.fn() };
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+beforeEach(() => { Object.defineProperty(window, 'matchMedia', { writable: true, value: vi.fn(() => ({ matches: true })) }); });
+it('visually distinguishes pending players, then moves a landed player into the leading card', () => {
+  let state = createBullOff(['a', 'b']);
+  const { rerender } = render(<BullOffRound {...props} state={state} />);
+  expect(screen.getAllByRole('article')[0]).toHaveAccessibleName('Ada: pending');
+  expect(screen.getAllByRole('article')[0]).toHaveAttribute('aria-current', 'step');
+  expect(within(screen.getAllByRole('article')[0]).getByText('Your throw')).toBeInTheDocument();
+  state = recordBullOffShot(state, { playerId: 'a', distanceMm: 152.4 });
+  rerender(<BullOffRound {...props} state={state} />);
+  expect(within(screen.getAllByRole('article')[0]).getByText('6.00″')).toBeInTheDocument();
+  expect(within(screen.getAllByRole('article')[0]).getByText('Remove dart')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Dart removed — continue' })).toBeInTheDocument();
+  state = recordBullOffShot(finishBullOffTakeout(state), { playerId: 'b', distanceMm: 25.4 });
+  rerender(<BullOffRound {...props} state={state} />);
+  expect(screen.getAllByRole('article')[0]).toHaveAccessibleName('Ben: provisional position 1');
+  expect(screen.getByRole('region', { name: 'Bull-off distance comparison' })).toBeInTheDocument();
+});
+it('submits measured inches as mm with a concurrency revision', async () => {
+  const fetchMock = vi.fn<(url: string, options?: RequestInit) => Promise<Response>>().mockResolvedValue(new Response('{}', { status: 200 }));
+  vi.stubGlobal('fetch', fetchMock);
+  render(<BullOffRound {...props} state={createBullOff(['a', 'b'])} />);
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Distance from bull' }), { target: { value: '6' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Record distance' }));
+  await waitFor(() => expect(props.reload).toHaveBeenCalled());
+  const body = JSON.parse(fetchMock.mock.calls[0][1]!.body as string);
+  expect(body).toMatchObject({ playerId: 'a', revision: 0 });
+  expect(body.distanceMm).toBeCloseTo(152.4);
+  vi.unstubAllGlobals();
+});
+it('offers no manual scoring controls to hardware matches or spectators', () => {
+  render(<BullOffRound {...props} spectator hardware state={createBullOff(['a', 'b'])} />);
+  expect(screen.queryByRole('button', { name: 'Record distance' })).not.toBeInTheDocument();
+});

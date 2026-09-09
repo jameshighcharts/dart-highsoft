@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
           finishRule: 'single_out' | 'double_out';
           playerIds: string[];
           fairEnding?: boolean;
+          closestToBull?: boolean;
           scoliaBoardId?: string | null;
         };
     
@@ -37,10 +38,13 @@ export async function POST(request: NextRequest) {
     let finish: 'single_out' | 'double_out';
     let legsToWin: number;
     let fairEnding = false;
+    let closestToBull = false;
     let playerIds: string[] = [];
     let scoliaBoardId: string | null = null;
 
     if ('playerIds' in body) {
+      if (body.closestToBull !== undefined && typeof body.closestToBull !== 'boolean') return NextResponse.json({ error: 'Invalid closestToBull' }, { status: 400 });
+      closestToBull = body.closestToBull === true;
       if (!body.startScore || ![201, 301, 501].includes(body.startScore)) {
         return NextResponse.json({ error: 'Invalid startScore. Must be 201, 301, or 501' }, { status: 400 });
       }
@@ -132,6 +136,7 @@ export async function POST(request: NextRequest) {
       finish,
       legsToWin,
       fairEnding,
+      closestToBull,
       playerIds: order,
       scoliaBoardId,
     });

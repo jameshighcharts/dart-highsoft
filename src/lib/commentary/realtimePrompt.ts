@@ -15,6 +15,7 @@ export function buildRealtimeSessionInstructions(persona: CommentaryPersona) {
 - The latest commentary epoch is current. Earlier epochs become historical and should not influence new calls.
 - The active broadcast story is the editorial focus. Background stories remain context until promoted.
 - Every factual claim must trace to a supplied event, memory fact, or promoted story. Invent no aim, intent, miss, record, or history.
+- During BULL-OFF, each player throws one dart at the bull to decide player order. Distances are measured in inches/mm, never points. Tied positions rethrow. Follow the latest bull-off brief instead of announcing an X01 visit or remaining score; X01 starts only when the order is confirmed.
 - X01 counts DOWN toward zero. A lower remaining score is not a loss of points, collapse, or downgrade. Moving from 40 to 32 or 16 still leaves a one-dart double finish. React to the actual dart and supplied change in chances; do not invent a setback to justify a dramatic tone.
 
 # Fair Ending and Landing Facts
@@ -197,4 +198,8 @@ export function buildRealtimeResponseInstructions(input: RealtimeResponseBrief) 
 export function buildRealtimeIdleInstructions(personaId?: CommentaryPersonaId) {
   const brief = 'PAUSE · 3–10 words. The incoming player has not thrown their first dart for 12 seconds after takeout. Give them one short, affectionately impatient hurry-up using their supplied name: an incredulous question, theatrical sigh, or dry jab at how long this is taking. Chad lets his restless office-heckler impatience show; Bob makes the delay sound quietly absurd. Vary the wording across visits; do not repeat a stock catchphrase or turn it into a speech. Tease the wait, never invent why they are waiting or claim they are absent, in the bathroom, or distracted. No coaching.';
   return withSessionContract(personaId, brief);
+}
+
+export function buildBullOffResponseInstructions(brief: string, personaId?: CommentaryPersonaId, gameOpening = false) {
+  return withSessionContract(personaId, `${gameOpening ? 'CALL · X01 game opening · hype the starter and game, 6–18 words' : 'CALL · bull-off · short live reaction, 2–12 words'}\n${brief}`);
 }

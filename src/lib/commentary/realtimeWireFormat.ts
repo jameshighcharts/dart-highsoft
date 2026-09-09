@@ -1,3 +1,4 @@
+import { bullOffBrief } from './bullOff.ts';
 import { commentaryStartingMood, renderPlayerNicknames, nikitaSpecialMoment } from './personas.ts';
 import type { CommentaryContext } from '@/services/commentaryService';
 import type { DartIQHistoricalFact } from '@/lib/dartiq/evidence';
@@ -407,10 +408,11 @@ export function renderRealtimeSnapshot(
   const history = historicalFactLines(snapshot.historicalFacts, state);
   return [
     `AUTHORITATIVE MATCH SNAPSHOT · epoch ${epoch}`,
+    snapshot.bullOff?.phase === 'throwing' ? bullOffBrief(snapshot.bullOff, Object.fromEntries(names)) : null,
     `Rules: ${rules}; fair ending ${snapshot.fairEnding ? 'on' : 'off'}.`,
-    ...players,
+    ...(snapshot.bullOff?.phase === 'throwing' ? [] : players),
     renderPlayerNicknames(snapshot.players),
-    current,
+    snapshot.bullOff?.phase === 'throwing' ? 'X01 has not started.' : current,
     fairEndingLine(snapshot.currentLeg?.fairEndingState, state),
     rematch,
     ...history,

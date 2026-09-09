@@ -13,7 +13,7 @@
  */
 
 import React from 'react';
-import { render, screen, cleanup } from '@testing-library/react';
+import { act, render, screen, cleanup, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi, describe, beforeEach, beforeAll, it, expect } from 'vitest';
 import {
@@ -32,11 +32,13 @@ let MatchClient: MatchClientComponent;
 
 // Mock database state
 let mockDb: MockDb;
+let databaseReadGate: Promise<void> | null = null;
 const clone = <T,>(value: T): T => structuredClone(value);
 
 function resetMockDb() {
   mockDb = clone(createTwoPlayerGameSetup());
   resetQueryLog();
+  databaseReadGate = null;
 }
 
 // Search params mock state
@@ -53,7 +55,7 @@ const mockRealtime = createMockRealtime();
 
 // Setup mocks
 vi.mock('@/lib/supabaseClient', () => ({
-  getSupabaseClient: () => Promise.resolve(createMockSupabaseClient(mockDb)),
+  getSupabaseClient: async () => { if (databaseReadGate) await databaseReadGate; return createMockSupabaseClient(mockDb); },
 }));
 
 vi.mock('@/lib/dartiq/tracker', () => ({
@@ -189,6 +191,25 @@ vi.mock('@/utils/eloRatingMultiplayer', () => ({
   shouldMatchBeRatedMultiplayer: () => false,
 }));
 
+const commentaryTransport = vi.hoisted(() => ({
+  connect: vi.fn(), close: vi.fn(), publishBullOff: vi.fn(),
+}));
+vi.mock('@/services/realtimeCommentaryService', () => ({
+  RealtimeCommentaryService: class {
+    callbacks: { onStatus?: (status: string) => void };
+    constructor(callbacks: { onStatus?: (status: string) => void }) { this.callbacks = callbacks; }
+    async connect() { commentaryTransport.connect(); this.callbacks.onStatus?.('ready'); }
+    async close() { commentaryTransport.close(); this.callbacks.onStatus?.('idle'); }
+    async dispose() { await this.close(); }
+    async unlock() {}
+    skip() {}
+    observeMatchDart() {}
+    correct() {}
+    getStatus() { return 'ready'; }
+    publishBullOff(brief: string, opening: boolean) { commentaryTransport.publishBullOff(brief, opening); return true; }
+  },
+}));
+
 window.alert = vi.fn();
 const createJsonResponse = (data: unknown, ok: boolean = true, status: number = 200) =>
   Promise.resolve({
@@ -276,6 +297,63 @@ describe('MatchClient', () => {
   });
 
   describe('spectator mode', () => {
+    it.each([[false, false], [true, false], [true, true]])('hands off to spectator X01 without reconnecting commentary (enabled=%s, first dart=%s)', async (withCommentary, firstDart) => {
+      const { createBullOff, recordBullOffShot, finishBullOffTakeout } = await import('@/lib/match/bullOff');
+      vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+      setSearchParams(withCommentary ? 'spectator=true&commentary=true' : 'spectator=true');
+      mockDb.turns = [];
+      mockDb.throws = [];
+      let state = createBullOff(['player-1', 'player-2']);
+      state = finishBullOffTakeout(recordBullOffShot(state, { playerId: 'player-1', distanceMm: 152.4 }));
+      state = recordBullOffShot(state, { playerId: 'player-2', distanceMm: 25.4 });
+      Object.assign(mockDb.matches[0]!, { bull_off: state });
+      const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
+      await screen.findByRole('heading', { name: 'Bull-off' });
+      expect(screen.queryByText('Live Match')).toBeNull();
+
+      const connectionCount = commentaryTransport.connect.mock.calls.length;
+      const closeCount = commentaryTransport.close.mock.calls.length;
+      let releaseReads!: () => void;
+      databaseReadGate = new Promise<void>(resolve => { releaseReads = resolve; });
+      const completed = finishBullOffTakeout(state);
+      Object.assign(mockDb.matches[0]!, { bull_off: completed });
+      // The match event arrives while the browser still has the original order.
+      await act(async () => { window.dispatchEvent(new CustomEvent('supabase-matches-change', { detail: { new: clone(mockDb.matches[0]) } })); });
+      expect(screen.getByRole('heading', { name: 'Bull-off' })).toBeInTheDocument();
+      expect(screen.queryByText('Live Match')).toBeNull();
+      expect(screen.queryByText('Loading…')).toBeNull();
+      expect(commentaryTransport.publishBullOff).not.toHaveBeenCalled();
+
+      mockDb.match_players.forEach(row => { row.play_order = completed.order.indexOf(row.player_id); });
+      mockDb.legs[0]!.starting_player_id = 'player-2';
+      if (firstDart) {
+        mockDb.turns.push({ id: 'first-x01', leg_id: 'leg-1', player_id: 'player-2', turn_number: 1, total_scored: 20, busted: false, tiebreak_round: null });
+        mockDb.throws.push({ id: 'first-dart', turn_id: 'first-x01', dart_index: 1, segment: 'S20', scored: 20, match_id: 'match-1' });
+      }
+      await act(async () => { databaseReadGate = null; releaseReads(); });
+      await screen.findByText('Live Match', undefined, { timeout: 5000 });
+      expect(screen.queryByRole('heading', { name: 'Bull-off' })).toBeNull();
+      const scores = screen.getByRole('list', { name: 'Live player scores' });
+      const tiles = within(scores).getAllByRole('listitem');
+      expect(tiles[0]).toHaveTextContent('Player Two');
+      expect(tiles[0]).toHaveAttribute('aria-current', 'true');
+      expect(tiles[1]).toHaveTextContent('Player One');
+      expect(tiles[0]).toHaveAttribute('data-score', firstDart ? '481' : '501');
+      expect(tiles[1]).toHaveAttribute('data-score', '501');
+      expect(mockDb.turns).toHaveLength(firstDart ? 1 : 0);
+      expect(mockDb.throws).toHaveLength(firstDart ? 1 : 0);
+      expect(mockRouter.push).not.toHaveBeenCalled();
+      expect(commentaryTransport.connect).toHaveBeenCalledTimes(connectionCount);
+      expect(commentaryTransport.close).toHaveBeenCalledTimes(closeCount);
+      if (withCommentary && !firstDart) {
+        expect(connectionCount).toBeGreaterThan(0);
+        expect(commentaryTransport.publishBullOff).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('First to throw: Player Two.'), true);
+        expect(commentaryTransport.publishBullOff.mock.calls[0][0]).toContain('Every player starts at 501');
+      } else expect(commentaryTransport.publishBullOff).not.toHaveBeenCalled();
+      view.unmount();
+      vi.unstubAllGlobals();
+    });
+
     it('boots directly into spectator mode from URL params on first render', async () => {
       setSearchParams('spectator=true');
       const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);

@@ -17,7 +17,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
 
     const { data: match } = await supabase
       .from('matches')
-      .select('id, start_score, finish, legs_to_win, fair_ending, winner_player_id, completed_at, ended_early, scolia_board_id')
+      .select('id, start_score, finish, legs_to_win, fair_ending, winner_player_id, completed_at, ended_early, scolia_board_id, bull_off')
       .eq('id', matchId)
       .single();
     if (!match) return NextResponse.json({ error: 'Match not found' }, { status: 404 });
@@ -82,6 +82,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
       finish: match.finish,
       legsToWin: match.legs_to_win,
       fairEnding: match.fair_ending ?? false,
+      closestToBull: Boolean(match.bull_off),
       playerIds: order,
       scoliaBoardId: match.scolia_board_id ?? null,
       rematchOfMatchId: match.id,

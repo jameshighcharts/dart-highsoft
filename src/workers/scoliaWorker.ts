@@ -1,3 +1,5 @@
+import { updateBullOff } from '../lib/server/bullOff.ts';
+import { loadMatch as loadBullOffMatch } from '../lib/server/matchGuards.ts';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { pathToFileURL } from 'node:url';
 
@@ -347,6 +349,13 @@ export class BoardConnection {
     ) {
       const target = await findActiveScoliaBoardTarget(this.supabase, this.board.id);
       if (target?.kind === 'match') {
+        const bullMatch = await loadBullOffMatch(this.supabase, target.id);
+        if (bullMatch?.bull_off?.phase === 'throwing') {
+          await updateBullOff(this.supabase, target.id, bullMatch.bull_off, 'takeout', Number(storedEvent.id));
+          const { error: bullStatusError } = await this.supabase.from('scolia_events').update({ processing_status: 'processed', processed_at: now }).eq('id', storedEvent.id);
+          if (bullStatusError) throw new Error(bullStatusError.message);
+          return;
+        }
         const sourceThrowId = this.latestAcceptedThrowId;
         this.commentaryQueue.enqueue(async () => {
           await this.commentaryPublisher.publishTakeoutFinished(
