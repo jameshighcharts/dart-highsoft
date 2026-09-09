@@ -1,11 +1,14 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
+import { signIn } from 'next-auth/react';
 
 import { apiRequest } from '@/lib/apiClient';
 import { ProfileClient } from './ProfileClient';
 
 afterEach(cleanup);
 
+vi.mock('next-auth/react', () => ({ signIn: vi.fn() }));
 vi.mock('@/lib/apiClient', () => ({ apiRequest: vi.fn() }));
 vi.mock('@/components/profile/ProfileSummaryCard', () => ({ ProfileSummaryCard: () => null }));
 vi.mock('@/components/PlayerEloStats', () => ({ PlayerEloStats: () => null }));
@@ -37,4 +40,14 @@ it('updates the own-profile nickname field when an admin edits their own player'
   fireEvent.click(screen.getByRole('button', { name: 'Save nicknames' }));
   await screen.findByText('Nicknames saved for Ada.');
   expect(screen.getByLabelText('Nicknames')).toHaveValue('The Ace');
+});
+
+it('offers retry and direct Slack sign-in when identity is unresolved', async () => {
+  vi.mocked(apiRequest).mockRejectedValue(new Error('No Slack identity yet'));
+  render(<ProfileClient />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('No Slack identity yet');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
+  fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Slack' }));
+  expect(signIn).toHaveBeenCalledWith('slack', { redirectTo: '/profile' });
 });
