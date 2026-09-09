@@ -96,11 +96,11 @@ export function planSlackPlayerImport(
   return plan;
 }
 
-export type ImportResult = ImportPlan & { created: number; linked: number };
+export type ImportResult = ImportPlan & { created: number; linked: number; renamed: number };
 
 /**
  * Executes the plan against the database. Safe to re-run: members that are
- * already linked are skipped, and unique-violation races fall back to the
+ * already linked retain their identity, and unique-violation races fall back to the
  * winning row.
  */
 export async function importSlackMembersAsPlayers(
@@ -151,5 +151,15 @@ export async function importSlackMembersAsPlayers(
     }
   }
 
-  return { ...plan, created, linked };
+  const { data: renamed, error: renameError } = await supabase.rpc('sync_slack_player_names', {
+    p_team_id: teamId,
+    p_names: [...preferredPlayerNames(members)].map(([slack_user_id, display_name]) => ({
+      slack_user_id,
+      display_name,
+    })),
+  });
+  if (renameError) throw new Error(renameError.message);
+  if (typeof renamed !== 'number') throw new Error('Invalid Slack name sync result');
+
+  return { ...plan, created, linked, renamed };
 }
