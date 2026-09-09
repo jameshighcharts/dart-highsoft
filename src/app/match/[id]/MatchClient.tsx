@@ -87,7 +87,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     handleAudioEnabledChange,
     handlePersonaChange,
     skipCommentary,
-  } = useCommentary(matchId);
+  } = useCommentary(matchId, isSpectatorMode && searchParams.get('commentary') === 'true');
 
   // Ref to hold latest state for event handlers (prevents stale closure bugs)
   const latestStateRef = useRef({

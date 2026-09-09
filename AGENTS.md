@@ -36,8 +36,14 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 ### Pages (`src/app`)
 | Path | Purpose |
 |------|---------|
-| `page.tsx` | Home — leaderboard grid, nav to new match/practice/players |
-| `new/page.tsx` | New X01 or party-game form with optional ready Scolia board selection |
+| `globals.css` | Shared theme tokens and subtle default borders for cards, tables, dialogs, and dividers, with cyan focus accents and separate light-surface colors |
+| `layout.tsx` | Shared site navigation with a subtle cyan/blue/violet gradient bottom border, expanded desktop link hit areas that preserve spacing/header height, and a shared gradient underline that slides between desktop nav items on hover/focus with brighter, visually heavier text/icons |
+| `page.tsx` | Home — leaderboard grid with neutral dark action cards that reveal cyan/blue, violet/pink, and emerald/teal gradients only on hover for New Match, New Tournament, and Practice; gradient outer borders that thicken on hover without shifting content, hover glow and icon scaling, and reduced-motion support |
+| `tournament/[id]/TournamentClient.tsx` | Bracket and standings; clicking a match safely claims the preferred board, requests TV fullscreen, and opens spectator/commentary URL preferences with visible conflict errors |
+| `tournament/[id]/TournamentClient.test.tsx` | TV/commentary navigation and busy-board failure regression checks |
+| `tournament/new/page.test.tsx` | Hydration regression tests for saved location filters, including empty selections and preserving preferences during mount |
+| `tournament/new/page.tsx` | New Tournament restores location/board/commentary preferences after hydration, offers ready Scolia board selection and persisted per-tournament commentary, and uses the New Match desktop layout: full-height scrolling settings, styled fair-ending switch, inline player heading/location/search toolbar, large player tiles, and fixed gradient start action with removable avatar lineup using the same entry bounce, staggered pulse, and start-hover hops as New Match (respects reduced motion) |
+| `new/page.tsx` | New X01 or party-game form with styled fair-ending and saved spectator-commentary switches (carried into the match URL), locally remembered rules, party options, and ordered active-player lineup; stacked game cards with blue/cyan gradient selection outlines in a narrow full-height independently scrolling desktop settings column within a viewport-height desktop layout alongside a full-width, scrollable player grid with four columns from xl, large avatar/name tiles, and most-played-first ordering (X01 plus party-game participation counts, then alphabetical) and a fixed bottom bar with a half-width start action and centered avatar lineup that overlaps to fit, with entry bounces, staggered reduced-motion-aware pulses, excited hops on Start hover/focus, and click-to-remove, with optional ready Scolia board selection; opens new games in spectator mode when browser-local TV mode is enabled |
 | `match/[id]/page.tsx` | Match page (server component) |
 | `match/[id]/MatchClient.tsx` | Main match client — orchestrates all hooks, switches scoring/spectator/history stats view; development performance overlay is opt-in via `perf=true` |
 | `match/[id]/report/page.tsx` | Server-rendered DartIQ replay data, deterministic match story, player baseline/WPA breakdowns, and initial URL-selected dart hydration for the client-local report explorer |
@@ -45,7 +51,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `game/[id]/GameClient.tsx` | Party-game scoring and spectator client |
 | `games/page.tsx` | Player-searchable X01 and party-game history with paginated loading, daily activity filtering, completed X01 stats links, and development-only dummy data at `?preview=1` |
 | `players/page.tsx` | Player management (list non-test players, create, edit location) |
-| `boards/page.tsx` | Scolia board management (connectivity, availability, active match/game links, connect/disconnect) |
+| `boards/page.tsx` | Scolia board management (connectivity, availability, active match/game links, connect/disconnect) and browser-local TV mode toggle with the shared cyan switch-card styling |
 | `stats/page.tsx` | Stats and leaderboards |
 | `leaderboards/page.tsx` | Detailed X01, Elo, and party-mode leaderboards |
 | `elo-multi/page.tsx` | Multiplayer Elo leaderboard |
@@ -55,6 +61,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 ### API Routes (`src/app/api`)
 | Route | Methods | Purpose |
 |-------|---------|---------|
+| `tournaments/` | POST | Create a tournament with validated board and commentary preferences; bracket matches initially remain unassigned |
+| `tournaments/[id]/matches/[matchId]/open/` | POST | Verify bracket membership, claim the preferred board for the active match using database occupancy guards, and return the persisted commentary preference; route tests cover conflicts, manual and completed matches |
 | `matches/` | POST | Create a new match |
 | `matches/[matchId]/` | DELETE | Passcode-protected permanent deletion of a standalone match and its dependent game data |
 | `matches/[matchId]/throws/` | POST, DELETE | Record or delete a dart throw |
@@ -122,7 +130,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `useMatchActions.ts` | Player actions: `handleBoardClick`, `undoLastThrow`, `endLegAndMaybeMatch`, rematch, player management. Serializes concurrent throws via queue. |
 | `useMatchRealtime.ts` | Connects Supabase realtime events to state; uses spectator reducer for incremental updates |
 | `useRealtime.ts` | Low-level Supabase channel subscription, DOM custom events, connection lifecycle |
-| `useCommentary.ts` | Commentary state, persona selection, TTS, preferences and bounded, deduplicated completed-call history; one-tap Verse audio activation with synchronous gesture unlock and actual Realtime status |
+| `useCommentary.ts` | Commentary state, persona selection, TTS, preferences and bounded, deduplicated completed-call history; one-tap Verse audio activation with synchronous gesture unlock and actual Realtime status, plus one-time spectator auto-start from the new-match preference |
 | `useRealtimeCommentary.ts` | Owns the persistent output-only browser WebRTC commentary connection and fallback lifecycle |
 | `useMatchEloChanges.ts` | Fetches Elo changes after match completion |
 | `useScoliaBoardRealtime.ts` | Pushes sanitized board status and match-occupancy changes into board UIs |
@@ -189,6 +197,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/realtimeSnapshot.ts` | Builds compact authoritative match snapshots for new, reconnected, and rotated Realtime sessions |
 | `commentary/scoliaRealtimeEvent.ts` | Shares canonical replay/model construction with listener-triggered cache preparation; loads an accepted Scolia throw and its turn/leg/match/player facts in one joined canonical read, attaches its deterministic DartIQ packet, adds coordinate-verified ring proximity, current-visit grouping distances, and frozen-model before/next-dart landing forecasts, and classifies speech priority without waiting for Supabase Realtime |
 | `avatars.ts` | Shared avatar sizes, default goblin icon assignment (`public/avatars/default`, keyed `goblin-01..40`, picked per player id), escaped grid HTML, and storage URL parsing |
+| `tvMode.ts` | Browser-local TV mode preference and click-triggered fullscreen request for new-game spectator navigation; fullscreen denial never blocks starting a game |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
 | `supabaseServer.ts` | Server-side Supabase client (API routes) |
 | `apiClient.ts` | Typed fetch wrapper: `apiRequest<T>()` |
@@ -216,10 +225,10 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `profile/AdminNicknameEditor.tsx` | Admin player picker and nickname form using the protected admin API; regression tests cover saving, clearing, and failures |
 | `match/MatchScoringView.tsx` | Active scoring view — scores, dartboard/keypad, actions |
 | `match/MatchSpectatorView.tsx` | Read-only spectator view |
-| `match/SpectatorLiveMatchCard.tsx` | Responsive live player scoreboard grid with a compact inline match header, compact viewport-aware tile heights, container-scaled scores with correction-safe impact motion, on-throw light sweeps, reduced-motion support, bold names, lime on-throw tiles, dart indicators, and compact stats with average-rating emojis without a separate current-turn header; desktop grid fills the stretched card, with overflow scrolling |
+| `match/SpectatorLiveMatchCard.tsx` | Responsive live player scoreboard grid with a compact inline match header, compact viewport-aware tile heights, container-scaled avatars, names, and larger scores with correction-safe impact motion, on-throw light sweeps, reduced-motion support, bold names, lime on-throw tiles, dart indicators, and compact stats with a chunkier responsive AVG value and average-rating emojis, retaining small Last/Best labels without a separate current-turn header; desktop grid fills the stretched card, with overflow scrolling and larger collapsed-board tiles sized for balanced six- and eight-player layouts |
 | `match/DartIQLive.tsx` | DartIQ broadcast strip directly above the spectator Score Progress chart, with per-dart leg/match probabilities, large-field circular rail, and gated top-three next-dart landing predictions from the shared tracker |
 | `match/MatchPlayersCard.tsx` | Player list with scores, averages, legs won |
-| `match/LiveScoliaBoard.tsx` | Read-only spectator dartboard with live Scolia impact positions and detected dart orientation; viewport-height card scales the SVG and readouts to fit, without resize work in the dart-processing path |
+| `match/LiveScoliaBoard.tsx` | Read-only spectator dartboard with live Scolia impact positions and detected dart orientation, plus a chunky current-player avatar left of the name that follows visit/takeout handoffs; lower-right collapse toggle remembers its state in browser-local storage across matches and reloads, hides the board, stacks a larger avatar above the centered player name, and stacks dart scores in a narrow one-fifth-width desktop column while expanding the responsive player grid, with a smooth column resize, board shrink/fade, borderless ghost toggle with press feedback, and reduced-motion support; viewport-height card scales the SVG and readouts to fit, without resize work in the dart-processing path |
 | `match/ScoliaMatchHeatmaps.tsx` | Whole-match per-player Scolia impact density boards for spectator mode |
 | `match/DartIQReportExplorer.tsx` | Client-local chart, scrubber, selected-dart facts, ranked moments, and Scolia impact synchronization without report navigation or replay |
 | `match/HistoricalMatchOverview.tsx` | Completed-match hero, whole-match KPIs, player performance, top visits, and Elo summary |
@@ -227,7 +236,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `match/EditPlayersModal.tsx` | Add/remove/reorder players |
 | `match/EloChangesDisplay.tsx` | Elo rating changes after match |
 | `games/GameActivityHeatmap.tsx` | GitHub-style daily game activity from September 1, 2026 through today, Monday-first weeks with aligned Mon/Wed/Fri labels, filtered by player search, with selectable dates |
-| `games/NewGameOptions.tsx` | Party-game picker and per-mode configuration controls |
+| `games/SelectedPlayerLineup.tsx` | Shared New Match/Tournament avatar lineup with entry bounce, staggered pulse, start-hover hops and shrink/fade exits; selection updates immediately, rapid re-selection cancels removal, and reduced motion skips exit delay; colocated tests cover removal, rapid re-selection, and reduced motion |
+| `games/NewGameOptions.tsx` | Party-game picker and per-mode configuration controls, including cyan switch cards for Killer and Around the Clock rules |
 | `games/GamePlayerCard.tsx` | Shared X01-style party-game player tiles with current/last-visit darts and mode-specific scores |
 | `games/GameHeader.tsx` | Party-game title, status, round, and same-tab spectator navigation |
 | `games/GameControls.tsx` | Party-game undo, end confirmation, and rematch controls |
@@ -238,11 +248,12 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `games/ShanghaiBoard.tsx` | Shanghai targets, rounds, and scores display |
 | `games/ClockBoard.tsx` | Around the Clock progress display |
 | `leaderboard/GameModeLeaderboardItem.tsx` | Player row for party-mode leaderboard statistics |
+| `SiteChrome.tsx` | Shared page shell and a single measured desktop nav underline that slides between links, responds to keyboard focus/resizing, and respects reduced motion |
 | `PlayerAvatar.tsx` | Shared avatar rendering; falls back to the player's assigned default goblin icon |
 | `PlayerAvatarById.tsx` | Avatar lookup for ID-only rows, with one shared cached player query |
 | `Dartboard.tsx` | SVG interactive dartboard (desktop) |
 | `MobileKeypad.tsx` | Touch number pad (mobile) |
-| `GridLeaderboard.tsx` | Home page leaderboard grid |
+| `GridLeaderboard.tsx` | Home page leaderboard grid with dark slate table and KPI backgrounds matching game settings and a centered eligibility notice between the filters on the same desktop row; players and their Elo appear after 3 completed X01 matches, excluding early endings |
 | `EloLeaderboard.tsx` | 1v1 Elo leaderboard |
 | `MultiEloLeaderboard.tsx` | Multiplayer Elo leaderboard |
 | `AroundTheWorldGame.tsx` | Around the World game UI |
@@ -287,6 +298,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `scripts/supabase-migrations.mjs` | Validates timestamped names, deploys migrations by exact name, verifies production migration history, and prints the bounded rollback SQL for the Slack settings regression with `slack-settings-sql` |
 | `scripts/supabase-migrations.test.mjs` | Regression tests for exact-name selection and migration filename policy |
 | `supabase/migrations/legacy-numbered-migrations.txt` | Immutable allowlist for the repository's historical numbered migrations |
+| `supabase/migrations/20260908180500_tournament_board_preferences.sql` | Persist tournament board/commentary preferences; matching SQL regression test checks exclusive board assignment and reuse after completion |
 | `supabase/migrations/20260904091825_verify_match_creation_and_throw.sql` | Production database smoke migration that verifies `matches.paused_at`, creates an X01 match and throw, then removes its test rows |
 
 ## Build, Test, and Development Commands

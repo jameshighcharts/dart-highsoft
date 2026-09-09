@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { LoaderCircle, Plus, RefreshCw, Router, Trash2 } from 'lucide-react';
+import { LoaderCircle, Plus, RefreshCw, Router, Trash2, Tv } from 'lucide-react';
 import Link from 'next/link';
 
 import { apiRequest } from '@/lib/apiClient';
+import { isTVModeEnabled, TV_MODE_STORAGE_KEY } from '@/lib/tvMode';
 import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
 import { hasFreshScoliaHeartbeat } from '@/lib/scolia/availability';
 import type { ScoliaBoard, ScoliaBoardPublicStatus } from '@/lib/scolia/types';
@@ -14,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 
 function connectionLabel(status: ScoliaBoard['workerConnectionStatus']): string {
   if (status === 'connected') return 'Connected';
@@ -44,6 +46,22 @@ export default function BoardsPage() {
   const [saving, setSaving] = useState(false);
   const [removingSerial, setRemovingSerial] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tvMode, setTVMode] = useState(false);
+  const [tvModeError, setTVModeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTVMode(isTVModeEnabled());
+  }, []);
+
+  function changeTVMode(enabled: boolean) {
+    try {
+      window.localStorage.setItem(TV_MODE_STORAGE_KEY, String(enabled));
+      setTVMode(enabled);
+      setTVModeError(null);
+    } catch {
+      setTVModeError('Unable to save TV mode. Allow browser storage and try again.');
+    }
+  }
 
   const loadBoards = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -283,6 +301,27 @@ export default function BoardsPage() {
           </div>
         )}
       </section>
+
+      <div className="space-y-2">
+        <label htmlFor="tv-mode" className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${tvMode ? 'border-cyan-400/30 bg-cyan-400/10' : 'border-white/10 bg-white/[0.03] hover:bg-white/5'}`}>
+          <Tv className={`h-5 w-5 shrink-0 ${tvMode ? 'text-cyan-300' : 'text-slate-400'}`} aria-hidden="true" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">TV mode</span>
+            <span id="tv-mode-description" className="mt-0.5 block text-xs leading-relaxed text-slate-400">
+              Open new games in fullscreen spectator mode. Saved in this browser.
+            </span>
+          </span>
+          <Switch
+            id="tv-mode"
+            aria-label="TV mode"
+            aria-describedby="tv-mode-description"
+            checked={tvMode}
+            onCheckedChange={changeTVMode}
+            className="data-[state=checked]:bg-cyan-400"
+          />
+        </label>
+        {tvModeError ? <p role="alert" className="text-sm text-destructive">{tvModeError}</p> : null}
+      </div>
     </div>
   );
 }

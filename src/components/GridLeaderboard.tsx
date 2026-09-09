@@ -503,7 +503,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
     playerLocations,
     playerAvatarUrls,
     matchActivity,
-    weeklyEloClimber,
+    weeklyEloClimber: candidateWeeklyEloClimber,
     loading,
   } = useLeaderboardData();
   const [locationFilter, setLocationFilter] = useState<LeaderboardLocationFilter>(loadLeaderboardLocationFilter);
@@ -531,8 +531,8 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           avatar_url: playerAvatarUrls.get(id) ?? null,
           location: playerLocations.get(id) ?? null,
           wins: null,
-          games_played: null,
-          game_win_rate: null,
+          games_played: playerGameStats.get(id)?.games_played ?? null,
+          game_win_rate: playerGameStats.get(id)?.game_win_rate ?? null,
           avg_per_turn: null,
           elo_1v1: null,
           elo_multi: null,
@@ -564,13 +564,17 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
       for (const mock of MOCK_ELO_PLAYERS) map.set(mock.player_id, { ...mock });
     }
 
-    return Array.from(map.values());
+    return Array.from(map.values()).filter((player) => (player.games_played ?? 0) >= 3);
   }, [leaders, eloLeaders, eloMultiLeaders, playerGameStats, playerLocations, playerAvatarUrls, mockEloRows]);
 
   const filteredMerged = useMemo(() => {
     if (locationFilter === 'all') return merged;
     return merged.filter((p) => p.location === locationFilter);
   }, [merged, locationFilter]);
+
+  const weeklyEloClimber = candidateWeeklyEloClimber && merged.some(
+    (player) => player.player_id === candidateWeeklyEloClimber.player_id
+  ) ? candidateWeeklyEloClimber : null;
 
   const hotStreak = useMemo(() => {
     let best: { playerId: string; player: string; streak: number; wins: number; recent: number[] } | null = null;
@@ -934,7 +938,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         ]
       },
       lang: {
-        noData: 'No leaderboard data yet. Play some matches!',
+        noData: 'Complete at least 3 X01 matches to appear on the leaderboard.',
       },
     };
   }, [filteredMerged, eloHistory, multiEloHistory, recentWinsByPlayer, eloViewFilter]);
@@ -973,6 +977,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
             Multiplayer
           </button>
         </div>
+        <p className="w-full text-center text-sm text-muted-foreground">Complete 3 X01 matches to appear here with your Elo rating.</p>
         <div className="leaderboard-actions">
           <div className="location-filter-tabs" aria-label="Filter leaderboard by location">
             <button
@@ -1025,9 +1030,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           overflow: hidden;
           border: 1px solid rgba(148, 163, 184, 0.13);
           border-radius: 8px;
-          background:
-            linear-gradient(180deg, rgba(17, 24, 39, 0.92), rgba(10, 17, 27, 0.92)),
-            rgba(15, 23, 42, 0.68);
+          background: rgba(15, 23, 42, 0.4);
           padding: 13px 14px;
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
         }
@@ -1188,10 +1191,14 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           background: #5ab7ff;
         }
         .leaderboard-toolbar {
-          display: flex;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
           gap: 16px;
           align-items: center;
           justify-content: space-between;
+        }
+        .leaderboard-toolbar > .location-filter-tabs {
+          justify-self: start;
         }
         .leaderboard-actions {
           display: flex;
@@ -1232,13 +1239,17 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
         .location-filter-tab:last-child {
           border-right: 0;
         }
-        .location-filter-tab:hover {
+        .location-filter-tab:hover:not(.location-filter-tab--active) {
           color: #e2e8f0;
           background: rgba(148, 163, 184, 0.08);
         }
         .location-filter-tab--active {
           color: #70bdff;
           background: rgba(56, 189, 248, 0.16);
+        }
+        .location-filter-tab--active:hover {
+          color: #70bdff;
+          background: rgba(56, 189, 248, 0.22);
         }
         @media (max-width: 1100px) {
           .leaderboard-header {
@@ -1253,6 +1264,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
             grid-template-columns: 1fr;
           }
           .leaderboard-toolbar {
+            display: flex;
             align-items: flex-start;
             flex-direction: column;
           }
@@ -1279,6 +1291,11 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           height: 800px;
           max-height: 800px;
           --hcg-vertical-padding: 6px;
+          --hcg-background: rgba(15, 23, 42, 0.4);
+          --hcg-header-background: transparent;
+          --hcg-row-even-background: rgba(255, 255, 255, 0.025);
+          --hcg-row-hover-background: rgba(34, 211, 238, 0.1);
+          --hcg-border-color: rgba(255, 255, 255, 0.1);
         }
         /*
          * Below lg the app shows the fixed bottom nav, and a fixed-height grid

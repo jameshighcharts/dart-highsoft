@@ -37,7 +37,7 @@ export function ThrowSegmentBadges({
             className={`min-w-[20px] h-5 px-1 rounded border flex items-center justify-center text-xs font-medium transition-all duration-300 ${
               hasThrow
                 ? isIncomplete
-                  ? 'border-primary bg-primary/10 text-primary'
+                  ? 'border-cyan-400/30 bg-cyan-400/10 text-cyan-200'
                   : 'border-muted-foreground bg-muted-foreground/10 text-muted-foreground'
                 : 'border-dashed border-muted-foreground/40 text-muted-foreground/40'
             }`}

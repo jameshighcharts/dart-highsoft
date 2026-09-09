@@ -76,7 +76,7 @@ export function EditThrowsModal({
                             <button
                               key={thr.id}
                               className={`rounded border px-3 py-2 text-left ${
-                                isSelected ? 'bg-primary/10 border-primary' : 'hover:bg-accent'
+                                isSelected ? 'bg-cyan-400/10 border-cyan-400/30' : 'hover:bg-accent'
                               }`}
                               onClick={() => onSelectThrow(thr.id)}
                             >

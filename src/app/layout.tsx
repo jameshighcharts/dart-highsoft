@@ -47,41 +47,41 @@ export default function RootLayout({
           <SiteChrome
             nav={
               <>
-          <nav className="hidden lg:flex items-center justify-between px-6 py-3 border-b bg-card">
-            <Link href="/" className="flex items-center gap-3 font-semibold">
+          <nav className="relative hidden lg:flex items-center justify-between px-6 py-3 border-b border-transparent bg-card after:pointer-events-none after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-gradient-to-r after:from-cyan-300/60 after:via-blue-400/70 after:to-violet-400/60 after:shadow-[0_1px_10px_rgba(79,163,245,0.15)]">
+            <Link href="/" className="flex items-center gap-3 text-lg font-bold tracking-tight">
               <Image src="/icon-192x192.png" alt="" width={40} height={40} className="size-10 object-contain" priority />
               Highsoft Dart Scoreboard
             </Link>
             <div className="flex items-center gap-4 text-sm">
-              <Link href="/new" className="flex items-center gap-2">
+              <Link href="/new" className="site-nav-link site-nav-link--desktop -mx-1.5 -my-3 flex items-center gap-2 px-1.5 py-3">
                 <Plus className="size-4" />
                 New match
               </Link>
-              <Link href="/" className="flex items-center gap-2">
+              <Link href="/" className="site-nav-link site-nav-link--desktop -mx-1.5 -my-3 flex items-center gap-2 px-1.5 py-3">
                 <Home className="size-4" />
                 Home
               </Link>
-              <Link href="/games" className="flex items-center gap-2">
+              <Link href="/games" className="site-nav-link site-nav-link--desktop -mx-1.5 -my-3 flex items-center gap-2 px-1.5 py-3">
                 <Target className="size-4" />
                 Games
               </Link>
-              <Link href="/players" className="flex items-center gap-2">
+              <Link href="/players" className="site-nav-link site-nav-link--desktop -mx-1.5 -my-3 flex items-center gap-2 px-1.5 py-3">
                 <Users className="size-4" />
                 Players
               </Link>
-              <Link href="/leaderboards" className="flex items-center gap-2">
+              <Link href="/leaderboards" className="site-nav-link site-nav-link--desktop -mx-1.5 -my-3 flex items-center gap-2 px-1.5 py-3">
                 <Trophy className="size-4" />
                 Leaderboards
               </Link>
-              <Link href="/boards" className="flex items-center gap-2">
+              <Link href="/boards" className="site-nav-link site-nav-link--desktop -mx-1.5 -my-3 flex items-center gap-2 px-1.5 py-3">
                 <Radio className="size-4" />
                 Boards
               </Link>
-              <Link href="/stats" className="flex items-center gap-2">
+              <Link href="/stats" className="site-nav-link site-nav-link--desktop -mx-1.5 -my-3 flex items-center gap-2 px-1.5 py-3">
                 <BarChart3 className="size-4" />
                 Statistics
               </Link>
-              <Link href="/profile" className="flex items-center gap-2">
+              <Link href="/profile" className="site-nav-link site-nav-link--desktop -mx-1.5 -my-3 flex items-center gap-2 px-1.5 py-3">
                 <UserCircle className="size-4" />
                 Profile
               </Link>
@@ -89,23 +89,23 @@ export default function RootLayout({
           </nav>
           <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t bg-card pb-[env(safe-area-inset-bottom)]">
             <div className="grid grid-cols-5">
-              <Link href="/" className="flex flex-col items-center justify-center py-2 gap-1">
+              <Link href="/" className="site-nav-link flex flex-col items-center justify-center py-2 gap-1">
                 <Home className="size-5" />
                 <span className="text-xs">Home</span>
               </Link>
-              <Link href="/games" className="flex flex-col items-center justify-center py-2 gap-1">
+              <Link href="/games" className="site-nav-link flex flex-col items-center justify-center py-2 gap-1">
                 <Target className="size-5" />
                 <span className="text-xs">Games</span>
               </Link>
-              <Link href="/players" className="flex flex-col items-center justify-center py-2 gap-1">
+              <Link href="/players" className="site-nav-link flex flex-col items-center justify-center py-2 gap-1">
                 <Users className="size-5" />
                 <span className="text-xs">Players</span>
               </Link>
-              <Link href="/stats" className="flex flex-col items-center justify-center py-2 gap-1">
+              <Link href="/stats" className="site-nav-link flex flex-col items-center justify-center py-2 gap-1">
                 <BarChart3 className="size-5" />
                 <span className="text-xs">Stats</span>
               </Link>
-              <Link href="/profile" className="flex flex-col items-center justify-center py-2 gap-1">
+              <Link href="/profile" className="site-nav-link flex flex-col items-center justify-center py-2 gap-1">
                 <UserCircle className="size-5" />
                 <span className="text-xs">Profile</span>
               </Link>

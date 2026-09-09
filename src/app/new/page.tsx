@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { apiRequest } from "@/lib/apiClient";
+import { isTVModeEnabled, requestTVModeFullscreen } from "@/lib/tvMode";
 import { useScoliaBoardRealtime } from "@/hooks/useScoliaBoardRealtime";
 import {
   hasFreshScoliaHeartbeat,
@@ -14,8 +15,9 @@ import type {
 } from "@/lib/scolia/types";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { Search, X } from "lucide-react";
+import { ArrowRight, Search, Scale, Volume2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -33,6 +35,8 @@ import {
   gameTypeName,
   loadStoredGameType,
   storeGameType,
+  loadStoredSetup,
+  storeSetup,
   validateGameSelection,
   type GameType,
 } from "@/components/games/NewGameOptions";
@@ -42,9 +46,10 @@ import {
   loadStoredBoardId,
   storeBoardId,
 } from "@/components/games/BoardPicker";
+import { SelectedPlayerLineup } from "@/components/games/SelectedPlayerLineup";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 
-type Player = { id: string; display_name: string; location: string | null; avatar_url?: string | null };
+type Player = { id: string; display_name: string; location: string | null; avatar_url?: string | null; gamesPlayed?: number };
 
 type StartScore = "201" | "301" | "501";
 
@@ -84,7 +89,7 @@ function loadEnabledLocations(): LocationValue[] {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored) as LocationValue[];
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return parsed.filter((value) => LOCATIONS.some((location) => location.value === value));
     }
   } catch {
     /* ignore */
@@ -102,15 +107,31 @@ export default function NewMatchPage() {
   const [finish, setFinish] = useState<FinishRule>("single_out");
   const [legsToWin, setLegsToWin] = useState(1);
   const [fairEnding, setFairEnding] = useState(false);
+  const [commentaryEnabled, setCommentaryEnabled] = useState(false);
   // Start on X01 for SSR and pick up the stored choice after hydration.
   const [gameType, setGameType] = useState<GameType>("x01");
   const [gameConfig, setGameConfig] = useState<Record<string, unknown>>({});
+  const [setupLoaded, setSetupLoaded] = useState(false);
+  const [playersLoaded, setPlayersLoaded] = useState(false);
   useEffect(() => {
-    const stored = loadStoredGameType();
-    if (stored !== "x01") {
-      setGameType(stored);
-      setGameConfig(defaultConfigFor(stored));
+    const setup = loadStoredSetup();
+    if (setup) {
+      setGameType(setup.gameType);
+      setGameConfig(setup.gameConfig);
+      setSelectedIds(setup.selectedIds);
+      setStartScore(setup.startScore);
+      setFinish(setup.finish);
+      setLegsToWin(setup.legsToWin);
+      setFairEnding(setup.fairEnding);
+      setCommentaryEnabled(setup.commentaryEnabled === true);
+    } else {
+      const stored = loadStoredGameType();
+      if (stored !== "x01") {
+        setGameType(stored);
+        setGameConfig(defaultConfigFor(stored));
+      }
     }
+    setSetupLoaded(true);
   }, []);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -158,10 +179,23 @@ export default function NewMatchPage() {
       const supabase = await getSupabaseClient();
       const { data } = await supabase
         .from("players")
-        .select("*")
+        .select("id, display_name, location, avatar_url, match_players(count), game_session_players(count)")
         .eq("is_active", true)
         .order("display_name");
-      if (!cancelled) setPlayers((data as Player[]) ?? []);
+      if (!cancelled && data) {
+        const activePlayers: Player[] = data.map((player) => ({
+          id: player.id,
+          display_name: player.display_name,
+          location: player.location,
+          avatar_url: player.avatar_url,
+          gamesPlayed: (player.match_players[0]?.count ?? 0)
+            + (player.game_session_players[0]?.count ?? 0),
+        }));
+        setPlayers(activePlayers);
+        const activeIds = new Set(activePlayers.map((player) => player.id));
+        setSelectedIds((ids) => ids.filter((id) => activeIds.has(id)));
+        setPlayersLoaded(true);
+      }
     };
     void loadPlayers();
     void loadBoards(true);
@@ -169,6 +203,12 @@ export default function NewMatchPage() {
       cancelled = true;
     };
   }, [loadBoards]);
+
+  useEffect(() => {
+    // Do not overwrite saved players before hydration and roster reconciliation.
+    if (!setupLoaded || !playersLoaded) return;
+    storeSetup({ gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, commentaryEnabled });
+  }, [setupLoaded, playersLoaded, gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, commentaryEnabled]);
 
   useScoliaBoardRealtime({
     onUpsert: (status) =>
@@ -248,7 +288,11 @@ export default function NewMatchPage() {
     });
   }
 
-  const locationPlayers = players.filter(
+  const sortedPlayers = useMemo(() => [...players].sort((a, b) =>
+    (b.gamesPlayed ?? 0) - (a.gamesPlayed ?? 0)
+      || a.display_name.localeCompare(b.display_name),
+  ), [players]);
+  const locationPlayers = sortedPlayers.filter(
     (p) =>
       p.location === null ||
       enabledLocations.includes(p.location as LocationValue),
@@ -320,7 +364,7 @@ export default function NewMatchPage() {
   const selectedPlayers = selectedIds
     .map((id) => players.find((p) => p.id === id))
     .filter((p): p is Player => Boolean(p))
-    .map((p) => ({ id: p.id, name: p.display_name }));
+    .map((p) => ({ id: p.id, name: p.display_name, display_name: p.display_name, avatar_url: p.avatar_url }));
 
   async function onStartGame(mode: GameMode) {
     const problem = validateGameSelection(mode, gameConfig, selectedIds);
@@ -328,6 +372,7 @@ export default function NewMatchPage() {
       setSubmitError(problem);
       return;
     }
+    requestTVModeFullscreen();
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -340,7 +385,7 @@ export default function NewMatchPage() {
             selectedBoardId === MANUAL_BOARD_VALUE ? null : selectedBoardId,
         },
       });
-      router.push(`/game/${result.gameId}`);
+      router.push(`/game/${result.gameId}${isTVModeEnabled() ? '?spectator=true' : ''}`);
     } catch (error) {
       setSubmitError(
         error instanceof Error
@@ -354,6 +399,7 @@ export default function NewMatchPage() {
   async function onStart() {
     if (gameMode) return onStartGame(gameMode);
     if (selectedIds.length < 2) return alert("Select at least 2 players");
+    requestTVModeFullscreen();
     setSubmitting(true);
     try {
       const result = await apiRequest<{ matchId: string }>("/api/matches", {
@@ -367,7 +413,10 @@ export default function NewMatchPage() {
             selectedBoardId === MANUAL_BOARD_VALUE ? null : selectedBoardId,
         },
       });
-      router.push(`/match/${result.matchId}`);
+      const params = new URLSearchParams();
+      if (isTVModeEnabled()) params.set('spectator', 'true');
+      if (commentaryEnabled) params.set('commentary', 'true');
+      router.push(`/match/${result.matchId}${params.size ? `?${params}` : ''}`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to create match";
@@ -377,295 +426,290 @@ export default function NewMatchPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">New Game</h1>
+    <div className="w-full space-y-5 px-4 pt-4 pb-44 md:px-6 lg:h-[calc(100dvh-113px)] lg:pb-0 lg:px-8">
+      <div className="grid items-start gap-5 lg:h-full lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)] xl:gap-8 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-5 rounded-2xl bg-slate-900/40 p-4 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain [scrollbar-width:thin] [&_button[data-slot=select-trigger]]:border-white/10 [&_input]:border-white/10 [&_button[data-variant=outline]]:border-white/10">
+          <h1 className="text-3xl font-black tracking-tight">New Game</h1>
+          <div className="space-y-2">
+            <div className="font-medium">Game type</div>
+            <GameTypePicker value={gameType} onChange={changeGameType} />
+          </div>
 
-      <div className="space-y-2">
-        <div className="font-medium">Board</div>
-        <BoardPicker
-          boards={boards}
-          value={selectedBoardId}
-          onChange={chooseBoard}
-          loading={boardsLoading}
-        />
-        {boardsError ? (
-          <p className="text-xs text-destructive">
-            {boardsError}. Manual scoring is still available.
-          </p>
-        ) : null}
-      </div>
+          <div className="space-y-2">
+            <div className="font-medium">Board</div>
+            <BoardPicker
+              boards={boards}
+              value={selectedBoardId}
+              onChange={chooseBoard}
+              loading={boardsLoading}
+            />
+            {boardsError ? (
+              <p className="text-xs text-destructive">
+                {boardsError}. Manual scoring is still available.
+              </p>
+            ) : null}
+          </div>
 
-      <div className="space-y-2">
-        <div className="font-medium">Game type</div>
-        <GameTypePicker value={gameType} onChange={changeGameType} />
-      </div>
-
-      {gameMode === null && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="font-medium mb-1">Start score</div>
-              <Select
-                value={startScore}
-                onValueChange={(v) => setStartScore(v as StartScore)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Start score" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="201">201</SelectItem>
-                  <SelectItem value="301">301</SelectItem>
-                  <SelectItem value="501">501</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <div className="font-medium mb-1">Finish rule</div>
-              <Select
-                value={finish}
-                onValueChange={(v) => setFinish(v as FinishRule)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Finish rule" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="double_out">Double out</SelectItem>
-                  <SelectItem value="single_out">Single out</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <div className="font-medium mb-1">Legs to win</div>
-              <div className="flex items-stretch gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setLegsToWin((v) => {
-                      const next = Math.max(1, v - 1);
-                      if (next !== 1) setFairEnding(false);
-                      return next;
-                    });
-                  }}
-                >
-                  −
-                </Button>
-                <Input
-                  readOnly
-                  className="text-center select-none"
-                  value={String(legsToWin)}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setLegsToWin((v) => {
-                      const next = v + 1;
-                      if (next !== 1) setFairEnding(false);
-                      return next;
-                    });
-                  }}
-                >
-                  +
-                </Button>
+          {gameMode === null && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="font-medium mb-1">Start score</div>
+                  <Select
+                    value={startScore}
+                    onValueChange={(v) => setStartScore(v as StartScore)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Start score" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="201">201</SelectItem>
+                      <SelectItem value="301">301</SelectItem>
+                      <SelectItem value="501">501</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <div className="font-medium mb-1">Finish rule</div>
+                  <Select
+                    value={finish}
+                    onValueChange={(v) => setFinish(v as FinishRule)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Finish rule" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="double_out">Double out</SelectItem>
+                      <SelectItem value="single_out">Single out</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <div className="font-medium mb-1">Legs to win</div>
+                  <div className="flex items-stretch gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-white/10 bg-white/5 hover:bg-white/10"
+                      onClick={() => {
+                        setLegsToWin((v) => {
+                          const next = Math.max(1, v - 1);
+                          if (next !== 1) setFairEnding(false);
+                          return next;
+                        });
+                      }}
+                    >
+                      −
+                    </Button>
+                    <Input
+                      readOnly
+                      className="text-center select-none"
+                      value={String(legsToWin)}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-white/10 bg-white/5 hover:bg-white/10"
+                      onClick={() => {
+                        setLegsToWin((v) => {
+                          const next = v + 1;
+                          if (next !== 1) setFairEnding(false);
+                          return next;
+                        });
+                      }}
+                    >
+                      +
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {legsToWin === 1 && (
+                  <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${fairEnding ? "border-cyan-400/30 bg-cyan-400/10" : "border-white/10 bg-white/[0.03] hover:bg-white/5"}`}>
+                    <Scale className={`h-5 w-5 shrink-0 ${fairEnding ? "text-cyan-300" : "text-slate-400"}`} aria-hidden="true" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold">Fair ending</span>
+                      <span id="fair-ending-description" className="mt-0.5 block text-xs leading-relaxed text-slate-400">Everyone finishes the round before a winner is declared.</span>
+                    </span>
+                    <Switch aria-label="Fair ending" aria-describedby="fair-ending-description" checked={fairEnding} onCheckedChange={setFairEnding} className="data-[state=checked]:bg-cyan-400" />
+                  </label>
+                )}
+                <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${commentaryEnabled ? "border-cyan-400/30 bg-cyan-400/10" : "border-white/10 bg-white/[0.03] hover:bg-white/5"}`}>
+                  <Volume2 className={`h-5 w-5 shrink-0 ${commentaryEnabled ? "text-cyan-300" : "text-slate-400"}`} aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold">Commentary</span>
+                    <span id="commentary-description" className="mt-0.5 block text-xs leading-relaxed text-slate-400">Automatically play live commentary in spectator mode.</span>
+                  </span>
+                  <Switch aria-label="Commentary" aria-describedby="commentary-description" checked={commentaryEnabled} onCheckedChange={setCommentaryEnabled} className="data-[state=checked]:bg-cyan-400" />
+                </label>
               </div>
             </div>
-          </div>
-          {legsToWin === 1 && (
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={fairEnding}
-                onChange={(e) => setFairEnding(e.target.checked)}
-              />
-              <span className="text-sm">
-                Fair ending — all players complete the round before a winner is
-                declared
-              </span>
-            </label>
           )}
+
+          {gameMode !== null && (
+            <GameConfigFields
+              mode={gameMode}
+              config={gameConfig}
+              onChange={(next) => {
+                setGameConfig(next);
+                setSubmitError(null);
+              }}
+              players={selectedPlayers}
+            />
+          )}
+
         </div>
-      )}
-
-      {gameMode !== null && (
-        <GameConfigFields
-          mode={gameMode}
-          config={gameConfig}
-          onChange={(next) => {
-            setGameConfig(next);
-            setSubmitError(null);
-          }}
-          players={selectedPlayers}
-        />
-      )}
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="font-medium">
-            Players
-            {selectedIds.length > 0 && (
-              <span className="ml-1.5 text-sm font-normal text-muted-foreground">
+        <div className="min-w-0 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="mr-auto shrink-0 whitespace-nowrap text-2xl font-extrabold tracking-tight">
+              Players
+              <span className="ml-3 text-sm font-semibold tracking-normal text-sky-300" aria-live="polite">
                 {selectedIds.length} selected
               </span>
+            </div>
+            <div className="flex gap-1" role="group" aria-label="Location filter">
+              {LOCATIONS.map((loc) => (
+                <Button
+                  key={loc.value}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className={enabledLocations.includes(loc.value) ? "border border-sky-400/20 bg-sky-400/10 font-bold text-sky-300 hover:bg-sky-400/20 hover:text-sky-300" : "border border-white/10 bg-transparent font-bold text-slate-400 hover:bg-white/5 hover:text-slate-300"}
+                  aria-pressed={enabledLocations.includes(loc.value)}
+                  onClick={() => toggleLocation(loc.value)}
+                >
+                  {loc.label}
+                </Button>
+              ))}
+            </div>
+            <div className="relative w-full max-w-80 min-w-0 xl:w-80">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                inputMode="search"
+                autoComplete="off"
+                className="h-12 rounded-xl border-white/10 bg-slate-900/50 pl-9 text-base"
+                placeholder="Search players"
+                aria-label="Search players"
+                value={playerSearch}
+                onChange={(e) => setPlayerSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  if (filteredPlayers.length === 1) {
+                    toggle(filteredPlayers[0].id);
+                    setPlayerSearch("");
+                  } else if (
+                    filteredPlayers.length === 0 &&
+                    searchTerm &&
+                    !searchMatchesExisting
+                  ) {
+                    void createPlayer(playerSearch);
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-2.5 min-[480px]:grid-cols-2 md:grid-cols-3 lg:max-h-[calc(100dvh-324px)] lg:min-h-0 lg:overflow-y-auto xl:grid-cols-4">
+            {filteredPlayers.map((p) => {
+              const loc = LOCATIONS.find((l) => l.value === p.location);
+              const checked = selectedIds.includes(p.id);
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  aria-pressed={checked}
+                  onClick={() => toggle(p.id)}
+                  className={`flex min-h-24 min-w-0 cursor-pointer items-center gap-4 rounded-2xl border-2 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${checked ? "border-sky-300/70 bg-sky-400/10 text-sky-200 shadow-[inset_0_0_18px_rgba(56,189,248,0.12)] hover:bg-sky-400/20" : "border-white/[0.06] bg-slate-900/60 text-slate-100 hover:border-sky-300/40 hover:bg-slate-800/70"}`}
+                >
+                  <PlayerAvatar player={p} size="xl" className="size-16 text-xl ring-2 ring-white/10" />
+                  <span className="min-w-0 flex-1">
+                    <span title={p.display_name} className="block truncate text-2xl font-black tracking-tight xl:text-[28px]">{p.display_name}</span>
+                    {loc && (
+                      <span className={`mt-0.5 block text-xs font-semibold tracking-wide ${checked ? "text-sky-300/70" : "text-slate-500"}`}>
+                        {loc.label}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+            {filteredPlayers.length === 0 && (
+              <p className="col-span-full py-3 text-center text-sm text-muted-foreground">
+                {searchTerm
+                  ? `No players match “${playerSearch.trim()}”.`
+                  : "No players in the selected locations."}
+              </p>
             )}
           </div>
-          <div className="flex gap-1" role="group" aria-label="Location filter">
-            {LOCATIONS.map((loc) => (
-              <Button
-                key={loc.value}
-                type="button"
-                size="sm"
-                variant={
-                  enabledLocations.includes(loc.value) ? "default" : "outline"
-                }
-                aria-pressed={enabledLocations.includes(loc.value)}
-                onClick={() => toggleLocation(loc.value)}
-              >
-                {loc.label}
-              </Button>
-            ))}
-          </div>
-        </div>
-        {selectedIds.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {selectedPlayers.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => toggle(p.id)}
-                aria-label={`Remove ${p.name}`}
-                className="flex items-center gap-1 rounded-full bg-accent/40 px-2.5 py-1 text-xs font-medium hover:bg-accent/60"
-              >
-                {p.name}
-                <X className="size-3" />
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            inputMode="search"
-            autoComplete="off"
-            className="h-11 pl-9"
-            placeholder="Search players"
-            aria-label="Search players"
-            value={playerSearch}
-            onChange={(e) => setPlayerSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter") return;
-              e.preventDefault();
-              if (filteredPlayers.length === 1) {
-                toggle(filteredPlayers[0].id);
-                setPlayerSearch("");
-              } else if (
-                filteredPlayers.length === 0 &&
-                searchTerm &&
-                !searchMatchesExisting
-              ) {
-                void createPlayer(playerSearch);
-              }
-            }}
-          />
-        </div>
-        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-          {filteredPlayers.map((p) => {
-            const loc = LOCATIONS.find((l) => l.value === p.location);
-            const checked = selectedIds.includes(p.id);
-            return (
-              <label
-                key={p.id}
-                className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors ${checked ? "border-accent bg-accent/30" : "border-border hover:bg-accent/15"}`}
-              >
-                <input
-                  type="checkbox"
-                  className="size-4 accent-current"
-                  checked={checked}
-                  onChange={() => toggle(p.id)}
-                />
-                <PlayerAvatar player={p} size="md" />
-                <span className="truncate">{p.display_name}</span>
-                {loc && (
-                  <span className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {loc.label}
-                  </span>
-                )}
-              </label>
-            );
-          })}
-          {filteredPlayers.length === 0 && (
-            <p className="col-span-full py-3 text-center text-sm text-muted-foreground">
-              {searchTerm
-                ? `No players match “${playerSearch.trim()}”.`
-                : "No players in the selected locations."}
-            </p>
+
+          {gameMode !== null && (
+            <>
+              {killerHint && (
+                <p className="text-sm text-amber-500">
+                  Killer is best with 3 or more players.
+                </p>
+              )}
+              {(submitError ??
+                (selectedIds.length > 0 ? validationError : null)) && (
+                <p className="text-sm text-destructive">
+                  {submitError ?? validationError}
+                </p>
+              )}
+            </>
           )}
-        </div>
-        {searchTerm && !searchMatchesExisting ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            onClick={() => void createPlayer(playerSearch)}
-          >
-            Add “{playerSearch.trim()}” as a new player
-          </Button>
-        ) : (
-          <div className="flex gap-2">
-            <Input
-              className="flex-1"
-              placeholder="New player name"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void createPlayer();
-                }
-              }}
-            />
-            <Button type="button" onClick={() => void createPlayer()}>
-              Add player
+
+          <div className="fixed inset-x-7 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 rounded-t-2xl bg-background/95 px-1 pt-3 pb-3 shadow-[0_-12px_32px_rgba(3,7,18,0.8)] backdrop-blur-xl md:inset-x-12 lg:right-14 lg:bottom-0 lg:left-[376px] xl:left-[408px]">
+            <div className="mb-3">
+{searchTerm && !searchMatchesExisting ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => void createPlayer(playerSearch)}
+            >
+              Add “{playerSearch.trim()}” as a new player
             </Button>
+          ) : (
+            <div className="flex gap-2">
+              <Input
+                className="flex-1 border-white/10 bg-slate-900/40"
+                placeholder="New player name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void createPlayer();
+                  }
+                }}
+              />
+              <Button type="button" className="border border-white/10 bg-slate-800 font-semibold text-slate-200 hover:bg-slate-700" onClick={() => void createPlayer()}>
+                Add player
+              </Button>
+            </div>
+          )}
+            </div>
+            <div className="start-action-bar grid grid-cols-2 items-center gap-3">
+            <SelectedPlayerLineup players={selectedPlayers} onRemove={toggle} />
+            <Button
+              size="lg"
+              className="start-match-button group relative h-16 w-full min-w-0 gap-2 overflow-hidden rounded-xl border border-blue-300/30 bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 px-3 text-base font-semibold sm:px-6 sm:text-xl tracking-normal text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_6px_24px_rgba(37,99,235,0.2)] transition-[filter,box-shadow,border-color] duration-200 hover:border-cyan-100 hover:brightness-110 hover:shadow-[inset_0_0_0_1px_rgba(165,243,252,0.8),0_0_0_2px_rgba(56,189,248,0.65),0_0_18px_rgba(56,189,248,0.65),0_0_38px_rgba(99,102,241,0.4)]"
+              onClick={onStart}
+              disabled={
+                !setupLoaded || !playersLoaded || submitting || (gameMode !== null && validationError !== null)
+              }
+            >
+              <span className="truncate">{submitting
+                ? "Starting…"
+                : gameMode === null
+                  ? "Start match"
+                  : `Start ${gameTypeName(gameMode)}`}</span>
+              <ArrowRight className="hidden size-5 shrink-0 text-blue-100 sm:block transition-transform group-hover:translate-x-1 motion-reduce:transition-none" aria-hidden="true" />
+            </Button>
+            </div>
           </div>
-        )}
-      </div>
-
-      {gameMode !== null && (
-        <>
-          {killerHint && (
-            <p className="text-sm text-amber-500">
-              Killer is best with 3 or more players.
-            </p>
-          )}
-          {(submitError ??
-            (selectedIds.length > 0 ? validationError : null)) && (
-            <p className="text-sm text-destructive">
-              {submitError ?? validationError}
-            </p>
-          )}
-        </>
-      )}
-
-      <div className={`${gameMode !== null ? "sticky bottom-16 lg:bottom-0" : "sticky bottom-0"} -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:static md:mx-0 md:border-0 md:bg-transparent md:p-0`}>
-        {gameMode !== null && <p className="mb-2 text-sm text-muted-foreground" role="status">
-          {validationError ?? `${selectedIds.length} players ready · ${gameTypeName(gameMode)}`}
-        </p>}
-        <Button
-          size="lg"
-          className="w-full md:w-auto"
-          onClick={onStart}
-          disabled={
-            submitting || (gameMode !== null && validationError !== null)
-          }
-        >
-          {submitting
-            ? "Starting…"
-            : gameMode === null
-              ? "Start match"
-              : `Start ${gameTypeName(gameMode)}`}
-        </Button>
+        </div>
       </div>
     </div>
   );
