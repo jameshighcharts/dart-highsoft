@@ -281,7 +281,7 @@ export class RealtimeNarrativeWireState {
     return this.names.get(playerId) ?? fallback;
   }
 
-  /** Repeated in response instructions so provider truncation cannot lose rules or scores. */
+  /** Appended before each response so provider truncation cannot lose current rules or scores. */
   renderCurrentContext(current?: DartIQReplayState) {
     return [
       this.matchContext,

@@ -34,7 +34,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 ## File Map
 
 - `supabase/migrations/20260909150000_compact_scolia_selection.sql` and its SQL regression test: service-only compact turn-selection RPC; normal selection returns only the latest turn plus total turn count, fair ending retains all turn summaries, and neither returns individual darts. Apply before deploying the updated worker.
-- `src/services/scoliaRealtimeCommentaryPublisher.ts`: bounds Scolia conversation to 6,000 post-instruction tokens with 70% retention, supplies fresh per-response rules/scores/full narrative independently of older conversation, and replaces those facts on corrections. `realtimeWireFormat.ts` retains static rules/history and renders current canonical state without resetting editorial memory.
+- `src/services/scoliaRealtimeCommentaryPublisher.ts`: bounds Scolia conversation to 6,000 post-instruction tokens with 70% retention, appends fresh per-response rules/scores/full narrative and call direction as conversation messages while keeping response instructions stable for caching, and replaces those facts on corrections. `realtimeWireFormat.ts` retains static rules/history and renders current canonical state without resetting editorial memory.
 
 - `src/lib/auth/requireAdmin.test.ts`: Verifies mapped Google self-service access, unmatched-user refusal, and unchanged admin authorization.
 - `src/components/profile/ProfileClient.test.tsx`: Verifies retry and direct Slack sign-in from the profile identity error state.

@@ -11,6 +11,7 @@ export function buildRealtimeSessionInstructions(persona: CommentaryPersona) {
 
 # Live Match Context
 - Labeled match briefs are authoritative for scores, probabilities, player names, and outcomes.
+- Follow the latest THIS CALL direction and limits only; earlier call directions have expired. The latest CURRENT AUTHORITATIVE CONTEXT overrides older conversation. Memory facts are background, not new events to announce again.
 - ${commentaryNicknameInstruction}
 - The latest commentary epoch is current. Earlier epochs become historical and should not influence new calls.
 - The active broadcast story is the editorial focus. Background stories remain context until promoted.
@@ -202,4 +203,30 @@ export function buildRealtimeIdleInstructions(personaId?: CommentaryPersonaId) {
 
 export function buildBullOffResponseInstructions(brief: string, personaId?: CommentaryPersonaId, gameOpening = false) {
   return withSessionContract(personaId, `${gameOpening ? 'CALL · X01 game opening · hype the starter and game, 6–18 words' : 'CALL · bull-off · short live reaction, 2–12 words'}\n${brief}`);
+}
+
+/** Append volatile direction only when a queued response is actually sent.
+ * Stable instructions preserve the cached conversation prefix; refreshed context
+ * at the tail remains available even when older items have been truncated.
+ */
+export function realtimeResponseMessages(event: Record<string, unknown>, contextBrief?: string): Record<string, unknown>[] {
+  if (event.type !== 'response.create') return [event];
+  const response = event.response as Record<string, unknown> | undefined;
+  if (!response) return [event];
+  const instructions = typeof response.instructions === 'string' ? response.instructions : '';
+  const marker = '\n\n# THIS CALL\n';
+  const split = instructions.indexOf(marker);
+  const direction = split >= 0 ? instructions.slice(split + marker.length) : '';
+  const text = [
+    contextBrief ? `# CURRENT AUTHORITATIVE CONTEXT\n${contextBrief}` : '',
+    direction ? `# THIS CALL\n${direction}` : '',
+  ].filter(Boolean).join('\n\n');
+  if (!text) return [event];
+  return [
+    { type: 'conversation.item.create', item: { type: 'message', role: 'user',
+      content: [{ type: 'input_text', text }] } },
+    { ...event, response: { ...response,
+      ...(split >= 0 ? { instructions: instructions.slice(0, split) } : {}),
+    } },
+  ];
 }

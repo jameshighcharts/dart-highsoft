@@ -8,6 +8,7 @@ import {
   buildRealtimeOpeningInstructions,
   buildRealtimeResponseInstructions,
   buildRealtimeSessionInstructions,
+  realtimeResponseMessages,
   realtimeLengthInstruction,
   realtimeTextureInstruction,
 } from './realtimePrompt';
@@ -271,4 +272,20 @@ it('preserves unresolved fair-ending and forecast-expiry rules in per-call instr
   expect(text).toContain('No winner announcement');
   expect(text).toContain('Even a displayed 100% chance is not a result');
   expect(text).toContain('expires on the next dart, correction, or turn change');
+});
+
+describe('Cache-stable response transport', () => {
+  it('keeps opening and idle instructions identical while appending their own direction', () => {
+    const events = [buildRealtimeOpeningInstructions('chad'), buildRealtimeIdleInstructions('chad')]
+      .map(instructions => realtimeResponseMessages({type: 'response.create', event_id: 'call',
+        response: {instructions, metadata: {story_token: 'story'}, output_modalities: ['audio']}}));
+    expect(events[0][1]).toEqual(events[1][1]);
+    expect(JSON.stringify(events[0][0])).not.toEqual(JSON.stringify(events[1][0]));
+    expect(JSON.stringify(events[1][0])).toContain('PAUSE');
+    expect(JSON.stringify(events[1][1])).not.toContain('PAUSE');
+  });
+  it('leaves cancellation and non-response messages untouched', () => {
+    const event = {type: 'response.cancel', event_id: 'cancel'};
+    expect(realtimeResponseMessages(event, 'fresh scores')).toEqual([event]);
+  });
 });
