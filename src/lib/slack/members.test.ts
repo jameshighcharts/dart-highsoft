@@ -10,7 +10,7 @@ async function lookup() {
   return (await import('./members')).lookupSlackUserIdByEmail;
 }
 
-function reply(user = member) {
+function reply(user: object = member) {
   fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true, user })));
 }
 
@@ -23,7 +23,7 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('Slack identity lookup', () => {
-  it('normalizes email, validates workspace and shares concurrent lookups', async () => {
+  it('normalizes email and shares concurrent lookups', async () => {
     reply();
     const resolve = await lookup();
     expect(await Promise.all([resolve(' Member@Highsoft.com ', 'TWORK'), resolve('member@highsoft.com', 'TWORK')])).toEqual(['U123', 'U123']);
@@ -32,15 +32,24 @@ describe('Slack identity lookup', () => {
   });
 
   it.each([
-    { team_id: 'TOTHER' }, { profile: { email: 'someone@highsoft.com' } },
-    { deleted: true }, { is_bot: true }, { is_app_user: true },
-    { is_restricted: true }, { is_ultra_restricted: true },
-  ])('rejects an ineligible Slack account: %j', async (overrides) => {
-    reply({ ...member, ...overrides });
+    { id: 'U123', profile: { email: ' Member@Highsoft.com ' } },
+    { ...member, team_id: 'TOTHER' },
+    { ...member, is_restricted: true },
+    { ...member, is_ultra_restricted: true },
+  ])('matches by email without requiring Slack membership metadata: %j', async (user) => {
+    reply(user);
+    expect(await (await lookup())('member@highsoft.com', 'TWORK')).toBe('U123');
+  });
+
+  it('rejects a different email even when the Slack workspace matches', async () => {
+    reply({ ...member, profile: { email: 'someone@highsoft.com' } });
     expect(await (await lookup())('member@highsoft.com', 'TWORK')).toBeNull();
   });
 
-  it.each([null, {}, { ok: true }, { ok: true, user: { id: 'U123' } }])('rejects malformed responses: %j', async (body) => {
+  it.each([null, {}, { ok: true }, { ok: true, user: { id: 'U123' } },
+    { ok: true, user: { ...member, id: ' ' } },
+    { ok: true, user: { ...member, profile: { email: null } } },
+  ])('rejects malformed responses: %j', async (body) => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify(body)));
     await expect((await lookup())('member@highsoft.com', 'TWORK')).rejects.toMatchObject({ reason: 'invalid_response' });
   });

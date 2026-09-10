@@ -37,7 +37,7 @@ export type UserSession = Session & {
 };
 
 export const NO_SLACK_IDENTITY_ERROR =
-  'Your Google email could not be matched to an active Highsoft Slack account. Sign in with Slack to use your existing player, or retry in a minute. If this continues, ask an admin to check that your Slack and Google emails match and that the Slack app has email lookup access.';
+  'Your Google email could not be matched to a Highsoft Slack account. Sign in with Slack to use your existing player, or retry in a minute. If this continues, ask an admin to check that your Slack and Google emails match and that the Slack app has email lookup access.';
 
 /**
  * Guard for self-service routes: a signed-in member whose Slack identity is

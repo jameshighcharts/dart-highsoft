@@ -39,7 +39,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `src/lib/auth/requireAdmin.test.ts`: Verifies mapped Google self-service access, unmatched-user refusal, and unchanged admin authorization.
 - `src/components/profile/ProfileClient.test.tsx`: Verifies retry and direct Slack sign-in from the profile identity error state.
 - `src/auth.ts` and `src/auth.test.ts`: Slack is the primary player identity. Google sessions map verified work emails through the configured Slack workspace, retry unresolved identities after one minute, and revalidate resolved identities after five minutes. Provider changes clear previous identity claims.
-- `src/lib/slack/members.test.ts`: Covers exact email/workspace matching, inactive/bot/guest rejection, malformed responses, configuration failures, and cached lookup recovery.
+- `src/lib/slack/members.test.ts`: Covers exact normalized email matching without membership-metadata requirements, mismatched emails, malformed responses, configuration failures, and cached lookup recovery.
 
 - `src/proxy.ts`: Accepts authenticated Slack and Google sessions with email and workspace identity, including Google users without a Slack link. `src/proxy.test.ts` covers redirect-loop prevention and anonymous access restrictions.
 
