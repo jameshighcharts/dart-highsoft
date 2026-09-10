@@ -31,15 +31,23 @@ describe('Bounded Scolia conversation', () => {
     const publisher = new ScoliaRealtimeCommentaryPublisher({} as SupabaseClient, 'test-key');
     const connection = { session: { match_id: 'match' }, socket: { readyState: 1, send: vi.fn() }, contextBrief: 'epoch 1: Ken has 40 left' };
     const internals = publisher as unknown as { send: (connection: unknown, event: Record<string, unknown>) => void };
-    const response = { type: 'response.create', response: { instructions: 'Persona and call rules', output_modalities: ['audio'] } };
+    const response = { type: 'response.create', response: { instructions: 'Persona and call rules\n\n# THIS CALL\nReact to the latest dart', output_modalities: ['audio'] } };
     internals.send(connection, response);
     connection.contextBrief = 'epoch 2: corrected, Ken has 32 left';
     internals.send(connection, response);
-    const sent = JSON.parse(connection.socket.send.mock.calls[1][0]);
+    const messages = connection.socket.send.mock.calls.map(([raw]) => JSON.parse(raw));
+    const sent = messages[3];
+    expect(messages.map(message => message.type)).toEqual([
+      'conversation.item.create', 'response.create', 'conversation.item.create', 'response.create',
+    ]);
+    expect(messages[2].item.content[0].text).toContain('epoch 2: corrected, Ken has 32 left');
+    expect(messages[2].item.content[0].text).not.toContain('40 left');
+    expect(messages[2].item.content[0].text).toContain('React to the latest dart');
+    expect(sent.response.instructions).toBe(messages[1].response.instructions);
     expect(sent.response.instructions).toContain('Persona and call rules');
-    expect(sent.response.instructions).toContain('epoch 2: corrected, Ken has 32 left');
+    expect(sent.response.instructions).not.toContain('epoch 2');
     expect(sent.response.instructions).not.toContain('40 left');
-    expect(response.response.instructions).toBe('Persona and call rules');
+    expect(response.response.instructions).toBe('Persona and call rules\n\n# THIS CALL\nReact to the latest dart');
     expect(sent.response.output_modalities).toEqual(['audio']);
   });
 });
@@ -227,7 +235,7 @@ describe('Scolia takeout commentary', () => {
     expect(await publisher.publishTakeoutFinished('match', 'takeout')).toBe(shouldAnnounce ? 1 : 0);
     const events = socket.send.mock.calls.map(([raw]) => JSON.parse(raw));
     expect(events.map((event) => event.type)).toEqual(shouldAnnounce
-      ? ['conversation.item.create', 'response.create'] : ['conversation.item.create']);
+      ? ['conversation.item.create', 'conversation.item.create', 'response.create'] : ['conversation.item.create']);
     expect(connection.pendingTakeoutHandoff).toBeNull();
     connection.visitTiming.reset();
     responseQueue.reset();
@@ -263,9 +271,9 @@ describe('Scolia pause reactions', () => {
       internals.connections.set(session.id, connection);
       vi.spyOn(internals, 'activeSessions').mockResolvedValue(state === 'expired' ? [] : [session]);
       await internals.publishIdleCall(connection, 'match', 'takeout', () => stillWaiting);
-      expect(connection.socket.send).toHaveBeenCalledTimes(state === 'waiting' ? 1 : 0);
+      expect(connection.socket.send).toHaveBeenCalledTimes(state === 'waiting' ? 2 : 0);
       if (state === 'waiting') {
-        const message = JSON.parse(connection.socket.send.mock.calls[0][0]);
+        const message = JSON.parse(connection.socket.send.mock.calls[1][0]);
         expect(message.type).toBe('response.create');
         expect(message.response.metadata.source).toBe('scolia-worker-idle');
       }

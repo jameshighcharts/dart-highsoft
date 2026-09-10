@@ -33,6 +33,7 @@ import {
   renderRealtimeSnapshot,
 } from '@/lib/commentary/realtimeWireFormat';
 import { RealtimePlayback, hasRealtimeAudioOutput } from '../lib/commentary/realtimePlayback.ts';
+import { realtimeResponseMessages } from '@/lib/commentary/realtimePrompt';
 import { RealtimeResponseQueue } from '@/lib/commentary/realtimeResponseQueue';
 
 export type RealtimeCommentaryStatus = 'idle' | 'connecting' | 'ready' | 'failed';
@@ -520,7 +521,9 @@ export class RealtimeCommentaryService {
 
   private send(event: Record<string, unknown>): boolean {
     if (this.channel?.readyState !== 'open') return false;
-    this.channel.send(JSON.stringify(event));
+    for (const message of realtimeResponseMessages(event)) {
+      this.channel.send(JSON.stringify(message));
+    }
     return true;
   }
 

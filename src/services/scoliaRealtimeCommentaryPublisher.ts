@@ -43,6 +43,7 @@ import {
   renderScoliaTakeoutFinished,
 } from '../lib/commentary/realtimeWireFormat.ts';
 import { RealtimePlayback, hasRealtimeAudioOutput } from '../lib/commentary/realtimePlayback.ts';
+import { realtimeResponseMessages } from '../lib/commentary/realtimePrompt.ts';
 import { RealtimeResponseQueue } from '../lib/commentary/realtimeResponseQueue.ts';
 import { runBoundedWork } from '../lib/scolia/orderedWorkQueue.ts';
 
@@ -1223,13 +1224,9 @@ export class ScoliaRealtimeCommentaryPublisher {
     if (connection.socket.readyState !== WebSocket.OPEN) {
       throw new Error('OpenAI Realtime sideband is not open');
     }
-    if (event.type === 'response.create' && connection.contextBrief) {
-      const response = event.response as Record<string, unknown>;
-      event = { ...event, response: { ...response,
-        instructions: `${response.instructions ?? ''}\n\n# CURRENT AUTHORITATIVE CONTEXT\n${connection.contextBrief}\nUse this current brief over older conversation. Memory facts are background, not new events to announce again.`,
-      } };
+    for (const message of realtimeResponseMessages(event, connection.contextBrief)) {
+      connection.socket.send(JSON.stringify(message));
     }
-    connection.socket.send(JSON.stringify(event));
   }
 
   private async recordFailure(delivery: DeliveryRow, error: unknown) {
