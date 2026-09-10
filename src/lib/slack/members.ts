@@ -113,7 +113,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-async function fetchSlackIdentity(email: string, teamId: string, token: string): Promise<string | null> {
+async function fetchSlackIdentity(email: string, token: string): Promise<string | null> {
   const response = await fetch('https://slack.com/api/users.lookupByEmail', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -133,19 +133,15 @@ async function fetchSlackIdentity(email: string, teamId: string, token: string):
   }
   const user = result.user;
   if (!isObject(user) || typeof user.id !== 'string' || !user.id.trim()
-    || typeof user.team_id !== 'string' || !isObject(user.profile)
+    || !isObject(user.profile)
     || typeof user.profile.email !== 'string') {
     throw new SlackIdentityLookupError('invalid_response');
   }
-  if (user.team_id !== teamId || user.profile.email.trim().toLowerCase() !== email
-    || user.deleted !== false || user.is_bot !== false || user.is_app_user === true
-    || user.is_restricted === true || user.is_ultra_restricted === true || user.id === 'USLACKBOT') {
-    return null;
-  }
+  if (user.profile.email.trim().toLowerCase() !== email) return null;
   return user.id.trim();
 }
 
-/** Exact work-email match to an active full member of the configured Slack workspace. */
+/** Exact work-email match using the configured workspace bot token. */
 export function lookupSlackUserIdByEmail(email: string, teamId: string): Promise<string | null> {
   const token = process.env.SLACK_BOT_TOKEN;
   if (!token || !teamId) return Promise.reject(new SlackIdentityLookupError('not_configured'));
@@ -161,7 +157,7 @@ export function lookupSlackUserIdByEmail(email: string, teamId: string): Promise
     const oldest = identityLookups.keys().next();
     if (!oldest.done) identityLookups.delete(oldest.value);
   }
-  const result = fetchSlackIdentity(normalizedEmail, teamId, token);
+  const result = fetchSlackIdentity(normalizedEmail, token);
   identityLookups.set(key, { expiresAt: now + 60_000, result });
   return result;
 }
