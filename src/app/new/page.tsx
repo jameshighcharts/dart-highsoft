@@ -814,8 +814,8 @@ export default function NewMatchPage() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-xs" aria-describedby={undefined}>
-          <DialogHeader>
+        <DialogContent className="w-[calc(100%-2rem)] max-w-xs rounded-2xl p-5" aria-describedby={undefined}>
+          <DialogHeader className="text-left">
             <DialogTitle>Score manually?</DialogTitle>
           </DialogHeader>
 
@@ -825,8 +825,8 @@ export default function NewMatchPage() {
                 const game = board.activeGame ?? null;
                 const busyId = board.activeMatchId ?? board.activeGameSessionId;
                 return (
-                  <div key={board.id} className="flex items-start gap-2 text-xs text-muted-foreground">
-                    <span aria-hidden className="mt-1 inline-block size-1.5 rounded-full bg-amber-400" />
+                  <div key={board.id} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <span aria-hidden className="mt-1.5 inline-block size-1.5 shrink-0 rounded-full bg-amber-400" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">
                         {boardShortName(board.name)} in use
@@ -838,7 +838,7 @@ export default function NewMatchPage() {
                     </span>
                     <button
                       type="button"
-                      className="text-red-300 underline-offset-2 hover:underline disabled:opacity-50"
+                      className="-my-2 -mr-2 min-h-11 shrink-0 px-2 text-red-300 underline-offset-2 hover:underline disabled:opacity-50"
                       disabled={endingGameId !== null}
                       onClick={() => void endActiveGame(board)}
                     >
@@ -858,7 +858,7 @@ export default function NewMatchPage() {
                   key={board.id}
                   type="button"
                   onClick={() => void startWithBoard(board.id)}
-                  className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-3 text-left font-semibold transition-colors hover:border-sky-300/50 hover:bg-sky-400/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-3 text-left font-semibold transition-colors hover:border-sky-300/50 hover:bg-sky-400/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span aria-hidden className="inline-block size-2 rounded-full bg-emerald-400" />
                   <span className="flex-1 truncate">{boardShortName(board.name)}</span>
@@ -870,13 +870,14 @@ export default function NewMatchPage() {
 
           <DialogFooter className="flex-col gap-2 sm:flex-col">
             {manualPrompt && manualPrompt.readyBoards.length > 0 && !showBoardChoice && (
-              <Button className="w-full" onClick={() => setShowBoardChoice(true)}>
+              <Button size="lg" className="h-12 w-full" onClick={() => setShowBoardChoice(true)}>
                 Add board
               </Button>
             )}
             <Button
               variant={manualPrompt && manualPrompt.readyBoards.length > 0 ? "ghost" : "default"}
-              className="w-full"
+              size="lg"
+              className="h-12 w-full"
               onClick={() => void startWithBoard(MANUAL_BOARD_VALUE)}
             >
               Score manually
