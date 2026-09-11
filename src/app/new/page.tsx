@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowRight, UserPlus, Search, Scale, Target, Volume2 } from "lucide-react";
+import { ArrowRight, UserPlus, Search, Scale, Target, Volume2, Wifi } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -168,6 +168,7 @@ export default function NewMatchPage() {
   const [boardsSimulated, setBoardsSimulated] = useState(false);
   const [manualPrompt, setManualPrompt] = useState<ManualScoringPrompt | null>(null);
   const [endingGameId, setEndingGameId] = useState<string | null>(null);
+  const [showBoardChoice, setShowBoardChoice] = useState(false);
   const [endGameError, setEndGameError] = useState<string | null>(null);
 
   // Ends the match or game occupying a board so it can be used again. Once the
@@ -470,6 +471,7 @@ export default function NewMatchPage() {
 
   function startWithBoard(boardId: string) {
     setManualPrompt(null);
+    setShowBoardChoice(false);
     if (boardId !== MANUAL_BOARD_VALUE) chooseBoard(boardId);
     return submitWithBoard(boardId);
   }
@@ -802,37 +804,54 @@ export default function NewMatchPage() {
           </div>
         </div>
       </div>
-      <Dialog open={manualPrompt !== null} onOpenChange={(open) => { if (!open) setManualPrompt(null); }}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto">
+      <Dialog
+        open={manualPrompt !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setManualPrompt(null);
+            setShowBoardChoice(false);
+            setEndGameError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Score manually?</DialogTitle>
             <DialogDescription>
               {manualPrompt && manualPrompt.readyBoards.length > 0
-                ? "A Scolia board is online and free. You can add it to score this game automatically, or keep scoring by hand."
-                : "A Scolia board is online but not free right now, so this game can only be scored by hand."}
+                ? "A Scolia board is free. Add it to score automatically, or keep scoring by hand."
+                : "No Scolia board is free right now, so this game can only be scored by hand."}
             </DialogDescription>
           </DialogHeader>
+
           {manualPrompt && manualPrompt.busyBoards.length > 0 && (
-            <div className="space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
-              <div>
-                <div className="font-semibold">Game already running</div>
-                <p className="text-amber-200/80">Only one game can run per board. End the live game to free the board.</p>
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                In use · one game per board
               </div>
               {manualPrompt.busyBoards.map((board) => {
                 const game = board.activeGame ?? null;
                 const busyId = board.activeMatchId ?? board.activeGameSessionId;
                 return (
-                  <div key={board.id} className="rounded-md bg-slate-950/50 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="font-semibold text-white">{board.name}</div>
-                        <div className="text-amber-200/90">
-                          {game?.label ?? (board.activeMatchId ? "X01 match" : "Game")}
-                          {game && game.players.length > 0 ? ` · ${game.players.join(" vs ")}` : ""}
+                  <div key={board.id} className="rounded-xl border border-white/10 bg-slate-900/60 p-3">
+                    <div className="flex items-center gap-2">
+                      <Wifi className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate font-semibold">{board.name}</span>
+                      <span className="flex items-center gap-1.5 text-xs text-amber-300">
+                        <span aria-hidden className="inline-block size-2 rounded-full bg-amber-400" />
+                        Live
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-end justify-between gap-3">
+                      <div className="min-w-0 text-sm">
+                        <div className="truncate">
+                          {game && game.players.length > 0
+                            ? game.players.join(" vs ")
+                            : board.activeMatchId ? "X01 match" : "Game"}
                         </div>
                         {game && (
-                          <div className="mt-1 text-xs text-slate-300">
-                            Started {formatRelativeTime(game.startedAt)}
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {game.label}
                             {game.legsPlayed !== null ? ` · leg ${game.legsPlayed}` : ""}
                             {` · ${game.turnsTaken} ${game.kind === "match" ? "turns" : "darts"}`}
                             {game.lastActivityAt ? ` · last dart ${formatRelativeTime(game.lastActivityAt)}` : " · no darts yet"}
@@ -840,9 +859,9 @@ export default function NewMatchPage() {
                         )}
                       </div>
                       <Button
-                        variant="destructive"
+                        variant="outline"
                         size="sm"
-                        className="shrink-0"
+                        className="shrink-0 border-red-500/40 text-red-300 hover:bg-red-500/10 hover:text-red-200"
                         disabled={endingGameId !== null}
                         onClick={() => void endActiveGame(board)}
                       >
@@ -852,21 +871,42 @@ export default function NewMatchPage() {
                   </div>
                 );
               })}
-              {endGameError && <p className="text-destructive">{endGameError}</p>}
+              {endGameError && <p className="text-sm text-destructive">{endGameError}</p>}
             </div>
           )}
+
+          {manualPrompt && manualPrompt.readyBoards.length > 0 && showBoardChoice && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Available boards
+              </div>
+              {manualPrompt.readyBoards.map((board) => (
+                <button
+                  key={board.id}
+                  type="button"
+                  onClick={() => void startWithBoard(board.id)}
+                  className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-slate-900/60 px-3 py-3 text-left transition-colors hover:border-sky-300/50 hover:bg-sky-400/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Wifi className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate font-semibold">{board.name}</span>
+                  <span className="flex items-center gap-1.5 text-xs text-emerald-300">
+                    <span aria-hidden className="inline-block size-2 rounded-full bg-emerald-400" />
+                    Ready
+                  </span>
+                  <ArrowRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          )}
+
           <DialogFooter className="flex-col gap-2 sm:flex-col">
-            {manualPrompt?.readyBoards.map((board) => (
-              <Button
-                key={board.id}
-                className="w-full"
-                onClick={() => void startWithBoard(board.id)}
-              >
-                No, add {board.name}
+            {manualPrompt && manualPrompt.readyBoards.length > 0 && !showBoardChoice && (
+              <Button className="w-full" onClick={() => setShowBoardChoice(true)}>
+                No, add a board
               </Button>
-            ))}
+            )}
             <Button
-              variant={manualPrompt && manualPrompt.readyBoards.length > 0 ? "outline" : "default"}
+              variant={manualPrompt && manualPrompt.readyBoards.length > 0 ? "ghost" : "default"}
               className="w-full"
               onClick={() => void startWithBoard(MANUAL_BOARD_VALUE)}
             >
