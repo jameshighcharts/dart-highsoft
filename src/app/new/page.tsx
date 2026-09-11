@@ -825,12 +825,16 @@ export default function NewMatchPage() {
                 const game = board.activeGame ?? null;
                 const busyId = board.activeMatchId ?? board.activeGameSessionId;
                 return (
-                  <div key={board.id} className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span aria-hidden className="inline-block size-1.5 rounded-full bg-amber-400" />
-                    <span className="flex-1 truncate">
-                      {boardShortName(board.name)} in use
-                      {game && game.players.length > 0 ? ` · ${game.players.join(" vs ")}` : ""}
-                      {game ? ` · ${formatDuration(game.startedAt)}` : ""}
+                  <div key={board.id} className="flex items-start gap-2 text-xs text-muted-foreground">
+                    <span aria-hidden className="mt-1 inline-block size-1.5 rounded-full bg-amber-400" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">
+                        {boardShortName(board.name)} in use
+                        {game ? ` · ${formatDuration(game.startedAt)}` : ""}
+                      </span>
+                      {game && game.players.length > 0 && (
+                        <span className="block truncate text-foreground/80">{game.players.join(" vs ")}</span>
+                      )}
                     </span>
                     <button
                       type="button"
