@@ -26,6 +26,10 @@ describe('getManualScoringPrompt', () => {
     ).toBeNull();
   });
 
+  it('returns null when the worker is connected but the Scolia unit is off', () => {
+    expect(getManualScoringPrompt([board({ boardStatus: 'Offline', selectable: false })])).toBeNull();
+  });
+
   it('offers ready boards as an alternative to manual scoring', () => {
     const ready = board();
     const prompt = getManualScoringPrompt([ready]);

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 
 import { hasFreshScoliaHeartbeat, isScoliaBoardReady } from '@/lib/scolia/availability';
+import type { ScoliaBoardOccupant } from '@/lib/scolia/types';
+import { summarizeActiveGameSessions, summarizeActiveMatches } from '@/lib/server/scoliaActiveGameSummary';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
 type BoardRow = {
@@ -55,6 +57,17 @@ export async function GET() {
         .filter((match): match is ActiveMatchRow & { scolia_board_id: string } => Boolean(match.scolia_board_id))
         .map((match) => [match.scolia_board_id, match.id])
     );
+    // Summaries are informational, so a failure here must not hide the boards.
+    const [matchSummaries, gameSummaries] = await Promise.all([
+      summarizeActiveMatches(supabase, [...activeMatchesByBoard.values()]).catch((error: unknown) => {
+        console.error('Failed to summarize active matches:', error);
+        return new Map<string, ScoliaBoardOccupant>();
+      }),
+      summarizeActiveGameSessions(supabase, [...activeGamesByBoard.values()]).catch((error: unknown) => {
+        console.error('Failed to summarize active game sessions:', error);
+        return new Map<string, ScoliaBoardOccupant>();
+      }),
+    ]);
     const now = Date.now();
     const boards = ((boardsResult.data ?? []) as BoardRow[]).map((board) => {
       const activeMatchId = activeMatchesByBoard.get(board.id) ?? null;
@@ -82,6 +95,10 @@ export async function GET() {
         workerHeartbeatAt: board.worker_heartbeat_at,
         activeMatchId,
         activeGameSessionId,
+        activeGame:
+          (activeMatchId ? matchSummaries.get(activeMatchId) : null) ??
+          (activeGameSessionId ? gameSummaries.get(activeGameSessionId) : null) ??
+          null,
         selectable: ready && !activeMatchId && !activeGameSessionId,
       };
     });

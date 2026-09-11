@@ -7,24 +7,20 @@ export type ManualScoringPrompt = {
   busyBoards: ScoliaBoardOption[];
 };
 
-function isOnline(board: ScoliaBoardOption): boolean {
-  return board.workerConnectionStatus !== 'disconnected';
-}
-
 function isBusy(board: ScoliaBoardOption): boolean {
-  return Boolean(board.activeMatchId || board.activeGameSessionId);
+  return board.workerConnectionStatus !== 'disconnected' && Boolean(board.activeMatchId || board.activeGameSessionId);
 }
 
 /**
  * Decides whether starting a manually scored game should first ask the user
- * to confirm. Returns null when no Scolia board is online, so manual scoring
- * is the only option and no prompt is needed.
+ * to confirm. Returns null when no board is free and no online board has a
+ * game running, so manual scoring is the only option and no prompt is needed.
+ * A board whose worker is connected but whose Scolia unit is switched off does
+ * not count as online.
  */
 export function getManualScoringPrompt(boards: ScoliaBoardOption[]): ManualScoringPrompt | null {
-  const online = boards.filter(isOnline);
-  if (online.length === 0) return null;
-  return {
-    readyBoards: online.filter((board) => board.selectable),
-    busyBoards: online.filter(isBusy),
-  };
+  const readyBoards = boards.filter((board) => board.selectable);
+  const busyBoards = boards.filter(isBusy);
+  if (readyBoards.length === 0 && busyBoards.length === 0) return null;
+  return { readyBoards, busyBoards };
 }

@@ -61,6 +61,16 @@ type StartScore = "201" | "301" | "501";
 type FinishRule = "single_out" | "double_out";
 
 const STORAGE_KEY = "match-location-filter";
+
+function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(diffMs) || diffMs < 60_000) return "just now";
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.round(hours / 24)} d ago`;
+}
 function optionFromStatus(
   status: ScoliaBoardPublicStatus,
   current?: ScoliaBoardOption,
@@ -84,6 +94,7 @@ function optionFromStatus(
     workerHeartbeatAt: status.workerHeartbeatAt,
     activeMatchId,
     activeGameSessionId,
+    activeGame: current?.activeGame ?? null,
     selectable: ready && !activeMatchId && !activeGameSessionId,
   };
 }
@@ -154,6 +165,29 @@ export default function NewMatchPage() {
   }, []);
   const [boardsLoading, setBoardsLoading] = useState(true);
   const [manualPrompt, setManualPrompt] = useState<ManualScoringPrompt | null>(null);
+  const [endingGameId, setEndingGameId] = useState<string | null>(null);
+  const [endGameError, setEndGameError] = useState<string | null>(null);
+
+  // Ends the match or game occupying a board so it can be used again. Once the
+  // board list refreshes, the dialog recomputes and offers the freed board.
+  async function endActiveGame(board: ScoliaBoardOption) {
+    const matchId = board.activeMatchId;
+    const gameId = board.activeGameSessionId;
+    const target = matchId ? `/api/matches/${matchId}/end` : gameId ? `/api/games/${gameId}/end` : null;
+    if (!target) return;
+    setEndingGameId(matchId ?? gameId);
+    setEndGameError(null);
+    try {
+      await apiRequest(target, { method: "PATCH" });
+      const result = await apiRequest<{ boards: ScoliaBoardOption[] }>("/api/scolia/boards/available");
+      setBoards(result.boards);
+      setManualPrompt(getManualScoringPrompt(result.boards));
+    } catch (error) {
+      setEndGameError(error instanceof Error ? error.message : "Failed to end the game");
+    } finally {
+      setEndingGameId(null);
+    }
+  }
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const boardsRequestInFlight = useRef(false);
   // Start with every location for SSR and pick up the stored filter after hydration.
@@ -776,16 +810,46 @@ export default function NewMatchPage() {
             </DialogDescription>
           </DialogHeader>
           {manualPrompt && manualPrompt.busyBoards.length > 0 && (
-            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
-              <div className="font-semibold">Game already running</div>
-              <ul className="mt-1 list-disc pl-5">
-                {manualPrompt.busyBoards.map((board) => (
-                  <li key={board.id}>
-                    {board.name} has a {board.activeMatchId ? "match" : "game"} in progress.
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-1 text-amber-200/80">Only one game can run per board.</p>
+            <div className="space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
+              <div>
+                <div className="font-semibold">Game already running</div>
+                <p className="text-amber-200/80">Only one game can run per board. End the live game to free the board.</p>
+              </div>
+              {manualPrompt.busyBoards.map((board) => {
+                const game = board.activeGame ?? null;
+                const busyId = board.activeMatchId ?? board.activeGameSessionId;
+                return (
+                  <div key={board.id} className="rounded-md bg-slate-950/50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-white">{board.name}</div>
+                        <div className="text-amber-200/90">
+                          {game?.label ?? (board.activeMatchId ? "X01 match" : "Game")}
+                          {game && game.players.length > 0 ? ` · ${game.players.join(" vs ")}` : ""}
+                        </div>
+                        {game && (
+                          <div className="mt-1 text-xs text-slate-300">
+                            Started {formatRelativeTime(game.startedAt)}
+                            {game.legsPlayed !== null ? ` · leg ${game.legsPlayed}` : ""}
+                            {` · ${game.turnsTaken} ${game.kind === "match" ? "turns" : "darts"}`}
+                            {game.lastActivityAt ? ` · last dart ${formatRelativeTime(game.lastActivityAt)}` : " · no darts yet"}
+                          </div>
+                        )}
+                      </div>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="shrink-0"
+                        disabled={endingGameId !== null}
+                        onClick={() => void endActiveGame(board)}
+                      >
+                        {endingGameId === busyId ? "Ending…" : "End game"}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+              {endGameError && <p className="text-destructive">{endGameError}</p>}
             </div>
           )}
           <DialogFooter className="flex-col gap-2 sm:flex-col">
