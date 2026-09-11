@@ -164,6 +164,8 @@ export default function NewMatchPage() {
     if (stored !== MANUAL_BOARD_VALUE) setSelectedBoardId(stored);
   }, []);
   const [boardsLoading, setBoardsLoading] = useState(true);
+  // Dev-only: the API returns simulated boards, so realtime must not override them.
+  const [boardsSimulated, setBoardsSimulated] = useState(false);
   const [manualPrompt, setManualPrompt] = useState<ManualScoringPrompt | null>(null);
   const [endingGameId, setEndingGameId] = useState<string | null>(null);
   const [endGameError, setEndGameError] = useState<string | null>(null);
@@ -206,11 +208,12 @@ export default function NewMatchPage() {
     if (boardsRequestInFlight.current) return;
     boardsRequestInFlight.current = true;
     try {
-      const result = await apiRequest<{ boards: ScoliaBoardOption[] }>(
+      const result = await apiRequest<{ boards: ScoliaBoardOption[]; simulated?: boolean }>(
         "/api/scolia/boards/available",
         { method: "GET" },
       );
       setBoards(result.boards);
+      setBoardsSimulated(result.simulated === true);
       setBoardsError(null);
     } catch (error) {
       setBoardsError(
@@ -271,7 +274,7 @@ export default function NewMatchPage() {
       setBoards((current) => current.filter((board) => board.id !== boardId)),
     onOccupancyChange: () => void loadBoards(false),
     onReconcile: () => void loadBoards(false),
-  });
+  }, !boardsSimulated);
 
   useEffect(() => {
     const interval = window.setInterval(() => {

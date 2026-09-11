@@ -19,6 +19,43 @@ type ActiveMatchRow = {
   scolia_board_id: string | null;
 };
 
+/**
+ * Dev-only stand-in for live boards so the manual-scoring dialog can be tried
+ * without hardware: the first board is free, the second runs a fake match.
+ * Enabled with SCOLIA_SIMULATE_BOARDS=1 in .env.local (development only).
+ */
+function simulateBoards(rows: BoardRow[]) {
+  // Heartbeats in the future stay fresh however long the page is open.
+  const heartbeat = new Date(Date.now() + 60 * 60_000).toISOString();
+  return rows.map((board, index) => {
+    const busy = index === 1;
+    const fakeMatchId = `00000000-0000-4000-8000-${board.id.slice(-12)}`;
+    return {
+      id: board.id,
+      name: board.name,
+      isHomeSbc: board.is_home_sbc,
+      workerConnectionStatus: 'connected' as const,
+      boardStatus: busy ? 'InGame' : 'Ready',
+      workerHeartbeatAt: heartbeat,
+      activeMatchId: busy ? fakeMatchId : null,
+      activeGameSessionId: null,
+      activeGame: busy
+        ? {
+            kind: 'match' as const,
+            id: fakeMatchId,
+            label: '501 · first to 2 legs',
+            players: ['Simulated Sam', 'Test Tina'],
+            startedAt: new Date(Date.now() - 23 * 60_000).toISOString(),
+            lastActivityAt: new Date(Date.now() - 4 * 60_000).toISOString(),
+            legsPlayed: 2,
+            turnsTaken: 37,
+          }
+        : null,
+      selectable: !busy,
+    };
+  });
+}
+
 export async function GET() {
   try {
     const supabase = getSupabaseServerClient();
@@ -42,6 +79,9 @@ export async function GET() {
     ]);
 
     if (boardsResult.error) throw new Error(boardsResult.error.message);
+    if (process.env.NODE_ENV === 'development' && process.env.SCOLIA_SIMULATE_BOARDS === '1') {
+      return NextResponse.json({ boards: simulateBoards((boardsResult.data ?? []) as BoardRow[]), simulated: true });
+    }
     if (activeMatchesResult.error) throw new Error(activeMatchesResult.error.message);
     if (activeGamesResult.error && activeGamesResult.error.code !== '42P01') {
       throw new Error(activeGamesResult.error.message);
