@@ -29,6 +29,21 @@ export type ScoliaActiveMatchSummary = {
   createdAt: string;
 };
 
+/** Snapshot of the match or game currently occupying a board. */
+export type ScoliaBoardOccupant = {
+  kind: 'match' | 'game';
+  id: string;
+  /** Short description, e.g. "501 · first to 2 legs" or "Cricket". */
+  label: string;
+  players: string[];
+  startedAt: string;
+  lastActivityAt: string | null;
+  /** Legs played so far (matches only). */
+  legsPlayed: number | null;
+  /** Turns taken (matches) or darts thrown (games). */
+  turnsTaken: number;
+};
+
 export type ScoliaBoardOption = {
   id: string;
   name: string;
@@ -38,6 +53,7 @@ export type ScoliaBoardOption = {
   workerHeartbeatAt: string | null;
   activeMatchId: string | null;
   activeGameSessionId: string | null;
+  activeGame?: ScoliaBoardOccupant | null;
   selectable: boolean;
 };
 

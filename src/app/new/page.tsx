@@ -9,6 +9,10 @@ import {
   hasFreshScoliaHeartbeat,
   isScoliaBoardReady,
 } from "@/lib/scolia/availability";
+import {
+  getManualScoringPrompt,
+  type ManualScoringPrompt,
+} from "@/lib/scolia/manualScoringPrompt";
 import type {
   ScoliaBoardOption,
   ScoliaBoardPublicStatus,
@@ -44,6 +48,7 @@ import {
 import {
   BoardPicker,
   MANUAL_BOARD_VALUE,
+  boardShortName,
   loadStoredBoardId,
   storeBoardId,
 } from "@/components/games/BoardPicker";
@@ -57,6 +62,15 @@ type StartScore = "201" | "301" | "501";
 type FinishRule = "single_out" | "double_out";
 
 const STORAGE_KEY = "match-location-filter";
+
+function formatDuration(iso: string): string {
+  const diffMs = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(diffMs) || diffMs < 60_000) return "just started";
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} h ${minutes % 60} min`;
+}
 function optionFromStatus(
   status: ScoliaBoardPublicStatus,
   current?: ScoliaBoardOption,
@@ -80,6 +94,7 @@ function optionFromStatus(
     workerHeartbeatAt: status.workerHeartbeatAt,
     activeMatchId,
     activeGameSessionId,
+    activeGame: current?.activeGame ?? null,
     selectable: ready && !activeMatchId && !activeGameSessionId,
   };
 }
@@ -149,6 +164,33 @@ export default function NewMatchPage() {
     if (stored !== MANUAL_BOARD_VALUE) setSelectedBoardId(stored);
   }, []);
   const [boardsLoading, setBoardsLoading] = useState(true);
+  // Dev-only: the API returns simulated boards, so realtime must not override them.
+  const [boardsSimulated, setBoardsSimulated] = useState(false);
+  const [manualPrompt, setManualPrompt] = useState<ManualScoringPrompt | null>(null);
+  const [endingGameId, setEndingGameId] = useState<string | null>(null);
+  const [showBoardChoice, setShowBoardChoice] = useState(false);
+  const [endGameError, setEndGameError] = useState<string | null>(null);
+
+  // Ends the match or game occupying a board so it can be used again. Once the
+  // board list refreshes, the dialog recomputes and offers the freed board.
+  async function endActiveGame(board: ScoliaBoardOption) {
+    const matchId = board.activeMatchId;
+    const gameId = board.activeGameSessionId;
+    const target = matchId ? `/api/matches/${matchId}/end` : gameId ? `/api/games/${gameId}/end` : null;
+    if (!target) return;
+    setEndingGameId(matchId ?? gameId);
+    setEndGameError(null);
+    try {
+      await apiRequest(target, { method: "PATCH" });
+      const result = await apiRequest<{ boards: ScoliaBoardOption[] }>("/api/scolia/boards/available");
+      setBoards(result.boards);
+      setManualPrompt(getManualScoringPrompt(result.boards));
+    } catch (error) {
+      setEndGameError(error instanceof Error ? error.message : "Failed to end the game");
+    } finally {
+      setEndingGameId(null);
+    }
+  }
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const boardsRequestInFlight = useRef(false);
   // Start with every location for SSR and pick up the stored filter after hydration.
@@ -167,11 +209,12 @@ export default function NewMatchPage() {
     if (boardsRequestInFlight.current) return;
     boardsRequestInFlight.current = true;
     try {
-      const result = await apiRequest<{ boards: ScoliaBoardOption[] }>(
+      const result = await apiRequest<{ boards: ScoliaBoardOption[]; simulated?: boolean }>(
         "/api/scolia/boards/available",
         { method: "GET" },
       );
       setBoards(result.boards);
+      setBoardsSimulated(result.simulated === true);
       setBoardsError(null);
     } catch (error) {
       setBoardsError(
@@ -232,7 +275,7 @@ export default function NewMatchPage() {
       setBoards((current) => current.filter((board) => board.id !== boardId)),
     onOccupancyChange: () => void loadBoards(false),
     onReconcile: () => void loadBoards(false),
-  });
+  }, !boardsSimulated);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -381,7 +424,7 @@ export default function NewMatchPage() {
     .filter((p): p is Player => Boolean(p))
     .map((p) => ({ id: p.id, name: p.display_name, display_name: p.display_name, avatar_url: p.avatar_url }));
 
-  async function onStartGame(mode: GameMode) {
+  async function onStartGame(mode: GameMode, boardId: string) {
     const problem = validateGameSelection(mode, gameConfig, selectedIds);
     if (problem) {
       setSubmitError(problem);
@@ -396,8 +439,7 @@ export default function NewMatchPage() {
           mode,
           config: gameConfig,
           playerIds: selectedIds,
-          scoliaBoardId:
-            selectedBoardId === MANUAL_BOARD_VALUE ? null : selectedBoardId,
+          scoliaBoardId: boardId === MANUAL_BOARD_VALUE ? null : boardId,
         },
       });
       router.push(`/game/${result.gameId}${isTVModeEnabled() ? '?spectator=true' : ''}`);
@@ -411,8 +453,31 @@ export default function NewMatchPage() {
     }
   }
 
-  async function onStart() {
-    if (gameMode) return onStartGame(gameMode);
+  /**
+   * Manual scoring while a Scolia board is online is usually a mistake, so
+   * confirm first. The same dialog warns when an online board already has a
+   * game running, since a board can only host one game at a time.
+   */
+  function onStart() {
+    if (selectedBoardId === MANUAL_BOARD_VALUE) {
+      const prompt = getManualScoringPrompt(boards);
+      if (prompt) {
+        setManualPrompt(prompt);
+        return;
+      }
+    }
+    void startWithBoard(selectedBoardId);
+  }
+
+  function startWithBoard(boardId: string) {
+    setManualPrompt(null);
+    setShowBoardChoice(false);
+    if (boardId !== MANUAL_BOARD_VALUE) chooseBoard(boardId);
+    return submitWithBoard(boardId);
+  }
+
+  async function submitWithBoard(boardId: string) {
+    if (gameMode) return onStartGame(gameMode, boardId);
     if (selectedIds.length < 2) return alert("Select at least 2 players");
     requestTVModeFullscreen();
     setSubmitting(true);
@@ -425,8 +490,7 @@ export default function NewMatchPage() {
           closestToBull,
           fairEnding: legsToWin === 1 ? fairEnding : false,
           playerIds: selectedIds,
-          scoliaBoardId:
-            selectedBoardId === MANUAL_BOARD_VALUE ? null : selectedBoardId,
+          scoliaBoardId: boardId === MANUAL_BOARD_VALUE ? null : boardId,
         },
       });
       const params = new URLSearchParams();
@@ -740,6 +804,87 @@ export default function NewMatchPage() {
           </div>
         </div>
       </div>
+      <Dialog
+        open={manualPrompt !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setManualPrompt(null);
+            setShowBoardChoice(false);
+            setEndGameError(null);
+          }
+        }}
+      >
+        <DialogContent className="w-[calc(100%-2rem)] max-w-xs rounded-2xl p-5" aria-describedby={undefined}>
+          <DialogHeader className="text-left">
+            <DialogTitle>Score manually?</DialogTitle>
+          </DialogHeader>
+
+          {manualPrompt && manualPrompt.busyBoards.length > 0 && (
+            <div className="space-y-1">
+              {manualPrompt.busyBoards.map((board) => {
+                const game = board.activeGame ?? null;
+                const busyId = board.activeMatchId ?? board.activeGameSessionId;
+                return (
+                  <div key={board.id} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <span aria-hidden className="mt-1.5 inline-block size-1.5 shrink-0 rounded-full bg-amber-400" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">
+                        {boardShortName(board.name)} in use
+                        {game ? ` · ${formatDuration(game.startedAt)}` : ""}
+                      </span>
+                      {game && game.players.length > 0 && (
+                        <span className="block truncate text-foreground/80">{game.players.join(" vs ")}</span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      className="-my-2 -mr-2 min-h-11 shrink-0 px-2 text-red-300 underline-offset-2 hover:underline disabled:opacity-50"
+                      disabled={endingGameId !== null}
+                      onClick={() => void endActiveGame(board)}
+                    >
+                      {endingGameId === busyId ? "Ending…" : "End"}
+                    </button>
+                  </div>
+                );
+              })}
+              {endGameError && <p className="text-xs text-destructive">{endGameError}</p>}
+            </div>
+          )}
+
+          {manualPrompt && manualPrompt.readyBoards.length > 0 && showBoardChoice && (
+            <div className="space-y-2">
+              {manualPrompt.readyBoards.map((board) => (
+                <button
+                  key={board.id}
+                  type="button"
+                  onClick={() => void startWithBoard(board.id)}
+                  className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-3 text-left font-semibold transition-colors hover:border-sky-300/50 hover:bg-sky-400/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span aria-hidden className="inline-block size-2 rounded-full bg-emerald-400" />
+                  <span className="flex-1 truncate">{boardShortName(board.name)}</span>
+                  <ArrowRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            {manualPrompt && manualPrompt.readyBoards.length > 0 && !showBoardChoice && (
+              <Button size="lg" className="h-12 w-full" onClick={() => setShowBoardChoice(true)}>
+                Add board
+              </Button>
+            )}
+            <Button
+              variant={manualPrompt && manualPrompt.readyBoards.length > 0 ? "ghost" : "default"}
+              size="lg"
+              className="h-12 w-full"
+              onClick={() => void startWithBoard(MANUAL_BOARD_VALUE)}
+            >
+              Score manually
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

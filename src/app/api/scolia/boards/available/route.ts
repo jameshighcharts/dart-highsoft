@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 
 import { hasFreshScoliaHeartbeat, isScoliaBoardReady } from '@/lib/scolia/availability';
+import type { ScoliaBoardOccupant } from '@/lib/scolia/types';
+import { summarizeActiveGameSessions, summarizeActiveMatches } from '@/lib/server/scoliaActiveGameSummary';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
 type BoardRow = {
@@ -16,6 +18,43 @@ type ActiveMatchRow = {
   id: string;
   scolia_board_id: string | null;
 };
+
+/**
+ * Dev-only stand-in for live boards so the manual-scoring dialog can be tried
+ * without hardware: the first board is free, the second runs a fake match.
+ * Enabled with SCOLIA_SIMULATE_BOARDS=1 in .env.local (development only).
+ */
+function simulateBoards(rows: BoardRow[]) {
+  // Heartbeats in the future stay fresh however long the page is open.
+  const heartbeat = new Date(Date.now() + 60 * 60_000).toISOString();
+  return rows.map((board, index) => {
+    const busy = index === 1;
+    const fakeMatchId = `00000000-0000-4000-8000-${board.id.slice(-12)}`;
+    return {
+      id: board.id,
+      name: board.name,
+      isHomeSbc: board.is_home_sbc,
+      workerConnectionStatus: 'connected' as const,
+      boardStatus: busy ? 'InGame' : 'Ready',
+      workerHeartbeatAt: heartbeat,
+      activeMatchId: busy ? fakeMatchId : null,
+      activeGameSessionId: null,
+      activeGame: busy
+        ? {
+            kind: 'match' as const,
+            id: fakeMatchId,
+            label: '501 · first to 2 legs',
+            players: ['Simulated Sam', 'Test Tina'],
+            startedAt: new Date(Date.now() - 23 * 60_000).toISOString(),
+            lastActivityAt: new Date(Date.now() - 4 * 60_000).toISOString(),
+            legsPlayed: 2,
+            turnsTaken: 37,
+          }
+        : null,
+      selectable: !busy,
+    };
+  });
+}
 
 export async function GET() {
   try {
@@ -40,6 +79,9 @@ export async function GET() {
     ]);
 
     if (boardsResult.error) throw new Error(boardsResult.error.message);
+    if (process.env.NODE_ENV === 'development' && process.env.SCOLIA_SIMULATE_BOARDS === '1') {
+      return NextResponse.json({ boards: simulateBoards((boardsResult.data ?? []) as BoardRow[]), simulated: true });
+    }
     if (activeMatchesResult.error) throw new Error(activeMatchesResult.error.message);
     if (activeGamesResult.error && activeGamesResult.error.code !== '42P01') {
       throw new Error(activeGamesResult.error.message);
@@ -55,6 +97,17 @@ export async function GET() {
         .filter((match): match is ActiveMatchRow & { scolia_board_id: string } => Boolean(match.scolia_board_id))
         .map((match) => [match.scolia_board_id, match.id])
     );
+    // Summaries are informational, so a failure here must not hide the boards.
+    const [matchSummaries, gameSummaries] = await Promise.all([
+      summarizeActiveMatches(supabase, [...activeMatchesByBoard.values()]).catch((error: unknown) => {
+        console.error('Failed to summarize active matches:', error);
+        return new Map<string, ScoliaBoardOccupant>();
+      }),
+      summarizeActiveGameSessions(supabase, [...activeGamesByBoard.values()]).catch((error: unknown) => {
+        console.error('Failed to summarize active game sessions:', error);
+        return new Map<string, ScoliaBoardOccupant>();
+      }),
+    ]);
     const now = Date.now();
     const boards = ((boardsResult.data ?? []) as BoardRow[]).map((board) => {
       const activeMatchId = activeMatchesByBoard.get(board.id) ?? null;
@@ -82,6 +135,10 @@ export async function GET() {
         workerHeartbeatAt: board.worker_heartbeat_at,
         activeMatchId,
         activeGameSessionId,
+        activeGame:
+          (activeMatchId ? matchSummaries.get(activeMatchId) : null) ??
+          (activeGameSessionId ? gameSummaries.get(activeGameSessionId) : null) ??
+          null,
         selectable: ready && !activeMatchId && !activeGameSessionId,
       };
     });

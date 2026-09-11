@@ -45,6 +45,12 @@ const BOARD_SLOTS = [
   { key: "sogndal", label: "Scolia Sogndal", keyword: "sogndal" },
 ] as const;
 
+/** Short place name for a board: "Highsoft Vik office" becomes "Vik". */
+export function boardShortName(name: string): string {
+  const slot = BOARD_SLOTS.find((s) => name.toLowerCase().includes(s.keyword));
+  return slot ? slot.label.replace(/^Scolia /, "") : name;
+}
+
 type Tone = "ready" | "busy" | "offline" | "none";
 
 const DOT_CLASS: Record<Tone, string> = {
