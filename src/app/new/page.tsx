@@ -9,6 +9,10 @@ import {
   hasFreshScoliaHeartbeat,
   isScoliaBoardReady,
 } from "@/lib/scolia/availability";
+import {
+  getManualScoringPrompt,
+  type ManualScoringPrompt,
+} from "@/lib/scolia/manualScoringPrompt";
 import type {
   ScoliaBoardOption,
   ScoliaBoardPublicStatus,
@@ -149,6 +153,7 @@ export default function NewMatchPage() {
     if (stored !== MANUAL_BOARD_VALUE) setSelectedBoardId(stored);
   }, []);
   const [boardsLoading, setBoardsLoading] = useState(true);
+  const [manualPrompt, setManualPrompt] = useState<ManualScoringPrompt | null>(null);
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const boardsRequestInFlight = useRef(false);
   // Start with every location for SSR and pick up the stored filter after hydration.
@@ -381,7 +386,7 @@ export default function NewMatchPage() {
     .filter((p): p is Player => Boolean(p))
     .map((p) => ({ id: p.id, name: p.display_name, display_name: p.display_name, avatar_url: p.avatar_url }));
 
-  async function onStartGame(mode: GameMode) {
+  async function onStartGame(mode: GameMode, boardId: string) {
     const problem = validateGameSelection(mode, gameConfig, selectedIds);
     if (problem) {
       setSubmitError(problem);
@@ -396,8 +401,7 @@ export default function NewMatchPage() {
           mode,
           config: gameConfig,
           playerIds: selectedIds,
-          scoliaBoardId:
-            selectedBoardId === MANUAL_BOARD_VALUE ? null : selectedBoardId,
+          scoliaBoardId: boardId === MANUAL_BOARD_VALUE ? null : boardId,
         },
       });
       router.push(`/game/${result.gameId}${isTVModeEnabled() ? '?spectator=true' : ''}`);
@@ -411,8 +415,30 @@ export default function NewMatchPage() {
     }
   }
 
-  async function onStart() {
-    if (gameMode) return onStartGame(gameMode);
+  /**
+   * Manual scoring while a Scolia board is online is usually a mistake, so
+   * confirm first. The same dialog warns when an online board already has a
+   * game running, since a board can only host one game at a time.
+   */
+  function onStart() {
+    if (selectedBoardId === MANUAL_BOARD_VALUE) {
+      const prompt = getManualScoringPrompt(boards);
+      if (prompt) {
+        setManualPrompt(prompt);
+        return;
+      }
+    }
+    void startWithBoard(selectedBoardId);
+  }
+
+  function startWithBoard(boardId: string) {
+    setManualPrompt(null);
+    if (boardId !== MANUAL_BOARD_VALUE) chooseBoard(boardId);
+    return submitWithBoard(boardId);
+  }
+
+  async function submitWithBoard(boardId: string) {
+    if (gameMode) return onStartGame(gameMode, boardId);
     if (selectedIds.length < 2) return alert("Select at least 2 players");
     requestTVModeFullscreen();
     setSubmitting(true);
@@ -425,8 +451,7 @@ export default function NewMatchPage() {
           closestToBull,
           fairEnding: legsToWin === 1 ? fairEnding : false,
           playerIds: selectedIds,
-          scoliaBoardId:
-            selectedBoardId === MANUAL_BOARD_VALUE ? null : selectedBoardId,
+          scoliaBoardId: boardId === MANUAL_BOARD_VALUE ? null : boardId,
         },
       });
       const params = new URLSearchParams();
@@ -740,6 +765,49 @@ export default function NewMatchPage() {
           </div>
         </div>
       </div>
+      <Dialog open={manualPrompt !== null} onOpenChange={(open) => { if (!open) setManualPrompt(null); }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Score manually?</DialogTitle>
+            <DialogDescription>
+              {manualPrompt && manualPrompt.readyBoards.length > 0
+                ? "A Scolia board is online and free. You can add it to score this game automatically, or keep scoring by hand."
+                : "A Scolia board is online but not free right now, so this game can only be scored by hand."}
+            </DialogDescription>
+          </DialogHeader>
+          {manualPrompt && manualPrompt.busyBoards.length > 0 && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+              <div className="font-semibold">Game already running</div>
+              <ul className="mt-1 list-disc pl-5">
+                {manualPrompt.busyBoards.map((board) => (
+                  <li key={board.id}>
+                    {board.name} has a {board.activeMatchId ? "match" : "game"} in progress.
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-amber-200/80">Only one game can run per board.</p>
+            </div>
+          )}
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            {manualPrompt?.readyBoards.map((board) => (
+              <Button
+                key={board.id}
+                className="w-full"
+                onClick={() => void startWithBoard(board.id)}
+              >
+                No, add {board.name}
+              </Button>
+            ))}
+            <Button
+              variant={manualPrompt && manualPrompt.readyBoards.length > 0 ? "outline" : "default"}
+              className="w-full"
+              onClick={() => void startWithBoard(MANUAL_BOARD_VALUE)}
+            >
+              Yes, score manually
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
