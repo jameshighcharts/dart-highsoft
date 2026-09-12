@@ -28,6 +28,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { VoiceOption } from '@/services/ttsService';
 import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
+import { MatchRulesLine } from './MatchRulesLine';
 import type { DartIQLiveEvidence, DartIQLiveInput } from '@/lib/dartiq/liveWorker';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
@@ -312,6 +313,7 @@ export function MatchSpectatorView({
   return (
     <div className="fixed inset-0 overflow-y-auto bg-background">
       <div className="w-full space-y-3 md:space-y-6 px-4 md:px-6 xl:px-8 py-6 pb-24 md:pb-6 relative">
+        <MatchRulesLine finishRule={finishRule} fairEnding={match.fair_ending} />
         {match.paused_at && (
           <div className="rounded-md border border-amber-400/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/70 dark:bg-amber-950/30 dark:text-amber-100">
             Game paused
