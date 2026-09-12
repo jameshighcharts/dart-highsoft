@@ -27,6 +27,7 @@ import { computeHit, type SegmentResult } from '@/utils/dartboard';
 import type { LegRecord, MatchRecord, Player, TurnRecord, TurnWithThrows } from '@/lib/match/types';
 import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
+import { MatchRulesLine } from './MatchRulesLine';
 import { useMemo } from 'react';
 import { Pause, Play } from 'lucide-react';
 
@@ -204,6 +205,7 @@ export function MatchScoringView({
           </span>
         </div>
       </div>
+      <MatchRulesLine finishRule={finishRule} fairEnding={match.fair_ending} />
       {isPaused && (
         <div className="rounded-md border border-amber-400/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/70 dark:bg-amber-950/30 dark:text-amber-100">
           Game paused — resume when you are ready to continue scoring.
