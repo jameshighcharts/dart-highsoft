@@ -11,12 +11,12 @@ export function gameDateKey(date: Date) {
 // Sequential scale: level 0 = no games, levels 1-6 scale relative to the busiest day.
 const colors = [
   'bg-muted',
-  'bg-green-100 dark:bg-green-200',
-  'bg-green-200 dark:bg-green-400',
-  'bg-green-400 dark:bg-green-600',
-  'bg-green-500 dark:bg-green-700',
-  'bg-green-700 dark:bg-green-800',
-  'bg-green-900 dark:bg-green-900',
+  'bg-green-100 dark:bg-green-900',
+  'bg-green-200 dark:bg-green-800',
+  'bg-green-400 dark:bg-green-700',
+  'bg-green-500 dark:bg-green-600',
+  'bg-green-700 dark:bg-green-400',
+  'bg-green-900 dark:bg-green-200',
 ];
 const maxLevel = colors.length - 1;
 
