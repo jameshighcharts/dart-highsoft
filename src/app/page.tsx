@@ -22,7 +22,7 @@ export default function Home() {
               // not affect layout, so the card and the icon box are unchanged.
               { href: '/tournament/new', label: 'New tournament', icon: '/game-icons/tournament.png', scale: 'scale-[1.05]', theme: 'hover:bg-[linear-gradient(145deg,#35203f,#211731_65%,#15172e),linear-gradient(120deg,#c4b5fd,#c084fc_55%,#f9a8d4)] hover:shadow-[0_8px_32px_rgba(192,132,252,0.32)]' },
               { href: '/practice', label: 'Practice', icon: '/game-icons/practice1.png', theme: 'hover:bg-[linear-gradient(145deg,#113c35,#102b30_65%,#101c2c),linear-gradient(120deg,#6ee7b7,#2dd4bf_55%,#67e8f9)] hover:shadow-[0_8px_32px_rgba(45,212,191,0.32)]' },
-              { href: '/players', label: 'Bengt', icon: '/game-icons/bengt.png', theme: 'hover:bg-[linear-gradient(145deg,#2a1f45,#1a1735_65%,#15172e),linear-gradient(120deg,#67e8f9,#a78bfa_55%,#f0abfc)] hover:shadow-[0_8px_32px_rgba(167,139,250,0.32)]' },
+              { href: '/bengt', label: 'Bengt', icon: '/game-icons/bengt.png', theme: 'hover:bg-[linear-gradient(145deg,#2a1f45,#1a1735_65%,#15172e),linear-gradient(120deg,#67e8f9,#a78bfa_55%,#f0abfc)] hover:shadow-[0_8px_32px_rgba(167,139,250,0.32)]' },
             ].map(({ href, label, icon, scale, theme }) => (
               <Link
                 key={href}

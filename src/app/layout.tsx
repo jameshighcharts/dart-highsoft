@@ -65,6 +65,7 @@ export default function RootLayout({
                 <Target className="size-4" />
                 Games
               </Link>
+              <Link href="/bengt" className="site-nav-link site-nav-link--desktop -mx-1.5 -my-3 flex items-center gap-2 px-1.5 py-3"><Trophy className="h-4 w-4" />Bengt</Link>
               <Link href="/players" className="site-nav-link site-nav-link--desktop -mx-1.5 -my-3 flex items-center gap-2 px-1.5 py-3">
                 <Users className="size-4" />
                 Players
@@ -88,7 +89,7 @@ export default function RootLayout({
             </div>
           </nav>
           <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 border-t bg-card pb-[env(safe-area-inset-bottom)]">
-            <div className="grid grid-cols-5">
+            <div className="grid grid-cols-6">
               <Link href="/" className="site-nav-link flex flex-col items-center justify-center py-2 gap-1">
                 <Home className="size-5" />
                 <span className="text-xs">Home</span>
@@ -97,6 +98,7 @@ export default function RootLayout({
                 <Target className="size-5" />
                 <span className="text-xs">Games</span>
               </Link>
+              <Link href="/bengt" className="site-nav-link flex flex-col items-center justify-center py-2 gap-1"><Trophy className="h-4 w-4" aria-hidden="true" /><span className="text-xs">Bengt</span></Link>
               <Link href="/players" className="site-nav-link flex flex-col items-center justify-center py-2 gap-1">
                 <Users className="size-5" />
                 <span className="text-xs">Players</span>

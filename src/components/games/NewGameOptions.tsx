@@ -62,6 +62,7 @@ export type SavedGameSetup = {
   fairEnding: boolean;
   closestToBull?: boolean;
   commentaryEnabled?: boolean;
+  highdartsEnabled?: boolean;
 };
 
 /** Restore only recognized options; stale or malformed preferences use defaults. */
@@ -110,6 +111,7 @@ export function loadStoredSetup(): SavedGameSetup | null {
       closestToBull: saved.closestToBull === true,
       fairEnding: legsToWin === 1 && saved.fairEnding === true,
       commentaryEnabled: saved.commentaryEnabled === true,
+      highdartsEnabled: saved.highdartsEnabled === true,
     };
   } catch {
     return null;

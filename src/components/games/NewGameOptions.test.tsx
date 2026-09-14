@@ -21,7 +21,7 @@ describe('remembered game setup', () => {
  afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
  it('round-trips rules and ordered players', () => {
   const setup = { gameType: 'x01' as const, gameConfig: {}, selectedIds: ['ben', 'ada'], startScore: '501' as const, finish: 'double_out' as const, legsToWin: 1, fairEnding: true,
-      closestToBull: true, commentaryEnabled: true };
+      closestToBull: true, commentaryEnabled: true, highdartsEnabled: true };
   storeSetup(setup);
   expect(loadStoredSetup()).toEqual(setup);
  });
