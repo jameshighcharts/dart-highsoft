@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { publishHighdartsResult } from '../highdarts/slackResult';
 import { finalizeSlackDartPollById } from '@/lib/slack/dartPollService';
 import {
   persistDartIQCompletedLeg,
@@ -11,6 +12,7 @@ import {
 import { processBackgroundJob } from './backgroundJobs';
 import { runDartIQCalibration, runDartIQTraining } from './dartiqCalibration';
 
+vi.mock('../highdarts/slackResult', () => ({ publishHighdartsResult: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('./dartiqCalibration', () => ({ runDartIQCalibration: vi.fn(), runDartIQTraining: vi.fn() }));
 vi.mock('@/lib/slack/dartPollService', () => ({
@@ -208,4 +210,11 @@ describe('processBackgroundJob', () => {
     expect(finalizeSlackDartPollById).not.toHaveBeenCalled();
     expect(test.updates).toEqual([]);
   });
+});
+
+it('dispatches Highdarts results through the background job handler', async () => {
+  const { supabase } = createSupabase({ ...dispatchingJob, job_type: 'highdarts_result', payload: { fixtureId: 'fixture-1' } });
+  const result = await processBackgroundJob({ supabase, jobId: 'job-1', appOrigin: 'https://darts.example' });
+  expect(result.status).toBe('completed');
+  expect(publishHighdartsResult).toHaveBeenCalledWith(supabase, 'fixture-1', 'https://darts.example');
 });

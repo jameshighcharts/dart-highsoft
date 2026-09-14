@@ -260,3 +260,9 @@ The Slack endpoint verifies every slash-command and button request using the
 Slack signing secret. Poll, vote, identity-link, and job tables are
 service-role-only. Supabase sends `Bearer BACKGROUND_JOB_SECRET` to the job
 endpoint, and database claims are safe against overlapping Cron runs.
+
+## Highdarts tournament results
+
+`SLACK_HIGHDARTS_CHANNEL_ID` is the default result channel for Highdarts 2026. The event's `slack_channel_id` takes precedence. Reuse `SLACK_BOT_TOKEN` with `chat:write` and invite the bot to the channel. `NEXT_PUBLIC_APP_URL` supplies report and standings URLs.
+
+The match-completion database trigger queues `highdarts_result` in the existing background-job system. A missing channel/token skips delivery; configure them before the tournament starts. Completed results post once. Early endings are reported without awarding a win. A `sending` delivery marker means the HTTP outcome may be uncertain and requires checking the channel before retrying. See [Highdarts setup and recovery](HIGHDARTS_2026.md).

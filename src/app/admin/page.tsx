@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HighdartsAdminMapping } from '@/components/highdarts/AdminMapping';
 import { redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 
@@ -53,7 +54,7 @@ export default async function AdminPage() {
       </header>
 
       {session.user.isAdmin ? (
-        <AdminUsersPanel viewer={viewer} />
+        <><AdminUsersPanel viewer={viewer} /><HighdartsAdminMapping /></>
       ) : (
         <p className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
           Your account is signed in but not on the admin list.

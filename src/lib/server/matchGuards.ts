@@ -12,6 +12,7 @@ export type MatchRow = {
   fair_ending: boolean;
   bull_off?: BullOffState | null;
   paused_at?: string | null;
+  highdarts_fixture_id?: string | null;
   tournament_match_id: string | null;
   scolia_board_id?: string | null;
   rematch_of_match_id?: string | null;
@@ -20,7 +21,7 @@ export type MatchRow = {
 export async function loadMatch(supabase: SupabaseClient, matchId: string): Promise<MatchRow | null> {
   const { data, error } = await supabase
     .from('matches')
-    .select('id, winner_player_id, completed_at, ended_early, start_score, finish, legs_to_win, fair_ending, paused_at, tournament_match_id, scolia_board_id, rematch_of_match_id, bull_off')
+    .select('id, winner_player_id, completed_at, ended_early, start_score, finish, legs_to_win, fair_ending, paused_at, highdarts_fixture_id, tournament_match_id, scolia_board_id, rematch_of_match_id, bull_off')
     .eq('id', matchId)
     .single();
   if (error || !data) return null;

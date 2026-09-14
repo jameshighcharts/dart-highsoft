@@ -1,6 +1,7 @@
 "use client";
 
 import { BullOffRound } from '@/components/match/BullOffRound';
+import { HighdartsMatchTag } from '@/components/highdarts/MatchTag';
 import { bullOffBrief } from '@/lib/commentary/bullOff';
 import { RematchPanel } from '@/components/games/RematchPanel';
 import { MatchScoringView } from '@/components/match/MatchScoringView';
@@ -382,8 +383,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
         players,
         turns,
         matchWinnerId,
-      }) && !match?.tournament_match_id,
-    [currentLeg, players, turns, matchWinnerId, match?.tournament_match_id]
+      }) && !match?.tournament_match_id && !match?.highdarts_fixture_id,
+    [currentLeg, players, turns, matchWinnerId, match?.tournament_match_id, match?.highdarts_fixture_id]
   );
 
   // Check if game hasn't started yet (no turns/throws registered)
@@ -597,11 +598,16 @@ export default function MatchClient({ matchId }: { matchId: string }) {
       minPlayers={2} showTrigger={isSpectatorMode || Boolean(match.ended_early)} open={rematchOpen} onOpenChange={setRematchOpen} onStart={startRematch} />
   ) : null;
 
+  const highdartsTag = <HighdartsMatchTag match={match} players={players}
+    hasThrows={Object.values(turnThrowCounts).some(n => n > 0) || legs.length > 1 || localTurn.darts.length > 0}
+    spectator={isSpectatorMode} reload={isSpectatorMode ? loadAllSpectator : loadAll} />;
+
   // Spectator Mode View
   if (isSpectatorMode) {
     return (
       <>
         {rematchPanel}
+        {highdartsTag}
         <SpectatorView
           rematchOpen={rematchOpen}
           onRematch={!match.tournament_match_id ? () => setRematchOpen(true) : undefined}
@@ -668,6 +674,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   return (
     <>
       {rematchPanel}
+      {highdartsTag}
       <MatchScoringView
         realtimeConnectionStatus={realtime.connectionStatus}
           realtimeConnectionError={realtime.connectionError}

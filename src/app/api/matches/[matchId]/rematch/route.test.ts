@@ -13,6 +13,7 @@ vi.mock('@/lib/supabaseServer', () => ({
 function createSupabase(options?: { matchInsertError?: { code: string; message: string } }) {
   let matchCreation: Record<string, unknown> | null = null;
   const sourceMatch = {
+    highdarts_fixture_id: 'fixture-1',
     id: 'match-1',
     start_score: '501',
     finish: 'double_out',
@@ -77,6 +78,7 @@ function createSupabase(options?: { matchInsertError?: { code: string; message: 
       throw new Error(`Unexpected table: ${table}`);
     },
     rpc(name: string, args: Record<string, unknown>) {
+      expect(args).not.toHaveProperty('p_fixture_id');
       if (name !== 'create_x01_match_atomic') throw new Error(`Unexpected RPC: ${name}`);
       matchCreation = args;
       return {

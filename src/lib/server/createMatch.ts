@@ -1,6 +1,8 @@
+import { highdartsErrorStatus } from '../highdarts/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type CreateMatchForPlayersInput = {
+  highdartsFixtureId?: string;
   startScore: '201' | '301' | '501';
   finish: 'single_out' | 'double_out';
   legsToWin: number;
@@ -13,25 +15,26 @@ export type CreateMatchForPlayersInput = {
 
 export type CreateMatchForPlayersResult =
   | { ok: true; matchId: string }
-  | { ok: false; status: 409; error: string };
+  | { ok: false; status: number; error: string };
 
 export async function createMatchForPlayers(
   supabase: SupabaseClient,
   input: CreateMatchForPlayersInput
 ): Promise<CreateMatchForPlayersResult> {
   const { data, error } = await supabase
-    .rpc(input.closestToBull ? 'create_bull_off_match_atomic' : 'create_x01_match_atomic', {
+    .rpc(input.highdartsFixtureId ? 'create_highdarts_match_atomic' : input.closestToBull ? 'create_bull_off_match_atomic' : 'create_x01_match_atomic', {
       p_start_score: input.startScore,
       p_finish: input.finish,
       p_legs_to_win: input.legsToWin,
       p_fair_ending: input.fairEnding,
       p_player_ids: input.playerIds,
       p_scolia_board_id: input.scoliaBoardId,
-      p_rematch_of_match_id: input.rematchOfMatchId ?? null,
+      ...(input.highdartsFixtureId ? { p_fixture_id: input.highdartsFixtureId, p_closest_to_bull: input.closestToBull ?? false } : { p_rematch_of_match_id: input.rematchOfMatchId ?? null }),
     })
     .single();
 
   if (error || !data) {
+    if (error && input.highdartsFixtureId) return { ok: false, status: highdartsErrorStatus(error.code), error: error.message };
     if (error?.code === '23505' && input.scoliaBoardId) {
       return {
         ok: false,

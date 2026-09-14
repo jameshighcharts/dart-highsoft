@@ -1,3 +1,4 @@
+import { isUuid } from '@/lib/highdarts/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { createMatchForPlayers } from '@/lib/server/createMatch';
 import { assertScoliaBoardAvailable } from '@/lib/server/scoliaBoardTarget';
@@ -23,6 +24,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as
       | CreateMatchRequest
       | {
+          highdartsFixtureId?: string;
           startScore: 201 | 301 | 501;
           legsToWin: number;
           finishRule: 'single_out' | 'double_out';
@@ -39,10 +41,16 @@ export async function POST(request: NextRequest) {
     let legsToWin: number;
     let fairEnding = false;
     let closestToBull = false;
+    let highdartsFixtureId: string | undefined;
     let playerIds: string[] = [];
     let scoliaBoardId: string | null = null;
 
     if ('playerIds' in body) {
+      if (body.highdartsFixtureId !== undefined) {
+        if (!isUuid(body.highdartsFixtureId)) return NextResponse.json({ error: 'Invalid Highdarts fixture' }, { status: 400 });
+        if (body.fairEnding === true) return NextResponse.json({ error: 'Highdarts requires fair ending off' }, { status: 400 });
+        highdartsFixtureId = body.highdartsFixtureId;
+      }
       if (body.closestToBull !== undefined && typeof body.closestToBull !== 'boolean') return NextResponse.json({ error: 'Invalid closestToBull' }, { status: 400 });
       closestToBull = body.closestToBull === true;
       if (!body.startScore || ![201, 301, 501].includes(body.startScore)) {
@@ -132,6 +140,7 @@ export async function POST(request: NextRequest) {
 
     const order = [...playerIds].sort(() => Math.random() - 0.5);
     const creation = await createMatchForPlayers(supabase, {
+      highdartsFixtureId,
       startScore,
       finish,
       legsToWin,

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { fixturesForPair, fixtureLabel, fixtureFormat, type Fixture, type Snapshot } from "@/lib/highdarts/standings";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { apiRequest } from "@/lib/apiClient";
@@ -22,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowRight, UserPlus, Search, Scale, Target, Volume2 } from "lucide-react";
+import { ArrowRight, UserPlus, Search, Scale, Target, Volume2, Trophy } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -127,6 +129,12 @@ export default function NewMatchPage() {
   const [legsToWin, setLegsToWin] = useState(1);
   const [closestToBull, setClosestToBull] = useState(false);
   const [fairEnding, setFairEnding] = useState(false);
+  const [highdartsEnabled, setHighdartsEnabled] = useState(false);
+  const [highdartsFixtures, setHighdartsFixtures] = useState<Fixture[]>([]);
+  const [requestedFixtureId, setRequestedFixtureId] = useState<string | null>(null);
+  const [highdartsError, setHighdartsError] = useState('');
+  const [highdartsLoading, setHighdartsLoading] = useState(true);
+  const [highdartsDeepLinkError, setHighdartsDeepLinkError] = useState(false);
   const [commentaryEnabled, setCommentaryEnabled] = useState(false);
   // Start on X01 for SSR and pick up the stored choice after hydration.
   const [gameType, setGameType] = useState<GameType>("x01");
@@ -145,6 +153,7 @@ export default function NewMatchPage() {
       setFairEnding(setup.fairEnding);
       setClosestToBull(setup.closestToBull === true);
       setCommentaryEnabled(setup.commentaryEnabled === true);
+      setHighdartsEnabled(setup.highdartsEnabled === true);
     } else {
       const stored = loadStoredGameType();
       if (stored !== "x01") {
@@ -154,6 +163,37 @@ export default function NewMatchPage() {
     }
     setSetupLoaded(true);
   }, []);
+  useEffect(() => {
+    if (!setupLoaded || !playersLoaded) return;
+    let cancelled = false;
+    void apiRequest<Snapshot>('/api/highdarts', { method: 'GET' }).then(data => {
+      if (cancelled) return;
+      setHighdartsFixtures(data.fixtures);
+      const requested = new URLSearchParams(window.location.search).get('highdarts');
+      if (!requested) return;
+      const f = data.fixtures.find(f => f.id === requested);
+      if (!f || !f.player_a_id || !f.player_b_id || f.match_id) {
+        setHighdartsError('This fixture is unavailable. Check its player links and status on the Bengt page.');
+        setHighdartsEnabled(false);
+        setHighdartsDeepLinkError(true);
+        return;
+      }
+      setSelectedIds([f.player_a_id, f.player_b_id]); setGameType('x01');
+      setRequestedFixtureId(f.id); setHighdartsEnabled(true);
+    }).catch(() => { if (!cancelled) {
+      setHighdartsError('Highdarts fixtures could not load. Try again from the Bengt page.');
+      setHighdartsDeepLinkError(new URLSearchParams(window.location.search).has('highdarts'));
+    } }).finally(() => { if (!cancelled) setHighdartsLoading(false); });
+    return () => { cancelled = true; };
+  }, [setupLoaded, playersLoaded]);
+  const pairFixtures = fixturesForPair(highdartsFixtures, selectedIds);
+  const availableFixtures = pairFixtures.filter(f => !f.match_id);
+  const highdartsFixture = availableFixtures.find(f => f.id === requestedFixtureId) ?? availableFixtures[0];
+  const highdartsLocked = gameType === 'x01' && highdartsEnabled && Boolean(highdartsFixture);
+  const highdartsFormat = fixtureFormat(highdartsFixture?.stage ?? 'group');
+  useEffect(() => {
+    if (highdartsLocked) { setStartScore(highdartsFormat.startScore); setFinish(highdartsFormat.finish); setLegsToWin(2); setFairEnding(false); }
+  }, [highdartsLocked, highdartsFormat.startScore, highdartsFormat.finish]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [boards, setBoards] = useState<ScoliaBoardOption[]>([]);
@@ -260,8 +300,8 @@ export default function NewMatchPage() {
   useEffect(() => {
     // Do not overwrite saved players before hydration and roster reconciliation.
     if (!setupLoaded || !playersLoaded) return;
-    storeSetup({ gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, commentaryEnabled });
-  }, [setupLoaded, playersLoaded, gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, commentaryEnabled]);
+    storeSetup({ gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, commentaryEnabled, highdartsEnabled });
+  }, [setupLoaded, playersLoaded, gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, commentaryEnabled, highdartsEnabled]);
 
   useScoliaBoardRealtime({
     onUpsert: (status) =>
@@ -484,9 +524,10 @@ export default function NewMatchPage() {
     try {
       const result = await apiRequest<{ matchId: string }>("/api/matches", {
         body: {
-          startScore: parseInt(startScore, 10),
-          finishRule: finish,
-          legsToWin,
+          ...(highdartsLocked && highdartsFixture ? { highdartsFixtureId: highdartsFixture.id } : {}),
+          startScore: parseInt(highdartsLocked ? highdartsFormat.startScore : startScore, 10),
+          finishRule: highdartsLocked ? highdartsFormat.finish : finish,
+          legsToWin: highdartsLocked ? 2 : legsToWin,
           closestToBull,
           fairEnding: legsToWin === 1 ? fairEnding : false,
           playerIds: selectedIds,
@@ -536,6 +577,7 @@ export default function NewMatchPage() {
                 <div>
                   <div className="font-medium mb-1">Start score</div>
                   <Select
+                    disabled={highdartsLocked}
                     value={startScore}
                     onValueChange={(v) => setStartScore(v as StartScore)}
                   >
@@ -552,6 +594,7 @@ export default function NewMatchPage() {
                 <div>
                   <div className="font-medium mb-1">Finish rule</div>
                   <Select
+                    disabled={highdartsLocked}
                     value={finish}
                     onValueChange={(v) => setFinish(v as FinishRule)}
                   >
@@ -571,6 +614,7 @@ export default function NewMatchPage() {
                       type="button"
                       variant="outline"
                       className="border-white/10 bg-white/5 hover:bg-white/10"
+                      disabled={highdartsLocked}
                       onClick={() => {
                         setLegsToWin((v) => {
                           const next = Math.max(1, v - 1);
@@ -590,6 +634,7 @@ export default function NewMatchPage() {
                       type="button"
                       variant="outline"
                       className="border-white/10 bg-white/5 hover:bg-white/10"
+                      disabled={highdartsLocked}
                       onClick={() => {
                         setLegsToWin((v) => {
                           const next = v + 1;
@@ -604,16 +649,25 @@ export default function NewMatchPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                {legsToWin === 1 && (
+                <div className={`flex items-center gap-3 rounded-xl border p-3 ${highdartsLocked ? 'border-violet-400/30 bg-violet-400/10' : 'border-white/10 bg-white/[0.03]'}`}>
+                  <Trophy className="size-5 shrink-0 text-violet-300" aria-hidden="true" />
+                  <div className="min-w-0 flex-1"><label htmlFor="highdarts-toggle" className="text-sm font-semibold">Highdarts 2026 match</label>
+                    <p id="highdarts-description" className="mt-1 text-xs text-muted-foreground">{highdartsError || (highdartsLoading ? 'Loading tournament fixtures…' : selectedIds.length !== 2 ? 'Select exactly two players.' : highdartsFixture ? `Fixture ${fixtureLabel(highdartsFixture)} · ${highdartsFixture.player_a_name} vs ${highdartsFixture.player_b_name}` : pairFixtures.length ? 'These fixtures have already been started.' : "These two aren't drawn against each other in Highdarts 2026")}</p>
+                    {highdartsError && <Link href="/bengt" className="text-xs text-cyan-300 underline">Back to Bengt</Link>}
+                    {!highdartsFixture && pairFixtures.map(f => <Link key={f.id} href={`/match/${f.match_id}`} className="mr-2 text-xs text-cyan-300 underline">View {fixtureLabel(f)}</Link>)}
+                    {highdartsLocked && <p className="mt-1 text-xs text-violet-200">Locked by Highdarts 2026 rules · {highdartsFormat.startScore} / {highdartsFormat.finish.replace("_", " ")} / first to 2</p>}
+                    {highdartsLocked && availableFixtures.length > 1 && <select aria-label="Highdarts fixture" value={highdartsFixture?.id} onChange={e=>setRequestedFixtureId(e.target.value)} className="mt-2 w-full rounded border bg-background p-1 text-xs">{availableFixtures.map(f=><option key={f.id} value={f.id}>{fixtureLabel(f)}</option>)}</select>}
+                  </div>
+                  <Switch id="highdarts-toggle" aria-describedby="highdarts-description" checked={highdartsLocked} aria-label="Highdarts 2026 match" disabled={!highdartsFixture || selectedIds.length !== 2} onCheckedChange={setHighdartsEnabled} />
+                </div>
                   <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${fairEnding ? "border-cyan-400/30 bg-cyan-400/10" : "border-white/10 bg-white/[0.03] hover:bg-white/5"}`}>
                     <Scale className={`h-5 w-5 shrink-0 ${fairEnding ? "text-cyan-300" : "text-slate-400"}`} aria-hidden="true" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-semibold">Fair ending</span>
-                      <span id="fair-ending-description" className="mt-0.5 block text-xs leading-relaxed text-slate-400">Everyone finishes the round before a winner is declared.</span>
+                      <span id="fair-ending-description" className="mt-0.5 block text-xs leading-relaxed text-slate-400">{highdartsLocked ? "Off for Highdarts tournament matches." : "Single-leg game. Everyone finishes the round before a winner is declared."}</span>
                     </span>
-                    <Switch aria-label="Fair ending" aria-describedby="fair-ending-description" checked={fairEnding} onCheckedChange={setFairEnding} className="data-[state=checked]:bg-cyan-400" />
+                    <Switch aria-label="Fair ending" aria-describedby="fair-ending-description" checked={fairEnding} disabled={highdartsLocked} onCheckedChange={(enabled) => { setFairEnding(enabled); if (enabled) setLegsToWin(1); }} className="data-[state=checked]:bg-cyan-400" />
                   </label>
-                )}
                 <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${closestToBull ? "border-cyan-400/30 bg-cyan-400/10" : "border-white/10 bg-white/[0.03] hover:bg-white/5"}`}>
                   <Target className={`h-5 w-5 shrink-0 transition-colors ${closestToBull ? "text-cyan-300" : "text-slate-400"}`} aria-hidden="true" />
                   <span className="min-w-0 flex-1">
@@ -790,7 +844,7 @@ export default function NewMatchPage() {
               className="start-match-button group relative h-16 w-full min-w-0 gap-2 overflow-hidden rounded-xl border border-blue-300/30 bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 px-3 text-base font-semibold sm:px-6 sm:text-xl tracking-normal text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_6px_24px_rgba(37,99,235,0.2)] transition-[filter,box-shadow,border-color] duration-200 hover:border-cyan-100 hover:brightness-110 hover:shadow-[inset_0_0_0_1px_rgba(165,243,252,0.8),0_0_0_2px_rgba(56,189,248,0.65),0_0_18px_rgba(56,189,248,0.65),0_0_38px_rgba(99,102,241,0.4)]"
               onClick={onStart}
               disabled={
-                !setupLoaded || !playersLoaded || submitting || (gameMode !== null && validationError !== null)
+                !setupLoaded || !playersLoaded || submitting || (gameType === 'x01' && (highdartsLoading || highdartsDeepLinkError)) || (gameMode !== null && validationError !== null)
               }
             >
               <span className="truncate">{submitting

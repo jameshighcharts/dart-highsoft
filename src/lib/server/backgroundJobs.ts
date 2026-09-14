@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { publishHighdartsResult } from '../highdarts/slackResult';
 import { finalizeSlackDartPollById } from '@/lib/slack/dartPollService';
 import { runDartIQCalibration, runDartIQTraining } from './dartiqCalibration';
 import {
@@ -96,6 +97,9 @@ async function runJob(
       await runDartIQCalibration(supabase, modelVersionId, windowEnd);
       return;
     }
+    case 'highdarts_result':
+      await publishHighdartsResult(supabase, requiredPayloadId(job.payload, 'fixtureId', job.job_type), appOrigin);
+      return;
     case 'slack_dart_poll':
       await finalizeSlackDartPollById({
         supabase,
