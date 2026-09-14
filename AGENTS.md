@@ -584,3 +584,15 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 
 - `src/hooks/useMatchData.ts` and its tests: Full HTTP snapshots are invalidated by live events received during the read, with three bounded retries and match-owner guards before state replacement. Insert/edit/delete race tests include rejected WAL echoes and authoritative deletion recovery; live events cannot be overwritten by an older in-flight snapshot.
 - `src/components/match/RealtimeConnectionError.tsx`: Scoring/spectator connection indicators show the actual last database subscription error, retaining it through retries and recovery so flickering status cannot hide the cause. `useRealtime` scopes errors to the match and captures SDK, system, timeout, unexpected-close, and initialization failures.
+
+### Highdarts profile and board integration
+- `src/components/highdarts/Fixtures.tsx`: Shared fixture rows, stable player-profile links and a refreshing personal schedule for self and read-only profiles. Uses full-draw first-name disambiguation from `lib/highdarts/standings.ts`.
+- `src/app/players/[playerId]/page.tsx`: Authenticated read-only player profile with stats, tournament schedule and an existing Slack identity link scoped to the viewer's workspace. Own-profile editing remains in `/profile`.
+- `src/app/api/highdarts/route.ts`: Snapshot includes current board availability, reusing the existing board endpoint's occupancy/readiness logic.
+- `src/app/new/page.tsx`: Tournament fixtures select the office and its named board; tournament starts cannot use the ordinary busy-board fallback to manual scoring.
+- `supabase/migrations/20260914190000_highdarts_board_availability.sql`: Atomic tournament claim guard for office/player conflicts, correct board selection and busy-board/manual bypass protection. Existing board locks still arbitrate X01 and party games.
+- `supabase/tests/highdarts_board_availability.sql` and `scripts/highdarts-profile.integration.mjs`: Rollback SQL regression and isolated native API concurrency checks. See `docs/HIGHDARTS_2026.md` for the required disposable environment.
+- `docs/highdarts-2026/{player-profile,player-profile-mobile,profile-setup}.png`: Profile, mobile schedule and tournament setup screenshots.
+
+- `supabase/migrations/20260914191500_highdarts_player_identities.sql`: Reviewed sheet aliases resolve through existing Highsoft Slack links, filling missing participant IDs only on unclaimed group fixtures.
+- `src/lib/auth/devBypass.ts`: Optional `AUTH_DEV_SLACK_USER_ID` selects an existing local preview identity when the development-only auth bypass is enabled.

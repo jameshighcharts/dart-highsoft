@@ -2,6 +2,8 @@ import { fixture, finish } from '@/test-utils/highdartsFixtures';
 import { describe, expect, it } from 'vitest';
 import {
   buildStandings,
+  fixtureAvailability,
+  tournamentNames,
   fixturesForPair,
   normalizeName,
   resultStats,
@@ -117,4 +119,27 @@ describe('Highdarts standings', () => {
       tiedForBye: false,
     });
   });
+});
+
+it('shortens unique names and disambiguates repeated first names across the full draw', () => {
+  const snapshot = { players: [{ id: 'a', display_name: 'Ada Jones' }, { id: 'b', display_name: 'Ben' }], fixtures: [
+    { ...fixture('bergen', 'a', 'b'), player_b_name: 'Ben Smith' },
+    { ...fixture('vik', 'a', 'c'), player_b_name: 'Ben Taylor' },
+    { ...fixture('bergen', 'a', 'b', 2), player_b_name: 'Ben Smith' },
+  ] };
+  const name = tournamentNames(snapshot);
+  expect(name('a', 'Ada Jones')).toBe('Ada');
+  expect(name('b', 'Ben Smith')).toBe('Ben S');
+  expect(name('c', 'Ben Taylor')).toBe('Ben T');
+});
+
+it('blocks busy or offline office boards while allowing an independent office', () => {
+  const upcoming = fixture('bergen', 'a', 'b');
+  const board = { id: 'board', name: 'Bergen board', isHomeSbc: true, workerConnectionStatus: 'connected' as const, boardStatus: 'Ready', workerHeartbeatAt: new Date().toISOString(), activeMatchId: null, activeGameSessionId: null, selectable: true };
+  expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming], boards: [board] })).toBeNull();
+  expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming], boards: [{ ...board, activeGameSessionId: 'busy', selectable: false }] })?.href).toBe('/game/busy');
+  expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming], boards: [{ ...board, selectable: false }] })?.href).toBe('/boards');
+  const elsewhere = { ...fixture('vik', 'c', 'd'), match_id: 'live' };
+  expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming, elsewhere] })).toBeNull();
+  expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming, { ...elsewhere, player_a_id: 'a' }] })?.href).toBe('/match/live');
 });

@@ -2,12 +2,14 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { LockKeyhole, Pencil, Trophy, UnlockKeyhole } from 'lucide-react';
+import { FixtureCard, TournamentPlayerName } from './Fixtures';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { Button } from '@/components/ui/button';
 import { apiRequest } from '@/lib/apiClient';
 import {
   buildStandings,
   fixtureFormat,
+  fixtureAvailability,
   isCompleted,
   officeName,
   resultStats,
@@ -34,11 +36,13 @@ function Participant({
   winner,
   score,
   fallback,
+  snapshot,
 }: {
   person: Finalist | null;
   winner: boolean;
   score: number | null;
   fallback: string;
+  snapshot: Snapshot;
 }) {
   return (
     <div
@@ -56,7 +60,7 @@ function Participant({
           className="block truncate text-xs"
           title={person?.player.display_name}
         >
-          {person?.player.display_name ?? 'TBD'}
+          {person ? <TournamentPlayerName playerId={person.player.id} name={person.player.display_name} snapshot={snapshot} /> : 'TBD'}
         </span>
         <span className="mt-0.5 inline-block rounded bg-white/5 px-1 text-[9px] font-normal text-muted-foreground">
           {person ? officeName(person.office) : fallback}
@@ -109,21 +113,10 @@ export function HighdartsTieControls({ snapshot, isAdmin, onRefresh }: Props) {
           >
             <p className="text-sm font-semibold">{tie.label}</p>
             <p className="text-xs text-muted-foreground">
-              {tie.players.map((r) => r.player.display_name).join(' · ')}.{' '}
+              {tie.players.map((r) => <TournamentPlayerName key={r.key} playerId={r.player.id} name={r.player.display_name} snapshot={snapshot} className="mr-2" />)}.{' '}
               {tie.places} {tie.places === 1 ? 'place' : 'places'} to decide.
             </p>
-            {pending.map((f) => (
-              <Link
-                key={f.id}
-                href={
-                  f.match_id ? `/match/${f.match_id}` : `/new?highdarts=${f.id}`
-                }
-                className="block text-xs text-cyan-200"
-              >
-                {f.player_a_name} vs {f.player_b_name} ·{' '}
-                {f.match_id ? 'View tie-break' : 'Start tie-break'}
-              </Link>
-            ))}
+            {pending.map((f) => <FixtureCard key={f.id} fixture={f} snapshot={snapshot} showOffice />)}
             {isAdmin && !pending.length && (
               <div className="flex flex-wrap items-center gap-2">
                 {tie.players.length > 2 &&
@@ -446,6 +439,7 @@ export function HighdartsBracket({ snapshot, isAdmin, onRefresh }: Props) {
                         )}
                       </div>
                       <Participant
+                        snapshot={snapshot}
                         person={g.a}
                         winner={Boolean(
                           f &&
@@ -468,6 +462,7 @@ export function HighdartsBracket({ snapshot, isAdmin, onRefresh }: Props) {
                       />
                       <div className="mx-3 border-t border-white/5" />
                       <Participant
+                        snapshot={snapshot}
                         person={g.b}
                         winner={Boolean(
                           f &&
@@ -495,7 +490,7 @@ export function HighdartsBracket({ snapshot, isAdmin, onRefresh }: Props) {
                           : 'double out'}{' '}
                         · Best of 3
                       </div>
-                      {f && <MatchAction fixture={f} />}
+                      {f && <MatchAction fixture={f} snapshot={snapshot} />}
                     </article>
                   );
                 })}
@@ -517,7 +512,7 @@ export function HighdartsBracket({ snapshot, isAdmin, onRefresh }: Props) {
               className="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 pt-3"
             >
               <p className="text-sm">
-                {f.player_a_name} vs {f.player_b_name}
+                <TournamentPlayerName playerId={f.player_a_id} name={f.player_a_name} snapshot={snapshot} /> vs <TournamentPlayerName playerId={f.player_b_id} name={f.player_b_name} snapshot={snapshot} />
                 {isCompleted(f) && (
                   <strong className="ml-2">
                     {resultStats(f, f.player_a_id).legs}–
@@ -525,7 +520,7 @@ export function HighdartsBracket({ snapshot, isAdmin, onRefresh }: Props) {
                   </strong>
                 )}
               </p>
-              <MatchAction fixture={f} />
+              <MatchAction fixture={f} snapshot={snapshot} />
             </div>
           ))}
         </section>
@@ -533,7 +528,8 @@ export function HighdartsBracket({ snapshot, isAdmin, onRefresh }: Props) {
     </div>
   );
 }
-function MatchAction({ fixture: f }: { fixture: FixtureResult }) {
+function MatchAction({ fixture: f, snapshot }: { fixture: FixtureResult; snapshot: Snapshot }) {
+  const unavailable = fixtureAvailability(f, snapshot);
   return f.match_id ? (
     <Link
       className="block border-t border-white/5 px-3 py-2 text-xs text-cyan-200"
@@ -546,6 +542,8 @@ function MatchAction({ fixture: f }: { fixture: FixtureResult }) {
           : 'Open match'}{' '}
       ↗
     </Link>
+  ) : unavailable ? (
+    <Link href={unavailable.href} className="block px-3 py-2 text-xs text-amber-200">{unavailable.reason}</Link>
   ) : f.player_a_id && f.player_b_id ? (
     <Link
       className="block border-t border-white/5 px-3 py-2 text-xs font-semibold text-cyan-200"

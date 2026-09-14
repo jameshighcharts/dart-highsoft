@@ -28,7 +28,7 @@ export const DEV_BYPASS_USER = {
   name: 'Local dev',
   email: 'dev@localhost',
   image: null,
-  slackUserId: 'UDEVLOCAL',
+  slackUserId: process.env.AUTH_DEV_SLACK_USER_ID?.trim() || 'UDEVLOCAL',
   slackTeamId: process.env.AUTH_SLACK_TEAM_ID?.trim() || 'TDEVLOCAL',
   isAdmin: true,
   provider: 'dev',

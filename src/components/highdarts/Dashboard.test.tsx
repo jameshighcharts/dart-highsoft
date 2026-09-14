@@ -81,7 +81,7 @@ it('paginates one office and resets the page when switching office', async () =>
   fireEvent.click(list.getByRole('button', { name: 'Next fixtures' }));
   expect(list.getByText('7–8 of 8 fixtures')).toBeInTheDocument();
   fireEvent.click(list.getByRole('button', { name: 'Vik' }));
-  expect(list.getByText('vik player 1')).toBeInTheDocument();
+  expect(list.getAllByTitle('vik player 1').length).toBeGreaterThan(0);
   expect(list.getByText('1–1 of 1 fixtures')).toBeInTheDocument();
   expect(
     list.getByRole('button', { name: 'Previous fixtures' }),
@@ -94,7 +94,7 @@ it('searches fixtures and resets pagination rather than showing an empty later p
   fireEvent.change(list.getByRole('textbox', { name: 'Search fixtures' }), {
     target: { value: 'BERGEN player 2' },
   });
-  expect(list.getByText('bergen player 2')).toBeInTheDocument();
+  expect(list.getAllByTitle('bergen player 2').length).toBeGreaterThan(0);
   expect(list.queryByText('bergen player 8')).not.toBeInTheDocument();
   expect(list.getByText('1–1 of 1 fixtures')).toBeInTheDocument();
   fireEvent.change(list.getByRole('textbox', { name: 'Search fixtures' }), {

@@ -10,6 +10,7 @@ afterEach(cleanup);
 
 vi.mock('next-auth/react', () => ({ signIn: vi.fn() }));
 vi.mock('@/lib/apiClient', () => ({ apiRequest: vi.fn() }));
+vi.mock('@/components/highdarts/Fixtures', () => ({ ProfileFixtures: ({ playerId }: { playerId: string }) => <div data-testid="schedule">{playerId}</div> }));
 vi.mock('@/components/profile/ProfileSummaryCard', () => ({ ProfileSummaryCard: () => null }));
 vi.mock('@/components/PlayerEloStats', () => ({ PlayerEloStats: () => null }));
 vi.mock('@/components/PlayerMultiEloStats', () => ({ PlayerMultiEloStats: () => null }));
@@ -26,6 +27,7 @@ it('keeps the admin editor and admin API requests out of a member profile', asyn
   expect(screen.queryByText('Player nicknames')).not.toBeInTheDocument();
   expect(apiRequest).toHaveBeenCalledTimes(1);
   expect(screen.getByLabelText('Nicknames')).toHaveValue('Ace');
+  expect(screen.getByTestId('schedule')).toHaveTextContent('ada');
 });
 
 it('updates the own-profile nickname field when an admin edits their own player', async () => {

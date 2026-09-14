@@ -113,3 +113,25 @@ The browser run exposed an obsolete match-load failure overwriting a newer succe
 ![Mobile dashboard](highdarts-2026/mobile.png)
 ![Standings](highdarts-2026/leaderboard.png)
 ![Fixture setup](highdarts-2026/new-match.png)
+
+## Player profiles and board reservations
+
+`/profile` includes the signed-in member's linked tournament schedule. Names in upcoming fixtures, results, standings, qualification lists and finals link to `/players/[playerId]`. That read-only profile shows the player's schedule, stats and saved Slack identity for the viewer's workspace. It never guesses a Slack identity from a name or modifies a player link. The identity migration maps the 30 sheet participants through reviewed Highsoft Slack user IDs, including aliases such as KH, Pankoen and Nick. It fills missing IDs on unclaimed group fixtures without replacing existing assignments or changing any player profile. Future unmapped entries remain unlinked until an organiser maps them in Admin. Fixture numbers express the draw, not booked dates or times.
+
+Names use first names across Bengt. Repeated first names across the complete draw get the last-name initial, including when the app player has only a first name and the mapped fixture retains the surname. Full app names remain available on hover.
+
+Fixture setup selects its office filter and configured Scolia board, alongside the existing two-player lineup and enforced round settings. Board location follows the existing board picker convention: board names contain Bergen, Vik or Sogndal. A configured office board must be used; a busy or offline board cannot silently fall back to manual scoring. Offices without a configured Scolia board can use manual scoring. Finals without an office retain explicit board selection.
+
+Deploy `20260914190000_highdarts_board_availability.sql` and `20260914191500_highdarts_player_identities.sql` before the app update. Its claim guard serializes tournament starts using the existing event lock and board advisory lock. It rejects a second active tournament match in the same office, overlapping tournament players, a busy office board, and manual/wrong-office board bypasses. Paused, unfinished games retain their reservation. The same guard applies when tagging an unstarted friendly. Existing board constraints still arbitrate normal X01 and party-game starts. A failed claim rolls back the entire match creation.
+
+Verification additions:
+
+- `supabase/tests/highdarts_board_availability.sql` is a rollback-only regression for busy offices, independent offices, board selection, busy friendlies and orphan prevention.
+- `scripts/highdarts-profile.integration.mjs` is opt-in with `HIGHDARTS_PROFILE_NATIVE=1`. It requires the prepared disposable `bengt_profile` database on PostgreSQL port 56555 and the local app on 3020. It first tests identity backfill, repeat idempotence and existing-assignment preservation inside a rolled-back transaction. It then creates isolated synthetic fixtures, races real API requests, verifies one success and one conflict, rejects a duplicate retry, and removes its own records.
+- Desktop/mobile checks exercised Bengt → match setup and My profile → opponent profile, including correct player selection, locked Highdarts rules and no horizontal overflow. Local preview uses a read-only copy of the existing player IDs, avatars and Slack links, with zero completed games and development authentication. All 76 fixtures resolve to existing players. `AUTH_DEV_SLACK_USER_ID` optionally selects the local preview identity when the existing development-only bypass is enabled; it does not enable that bypass in production. Actual Scolia hardware, OAuth and Slack client opening were not exercised.
+
+Final follow-up validation: 1,450 tests passed, lint reported zero errors (23 existing warnings), and the webpack production build passed. The native identity/API harness and rollback board suite passed. Refreshed desktop/mobile screenshots use existing player avatars and IDs; no production records were written.
+
+![Linked player profile](highdarts-2026/player-profile.png)
+![Mobile player schedule](highdarts-2026/player-profile-mobile.png)
+![Tournament fixture setup](highdarts-2026/profile-setup.png)

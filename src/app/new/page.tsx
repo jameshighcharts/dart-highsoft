@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { fixturesForPair, fixtureLabel, fixtureFormat, type Fixture, type Snapshot } from "@/lib/highdarts/standings";
+import { fixturesForPair, fixtureAvailability, fixtureLabel, fixtureFormat, type FixtureResult, type Snapshot } from "@/lib/highdarts/standings";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { apiRequest } from "@/lib/apiClient";
@@ -130,7 +130,7 @@ export default function NewMatchPage() {
   const [closestToBull, setClosestToBull] = useState(false);
   const [fairEnding, setFairEnding] = useState(false);
   const [highdartsEnabled, setHighdartsEnabled] = useState(false);
-  const [highdartsFixtures, setHighdartsFixtures] = useState<Fixture[]>([]);
+  const [highdartsFixtures, setHighdartsFixtures] = useState<FixtureResult[]>([]);
   const [requestedFixtureId, setRequestedFixtureId] = useState<string | null>(null);
   const [highdartsError, setHighdartsError] = useState('');
   const [highdartsLoading, setHighdartsLoading] = useState(true);
@@ -178,6 +178,17 @@ export default function NewMatchPage() {
         setHighdartsDeepLinkError(true);
         return;
       }
+      const unavailable = fixtureAvailability(f, data);
+      if (unavailable) {
+        setHighdartsError(unavailable.reason);
+        setHighdartsDeepLinkError(true);
+      }
+      if (f.office) {
+        setEnabledLocations([f.office]);
+        setIncludeNoLocation(false);
+      }
+      const board = f.office ? data.boards?.find((b) => b.name.toLowerCase().includes(f.office ?? '') && b.selectable) : undefined;
+      setSelectedBoardId(board?.id ?? MANUAL_BOARD_VALUE);
       setSelectedIds([f.player_a_id, f.player_b_id]); setGameType('x01');
       setRequestedFixtureId(f.id); setHighdartsEnabled(true);
     }).catch(() => { if (!cancelled) {
@@ -344,10 +355,27 @@ export default function NewMatchPage() {
   // Waits for the first board load so a remembered board is not wiped early.
   // The stored preference is kept so the board is reselected once it is back.
   useEffect(() => {
-    if (boardsLoading || selectedBoardId === MANUAL_BOARD_VALUE) return;
+    if (boardsLoading || highdartsLocked || selectedBoardId === MANUAL_BOARD_VALUE) return;
     const board = boards.find((b) => b.id === selectedBoardId);
     if (!board || !board.selectable) setSelectedBoardId(MANUAL_BOARD_VALUE);
-  }, [boards, boardsLoading, selectedBoardId]);
+  }, [boards, boardsLoading, selectedBoardId, highdartsLocked]);
+
+  useEffect(() => {
+    if (!highdartsLocked || boardsLoading || !highdartsFixture?.office) return;
+    setEnabledLocations([highdartsFixture.office]);
+    setIncludeNoLocation(false);
+    const board = boards.find((b) => b.name.toLowerCase().includes(highdartsFixture.office ?? ''));
+    setSelectedBoardId(board?.id ?? MANUAL_BOARD_VALUE);
+  }, [highdartsLocked, highdartsFixture?.office, boardsLoading, boards]);
+
+  const tournamentSetupError = requestedFixtureId && !highdartsLocked
+    ? 'Keep the selected tournament pair and Highdarts rules, or return to Bengt to choose another fixture.'
+    : highdartsLocked && highdartsFixture
+      ? boardsError || fixtureAvailability(highdartsFixture, { fixtures: highdartsFixtures, players: [], boards })?.reason ||
+        (highdartsFixture.office && boards.some((b) => b.name.toLowerCase().includes(highdartsFixture.office ?? '')) &&
+          !boards.some((b) => b.id === selectedBoardId && b.name.toLowerCase().includes(highdartsFixture.office ?? ''))
+          ? 'Select the tournament office board.' : null)
+      : null;
 
   function chooseBoard(boardId: string) {
     setSelectedBoardId(boardId);
@@ -499,6 +527,7 @@ export default function NewMatchPage() {
    * game running, since a board can only host one game at a time.
    */
   function onStart() {
+    if (tournamentSetupError) { setSubmitError(tournamentSetupError); return; }
     if (selectedBoardId === MANUAL_BOARD_VALUE) {
       const prompt = getManualScoringPrompt(boards);
       if (prompt) {
@@ -517,6 +546,7 @@ export default function NewMatchPage() {
   }
 
   async function submitWithBoard(boardId: string) {
+    if (tournamentSetupError) { setSubmitError(tournamentSetupError); return; }
     if (gameMode) return onStartGame(gameMode, boardId);
     if (selectedIds.length < 2) return alert("Select at least 2 players");
     requestTVModeFullscreen();
@@ -836,6 +866,8 @@ export default function NewMatchPage() {
             </>
           )}
 
+          {tournamentSetupError && <p role="status" className="text-sm text-amber-200">{tournamentSetupError} <Link href="/bengt" className="underline">Back to Bengt</Link></p>}
+
           <div className="fixed inset-x-7 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 rounded-t-2xl bg-background/95 px-1 pt-3 pb-3 shadow-[0_-12px_32px_rgba(3,7,18,0.8)] backdrop-blur-xl md:inset-x-12 lg:right-14 lg:bottom-0 lg:left-[376px] xl:left-[408px]">
             <div className="start-action-bar grid grid-cols-2 items-center gap-3">
             <SelectedPlayerLineup players={selectedPlayers} onRemove={toggle} />
@@ -844,7 +876,7 @@ export default function NewMatchPage() {
               className="start-match-button group relative h-16 w-full min-w-0 gap-2 overflow-hidden rounded-xl border border-blue-300/30 bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 px-3 text-base font-semibold sm:px-6 sm:text-xl tracking-normal text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_6px_24px_rgba(37,99,235,0.2)] transition-[filter,box-shadow,border-color] duration-200 hover:border-cyan-100 hover:brightness-110 hover:shadow-[inset_0_0_0_1px_rgba(165,243,252,0.8),0_0_0_2px_rgba(56,189,248,0.65),0_0_18px_rgba(56,189,248,0.65),0_0_38px_rgba(99,102,241,0.4)]"
               onClick={onStart}
               disabled={
-                !setupLoaded || !playersLoaded || submitting || (gameType === 'x01' && (highdartsLoading || highdartsDeepLinkError)) || (gameMode !== null && validationError !== null)
+                !setupLoaded || !playersLoaded || submitting || Boolean(tournamentSetupError) || (highdartsLocked && boardsLoading) || (gameType === 'x01' && (highdartsLoading || highdartsDeepLinkError)) || (gameMode !== null && validationError !== null)
               }
             >
               <span className="truncate">{submitting
