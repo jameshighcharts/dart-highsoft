@@ -28,6 +28,9 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ m
     if (!match) {
       return NextResponse.json({ error: 'Match not found' }, { status: 404 });
     }
+    if (match.highdarts_fixture_id) {
+      return NextResponse.json({ error: 'Highdarts results belong to the fixture history. Ask an organiser to correct the fixture.' }, { status: 403 });
+    }
     if (match.tournament_match_id) {
       return NextResponse.json(
         { error: 'Delete the tournament instead of an individual tournament match' },

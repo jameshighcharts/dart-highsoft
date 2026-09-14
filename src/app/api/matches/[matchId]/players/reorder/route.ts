@@ -13,7 +13,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ma
     const match = await loadMatch(supabase, matchId);
     if (!match) return NextResponse.json({ error: 'Match not found' }, { status: 404 });
     if (!isMatchActive(match)) return NextResponse.json({ error: 'Match is not active' }, { status: 409 });
-    if (match.tournament_match_id) {
+    if (match.tournament_match_id || match.highdarts_fixture_id) {
       return NextResponse.json({ error: 'Cannot edit players in a tournament match' }, { status: 403 });
     }
 

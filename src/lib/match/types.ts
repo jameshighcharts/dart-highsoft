@@ -15,6 +15,7 @@ export type MatchRecord = {
   paused_at?: string | null;
   fair_ending?: boolean;
   bull_off?: BullOffState | null;
+  highdarts_fixture_id?: string | null;
   tournament_match_id?: string | null;
   scolia_board_id?: string | null;
   rematch_of_match_id?: string | null;
