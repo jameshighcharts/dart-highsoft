@@ -6,7 +6,6 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
-  Play,
   Search,
   Trophy,
   Flame,
@@ -26,14 +25,15 @@ import {
   buildStandings,
   tournamentActivity,
   normalizeName,
+  personalFixtures,
   type Office,
   fixtureLabel,
   officeName,
   resultStats,
-  type FixtureResult,
   type Snapshot,
   type Standing,
 } from '@/lib/highdarts/standings';
+import { FixtureCard, TournamentPlayerName } from './Fixtures';
 import { HighdartsRules } from './Rules';
 import { HighdartsBracket, HighdartsTieControls } from './HighdartsBracket';
 
@@ -75,93 +75,6 @@ function Progress({
   );
 }
 const FIXTURES_PER_PAGE = 6;
-function FixtureCard({
-  fixture: f,
-  snapshot,
-  showOffice = false,
-}: {
-  fixture: FixtureResult;
-  snapshot: Snapshot;
-  showOffice?: boolean;
-}) {
-  const a = snapshot.players.find((p) => p.id === f.player_a_id) ?? {
-    display_name: f.player_a_name,
-  };
-  const b = snapshot.players.find((p) => p.id === f.player_b_id) ?? {
-    display_name: f.player_b_name,
-  };
-  return (
-    <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 border-b border-white/5 px-4 py-4 last:border-0 sm:px-5">
-      <span className="text-xs font-medium tabular-nums text-slate-500">
-        #{f.fixture_no}
-      </span>
-      <div className="min-w-0">
-        {showOffice && (
-          <p className="mb-1.5 text-xs text-muted-foreground">
-            {officeName(f.office)}
-          </p>
-        )}
-        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <PlayerAvatar player={a} size="sm" />
-            <span
-              className="truncate text-sm font-medium"
-              title={a.display_name}
-            >
-              {a.display_name}
-            </span>
-          </div>
-          <span className="hidden text-xs text-slate-500 sm:block">vs</span>
-          <div className="flex min-w-0 items-center gap-2">
-            <PlayerAvatar player={b} size="sm" />
-            <span
-              className="truncate text-sm font-medium"
-              title={b.display_name}
-            >
-              {b.display_name}
-            </span>
-          </div>
-        </div>
-      </div>
-      {f.match_id ? (
-        <Link
-          className="inline-flex min-h-10 items-center gap-1 text-xs font-semibold text-cyan-300"
-          href={`/match/${f.match_id}`}
-        >
-          {f.match?.ended_early ? 'View match' : 'Watch live'}
-          <ArrowUpRight className="size-3" />
-        </Link>
-      ) : f.player_a_id && f.player_b_id ? (
-        <Button
-          asChild
-          size="sm"
-          variant="outline"
-          className="h-10 gap-1.5 border-cyan-300/20 text-cyan-200 hover:bg-cyan-300/10"
-        >
-          <Link
-            href={`/new?highdarts=${f.id}`}
-            aria-label={`Start ${a.display_name} vs ${b.display_name}, ${fixtureLabel(f)}`}
-          >
-            <Play className="size-3" />
-            <span className="sm:hidden">Start</span>
-            <span className="hidden sm:inline">Start this match</span>
-          </Link>
-        </Button>
-      ) : (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span tabIndex={0} className="text-xs text-muted-foreground">
-              Not ready
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            An organiser needs to link these players before the match can start.
-          </TooltipContent>
-        </Tooltip>
-      )}
-    </div>
-  );
-}
 function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
   const status = !row.played
     ? 'Not started'
@@ -282,12 +195,9 @@ export function HighdartsDashboard({
     setSnapshot(
       await apiRequest<Snapshot>('/api/highdarts', { method: 'GET' }),
     );
-  const yourFixtures =
-    data?.offices
-      .flatMap((o) => o.upcoming)
-      .filter(
-        (f) => myId && (f.player_a_id === myId || f.player_b_id === myId),
-      ) ?? [];
+  const yourFixtures = snapshot && myId
+    ? personalFixtures(snapshot, myId).filter((f) => !f.match?.completed_at && !f.match?.ended_early)
+    : [];
   const selectedOffice = data?.offices.find((o) => o.office === office);
   const query = normalizeName(search);
   const filteredFixtures =
@@ -581,8 +491,7 @@ export function HighdartsDashboard({
                     snapshot?.players.find((p) => p.id === f.player_b_id)
                       ?.display_name ?? f.player_b_name;
                   return (
-                    <Link
-                      href={`/match/${f.match_id}/report`}
+                    <div
                       key={f.id}
                       className="block border-t border-white/5 py-4 first:border-0 hover:text-cyan-200"
                     >
@@ -598,7 +507,7 @@ export function HighdartsDashboard({
                               : ''
                           }
                         >
-                          {aName}
+                          {snapshot && <TournamentPlayerName playerId={f.player_a_id} name={aName} snapshot={snapshot} />}
                         </span>
                         <span className="tabular-nums">{a.legs}</span>
                         <span
@@ -608,7 +517,7 @@ export function HighdartsDashboard({
                               : ''
                           }
                         >
-                          {bName}
+                          {snapshot && <TournamentPlayerName playerId={f.player_b_id} name={bName} snapshot={snapshot} />}
                         </span>
                         <span className="tabular-nums">{b.legs}</span>
                       </div>
@@ -628,7 +537,8 @@ export function HighdartsDashboard({
                           </>
                         )}
                       </div>
-                    </Link>
+                      <Link href={`/match/${f.match_id}/report`} className="mt-3 inline-block text-xs text-cyan-300">View result</Link>
+                    </div>
                   );
                 })}
               </section>
@@ -702,7 +612,7 @@ export function HighdartsDashboard({
                                   className="block truncate leading-4"
                                   title={row.player.display_name}
                                 >
-                                  {row.player.display_name.split(/\s+/)[0]}
+                                  {snapshot && <TournamentPlayerName playerId={row.player.id} name={row.player.display_name} snapshot={snapshot} />}
                                 </span>
                                 <RankBadge
                                   row={row}
@@ -750,9 +660,9 @@ export function HighdartsDashboard({
                     Projected byes · {byes.length}/4
                   </h3>
                   <p className="text-sm leading-7">
-                    {(data?.played
-                      ? byes.map((r) => r.player.display_name).join(' · ')
-                      : '') || 'Awaiting results'}
+                    {data?.played && byes.length && snapshot
+                      ? byes.map((r) => <TournamentPlayerName key={r.key} playerId={r.player.id} name={r.player.display_name} snapshot={snapshot} className="mr-3 inline-block" />)
+                      : 'Awaiting results'}
                   </p>
                 </div>
                 <div>
@@ -760,9 +670,9 @@ export function HighdartsDashboard({
                     Projected play-off · {playoff.length}/8
                   </h3>
                   <p className="text-sm leading-7">
-                    {(data?.played
-                      ? playoff.map((r) => r.player.display_name).join(' · ')
-                      : '') || 'Awaiting results'}
+                    {data?.played && playoff.length && snapshot
+                      ? playoff.map((r) => <TournamentPlayerName key={r.key} playerId={r.player.id} name={r.player.display_name} snapshot={snapshot} className="mr-3 inline-block" />)
+                      : 'Awaiting results'}
                   </p>
                 </div>
               </div>

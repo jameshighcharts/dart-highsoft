@@ -1,4 +1,5 @@
 import { calculate3DartAverage } from '@/utils/x01';
+import type { ScoliaBoardOption } from '@/lib/scolia/types';
 import type { Player } from '@/lib/match/types';
 
 export const OFFICES = ['bergen', 'vik', 'sogndal'] as const;
@@ -36,7 +37,21 @@ export type FixtureResult = Fixture & {
     legs: { winner_player_id: string | null; turns: ResultTurn[] }[];
   } | null;
 };
-export type Snapshot = { fixtures: FixtureResult[]; players: Player[] };
+export type Snapshot = { fixtures: FixtureResult[]; players: Player[]; boards?: ScoliaBoardOption[] };
+
+export function fixtureAvailability(fixture: Fixture, snapshot: Snapshot) {
+  const active = snapshot.fixtures.find((f) => f.id !== fixture.id && f.match_id && !f.match?.completed_at && !f.match?.ended_early && (
+    (fixture.office !== null && f.office === fixture.office) ||
+    [f.player_a_id, f.player_b_id].some((id) => id !== null && [fixture.player_a_id, fixture.player_b_id].includes(id))
+  ));
+  if (active) return { reason: 'A tournament match is already in progress.', href: `/match/${active.match_id}` };
+  const boards = fixture.office ? (snapshot.boards ?? []).filter((b) => b.name.toLowerCase().includes(fixture.office ?? '')) : [];
+  const busy = boards.find((b) => b.activeMatchId || b.activeGameSessionId);
+  if (busy) return { reason: `${officeName(fixture.office)} board is in use.`, href: busy.activeMatchId ? `/match/${busy.activeMatchId}` : `/game/${busy.activeGameSessionId}` };
+  if (boards.length && !boards.some((b) => b.selectable)) return { reason: `${officeName(fixture.office)} board is not ready.`, href: '/boards' };
+  return null;
+}
+
 export type Standing = {
   key: string;
   player: Player;
@@ -65,6 +80,40 @@ export function normalizeName(name: string): string {
     .trim()
     .replace(/\s+/g, ' ');
 }
+export function tournamentNames(snapshot: Snapshot) {
+  const entries = new Map<string, string>();
+  for (const f of snapshot.fixtures) {
+    for (const [id, name] of [[f.player_a_id, f.player_a_name], [f.player_b_id, f.player_b_name]]) {
+      const displayName = snapshot.players.find((p) => p.id === id)?.display_name ?? name ?? '';
+      const sheetParts = (name ?? '').trim().split(/\s+/);
+      const parts = displayName.trim().split(/\s+/);
+      const fullName = parts.length === 1 && sheetParts.length > 1 && normalizeName(parts[0]) === normalizeName(sheetParts[0]) ? `${parts[0]} ${sheetParts[sheetParts.length - 1]}` : displayName;
+      entries.set(id ?? normalizeName(displayName), fullName.trim());
+    }
+  }
+  const counts = new Map<string, number>();
+  for (const name of entries.values()) {
+    const first = normalizeName(name.split(/\s+/)[0]);
+    counts.set(first, (counts.get(first) ?? 0) + 1);
+  }
+  return (id: string | null, fallback: string) => {
+    const full = entries.get(id ?? normalizeName(fallback)) ?? fallback.trim();
+    const parts = full.split(/\s+/);
+    return (counts.get(normalizeName(parts[0])) ?? 0) > 1 && parts.length > 1
+      ? `${parts[0]} ${parts[parts.length - 1][0]}`
+      : parts[0];
+  };
+}
+
+export function personalFixtures(snapshot: Snapshot, playerId: string) {
+  return snapshot.fixtures
+    .filter((f) => f.player_a_id === playerId || f.player_b_id === playerId)
+    .sort((a, b) => {
+      const status = (f: FixtureResult) => f.match?.completed_at || f.match?.ended_early ? 2 : f.match_id ? 0 : 1;
+      return status(a) - status(b) || a.fixture_no - b.fixture_no || a.id.localeCompare(b.id);
+    });
+}
+
 export function fixturesForPair(fixtures: Fixture[], ids: string[]): Fixture[] {
   if (ids.length !== 2 || ids[0] === ids[1]) return [];
   return fixtures

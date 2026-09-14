@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { isAuthPerformanceBypassEnabled } from './devBypass';
+import { isAuthDevBypassEnabled, isAuthPerformanceBypassEnabled } from './devBypass';
 
 function request(hostname: string, header = 'enabled') {
   return {
@@ -40,5 +40,20 @@ describe('isAuthPerformanceBypassEnabled', () => {
     expect(isAuthPerformanceBypassEnabled(request('localhost'))).toBe(false);
     vi.stubEnv('AUTH_LHCI_BYPASS', '1');
     expect(isAuthPerformanceBypassEnabled(request('localhost', 'wrong'))).toBe(false);
+  });
+});
+
+describe('isAuthDevBypassEnabled', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('never enables preview identity overrides in production', () => {
+    vi.stubEnv('AUTH_DEV_BYPASS', '1');
+    vi.stubEnv('AUTH_DEV_SLACK_USER_ID', 'UPREVIEW');
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(isAuthDevBypassEnabled()).toBe(false);
+    vi.stubEnv('NODE_ENV', 'development');
+    expect(isAuthDevBypassEnabled()).toBe(true);
+    vi.stubEnv('AUTH_DEV_BYPASS', '');
+    expect(isAuthDevBypassEnabled()).toBe(false);
   });
 });

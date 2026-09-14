@@ -10,6 +10,7 @@ import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { PlayerEloStats } from '@/components/PlayerEloStats';
 import { PlayerMultiEloStats } from '@/components/PlayerMultiEloStats';
 import { AdminNicknameEditor } from '@/components/profile/AdminNicknameEditor';
+import { ProfileFixtures } from '@/components/highdarts/Fixtures';
 import { ProfileSummaryCard } from '@/components/profile/ProfileSummaryCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -291,6 +292,8 @@ export function ProfileClient() {
               </div>
             </CardContent>
           </Card>
+
+          <ProfileFixtures playerId={player.id} />
 
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">My stats</h2>
