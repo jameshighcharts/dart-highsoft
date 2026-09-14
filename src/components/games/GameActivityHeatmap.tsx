@@ -8,7 +8,35 @@ export function gameDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-const colors = ['bg-muted', 'bg-green-200 dark:bg-green-950', 'bg-green-400 dark:bg-green-800', 'bg-green-600', 'bg-green-800 dark:bg-green-400'];
+// Sequential scale: level 0 = no games, levels 1-6 scale relative to the busiest day.
+const colors = [
+  'bg-muted',
+  'bg-green-100 dark:bg-green-900',
+  'bg-green-200 dark:bg-green-800',
+  'bg-green-400 dark:bg-green-700',
+  'bg-green-500 dark:bg-green-600',
+  'bg-green-700 dark:bg-green-400',
+  'bg-green-900 dark:bg-green-200',
+];
+const maxLevel = colors.length - 1;
+
+/** Map a day's count to a color level relative to the busiest day, so a 13-game day is always darker than a 4-game day. */
+export function activityLevel(count: number, max: number) {
+  if (count <= 0) return 0;
+  if (max <= 1) return maxLevel;
+  return Math.max(1, Math.ceil((count / max) * maxLevel));
+}
+
+/** Legend thresholds: the smallest count that maps to each non-zero level. */
+export function activityThresholds(max: number) {
+  const thresholds: number[] = [];
+  for (let level = 1; level <= maxLevel; level++) {
+    let count = 1;
+    while (count < max && activityLevel(count, max) < level) count++;
+    thresholds.push(count);
+  }
+  return thresholds;
+}
 
 export function GameActivityHeatmap({ dates, selectedDate, onSelectDate }: {
   dates: string[];
@@ -37,6 +65,8 @@ export function GameActivityHeatmap({ dates, selectedDate, onSelectDate }: {
     weeks.push(week);
   }
   const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
+  const max = Math.max(0, ...counts.values());
+  const thresholds = activityThresholds(max);
   return <TooltipProvider delayDuration={150}><Card>
     <CardHeader>
       <CardTitle>Game activity</CardTitle>
@@ -60,7 +90,7 @@ export function GameActivityHeatmap({ dates, selectedDate, onSelectDate }: {
                 <TooltipTrigger asChild><button
                 type="button" aria-label={label} aria-pressed={selectedDate === key}
                 onClick={() => onSelectDate(key)}
-                className={`h-3 w-3 rounded-[2px] border border-foreground/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${colors[Math.min(count, 4)]} ${selectedDate === key ? 'ring-2 ring-foreground ring-offset-1 ring-offset-background' : ''}`}
+                className={`h-3 w-3 rounded-[2px] border border-foreground/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${colors[activityLevel(count, max)]} ${selectedDate === key ? 'ring-2 ring-foreground ring-offset-1 ring-offset-background' : ''}`}
               /></TooltipTrigger>
                 <TooltipPortal><TooltipContent>{label}</TooltipContent></TooltipPortal>
               </Tooltip>;
@@ -69,7 +99,12 @@ export function GameActivityHeatmap({ dates, selectedDate, onSelectDate }: {
         </div>
       </div>
       <div className="mt-3 flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
-        <span>Less</span>{colors.map((color, index) => <span key={color} title={index === 4 ? '4+ games' : `${index} games`} className={`h-3 w-3 rounded-[2px] ${color}`} />)}<span>More</span>
+        <span>Less</span>{colors.map((color, index) => {
+          const from = index === 0 ? 0 : thresholds[index - 1];
+          const to = index === 0 ? 0 : index === maxLevel ? max : thresholds[index] - 1;
+          const title = index === 0 ? 'No games' : to <= from ? `${from} ${from === 1 ? 'game' : 'games'}` : `${from}–${to} games`;
+          return <span key={color} title={title} className={`h-3 w-3 rounded-[2px] border border-foreground/10 ${color}`} />;
+        })}<span>More{max > 0 ? ` (${max})` : ''}</span>
       </div>
     </CardContent>
   </Card></TooltipProvider>;
