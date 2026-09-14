@@ -21,7 +21,8 @@
     "test:e2e:headed": "playwright test --headed",
     "supabase:test:start": "npx supabase start --workdir supabase-test",
     "supabase:test:stop": "npx supabase stop --workdir supabase-test",
-    "supabase:test:reset": "npx supabase db reset --workdir supabase-test"
+    "supabase:test:reset": "npx supabase db reset --workdir supabase-test",
+    "icons:game-modes": "python3 scripts/key-game-mode-icons.py"
   },
   "dependencies": {
     "@highcharts/grid-pro": "^2.3.1",
