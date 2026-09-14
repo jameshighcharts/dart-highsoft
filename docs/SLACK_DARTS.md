@@ -91,10 +91,12 @@ Migration `0059_player_avatars_and_nicknames.sql` adds `players.avatar_url`,
 `players.nicknames text[]` and a public-read `avatars` storage bucket. Admins
 upload PNG/JPEG/WebP pictures (max 2 MB) per player in `/admin`; the server
 sniffs the real image type and stores `players/<id>.<ext>`. Nicknames are
-entered comma-separated. The `PlayerAvatar` component renders the picture (or, for players without one,
-a default goblin icon from `public/avatars/default`, chosen deterministically from the
-player id via `defaultAvatarUrl` in `src/lib/avatars.ts`) as a circle at fixed sizes wherever
-players appear.
+entered comma-separated. Players without an uploaded picture get one of the 80 default
+goblin icons in `public/avatars/default`: the `assign_default_avatar` trigger (migration
+`20260911120000_unique_default_avatars.sql`) stores a random goblin no other player has in
+`players.avatar_url` on insert and whenever a picture is removed. `hasUploadedAvatar` in
+`src/lib/avatars.ts` tells a real upload from a default. The `PlayerAvatar` component renders
+the picture as a circle at fixed sizes wherever players appear.
 
 
 `/admin` is a light, minimal user-management page (players, pictures,

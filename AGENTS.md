@@ -218,7 +218,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `commentary/realtimeTypes.ts` | Shared Realtime session/correction-envelope contracts, model default, UUID validation, and legacy-to-Realtime voice mapping |
 | `commentary/realtimeSnapshot.ts` | Builds compact authoritative match snapshots for new, reconnected, and rotated Realtime sessions |
 | `commentary/scoliaRealtimeEvent.ts` | Shares canonical replay/model construction with listener-triggered cache preparation; loads an accepted Scolia throw and its turn/leg/match/player facts in one joined canonical read, attaches its deterministic DartIQ packet, adds coordinate-verified ring proximity, current-visit grouping distances, and frozen-model before/next-dart landing forecasts, and classifies speech priority without waiting for Supabase Realtime |
-| `avatars.ts` | Shared avatar sizes, default goblin icon assignment (`public/avatars/default`, keyed `goblin-01..40`, picked per player id), escaped grid HTML, and storage URL parsing |
+| `avatars.ts` | Shared avatar sizes, default goblin icon helpers (`public/avatars/default`, keyed `goblin-01..80`; the DB trigger `assign_default_avatar` stores a unique random one in `players.avatar_url`, the id hash is only the fallback), escaped grid HTML, and storage URL parsing |
 | `tvMode.ts` | Browser-local TV mode preference and click-triggered fullscreen request for new-game spectator navigation; fullscreen denial never blocks starting a game |
 | `supabaseClient.ts` | Browser-side Supabase client (cached) |
 | `supabaseServer.ts` | Server-side Supabase client (API routes) |
@@ -278,7 +278,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `leaderboard/BullersLeaderboard.tsx` | Top 10 Bullers card with average inch-mark distances, sample/miss counts, clear loading/empty/error states and colocated UI tests |
 | `leaderboard/GameModeLeaderboardItem.tsx` | Player row for party-mode leaderboard statistics |
 | `SiteChrome.tsx` | Shared page shell and a single measured desktop nav underline that slides between links, responds to keyboard focus/resizing, and respects reduced motion |
-| `PlayerAvatar.tsx` | Shared avatar rendering; falls back to the player's assigned default goblin icon |
+| `PlayerAvatar.tsx` | Shared avatar rendering; players without an upload show their database-assigned default goblin icon |
 | `PlayerAvatarById.tsx` | Avatar lookup for ID-only rows, with one shared cached player query |
 | `Dartboard.tsx` | SVG interactive dartboard (desktop) |
 | `MobileKeypad.tsx` | Touch number pad (mobile) |

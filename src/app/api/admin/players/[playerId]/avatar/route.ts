@@ -33,8 +33,8 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const { playerId } = await params;
   if (!UUID_PATTERN.test(playerId)) return NextResponse.json({ error: 'Invalid player id' }, { status: 400 });
   try {
-    await clearPlayerAvatar(getSupabaseServerClient(), playerId);
-    return NextResponse.json({ playerId, avatarUrl: null });
+    const avatarUrl = await clearPlayerAvatar(getSupabaseServerClient(), playerId);
+    return NextResponse.json({ playerId, avatarUrl });
   } catch (error) {
     return errorResponse(error, 'Failed to remove avatar');
   }
