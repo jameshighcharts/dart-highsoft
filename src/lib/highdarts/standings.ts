@@ -16,6 +16,9 @@ export type Fixture = {
   player_a_id: string | null;
   player_b_id: string | null;
   match_id: string | null;
+  next_fixture_id?: string | null;
+  next_slot?: 'a' | 'b' | null;
+  tie_context?: string | null;
 };
 export type ResultTurn = {
   player_id: string;
@@ -67,7 +70,6 @@ export function fixturesForPair(fixtures: Fixture[], ids: string[]): Fixture[] {
   return fixtures
     .filter(
       (f) =>
-        f.stage === 'group' &&
         f.player_a_id !== null &&
         f.player_b_id !== null &&
         ids.includes(f.player_a_id) &&
@@ -79,7 +81,7 @@ export function officeName(office: Office | null) {
   return office ? office[0].toUpperCase() + office.slice(1) : 'Finals';
 }
 export function fixtureLabel(f: Fixture) {
-  return `${officeName(f.office)} #${f.fixture_no}`;
+  return `${f.stage === 'group' ? officeName(f.office) : stageName(f.stage)} #${f.fixture_no}`;
 }
 export function isCompleted(f: FixtureResult) {
   return Boolean(
@@ -100,7 +102,51 @@ export function resultStats(f: FixtureResult, playerId: string | null) {
       ).length ?? 0,
   };
 }
+export type QualificationTie = {
+  context: string;
+  label: string;
+  office: Office | null;
+  players: Standing[];
+  places: number;
+  ready: boolean;
+};
+function resolveTie(
+  fixtures: FixtureResult[],
+  rows: Standing[],
+  label: string,
+  office: Office | null,
+  places: number,
+  ready: boolean,
+): QualificationTie {
+  const context = JSON.stringify([
+    label,
+    rows
+      .map((r) => [r.key, r.wins, r.average, r.played, r.remaining])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  ]);
+  const defeated = new Set(
+    fixtures
+      .filter(
+        (f) =>
+          f.stage === 'tiebreak' && f.tie_context === context && isCompleted(f),
+      )
+      .flatMap((f) =>
+        [f.player_a_id, f.player_b_id].filter(
+          (id) => id && id !== f.match?.winner_player_id,
+        ),
+      ),
+  );
+  return {
+    context,
+    label,
+    office,
+    places,
+    ready,
+    players: rows.filter((r) => !defeated.has(r.player.id)),
+  };
+}
 export function buildStandings({ fixtures, players }: Snapshot) {
+  const ties: QualificationTie[] = [];
   const playerById = new Map(players.map((p) => [p.id, p]));
   const offices = OFFICES.map((office) => {
     const group = fixtures.filter(
@@ -174,23 +220,46 @@ export function buildStandings({ fixtures, players }: Snapshot) {
         b.legDiff - a.legDiff ||
         a.player.display_name.localeCompare(b.player.display_name),
     );
-    table.forEach((r, i) => {
-      r.rank = i + 1;
-      r.qualification =
-        i === 0 ? 'bye' : i === 1 ? 'bye-candidate' : i < 4 ? 'playoff' : null;
-    });
-    // Only wins and unrounded average decide a cutoff tie. Leg difference and
-    // name provide a stable display order, never resolve qualification.
     const fourth = table[3],
       fifth = table[4];
     if (fourth && fifth && sameOfficeTie(fourth, fifth)) {
-      table
-        .filter((r) => sameOfficeTie(r, fourth))
-        .forEach((r) => {
+      const tied = table.filter((r) => sameOfficeTie(r, fourth));
+      const first = table.indexOf(tied[0]);
+      const tie = resolveTie(
+        fixtures,
+        tied,
+        `${officeName(office)} fourth place`,
+        office,
+        4 - first,
+        group.every(isCompleted),
+      );
+      if (tie.players.length > tie.places) {
+        ties.push(tie);
+        tied.forEach((r) => {
           r.tiedForFourth = true;
-          r.qualification = null;
         });
+      } else {
+        const alive = new Set(tie.players.map((r) => r.key));
+        table.splice(
+          first,
+          tied.length,
+          ...tied.filter((r) => alive.has(r.key)),
+          ...tied.filter((r) => !alive.has(r.key)),
+        );
+      }
     }
+    table.forEach((r, i) => {
+      r.rank = i + 1;
+      r.qualification = r.tiedForFourth
+        ? null
+        : i === 0
+          ? 'bye'
+          : i === 1
+            ? 'bye-candidate'
+            : i < 4
+              ? 'playoff'
+              : null;
+    });
     return {
       office,
       table,
@@ -206,11 +275,26 @@ export function buildStandings({ fixtures, players }: Snapshot) {
   const best = seconds.filter((r) => r.average === bestAverage);
   if (best.length === 1)
     best[0].qualification = best[0].tiedForFourth ? null : 'bye';
-  else
-    best.forEach((r) => {
-      r.tiedForBye = true;
-    });
+  else if (best.length > 1) {
+    const tie = resolveTie(
+      fixtures,
+      best,
+      'Fourth bye',
+      null,
+      1,
+      offices.every((o) => o.played === o.total),
+    );
+    if (tie.players.length === 1 && !tie.players[0].tiedForFourth)
+      tie.players[0].qualification = 'bye';
+    else {
+      ties.push(tie);
+      best.forEach((r) => {
+        r.tiedForBye = true;
+      });
+    }
+  }
   return {
+    ties,
     offices,
     total: offices.reduce((n, o) => n + o.total, 0),
     played: offices.reduce((n, o) => n + o.played, 0),
@@ -233,6 +317,7 @@ export function buildStandings({ fixtures, players }: Snapshot) {
     ),
     unresolved: new Set(
       fixtures
+        .filter((f) => f.stage === 'group')
         .flatMap((f) => [
           !f.player_a_id
             ? `${f.office}:${normalizeName(f.player_a_name)}`
@@ -247,4 +332,49 @@ export function buildStandings({ fixtures, players }: Snapshot) {
 }
 function sameOfficeTie(a: Standing, b: Standing) {
   return a.wins === b.wins && a.average === b.average;
+}
+
+export function stageName(stage: Stage): string {
+  return {
+    group: 'Group stage',
+    playoff: 'Play-off',
+    quarterfinal: 'Quarterfinal',
+    semifinal: 'Semifinal',
+    final: 'Final',
+    tiebreak: 'Tie-break',
+  }[stage];
+}
+export function fixtureFormat(stage: Stage) {
+  return {
+    startScore: stage === 'final' ? '501' : '301',
+    finish:
+      stage === 'quarterfinal' || stage === 'semifinal' || stage === 'final'
+        ? 'double_out'
+        : 'single_out',
+    legsToWin: 2,
+  } satisfies {
+    startScore: '301' | '501';
+    finish: 'single_out' | 'double_out';
+    legsToWin: number;
+  };
+}
+export function tournamentActivity(
+  fixtures: FixtureResult[],
+  now = new Date(),
+) {
+  const date = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Oslo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const today = date.format(now);
+  const completed = fixtures.filter(isCompleted);
+  const playedToday = completed.filter(
+    (f) => date.format(new Date(f.match!.completed_at!)) === today,
+  );
+  return {
+    today: playedToday.length,
+    groupToday: playedToday.filter((f) => f.stage === 'group').length,
+  };
 }

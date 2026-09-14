@@ -5,6 +5,7 @@ import { Trophy } from 'lucide-react';
 import { apiRequest } from '@/lib/apiClient';
 import {
   fixtureLabel,
+  fixtureFormat,
   fixturesForPair,
   type Fixture,
   type Snapshot,
@@ -79,6 +80,7 @@ export function HighdartsMatchTag({
     players.map((p) => p.id),
   ).filter((f) => !f.match_id);
   const candidate = available.find((f) => f.id === chosenId) ?? available[0];
+  const format = fixtureFormat(candidate?.stage ?? 'group');
   const open =
     !spectator &&
     !dismissed &&
@@ -145,7 +147,8 @@ export function HighdartsMatchTag({
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Tournament matches use 301, single out, first to two legs, with fair
+            This round uses {format.startScore},{' '}
+            {format.finish.replace('_', ' ')}, first to two legs, with fair
             ending off.
           </p>
           {available.length > 1 && (

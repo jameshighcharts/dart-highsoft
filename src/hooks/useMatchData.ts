@@ -105,6 +105,7 @@ export function useMatchData(matchId: string): UseMatchDataResult {
       setTurnThrowCounts(result.turnThrowCounts);
       setTurnsByLeg(result.turnsByLeg);
     } catch (e) {
+      if (requestId !== loadAllRequestIdRef.current) return;
       const msg = e instanceof Error ? e.message : 'Unknown error';
       setError(msg);
     } finally {

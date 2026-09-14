@@ -38,9 +38,13 @@ export function HighdartsRules() {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2">
+        <Button
+          variant="outline"
+          aria-label="Rules"
+          className="size-8 shrink-0 gap-2 p-0 sm:h-9 sm:w-auto sm:px-3"
+        >
           <BookOpen className="size-4" />
-          Rules
+          <span className="hidden sm:inline">Rules</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
@@ -77,8 +81,7 @@ export function HighdartsRules() {
         {steps.map(([title, body], i) => (
           <section key={title} className="rounded-xl border bg-muted/30 p-4">
             <h3 className="mb-2 font-semibold">
-              <span className="mr-2 text-cyan-300">{i}</span>
-              {' '}{title}
+              <span className="mr-2 text-cyan-300">{i}</span> {title}
             </h3>
             <p className="text-sm leading-relaxed text-muted-foreground">
               {body}

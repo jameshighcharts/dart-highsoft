@@ -70,3 +70,25 @@ describe('HTTP snapshots racing with live updates', () => {
     expect(result.current.match).toBeNull();
   });
 });
+
+it('does not let an obsolete scorer load error replace a newer successful snapshot', async () => {
+  let rejectOld!: (reason: Error) => void;
+  const obsolete = new Promise<MatchLoadResult>((_, reject) => { rejectOld = reject; });
+  load.mockReturnValueOnce(obsolete).mockResolvedValueOnce(snapshot([]));
+  const { result, rerender } = renderHook(id => useMatchData(id), { initialProps: 'm' });
+  let oldLoad!: Promise<void>;
+  await act(async () => { oldLoad = result.current.loadAll(); });
+  rerender('other');
+  await act(async () => { await result.current.loadAll(); });
+  await act(async () => { rejectOld(new Error('Match snapshot owner changed')); await oldLoad; });
+  expect(result.current.error).toBeNull();
+  expect(result.current.match).toEqual(match);
+  expect(result.current.loading).toBe(false);
+});
+it('still reports a failure from the current scorer load', async () => {
+  load.mockRejectedValue(new Error('Current load failed'));
+  const { result } = renderHook(() => useMatchData('m'));
+  await act(async () => { await result.current.loadAll(); });
+  expect(result.current.error).toBe('Current load failed');
+  expect(result.current.loading).toBe(false);
+});

@@ -4,7 +4,7 @@
 
 ## Deployment
 
-Apply `supabase/migrations/20260914120000_highdarts_2026.sql` before deploying the app. This change has **not** applied that migration to production. The SQL seeds exactly 76 group fixtures: Bergen 30, Vik 33, Sogndal 13. Repeated pairs keep their original fixture numbers. The PDF fixture table, rather than the brief's illustrative repeat-pair sentence, determines the seed.
+Apply `supabase/migrations/20260914120000_highdarts_2026.sql`, followed by `supabase/migrations/20260914163000_highdarts_finals.sql`, before deploying the app. This change has **not** applied that migration to production. The SQL seeds exactly 76 group fixtures: Bergen 30, Vik 33, Sogndal 13. Repeated pairs keep their original fixture numbers. The PDF fixture table, rather than the brief's illustrative repeat-pair sentence, determines the seed.
 
 Run `supabase/tests/highdarts_2026.sql` after migration to verify the schema and RPCs. It uses a transaction and rolls every test write back. It checks fixture count, name folding, permissions, player/settings enforcement, double claims, pre-start conversion, completed and early-ended job creation, rematch isolation, and the consistent snapshot.
 
@@ -51,7 +51,7 @@ Office standings follow the fixture's office, even if a player's app location ha
 
 Only completed tagged group matches with a winner and without `ended_early` count. Rows sort by wins, then the unrounded three-dart average, then leg difference and name for stable display. Fourth-place ties compare wins and average; leg difference never awards a place across that cutoff. Everyone in an unresolved cutoff tie is marked undecided.
 
-Each office winner projects to a bye. The highest-average second-place finisher across offices projects to the fourth bye. Equal best averages require a playoff regardless of differing office win totals, because this cross-office decision is explicitly based on average. All qualifications remain projections until the office stage and any tie matches are settled. The app flags ties but does not resolve them or generate a bracket.
+Each office winner projects to a bye. The highest-average second-place finisher across offices projects to the fourth bye. Equal best averages require a playoff regardless of differing office win totals, because this cross-office decision is explicitly based on average. All qualifications remain projections until the office stage and any tie matches are settled. Admins resolve qualification ties through separate tie-break fixtures before locking the finals bracket.
 
 Averages reuse `calculate3DartAverage`: points divided by actual scoring darts, multiplied by three. Bust visits and fair-ending tiebreak turns are excluded, matching existing match-stat behavior. Bull-off darts live separately and never enter the average. The older global `player_summary.avg_per_turn` leaderboard uses average visit totals, so it can differ on one- or two-dart visits. This feature does not change that global metric or claim the two calculations are identical.
 
@@ -65,17 +65,49 @@ The handler builds a plain-text fallback and Block Kit result with player mentio
 
 A conditional `NULL` → `sending` update claims delivery before contacting Slack. After success, the timestamp replaces `sending`; retries skip timestamps already recorded. If the network result is uncertain, `sending` is retained and retries fail without posting again. This chooses duplicate prevention over automatic retries that could post a second result. To recover, check the Slack channel: if the message exists, record its actual timestamp; otherwise clear the marker and requeue the failed job. Never clear it without checking. The app cannot atomically commit a database transaction and Slack's remote HTTP side effect.
 
-## Finals later
+## Finals draw
 
-The schema accepts `playoff`, `quarterfinal`, `semifinal`, `final` and `tiebreak` stages with a nullable office. Fixture numbers are unique within event/stage/office, including finals with a null office. Add fixtures through server-side administration or a reviewed migration. The current creation/linking RPCs intentionally accept only group fixtures. Add stage-specific validation and progression before enabling finals starts: playoff 301/single out, quarterfinal and semifinal 301/double out, final 501/double out, all first to two legs. Bracket generation, pairing, and tie resolution are outside this change.
+The Sluttspill tab has four rounds. Play-offs use 301 straight out; quarterfinals and semifinals use 301 double out; the final uses 501 double out. Every match is first to two legs, with fair ending off. The new-match page and pre-start tagging use the fixture's stage to select and enforce these settings. Fair ending remains visible beside Highdarts and can be enabled for regular single-leg matches.
+
+`projectFinals` takes group standings and enumerates the legal cross-office play-off pairs: two 2nd-vs-4th pairs, one 3rd-vs-4th pair, and one 3rd-vs-3rd pair. It evaluates quarterfinal assignments, minimizing possible same-office quarterfinal meetings first and semifinal meetings second. Two byes from the same office must be in opposite halves. Deterministic ordering makes repeated projections stable. Untouched or unresolved places show TBD.
+
+After every group fixture finishes and qualification ties are resolved, an admin can edit the twelve seeded positions, then use Lock the draw. The server independently rebuilds standings, validates all players and pairing constraints, and calls a transaction that compares the exact snapshot before writing eleven fixtures. `next_fixture_id` and `next_slot` route winners. Concurrent updates reject a stale draw. Source results and fixtures are protected while the draw is locked. Unlock is available before any finals scoring; it removes the draw and any claimed, unplayed finals matches. Once a finals dart exists, unlocking is rejected.
+
+A completed finals match advances its winner in the same database transaction, including hardware scoring. A repeated completion is harmless. A winner already advanced to another round cannot be overwritten. Early endings do not advance a player.
+
+Tie-break controls appear in Tabell and under the bracket. Admins can create a current fourth-place or best-second tie-break after the relevant group games finish. The tie's standings fingerprint prevents stale tie-break results deciding changed standings. With more than two tied players, the organiser selects the next pair from the remaining contenders; losers are eliminated until the required number of places remains. Tie-break scoring never changes group averages or win counts.
+
+## Dashboard
+
+Tabs are ordered How's it going, Tabell, Sluttspill, Sheet. Group completion is the headline number, with a Today count for all completed tournament games in the Europe/Oslo calendar day. The progress bar separates group games completed before today from those completed today. Counts scan every fixture, not just the ten recent results.
+
+The three office progress cards select a searchable, six-row upcoming list. Linked personal fixtures appear first. Tabell shows three tables side by side on desktop and stacked on mobile, using avatars, first names, W, L, AVG and Left. Full names remain in title text. Every player has one status pill. The Rules control sits next to Highdarts 2026. The Sheet iframe applies `invert(0.9) hue-rotate(180deg)` as requested; this also changes embedded image and chart colours.
 
 ## Verification and screenshots
 
-The migration was applied from scratch to disposable PostgreSQL 18 using the repository's core schema and current X01/bull-off creation functions. Unrelated DartIQ evidence capture was stubbed in that isolated harness. Rollback tests passed. Two concurrent fixture claims produced exactly one match and one conflict with no orphan match. The real Next.js creation API also persisted the expected format, pair and reciprocal link against the local bridge. This is not a claim that a full Supabase environment or production deployment was exercised.
+The migration was applied from scratch to disposable PostgreSQL 18 using the repository's core schema and current X01/bull-off creation functions. Unrelated DartIQ evidence capture was stubbed in that isolated harness. Both rollback SQL suites passed, including all eleven finals games, next-slot advancement, format rejection, stale snapshots, unlock before scoring, rejection after the first dart, and locked source protection. Two concurrent fixture claims produced exactly one match and one conflict with no orphan match. The real Next.js creation API also persisted the expected format, pair and reciprocal link against the local bridge. This is not a claim that a full Supabase environment or production deployment was exercised.
 
-Final checks: 1,417 tests passed, lint had no errors, and `npm run build -- --webpack` passed. The webpack flag is required in this worktree because Turbopack rejects its shared `node_modules` symlink.
+Final checks: 1,440 tests passed, lint had no errors, and `npm run build -- --webpack` passed. The webpack flag is required in this worktree because Turbopack rejects its shared `node_modules` symlink.
 
-Desktop and mobile checks used the real Next.js app, a loopback-only HTTP bridge to that disposable database, and clearly synthetic local results. Slack was disabled. Verified dashboard refresh, tab order, rules, fixture deep links, two-player preselection, disabled 301/single-out/first-to-two settings, and no horizontal overflow on the setup page. No real Slack result was sent. The embedded sheet still requires the viewer's Highsoft Google session.
+Desktop and mobile checks used the real Next.js app, a loopback-only HTTP bridge to that disposable database, with zero completed games. The earlier synthetic James–Håvard result and all three test claims were removed. SQL regression writes roll back. Slack was disabled. Verified dashboard refresh, tab order, rules, fixture deep links, two-player preselection, disabled 301/single-out/first-to-two settings, and no horizontal overflow on the setup page. No real Slack result was sent. The embedded sheet still requires the viewer's Highsoft Google session.
+
+### Native browser E2E
+
+`e2e/highdarts.spec.ts`, with `playwright.highdarts.config.ts`, exercises Chromium on desktop and mobile through Next.js → PostgREST 16.3 → PostgreSQL 18. It is opt-in (`HIGHDARTS_E2E_NATIVE=1`) and hardwired to the disposable `highdarts_e2e` database on local port 56555, REST proxy on 56558, and app on 3017. Its reset deletes synthetic game data only in that dedicated database. The separate user preview on 3016 is untouched.
+
+The complete workflow passed on 2026-09-14 in 26.2 seconds, with no uncaught browser errors. It checks all four tabs, Rules, upcoming search and pagination, personal fixtures, compact standings, mobile overflow, the iframe filter, fair-ending visibility, fixture setup, browser scoring and undo after reload, result averages and report navigation. It races two real match-creation requests, verifies a standalone rematch does not count as a tournament fixture, seeds the remaining group history, resolves a qualification tie through the admin UI and scoring API, edits and locks/unlocks the draw, and scores all eleven finals matches through the real throw, turn and leg APIs. It checks stage formats, automatic winner advancement, duplicate protection, unlock rejection after scoring, all bracket report links, 88 queued result jobs, and anonymous RPC denial.
+
+The local environment uses development authentication, empty board data and a stub for DartIQ evidence capture. It does **not** exercise real OAuth, Supabase Realtime, Scolia hardware, Slack delivery, Google sign-in inside the iframe, or a production migration. The standard Docker-based Supabase E2E environment was unavailable on this machine; this run uses native PostgreSQL and the official PostgREST binary instead.
+
+To repeat in the prepared local environment:
+
+```sh
+HIGHDARTS_E2E_NATIVE=1 node --env-file=/private/tmp/highdarts-e2e-app/.env.local node_modules/@playwright/test/cli.js test -c playwright.highdarts.config.ts
+```
+
+The isolated app and database must already be running; the config does not provision them. The local HTML report is `/private/tmp/highdarts-e2e-report/index.html`. A clean checkout without this environment skips the native test.
+
+The browser run exposed an obsolete match-load failure overwriting a newer successful snapshot. `useMatchData` now discards errors from superseded requests, with regression coverage for both stale failures and valid current-request failures.
 
 ![Desktop dashboard](highdarts-2026/desktop.png)
 ![Mobile dashboard](highdarts-2026/mobile.png)

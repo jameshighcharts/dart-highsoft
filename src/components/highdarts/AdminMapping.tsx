@@ -59,6 +59,7 @@ export function HighdartsAdminMapping() {
     { fixture: Fixture; side: 'a' | 'b'; name: string; numbers: number[] }
   >();
   for (const f of snapshot?.fixtures ?? []) {
+    if (f.stage !== 'group') continue;
     for (const side of ['a', 'b'] as const) {
       if (f.match_id || f[side === 'a' ? 'player_a_id' : 'player_b_id'])
         continue;

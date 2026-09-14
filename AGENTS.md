@@ -111,6 +111,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `tts/` | POST | Text-to-speech for commentary |
 | `slack/darts/` | POST | Verify Slack slash commands/button actions and create dart polls |
 | `auth/[...nextauth]/` | GET, POST | Auth.js (next-auth v5) Sign in with Slack handlers; `auth/slack/callback` aliases the callback URL |
+| `admin/highdarts/finals/draw/` | POST, DELETE | Admin-validated atomic draw lock and pre-scoring unlock |
+| `admin/highdarts/finals/tiebreak/` | POST | Admin creation of a current qualification tie-break |
 | `admin/players/` | GET, POST | Admin-only: players with Slack links plus workspace directory; create player |
 | `admin/players/[playerId]/` | PATCH | Admin-only: rename, edit nicknames, relocate, or (de)activate a player |
 | `admin/players/[playerId]/slack-link/` | PUT, DELETE | Admin-only: link/unlink a player and a Slack user in `slack_player_links` |
@@ -138,7 +140,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 ### Hooks (`src/hooks`)
 | File | Purpose |
 |------|---------|
-| `useMatchData.ts` | All match state loading: `loadAll()`, `loadAllSpectator()`, per-entity loaders |
+| `useMatchData.ts` | Match snapshots and per-entity loaders; obsolete scorer requests cannot replace the current match or its error state |
 | `useMatchActions.ts` | Player actions: `handleBoardClick`, `undoLastThrow`, `endLegAndMaybeMatch`, rematch, player management. Serializes concurrent throws via queue. |
 | `useMatchRealtime.ts` | Connects Supabase realtime events to state; uses spectator reducer for incremental updates |
 | `useRealtime.ts` | Low-level Supabase channel subscription, DOM custom events, connection lifecycle |
@@ -157,6 +159,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `highdarts/standings.ts` | Highdarts types, normalized names, repeated-pair lookup, dart-weighted averages, office standings, qualification and cutoff ties; colocated regression tests |
 | `highdarts/server.ts` | Server-only consistent snapshot loader, UUID and database error boundary |
 | `highdarts/slack.ts` | Escaped Block Kit/plain-text tournament result builder with mentions and checkout statistics |
+| `highdarts/finals.ts` | Pure legal play-off pairing enumeration, office-separated quarterfinal placement, draw validation and eleven-game advancement graph |
 | `highdarts/slackResult.ts` | Background result publisher with atomic send claim, stored timestamp and duplicate prevention after uncertain delivery |
 | `dartiq/projection.ts` | Live leg/match probability projection, expected visits, exact standard-play next-dart opportunity enumeration, fair-ending, tiebreak, and future-leg race semantics |
 | `dartiq/checkout.ts` | Behavioral live-visit checkout probability, descriptive leave impact, and bogey-leave evaluation |
@@ -243,7 +246,8 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `profile/ProfileClient.tsx` | Own profile and stats, with admin-only player nickname editing |
 | `profile/AdminNicknameEditor.tsx` | Admin player picker and nickname form using the protected admin API; regression tests cover saving, clearing, and failures |
 | `match/BullOffRound.tsx` | Pre-game manual/Scolia Bull-off view with a full-screen navigation-free spectator shell: a large centered gradient Bull-off heading, viewport-centered expanded layout, provisional sorted cards, muted pending states, a bright cyan pulsing current-player card with Your throw/Remove dart badges instead of a separate status box, impact pops and rank movement, a minimal shared animated distance ruler with inch marks, takeout controls and commentary; reduced-motion support and UI regression tests |
-| `highdarts/Dashboard.tsx` | Responsive progress/results/upcoming, office tables and finals projections, current-player highlighting, 15-second visible-page refresh and Sheet tab |
+| `highdarts/Dashboard.tsx` | Oslo-day progress, office cards, searchable six-fixture pagination, compact side-by-side Tabell tables with one status pill per player, Sluttspill and dark-filtered Sheet tabs |
+| `highdarts/HighdartsBracket.tsx` | Responsive four-round Highdarts tree, projected/live modes, editable admin draw, lock/unlock controls and qualification tie-break creation |
 | `highdarts/Rules.tsx` | Tournament format table, Steps 0–3 and tie rules in a scrollable dialog |
 | `highdarts/AdminMapping.tsx` | Admin-only grouped sheet-name mapping across unstarted fixtures |
 | `highdarts/MatchTag.tsx` | Pre-start scorer question with per-match friendly memory and scorer/spectator tournament badge |
@@ -314,6 +318,9 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 |------|---------|
 | `factories.ts` | Test data factories: `createMockPlayer`, `createMockMatch`, `createMockLeg`, `createMockTurn`, `createMockThrow`, `createTwoPlayerGameSetup` |
 | `mockSupabase.ts` | In-memory mock Supabase client with query builder operating on JS arrays |
+| `highdartsFixtures.ts` | Deterministic fixtures, completed results and office standings for tournament tests |
+| `e2e/highdarts.spec.ts` | Opt-in disposable native E2E: browser setup/scoring/undo, simultaneous claims, rematch isolation, tie-break, draw lifecycle and all eleven finals matches |
+| `playwright.highdarts.config.ts` | Serial local Highdarts E2E on port 3017 with reports outside the working tree; requires the isolated environment documented in HIGHDARTS_2026.md |
 | `gameFixtures.ts` | Party-game session, player, and throw factories |
 | `gameSupabaseMock.ts` | In-memory Supabase and RPC mock for party-game lifecycle tests |
 
@@ -321,9 +328,11 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | Path | Purpose |
 |------|---------|
 | `supabase/migrations/20260914120000_highdarts_2026.sql` | Highdarts schema, 76 fixture seeds, name mapping, atomic claims, lineup/settings protection, snapshot and completion jobs |
+| `supabase/migrations/20260914163000_highdarts_finals.sql` | Finals next-slot links, stage formats, atomic draw lock/unlock, tie-break creation, winner advancement and source protection |
+| `supabase/tests/highdarts_finals.sql` | Rollback-only complete bracket lifecycle, stale/duplicate draw checks, stage formats, unlock races and next-slot advancement |
 | `supabase/tests/highdarts_2026.sql` | Rollback-only migration, claim, rematch, permissions, mapping and completion regression |
-| `docs/HIGHDARTS_2026.md` | Tournament deployment, averages/ties, player mapping dry run, finals extension, Slack recovery and verification limits |
-| `docs/highdarts-2026/*.png` | Desktop, mobile, standings and match-setup screenshots using disposable local demonstration data |
+| `docs/HIGHDARTS_2026.md` | Tournament deployment, averages/ties, player mapping dry run, finals draw, Slack recovery and verification limits |
+| `docs/highdarts-2026/*.png` | Desktop, mobile, standings and match-setup screenshots using the empty disposable local tournament |
 | `scripts/supabase-migrations.mjs` | Validates timestamped names, deploys migrations by exact name, verifies production migration history, and prints the bounded rollback SQL for the Slack settings regression with `slack-settings-sql` |
 | `scripts/supabase-migrations.test.mjs` | Regression tests for exact-name selection and migration filename policy |
 | `supabase/migrations/legacy-numbered-migrations.txt` | Immutable allowlist for the repository's historical numbered migrations |
@@ -399,7 +408,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 
 ### Key Flows
 
-**Highdarts 2026:** Bengt home tile / site nav → `/bengt` → server `highdarts_snapshot` with client GET refresh → group-only standings from completed tagged matches. `/new?highdarts=<fixture>` preselects a pair and locks 301/single-out/first-to-two/fair-ending-off settings → `create_highdarts_match_atomic` creates and claims in one transaction. An untagged friendly can be linked before its first scoring dart, after bull-off; a raced dart rejects tagging. Match/fixture links must agree at commit. Admin mapping resolves one exact sheet name across unstarted fixtures. Match completion or early ending queues `highdarts_result` transactionally; the worker records a send claim and Slack timestamp, never blindly reposting an uncertain send. Rematches do not copy fixture links; tagged match deletion and lineup edits are blocked. See `docs/HIGHDARTS_2026.md`; migration is not applied to production by this implementation task.
+**Highdarts 2026:** Bengt home tile / site nav → `/bengt` → server `highdarts_snapshot` with client GET refresh → group-only standings from completed tagged matches. `/new?highdarts=<fixture>` preselects a pair and locks stage-specific score/finish, first-to-two and fair-ending-off settings → `create_highdarts_match_atomic` creates and claims in one transaction. An untagged friendly can be linked before its first scoring dart, after bull-off; a raced dart rejects tagging. Match/fixture links must agree at commit. Admin mapping resolves one exact sheet name across unstarted fixtures. Match completion or early ending queues `highdarts_result` transactionally; the worker records a send claim and Slack timestamp, never blindly reposting an uncertain send. Sluttspill projects the legal draw; an admin locks it only after completed groups and resolved ties, using an exact snapshot comparison. Match completion advances winners through next_fixture_id/next_slot in the same transaction. Draw unlock requires no finals scoring. Rematches do not copy fixture links; tagged match deletion and lineup edits are blocked. See `docs/HIGHDARTS_2026.md`; migration is not applied to production by this implementation task.
 
 **Throw recording:**
 `handleBoardClick` (useMatchActions) → optimistic local state → `POST /api/matches/:id/throws` → `resolveOrCreateTurnForPlayer` (turnLifecycle.ts) → insert throw → enqueue durable DartIQ live capture → on 3rd dart: `PATCH /api/matches/:id/turns/:id` → if fair ending: `computeFairEndingState` → if resolved: `completeLeg` → Elo RPC + completed-leg DartIQ job. Capture/replay work runs outside the scoring response path.

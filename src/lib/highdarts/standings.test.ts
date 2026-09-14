@@ -1,3 +1,4 @@
+import { fixture, finish } from '@/test-utils/highdartsFixtures';
 import { describe, expect, it } from 'vitest';
 import {
   buildStandings,
@@ -5,63 +6,7 @@ import {
   normalizeName,
   resultStats,
   type FixtureResult,
-  type Office,
-  type ResultTurn,
 } from './standings';
-export function fixture(
-  office: Office,
-  a: string,
-  b: string,
-  no = 1,
-): FixtureResult {
-  return {
-    id: `${office}-${no}`,
-    event_id: 'event',
-    stage: 'group',
-    office,
-    fixture_no: no,
-    player_a_id: a,
-    player_b_id: b,
-    player_a_name: a,
-    player_b_name: b,
-    match_id: null,
-    match: null,
-  };
-}
-export function finish(
-  f: FixtureResult,
-  winner: string,
-  aScore = 60,
-  bScore = 30,
-): FixtureResult {
-  const turn = (player_id: string, total_scored: number): ResultTurn => ({
-    player_id,
-    total_scored,
-    darts_thrown: 3,
-    busted: false,
-    tiebreak_round: null,
-  });
-  return {
-    ...f,
-    match_id: `match-${f.id}`,
-    match: {
-      id: `match-${f.id}`,
-      winner_player_id: winner,
-      completed_at: '2026-09-14T12:00:00Z',
-      ended_early: false,
-      legs: [
-        {
-          winner_player_id: winner,
-          turns: [
-            turn(f.player_a_id ?? '', aScore),
-            turn(f.player_b_id ?? '', bScore),
-          ],
-        },
-        { winner_player_id: winner, turns: [] },
-      ],
-    },
-  };
-}
 function table(fixtures: FixtureResult[]) {
   return buildStandings({ fixtures, players: [] });
 }
