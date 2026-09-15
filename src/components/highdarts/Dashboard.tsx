@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Search,
   Trophy,
-  Flame,
 } from 'lucide-react';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { Button } from '@/components/ui/button';
@@ -307,15 +306,11 @@ export function HighdartsDashboard({
               </p>
             </div>
             <div className="rounded-xl border border-lime-300/15 bg-lime-300/5 px-4 py-3 text-right">
-              <p className="flex items-center justify-end gap-1.5 text-xs text-lime-200">
-                <Flame className="size-3.5" />
+              <p className="text-xs text-lime-200">
                 Today
               </p>
               <p className="mt-1 text-3xl font-bold tabular-nums text-lime-200">
-                {activity.today}
-              </p>
-              <p className="text-[10px] text-muted-foreground">
-                tournament games
+                {activity.today} <span className="text-sm font-medium">{activity.today === 1 ? 'game' : 'games'}</span>
               </p>
             </div>
           </div>
@@ -607,11 +602,6 @@ export function HighdartsDashboard({
             </div>
           </TabsContent>
           <TabsContent value="leaderboard" className="space-y-6">
-            <p className="text-sm text-muted-foreground">
-              Current projections. Wins, then three-dart average. Cutoff ties
-              need a play-off; leg difference does not settle them.
-            </p>
-            {data?.averagesIncomplete && <p className="text-sm text-amber-200">Reported scores are included. Missing dart counts leave averages and qualification projections pending.</p>}
             <div
               className="grid items-start gap-4 lg:grid-cols-3"
               aria-label="Office leaderboards"
