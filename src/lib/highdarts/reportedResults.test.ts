@@ -17,7 +17,7 @@ function reportedSnapshot() {
 }
 
 describe('Bengt screenshot results', () => {
-  it('counts exactly two matches, preserves the second Johan meeting and never invents dates or averages', () => {
+  it('counts exactly two matches, preserves the second Johan meeting and keeps official averages unknown', () => {
     const original = reportedSnapshot();
     const snapshot = withReportedResults(original);
     expect(original.fixtures.every((f) => !isCompleted(f))).toBe(true);
@@ -25,6 +25,7 @@ describe('Bengt screenshot results', () => {
     expect(snapshot.fixtures[2]).toBe(original.fixtures[2]);
     expect(snapshot.fixtures[3]).toBe(original.fixtures[3]);
     const data = buildStandings(snapshot);
+    expect(data.played).toBe(2);
     const rows = data.offices.find((o) => o.office === 'sogndal')?.table;
     expect(rows?.find((r) => r.key === 'Jon Skjerdal')).toMatchObject({ played: 2, wins: 1, losses: 1, legsFor: 3, legsAgainst: 3, averageIncomplete: true, remaining: 1 });
     expect(rows?.find((r) => r.key === 'Johan Flo')).toMatchObject({ wins: 0, losses: 1, legsFor: 1, legsAgainst: 2 });
@@ -32,8 +33,44 @@ describe('Bengt screenshot results', () => {
     expect(data.byes).toEqual([]);
     expect(data.ties).toEqual([]);
     expect(resultStats(snapshot.fixtures[0], 'Jon Skjerdal').averageIncomplete).toBe(true);
-    expect(tournamentActivity(snapshot.fixtures).today).toBe(0);
+    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-15T12:00:00Z')).today).toBe(2);
     expect(withReportedResults(snapshot)).toEqual(snapshot);
+  });
+
+  it('counts both reported games and two app results on September 15 only, using the Oslo day', () => {
+    const original = reportedSnapshot();
+    for (const f of [
+      finish(fixture('vik', 'Linda', 'Aksel', 28), 'Linda'),
+      finish(fixture('vik', 'Helga', 'Andreas', 17), 'Andreas'),
+    ]) {
+      if (f.match) f.match.completed_at = '2026-09-15T09:00:00Z';
+      original.fixtures.push(f);
+    }
+    const snapshot = withReportedResults(original);
+    expect(buildStandings(snapshot).played).toBe(4);
+    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-15T12:00:00Z'))).toEqual({ today: 4, groupToday: 4 });
+    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-14T21:59:59Z'))).toEqual({ today: 0, groupToday: 0 });
+    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-15T21:59:59Z'))).toEqual({ today: 4, groupToday: 4 });
+    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-15T22:00:00Z'))).toEqual({ today: 0, groupToday: 0 });
+    expect(tournamentActivity(withReportedResults(snapshot).fixtures, new Date('2026-09-15T12:00:00Z')).today).toBe(4);
+  });
+
+  it('keeps the hardcoded display estimates tied to each player and the recorded visit totals', () => {
+    const snapshot = withReportedResults(reportedSnapshot());
+    expect(snapshot.fixtures[0].reportedResult?.estimatedAverages).toEqual([
+      { player_id: 'Sindre Jensen', average: 38.57 },
+      { player_id: 'Jon Skjerdal', average: 35.61 },
+    ]);
+    expect(snapshot.fixtures[1].reportedResult?.estimatedAverages).toEqual([
+      { player_id: 'Johan Flo', average: 34.71 },
+      { player_id: 'Jon Skjerdal', average: 33.32 },
+    ]);
+    for (const report of REPORTED_RESULTS) {
+      const aVisits = report.legs.flatMap((leg) => leg.a);
+      const bVisits = report.legs.flatMap((leg) => leg.b);
+      expect(report.estimatedAverages.a).toBeCloseTo(aVisits.reduce((sum, score) => sum + score, 0) / aVisits.length, 2);
+      expect(report.estimatedAverages.b).toBeCloseTo(bVisits.reduce((sum, score) => sum + score, 0) / bVisits.length, 2);
+    }
   });
 
   it('retains canonical results and active matches, and requires the exact scheduled pair with linked identities', () => {

@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import {
   ArrowUpRight,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Search,
@@ -288,7 +289,7 @@ export function HighdartsDashboard({
             </div>
           </div>
           <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
-            <div>
+            <div role="group" aria-label="Group games played">
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Group games played
               </p>
@@ -302,7 +303,7 @@ export function HighdartsDashboard({
               </p>
             </div>
             <div className="mb-1 flex max-w-full items-start divide-x divide-white/10">
-              <div className="border-l border-white/10 px-4 sm:px-5">
+              <div role="group" aria-label="Games played today" className="border-l border-white/10 px-4 sm:px-5">
                 <p className="text-xs font-medium text-muted-foreground">Today</p>
                 <p className="mt-1.5 flex items-baseline gap-1.5">
                   <span className={`text-3xl font-semibold tracking-tight tabular-nums ${activity.today > 0 ? 'text-lime-200' : 'text-slate-300'}`}>{activity.today}</span>
@@ -515,95 +516,115 @@ export function HighdartsDashboard({
                   </div>
                 )}
               </section>
-              <section className="min-w-0 rounded-2xl border border-white/10 bg-card p-4 sm:p-5">
-                <h2 className="mb-4 font-semibold">Recent results</h2>
+              <section aria-labelledby="recent-results-heading" className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-card">
+                <div className="flex items-center gap-3 border-b border-white/5 px-4 py-4 sm:px-5">
+                  <span className="flex size-8 items-center justify-center rounded-lg bg-lime-300/10 text-lime-200">
+                    <Trophy aria-hidden="true" className="size-4" />
+                  </span>
+                  <h2 id="recent-results-heading" className="font-semibold">Recent results</h2>
+                  {!!data?.recent.length && (
+                    <span className="ml-auto rounded-full bg-white/5 px-2.5 py-1 text-xs tabular-nums text-muted-foreground">
+                      {data.recent.length}
+                    </span>
+                  )}
+                </div>
                 {!data?.recent.length && (
-                  <div className="rounded-xl bg-white/[0.02] px-4 py-8 text-center">
-                    <Trophy className="mx-auto mb-3 size-6 text-slate-600" />
+                  <div className="px-4 py-10 text-center">
                     <p className="text-sm font-medium">No results yet</p>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                       Completed tournament matches will appear here.
                     </p>
                   </div>
                 )}
-                {data?.recent.map((f) => {
-                  const a = resultStats(f, f.player_a_id),
-                    b = resultStats(f, f.player_b_id);
-                  const aName =
-                    snapshot?.players.find((p) => p.id === f.player_a_id)
-                      ?.display_name ?? f.player_a_name;
-                  const bName =
-                    snapshot?.players.find((p) => p.id === f.player_b_id)
-                      ?.display_name ?? f.player_b_name;
-                  return (
-                    <div
-                      key={f.id}
-                      className="block border-t border-white/5 py-4 first:border-0 hover:text-cyan-200"
-                    >
-                      <div className="mb-2 flex justify-between text-[11px] text-muted-foreground">
-                        <span>{fixtureLabel(f)}</span>
-                        <span>{f.reportedResult ? 'Reported result' : f.match?.completed_at?.slice(0, 10)}</span>
-                      </div>
-                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 text-sm">
-                        <span
-                          className={
-                            fixtureWinner(f) === f.player_a_id
-                              ? 'font-bold'
-                              : ''
-                          }
-                        >
-                          {snapshot && <TournamentPlayerName playerId={f.player_a_id} name={aName} snapshot={snapshot} />}
-                        </span>
-                        <span className="tabular-nums">{a.legs}</span>
-                        <span
-                          className={
-                            fixtureWinner(f) === f.player_b_id
-                              ? 'font-bold'
-                              : ''
-                          }
-                        >
-                          {snapshot && <TournamentPlayerName playerId={f.player_b_id} name={bName} snapshot={snapshot} />}
-                        </span>
-                        <span className="tabular-nums">{b.legs}</span>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
-                        {f.match?.ended_early ? (
-                          'Ended early · Excluded from standings'
-                        ) : f.reportedResult ? (
-                          'Three-dart averages unavailable from screenshots'
-                        ) : (
-                          <>
-                            <span className="rounded-full bg-white/5 px-2 py-1">
-                              {aName.split(/\s+/)[0]} · {a.average.toFixed(2)}{' '}
-                              avg
-                            </span>
-                            <span className="rounded-full bg-white/5 px-2 py-1">
-                              {bName.split(/\s+/)[0]} · {b.average.toFixed(2)}{' '}
-                              avg
-                            </span>
-                          </>
+                <div className="space-y-3 p-3">
+                  {data?.recent.map((f) => {
+                    const a = snapshot?.players.find((p) => p.id === f.player_a_id) ?? {
+                      id: f.player_a_id, display_name: f.player_a_name,
+                    };
+                    const b = snapshot?.players.find((p) => p.id === f.player_b_id) ?? {
+                      id: f.player_b_id, display_name: f.player_b_name,
+                    };
+                    const aName = a.display_name;
+                    const bName = b.display_name;
+                    const winner = fixtureWinner(f);
+                    const completedAt = f.match?.completed_at ?? f.reportedResult?.playedOn;
+                    return (
+                      <article key={f.id} aria-label={fixtureLabel(f)} className="rounded-xl border border-white/[0.07] bg-slate-900/40 p-3">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                          <span className="rounded-md border border-white/10 bg-white/5 px-2 py-1 font-medium tracking-wide text-slate-300">
+                            {fixtureLabel(f)}
+                          </span>
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            {f.reportedResult && <span>Reported result</span>}
+                            {completedAt && (
+                              <time dateTime={completedAt} title={completedAt.slice(0, 10)}>
+                                {new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/Oslo' }).format(new Date(completedAt))}
+                              </time>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mb-1 grid grid-cols-[minmax(0,1fr)_4rem_2rem] gap-2 px-2 text-right text-[9px] font-medium uppercase tracking-wider text-slate-400">
+                          <span className="sr-only">Player</span>
+                          <span className="col-start-2 whitespace-nowrap" title={f.reportedResult ? 'Estimated three-dart average, assuming 3 darts per visit' : 'Three-dart average'}>{f.reportedResult ? 'Est. avg' : '3-dart avg'}</span>
+                          <span>Legs</span>
+                        </div>
+                        <div className="space-y-1">
+                          {[a, b].map((player, index) => {
+                            const playerId = index === 0 ? f.player_a_id : f.player_b_id;
+                            const stats = resultStats(f, playerId);
+                            const average = f.reportedResult
+                              ? f.reportedResult.estimatedAverages.find((entry) => entry.player_id === playerId)?.average
+                              : f.match?.ended_early ? undefined : stats.average;
+                            const won = playerId !== null && winner === playerId && !f.match?.ended_early;
+                            return (
+                              <div key={index} className={`grid grid-cols-[minmax(0,1fr)_4rem_2rem] items-center gap-2 rounded-lg px-2 py-1.5 ${won ? 'bg-lime-300/[0.07]' : ''}`}>
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <PlayerAvatar player={player} size="sm" className={won ? 'ring-1 ring-lime-300/30' : ''} />
+                                  {snapshot && (
+                                    <TournamentPlayerName playerId={playerId} name={player.display_name} snapshot={snapshot} className={`truncate text-sm ${won ? 'font-semibold text-lime-100' : 'text-slate-300'}`} />
+                                  )}
+                                  {won && <span className="sr-only">Winner</span>}
+                                </div>
+                                <span className="text-right text-xs tabular-nums text-slate-400">
+                                  {average === undefined ? <span aria-label="Average unavailable">—</span> : average.toFixed(2)}
+                                </span>
+                                <span aria-label={`${stats.legs} ${stats.legs === 1 ? 'leg' : 'legs'}${won ? ', winner' : ''}`} className={`flex size-8 items-center justify-center rounded-md text-lg font-bold tabular-nums ${won ? 'bg-lime-300 text-slate-950' : 'bg-white/5 text-slate-400'}`}>
+                                  {stats.legs}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {f.match?.ended_early && <p className="mt-3 text-[10px] text-amber-200">Ended early · Excluded from standings</p>}
+                        {snapshot && <FixtureCountingNote fixture={f} snapshot={snapshot} />}
+                        {f.match_id && (
+                          <Link href={`/match/${f.match_id}/report`} className="mt-3 flex min-h-9 items-center justify-between rounded-md border-t border-white/5 px-2 pt-2 text-xs font-medium text-cyan-200 transition-colors hover:bg-cyan-300/5 hover:text-cyan-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300">
+                            View result<ArrowUpRight aria-hidden="true" className="size-3.5" />
+                          </Link>
                         )}
-                      </div>
-                      {snapshot && <FixtureCountingNote fixture={f} snapshot={snapshot} />}
-                      {f.match_id && <Link href={`/match/${f.match_id}/report`} className="mt-3 inline-block text-xs text-cyan-300">View result</Link>}
-                      {f.reportedResult && (
-                        <details className="mt-3 text-xs">
-                          <summary className="cursor-pointer text-cyan-300">Leg breakdowns</summary>
-                          {f.reportedResult.legs.map((leg, index) => (
-                            <div key={index} className="mt-3 space-y-1 text-muted-foreground">
-                              <p className="font-semibold">Leg {index + 1} · {leg.winner_player_id === f.player_a_id ? aName : bName} won</p>
-                              {leg.visits.map((visit) => (
-                                <p key={visit.player_id} className="break-words">
-                                  {visit.player_id === f.player_a_id ? aName : bName}: {visit.scores.join(', ')}
-                                </p>
-                              ))}
-                            </div>
-                          ))}
-                        </details>
-                      )}
-                    </div>
-                  );
-                })}
+                        {f.reportedResult && (
+                          <details className="group mt-3 border-t border-white/5 text-xs">
+                            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 rounded-md px-2 pt-2 text-cyan-200 hover:bg-cyan-300/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 [&::-webkit-details-marker]:hidden">
+                              <span className="font-medium">Leg breakdowns</span>
+                              <ChevronDown aria-hidden="true" className="size-3.5 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+                            </summary>
+                            <p className="px-2 pt-2 text-[10px] leading-relaxed text-muted-foreground">Averages are estimated using 3 darts per visit. Checkout dart counts were not recorded.</p>
+                            {f.reportedResult.legs.map((leg, index) => (
+                              <div key={index} className="mt-3 space-y-1 rounded-lg bg-white/[0.03] p-3 text-muted-foreground">
+                                <p className="font-semibold text-slate-200">Leg {index + 1} · {leg.winner_player_id === f.player_a_id ? aName : bName} won</p>
+                                {leg.visits.map((visit) => (
+                                  <p key={visit.player_id} className="break-words leading-relaxed">
+                                    {visit.player_id === f.player_a_id ? aName : bName}: {visit.scores.join(', ')}
+                                  </p>
+                                ))}
+                              </div>
+                            ))}
+                          </details>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
               </section>
             </div>
           </TabsContent>

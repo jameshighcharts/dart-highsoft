@@ -16,6 +16,7 @@ const snapshot = { fixtures: [], players: [] };
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 it('refreshes results and the linked player with GET, preserving the required tab order', async () => {
   const fetch = vi
@@ -113,7 +114,7 @@ it('keeps an unplayed tournament free of result and qualification claims', async
   expect(screen.getAllByText('Awaiting results')).toHaveLength(2);
 });
 
-it('keeps the two reported scores visible after refresh with leg totals and unknown averages', async () => {
+it('keeps the two reported scores visible after refresh with leg totals, estimated match averages and the group header count', async () => {
   const data: Snapshot = { players: [], fixtures: [
     fixture('sogndal', 'Sindre Jensen', 'Jon Skjerdal', 1),
     fixture('sogndal', 'Johan Flo', 'Jon Skjerdal', 12),
@@ -124,6 +125,12 @@ it('keeps the two reported scores visible after refresh with leg totals and unkn
   render(<HighdartsDashboard initial={data} isAdmin={false} />);
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   expect(screen.getAllByText('Reported result')).toHaveLength(2);
+  expect(within(screen.getByRole('group', { name: 'Group games played' })).getByText('2')).toBeInTheDocument();
+  const recent = within(screen.getByRole('region', { name: 'Recent results' }));
+  expect(recent.getAllByText('Est. avg')).toHaveLength(2);
+  for (const average of ['38.57', '35.61', '34.71', '33.32']) {
+    expect(recent.getByText(average)).toBeInTheDocument();
+  }
   expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuenow', '2');
   expect(screen.getAllByText('Leg breakdowns')).toHaveLength(2);
   expect(screen.getByText('Leg 3 · Sindre Jensen won')).toBeInTheDocument();
@@ -132,6 +139,30 @@ it('keeps the two reported scores visible after refresh with leg totals and unkn
   await userEvent.click(screen.getByRole('tab', { name: 'Tabell' }));
   const table = screen.getByRole('table', { name: 'Sogndal standings' });
   expect(within(table).getAllByText('—')).toHaveLength(3);
+});
+
+it('shows four games played today when the two reported Sogndal games join two Vik results', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-09-15T12:00:00Z'));
+  const vikResults = [
+    finish(fixture('vik', 'Linda', 'Aksel', 28), 'Linda'),
+    finish(fixture('vik', 'Helga', 'Andreas', 17), 'Andreas'),
+  ];
+  for (const f of vikResults) {
+    if (f.match) f.match.completed_at = '2026-09-15T09:00:00Z';
+  }
+  const data: Snapshot = { players: [], fixtures: [
+    fixture('sogndal', 'Sindre Jensen', 'Jon Skjerdal', 1),
+    fixture('sogndal', 'Johan Flo', 'Jon Skjerdal', 12),
+    ...vikResults,
+  ] };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => data }));
+  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  expect(within(screen.getByRole('group', { name: 'Games played today' })).getByText('4')).toBeInTheDocument();
+  expect(within(screen.getByRole('group', { name: 'Group games played' })).getByText('4')).toBeInTheDocument();
+  expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuetext', '4 of 4 played, 4 today');
+  expect(screen.getByRole('progressbar', { name: 'Sogndal completed' })).toHaveAttribute('aria-valuetext', '2 of 2 played, 2 today');
+  await act(async () => {});
 });
 
 it('replaces a reported result with the real active match on refresh without offering a duplicate start', async () => {

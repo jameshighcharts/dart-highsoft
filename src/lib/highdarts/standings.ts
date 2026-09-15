@@ -32,6 +32,8 @@ export type ResultTurn = {
 };
 export type ReportedResult = {
   winner_player_id: string;
+  playedOn: string;
+  estimatedAverages: { player_id: string; average: number }[];
   legs: { winner_player_id: string; visits: { player_id: string; scores: number[] }[] }[];
 };
 export type FixtureResult = Fixture & {
@@ -464,10 +466,12 @@ export function tournamentActivity(
     day: '2-digit',
   });
   const today = date.format(now);
-  const completed = fixtures.filter((f) => isCompleted(f) && f.match?.completed_at);
-  const playedToday = completed.filter(
-    (f) => date.format(new Date(f.match!.completed_at!)) === today,
-  );
+  const playedToday = fixtures.filter((f) => {
+    if (!isCompleted(f)) return false;
+    if (f.reportedResult) return f.reportedResult.playedOn === today;
+    const completedAt = f.match?.completed_at;
+    return completedAt ? date.format(new Date(completedAt)) === today : false;
+  });
   return {
     today: playedToday.length,
     groupToday: playedToday.filter((f) => f.stage === 'group').length,
