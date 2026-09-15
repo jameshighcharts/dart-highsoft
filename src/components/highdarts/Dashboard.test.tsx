@@ -169,7 +169,7 @@ it('shows only ongoing matches in the header and removes them when finished', as
   render(<HighdartsDashboard initial={data} isAdmin={false} />);
   const status = within(screen.getByRole('region', { name: 'Tournament match status' }));
   expect(within(screen.getByLabelText('Live games')).getByText('1')).toBeInTheDocument();
-  expect(status.getByText('· Bergen')).toBeInTheDocument();
+  expect(status.getByText('Bergen')).toBeInTheDocument();
   expect(status.queryByRole('heading')).not.toBeInTheDocument();
   expect(status.queryByText(/played/)).not.toBeInTheDocument();
   expect(status.getByRole('link', { name: 'Live: Bergen #1' })).toHaveAttribute('href', '/match/live-match?spectator=true');

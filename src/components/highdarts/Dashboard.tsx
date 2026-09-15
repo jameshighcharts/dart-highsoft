@@ -139,20 +139,24 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
 function TournamentMatchStatus({ snapshot, fixtures }: { snapshot: Snapshot; fixtures: FixtureResult[] }) {
   if (!fixtures.length) return null;
   return (
-    <section aria-label="Tournament match status" className="mt-3 border-t border-white/10 pt-1">
+    <section aria-label="Tournament match status" className="mt-2 max-h-40 overflow-y-auto">
       <ul aria-label="Ongoing tournament matches" className="divide-y divide-white/5">
         {fixtures.map((f) => (
-          <li key={f.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2 text-xs">
-            <TournamentPlayerName playerId={f.player_a_id} name={f.player_a_name} snapshot={snapshot} className="font-medium" />
-            <span className="text-muted-foreground">vs</span>
-            <TournamentPlayerName playerId={f.player_b_id} name={f.player_b_name} snapshot={snapshot} className="font-medium" />
-            <span className="text-muted-foreground">· {officeName(f.office)}</span>
-            {f.match?.paused_at && <span className="text-amber-200">· Paused</span>}
-            {f.match_id && (
-              <Link href={`/match/${f.match_id}?spectator=true`} className="ml-auto inline-flex items-center gap-1 py-1 text-cyan-200 hover:text-cyan-100 hover:underline" aria-label={`${f.match?.paused_at ? 'Paused' : 'Live'}: ${fixtureLabel(f)}`}>
-                Watch<ArrowUpRight className="size-3" />
-              </Link>
-            )}
+          <li key={f.id} className="py-1.5 first:pt-0 last:pb-0">
+            <div className="flex flex-wrap items-center gap-x-1 text-[11px] leading-4">
+              <TournamentPlayerName playerId={f.player_a_id} name={f.player_a_name} snapshot={snapshot} className="font-medium" />
+              <span className="text-muted-foreground">vs</span>
+              <TournamentPlayerName playerId={f.player_b_id} name={f.player_b_name} snapshot={snapshot} className="font-medium" />
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 text-[10px]">
+              <span className="text-muted-foreground">{officeName(f.office)}</span>
+              {f.match?.paused_at && <span className="text-amber-200">Paused</span>}
+              {f.match_id && (
+                <Link href={`/match/${f.match_id}?spectator=true`} className="ml-auto inline-flex min-h-6 items-center gap-0.5 text-cyan-200 hover:text-cyan-100 hover:underline" aria-label={`${f.match?.paused_at ? 'Paused' : 'Live'}: ${fixtureLabel(f)}`}>
+                  Watch<ArrowUpRight className="size-3" />
+                </Link>
+              )}
+            </div>
           </li>
         ))}
       </ul>
@@ -284,7 +288,7 @@ export function HighdartsDashboard({
               </div>
             </div>
           </div>
-          <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
+          <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Group games played
@@ -298,7 +302,7 @@ export function HighdartsDashboard({
                 </span>
               </p>
             </div>
-            <div className="mb-1 flex items-end divide-x divide-white/10">
+            <div className="mb-1 flex max-w-full items-start divide-x divide-white/10">
               <div className="border-l border-white/10 px-4 sm:px-5">
                 <p className="text-xs font-medium text-muted-foreground">Today</p>
                 <p className="mt-1.5 flex items-baseline gap-1.5">
@@ -307,12 +311,13 @@ export function HighdartsDashboard({
                 </p>
               </div>
               {ongoing.length > 0 && (
-                <div aria-label="Live games" className="pl-4 sm:pl-5">
+                <div aria-label="Live games" className="min-w-0 max-w-52 pl-4 sm:pl-5">
                   <p className="text-xs font-medium text-muted-foreground">Live</p>
                   <p className="mt-1.5 flex items-baseline gap-1.5">
                     <span className="text-3xl font-semibold tracking-tight text-cyan-200 tabular-nums">{liveCount}</span>
                     <span className="text-xs text-muted-foreground">{liveCount === 1 ? 'game' : 'games'}</span>
                   </p>
+                  {snapshot && <TournamentMatchStatus snapshot={snapshot} fixtures={ongoing} />}
                 </div>
               )}
             </div>
@@ -339,7 +344,6 @@ export function HighdartsDashboard({
               {activity.groupToday} group games today
             </span>
           </div>
-          {snapshot && <TournamentMatchStatus snapshot={snapshot} fixtures={ongoing} />}
         </header>
         {error && (
           <p

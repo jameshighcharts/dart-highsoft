@@ -615,7 +615,7 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `supabase/tests/highdarts_manual_scoring.sql`: Rollback regression for manual/offline starts, pair/rule validation, duplicate fixtures and reservations in both directions.
 - `scripts/highdarts-manual.integration.mjs`: Opt-in concurrent API start check against disposable `bengt_manual` on port 56555 and preview 3022; removes its synthetic records.
 
-- `src/components/highdarts/Dashboard.tsx`: Header match status appears only for ongoing matches, with a Live count beside Today and compact player/location/spectator links; finished games stay in Recent results. Uses the existing 15-second snapshot refresh.
+- `src/components/highdarts/Dashboard.tsx`: Header match status appears only for ongoing matches, with a Live count beside Today and compact player/location/spectator links inside that stat; finished games stay in Recent results. Uses the existing 15-second snapshot refresh.
 
 - `src/components/auth/SignInCard.tsx`: Shared OAuth sign-in form uses the app dark theme by default for `/login`; `/signin` explicitly retains the light admin theme.
 
