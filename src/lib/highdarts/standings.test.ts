@@ -143,3 +143,32 @@ it('blocks busy or offline office boards while allowing an independent office', 
   expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming, elsewhere] })).toBeNull();
   expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming, { ...elsewhere, player_a_id: 'a' }] })?.href).toBe('/match/live');
 });
+
+it('excludes only the chosen player side from wins, losses, legs and dart-weighted average', () => {
+  const fixtures = Array.from({ length: 6 }, (_, i) => finish(fixture('vik', 'g', `opponent-${i}`, i + 1), 'g', 60, 30));
+  fixtures[5] = { ...finish(fixture('vik', 'last', 'g', 6), 'last', 90, 180), counts_for_b: false };
+  const data = buildStandings({ fixtures, players: [] });
+  const g = data.offices[1].table.find((r) => r.player.id === 'g')!;
+  const opponent = data.offices[1].table.find((r) => r.player.id === 'last')!;
+  expect(g).toMatchObject({ scheduled: 6, played: 5, wins: 5, losses: 0, legsFor: 10, legsAgainst: 0, average: 60, excluded: 1, remaining: 0, needsDiscard: false });
+  expect(opponent).toMatchObject({ played: 1, wins: 1, legsFor: 2, average: 90 });
+  expect(data.played).toBe(6);
+  expect(data.pendingDiscards).toEqual([]);
+  expect(data.recent).toHaveLength(6);
+});
+it('keeps excluded fixtures in the physical schedule and marks six-match standings provisional until a choice', () => {
+  const fixtures = Array.from({ length: 6 }, (_, i) => fixture('sogndal', 's', `p${i}`, i + 1));
+  const before = buildStandings({ fixtures, players: [] });
+  expect(before.pendingDiscards.map((r) => r.player.id)).toEqual(['s']);
+  fixtures[0].counts_for_a = false;
+  const after = buildStandings({ fixtures, players: [] });
+  expect(after.offices[2].table.find((r) => r.player.id === 's')).toMatchObject({ excluded: 1, remaining: 6, played: 0 });
+  expect(after.total).toBe(6);
+  expect(after.offices[2].upcoming).toHaveLength(6);
+});
+it('does not automatically choose the worst result and disables qualification ties until choices are saved', () => {
+  const fixtures = Array.from({ length: 6 }, (_, i) => finish(fixture('vik', 'g', `p${i}`, i + 1), i === 5 ? `p${i}` : 'g', 60, 30));
+  const data = buildStandings({ fixtures, players: [] });
+  expect(data.offices[1].table.find((r) => r.player.id === 'g')).toMatchObject({ played: 6, losses: 1, excluded: 0, needsDiscard: true });
+  expect(data.ties.every((tie) => !tie.ready)).toBe(true);
+});

@@ -23,8 +23,10 @@ const plan = (data, schedule) => runInNewContext(source + '\nplanHighdartsWrites
 describe('bound Apps Script', () => {
   it('maps the actual workbook blocks, preserving winner formulas and notes', () => {
     const { data, schedule } = sample();
+    data.fixtures[0].counts = [0, 1];
     data.fixtures.reverse();
     const writes = plan(data, schedule);
+    expect(writes.find(w => w.sheet === 'Kampoppsett' && w.row === 3 && w.column === 10).values[0]).toEqual([0, 1]);
     expect(writes.find(w => w.sheet === 'Kampoppsett' && w.row === 48 && w.column === 5).values[0]).toEqual([2, 0, 60, 30]);
     for (const w of writes.filter(w => w.sheet === 'Kampoppsett' && w.row > 1)) {
       expect(w.column).not.toBe(9);

@@ -136,6 +136,22 @@ Final follow-up validation: 1,450 tests passed, lint reported zero errors (23 ex
 ![Mobile player schedule](highdarts-2026/player-profile-mobile.png)
 ![Tournament fixture setup](highdarts-2026/profile-setup.png)
 
+## Five counting results from six fixtures
+
+Gjertrud in Vik and Sindre in Sogndal have six group fixtures because their offices have an odd number of participants. Each chooses one fixture to exclude from their own tournament wins, losses, legs and dart-weighted average. The opponent still gets their complete result. All six games remain required for group completion, and match history, global Elo and non-tournament statistics are unchanged. The app never automatically picks the worst result.
+
+On **Bengt → Tabell**, compact choice rows for both six-fixture players sit together below the Sogndal standings card. Their profile has the same control. The linked player or an admin can choose, change or clear it until the finals draw is locked. Everyone can see which result is excluded. Standings are provisional while a required choice is missing; qualification tie-break creation and finals locking are blocked in both the app and database. An organiser must unlock an unstarted finals draw before changing a choice.
+
+`counts_for_a` and `counts_for_b` are the app equivalent of the sheet's **Tel A** and **Tel B**. Save choices in the app. The Google Sheet sync copies them to Tel A/B; edits in the sheet do not update the app. Both flags default to true, preserving existing results until a player chooses. `20260915090000_highdarts_counted_results.sql` was applied to production project `imezdipfchojmpobario` through the Supabase SQL editor on September 15, 2026, before deploying this feature. The previous two profile/board migrations were applied on September 14. The new migration is recorded by its full name and exact source in `supabase_migrations.schema_migrations`.
+
+Verification uses `supabase/tests/highdarts_counted_results.sql` in a disposable database and `HIGHDARTS_COUNTING_NATIVE=1 node scripts/highdarts-counting.integration.mjs` against the prepared `bengt_profile` database on port 56555 and app on 3020. The API test creates its own hidden synthetic event and removes only its own rows. It races two choices, checks that exactly five results count for the owner and all six count for opponents, rejects a stale replacement, and verifies safe retries and clearing.
+
+Validation after integrating the Google Sheet sync: 1,477 tests passed, lint reported zero errors with 23 existing warnings, and the webpack production build passed. The database regression and concurrent API checks passed. Browser verification saved a choice from Tabell, confirmed it on the linked profile alongside all six fixtures, and cleared the local test choice afterward.
+
+Rollback: no match or result is deleted by this migration. To disable choices, leave the added flags and guards in place and disable the editing UI. Do not roll back to app code that ignores saved exclusions, because it would show incorrect standings. If a full schema rollback is required, preserve/export the two flags first and restore both to true before removing the new RPC, qualification trigger/function, constraints and columns. This intentionally restores six-counted-match behavior and requires an organiser to review qualification.
+
+Production verification on September 15: the stored migration source matches repository MD5 `5e2ed11823532fda92f3f767467c5b71`, and both installed function definitions match the tested local definitions. The qualification guard is enabled, browser roles cannot execute the choice RPC, and the service role can. All 76 fixtures remain present and include both flags in the snapshot. A rolled-back transaction exercised ownership denial, selection, repeat retry, stale clearing and valid clearing for both actual six-fixture players. No exclusions or test records were retained.
+
 ## Google Sheet sync
 
 The published rev.3 workbook is [Highdarts_2026 rev.3](https://docs.google.com/spreadsheets/d/1gIbV9OM3RsItTwQQPgwQjAxwOfPsfaPLRA08RXqsp_c/edit). The Bengt iframe uses its published URL. Its bound [Apps Script project](https://script.google.com/home/projects/1EcrAbJqHvGcZ21GMfV4MghaI1l-vO1qSavdf1ym67Sj1RDoNG4JdPKYx/edit) runs `scripts/highdarts-sheet/Code.gs`.

@@ -33,8 +33,8 @@ import {
   type Snapshot,
   type Standing,
 } from '@/lib/highdarts/standings';
-import { FixtureCard, TournamentPlayerName } from './Fixtures';
-import { HighdartsRules } from './Rules';
+import { FixtureCard, FixtureCountingNote, GroupCountingChoice, TournamentPlayerName } from './Fixtures';
+import { HighdartsCountingRules, HighdartsRules } from './Rules';
 import { HighdartsBracket, HighdartsTieControls } from './HighdartsBracket';
 
 const SHEET_URL =
@@ -76,7 +76,7 @@ function Progress({
 }
 const FIXTURES_PER_PAGE = 6;
 function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
-  const status = !row.played
+  const status = row.needsDiscard ? 'Choose 1 to exclude' : !row.played
     ? 'Not started'
     : row.tiedForFourth || row.tiedForBye
       ? 'Tie-break'
@@ -97,7 +97,7 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
         : status === 'Play-off' || status === 'Bye?'
           ? 'bg-cyan-300/10 text-cyan-200'
           : 'bg-white/5 text-slate-400';
-  const explanation = !row.played
+  const explanation = row.needsDiscard ? 'Six fixtures are scheduled. Choose one to exclude before qualification is finalized.' : !row.played
     ? 'No completed tournament matches yet.'
     : row.tiedForFourth
       ? 'Fourth place is tied on wins and average. A tie-break decides who advances.'
@@ -537,6 +537,7 @@ export function HighdartsDashboard({
                           </>
                         )}
                       </div>
+                      {snapshot && <FixtureCountingNote fixture={f} snapshot={snapshot} />}
                       <Link href={`/match/${f.match_id}/report`} className="mt-3 inline-block text-xs text-cyan-300">View result</Link>
                     </div>
                   );
@@ -554,90 +555,106 @@ export function HighdartsDashboard({
               aria-label="Office leaderboards"
             >
               {data?.offices.map((o) => (
-                <section
-                  key={o.office}
-                  className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-card"
-                >
-                  <div className="flex items-center justify-between border-b border-white/5 px-4 py-4">
-                    <h2 className="text-lg font-bold">
-                      {officeName(o.office)}
-                    </h2>
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {o.played} / {o.total} played
-                    </span>
-                  </div>
-                  <table className="w-full table-fixed text-left text-xs">
-                    <caption className="sr-only">
-                      {officeName(o.office)} standings
-                    </caption>
-                    <colgroup>
-                      <col className="w-7" />
-                      <col />
-                      <col className="w-7" />
-                      <col className="w-7" />
-                      <col className="w-12" />
-                      <col className="w-8" />
-                    </colgroup>
-                    <thead className="bg-white/[0.02] text-[10px] text-muted-foreground">
-                      <tr>
-                        {['#', 'Player', 'W', 'L', 'AVG', 'Left'].map((h) => (
-                          <th
-                            key={h}
-                            className={`py-2.5 font-medium ${h === '#' ? 'pl-3' : h === 'Player' ? 'pl-1' : 'text-center'}`}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {o.table.map((row) => (
-                        <tr
-                          key={row.key}
-                          className={`border-t border-white/5 ${row.player.id === myId ? 'bg-cyan-300/5' : ''}`}
-                        >
-                          <td className="py-3 pl-3 text-slate-500">
-                            {row.rank}
-                          </td>
-                          <th
-                            scope="row"
-                            className="py-3 pl-1 pr-2 font-medium"
-                          >
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span className="inline-flex shrink-0">
-                                <PlayerAvatar player={row.player} size="sm" />
-                              </span>
-                              <div className="min-w-0">
-                                <span
-                                  className="block truncate leading-4"
-                                  title={row.player.display_name}
-                                >
-                                  {snapshot && <TournamentPlayerName playerId={row.player.id} name={row.player.display_name} snapshot={snapshot} />}
-                                </span>
-                                <RankBadge
-                                  row={row}
-                                  complete={o.played === o.total}
-                                />
-                              </div>
-                            </div>
-                          </th>
-                          <td className="text-center font-bold tabular-nums text-cyan-200">
-                            {row.wins}
-                          </td>
-                          <td className="text-center tabular-nums text-muted-foreground">
-                            {row.losses}
-                          </td>
-                          <td className="text-center font-semibold tabular-nums">
-                            {row.average.toFixed(2)}
-                          </td>
-                          <td className="text-center tabular-nums text-muted-foreground">
-                            {row.remaining}
-                          </td>
+                <div key={o.office} className="min-w-0 space-y-4">
+                  <section
+                    className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-card"
+                  >
+                    <div className="flex items-center justify-between border-b border-white/5 px-4 py-4">
+                      <h2 className="text-lg font-bold">
+                        {officeName(o.office)}
+                      </h2>
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {o.played} / {o.total} played
+                      </span>
+                    </div>
+                    <table className="w-full table-fixed text-left text-xs">
+                      <caption className="sr-only">
+                        {officeName(o.office)} standings
+                      </caption>
+                      <colgroup>
+                        <col className="w-7" />
+                        <col />
+                        <col className="w-7" />
+                        <col className="w-7" />
+                        <col className="w-12" />
+                        <col className="w-8" />
+                      </colgroup>
+                      <thead className="bg-white/[0.02] text-[10px] text-muted-foreground">
+                        <tr>
+                          {['#', 'Player', 'W', 'L', 'AVG', 'Left'].map((h) => (
+                            <th
+                              key={h}
+                              className={`py-2.5 font-medium ${h === '#' ? 'pl-3' : h === 'Player' ? 'pl-1' : 'text-center'}`}
+                            >
+                              {h}
+                            </th>
+                          ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </section>
+                      </thead>
+                      <tbody>
+                        {o.table.map((row) => (
+                          <tr
+                            key={row.key}
+                            className={`border-t border-white/5 ${row.player.id === myId ? 'bg-cyan-300/5' : ''}`}
+                          >
+                            <td className="py-3 pl-3 text-slate-500">
+                              {row.rank}
+                            </td>
+                            <th
+                              scope="row"
+                              className="py-3 pl-1 pr-2 font-medium"
+                            >
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="inline-flex shrink-0">
+                                  <PlayerAvatar player={row.player} size="sm" />
+                                </span>
+                                <div className="min-w-0">
+                                  <span
+                                    className="block truncate leading-4"
+                                    title={row.player.display_name}
+                                  >
+                                    {snapshot && <TournamentPlayerName playerId={row.player.id} name={row.player.display_name} snapshot={snapshot} />}
+                                  </span>
+                                  {row.excluded > 0 && <span className="mt-1 block text-[9px] text-amber-200">{row.excluded} excluded</span>}
+                                  <RankBadge
+                                    row={row}
+                                    complete={o.played === o.total}
+                                  />
+                                </div>
+                              </div>
+                            </th>
+                            <td className="text-center font-bold tabular-nums text-cyan-200">
+                              {row.wins}
+                            </td>
+                            <td className="text-center tabular-nums text-muted-foreground">
+                              {row.losses}
+                            </td>
+                            <td className="text-center font-semibold tabular-nums">
+                              {row.average.toFixed(2)}
+                            </td>
+                            <td className="text-center tabular-nums text-muted-foreground">
+                              {row.remaining}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </section>
+                  {o.office === 'sogndal' && snapshot && (
+                    <section aria-label="Counting matches" className="rounded-2xl border border-white/10 bg-card px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-sm font-semibold">Counting matches</h2>
+                        <HighdartsCountingRules />
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">Six played, five count. Exclusions apply only to that player.</p>
+                      <div className="mt-3 divide-y divide-white/5">
+                        {data.offices.flatMap((office) => office.table.filter((row) => row.scheduled === 6 && row.player.id)).map((row) => (
+                          <GroupCountingChoice key={row.key} playerId={row.player.id} snapshot={snapshot} canEdit={isAdmin || row.player.id === myId} onRefresh={refreshSnapshot} />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </div>
               ))}
             </div>
             {snapshot && (

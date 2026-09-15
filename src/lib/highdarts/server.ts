@@ -12,6 +12,7 @@ export async function loadHighdarts(
   return data;
 }
 export function highdartsErrorStatus(code: string) {
+  if (code === '42501') return 403;
   if (code === '23505' || code === '55000') return 409;
   if (
     code === '22023' ||

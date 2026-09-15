@@ -4,6 +4,18 @@ import { buildStandings, type Snapshot } from './standings';
 import { fixture, finish } from '@/test-utils/highdartsFixtures';
 
 describe('published tournament sheet export', () => {
+  it('exports five counted results while preserving all six match results and the opponent side', () => {
+    const fixtures = Array.from({ length: 5 }, (_, i) => finish(fixture('vik', 'a', 'b', i + 1), 'a', 60, 30));
+    fixtures.push({ ...finish(fixture('vik', 'b', 'a', 6), 'a', 30, 180), counts_for_b: false });
+    const output = buildSheetExport({ fixtures, players: [] });
+    const table = output.standings.find((office) => office.office === 'vik');
+    expect(output.fixtures).toHaveLength(6);
+    expect(output.fixtures[5].counts).toEqual([1, 0]);
+    expect(output.fixtures[5].result).toEqual([0, 2, 30, 180]);
+    expect(table?.rows.find((row) => row[1] === 'a')).toEqual([1, 'a', 5, 5, 60]);
+    expect(table?.rows.find((row) => row[1] === 'b')).toEqual([2, 'b', 0, 6, 30]);
+  });
+
   it('keeps repeated fixtures separate and exports completed results only', () => {
     const done = finish(fixture('bergen', 'a', 'b', 1), 'a', 60, 30);
     const ended = finish(fixture('bergen', 'a', 'b', 3), 'a');

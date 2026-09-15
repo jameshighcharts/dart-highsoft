@@ -293,7 +293,7 @@ export function ProfileClient() {
             </CardContent>
           </Card>
 
-          <ProfileFixtures playerId={player.id} />
+          <ProfileFixtures playerId={player.id} canEditCounting />
 
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">My stats</h2>
