@@ -305,12 +305,11 @@ export function HighdartsDashboard({
                 </span>
               </p>
             </div>
-            <div className="rounded-xl border border-lime-300/15 bg-lime-300/5 px-4 py-3 text-right">
-              <p className="text-xs text-lime-200">
-                Today
-              </p>
-              <p className="mt-1 text-3xl font-bold tabular-nums text-lime-200">
-                {activity.today} <span className="text-sm font-medium">{activity.today === 1 ? 'game' : 'games'}</span>
+            <div className="mb-1 border-l border-white/10 pl-5 sm:pl-6">
+              <p className="text-xs font-medium text-muted-foreground">Today</p>
+              <p className="mt-1.5 flex items-baseline gap-1.5">
+                <span className={`text-3xl font-semibold tracking-tight tabular-nums ${activity.today > 0 ? 'text-lime-200' : 'text-slate-300'}`}>{activity.today}</span>
+                <span className="text-xs text-muted-foreground">{activity.today === 1 ? 'game' : 'games'}</span>
               </p>
             </div>
           </div>
