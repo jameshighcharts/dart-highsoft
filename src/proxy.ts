@@ -11,6 +11,7 @@ const PUBLIC_PAGES = new Set(['/login', '/signin']);
 const PUBLIC_API_PREFIXES = ['/api/auth/', '/api/slack/', '/api/background-jobs'];
 
 function isPublic(pathname: string): boolean {
+  if (pathname === '/api/highdarts/sheet') return true;
   if (PUBLIC_PAGES.has(pathname)) return true;
   return PUBLIC_API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(prefix));
 }

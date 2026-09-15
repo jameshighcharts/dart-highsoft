@@ -34,6 +34,12 @@ async function run(path: string, session: NextAuthRequest['auth']) {
 }
 
 describe('authentication proxy', () => {
+  it('exposes only the exact published sheet feed, keeping adjacent tournament APIs protected', async () => {
+    expect((await run('/api/highdarts/sheet', null))?.status).toBe(200);
+    for (const path of ['/api/highdarts', '/api/highdarts/sheet/other', '/api/highdarts/counting']) {
+      expect((await run(path, null))?.status).toBe(401);
+    }
+  });
   it('lets a Google session without a Slack link reach the app and APIs', async () => {
     for (const path of ['/', '/profile', '/api/me']) {
       const response = await run(path, googleSession);
