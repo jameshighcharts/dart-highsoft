@@ -38,7 +38,7 @@ import { HighdartsCountingRules, HighdartsRules } from './Rules';
 import { HighdartsBracket, HighdartsTieControls } from './HighdartsBracket';
 
 const SHEET_URL =
-  'https://docs.google.com/spreadsheets/d/e/2PACX-1vRV-yUwdC1ht9XjeBuGf2oSQl7lx9U-VEJ09M611vZKLmDDxL9PB2h2d7JU3J7B2g/pubhtml?widget=true&headers=false';
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vTG5Lq8S38mHqDldWQo8MiIsTE88U68yiVx5iwToQaObcpqtzwNJzs1G1Pl2eXvzUxu-wogyh0fBAsw/pubhtml?widget=true&headers=false';
 const card = 'rounded-2xl border border-white/10 bg-card p-5 sm:p-6';
 function Progress({
   played,
@@ -711,7 +711,7 @@ export function HighdartsDashboard({
           <TabsContent value="sheet">
             <section className={card}>
               <a
-                href={SHEET_URL}
+                href="https://docs.google.com/spreadsheets/d/1gIbV9OM3RsItTwQQPgwQjAxwOfPsfaPLRA08RXqsp_c/edit"
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-2 text-sm font-semibold text-cyan-200"
@@ -719,9 +719,8 @@ export function HighdartsDashboard({
                 Open in Google Sheets <ArrowUpRight className="size-4" />
               </a>
               <p className="my-3 text-sm text-muted-foreground">
-                Sign into your Highsoft Google account in this browser to view
-                the sheet. App results and standings come from matches played
-                here.
+                Results and standings sync from matches played here. The
+                published sheet can take a few minutes to show updates.
               </p>
               <iframe
                 src={SHEET_URL}

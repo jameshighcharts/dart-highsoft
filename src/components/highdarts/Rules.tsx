@@ -61,7 +61,7 @@ export function HighdartsCountingRules() {
             <h3 className="mb-1 font-semibold text-foreground">Who can save it, and when?</h3>
             <p>You can save your own choice, and an admin can help either player. Change or clear it until the finals draw is locked. Both choices are required before qualification tie-breaks or the finals draw can be created.</p>
           </div>
-          <p>This is the app&apos;s equivalent of Tel A and Tel B. Save your choice here; edits in Google Sheets do not sync to the app.</p>
+          <p>Save your choice here. The Google Sheet sync copies it to Tel A and Tel B every five minutes. Edits in the sheet do not update the app.</p>
         </div>
       </DialogContent>
     </Dialog>

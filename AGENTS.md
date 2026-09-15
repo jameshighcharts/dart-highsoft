@@ -72,6 +72,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 ### API Routes (`src/app/api`)
 | Route | Methods | Purpose |
 |-------|---------|---------|
+| `highdarts/sheet/` | GET | Public projection limited to the published tournament sheet's names, fixtures, results, counting flags, standings and locked finals; no IDs, profiles, raw throws or board data |
 | `tournaments/` | POST | Create a tournament with validated board and commentary preferences; bracket matches initially remain unassigned |
 | `tournaments/[id]/matches/[matchId]/open/` | POST | Verify bracket membership, claim the preferred board for the active match using database occupancy guards, and return the persisted commentary preference; route tests cover conflicts, manual and completed matches |
 | `matches/` | POST | Create a new match, optionally with a pre-game Bull-off |
@@ -586,6 +587,7 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/components/match/RealtimeConnectionError.tsx`: Scoring/spectator connection indicators show the actual last database subscription error, retaining it through retries and recovery so flickering status cannot hide the cause. `useRealtime` scopes errors to the match and captures SDK, system, timeout, unexpected-close, and initialization failures.
 
 ### Highdarts profile and board integration
+- `src/lib/highdarts/sheetExport.ts`: Formats the published sheet feed using shared app standings and match statistics; `scripts/highdarts-sheet/Code.gs` is the bound five-minute Google Sheets sync, with native JavaScript regression coverage in `Code.test.mjs`.
 - `src/components/highdarts/Fixtures.tsx`: Shared fixture rows, stable player-profile links and a refreshing personal schedule for self and read-only profiles. Uses full-draw first-name disambiguation from `lib/highdarts/standings.ts`.
 - `src/app/players/[playerId]/page.tsx`: Authenticated read-only player profile with stats, tournament schedule and an existing Slack identity link scoped to the viewer's workspace. Own-profile editing remains in `/profile`.
 - `src/app/api/highdarts/route.ts`: Snapshot includes current board availability, reusing the existing board endpoint's occupancy/readiness logic.
