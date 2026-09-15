@@ -134,8 +134,7 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
 }
 function TournamentMatchStatus({ snapshot }: { snapshot: Snapshot }) {
   const ongoing = snapshot.fixtures.filter((f) => f.match && !isCompleted(f) && !f.match.completed_at && !f.match.winner_player_id && !f.match.ended_early);
-  const completed = snapshot.fixtures.filter(isCompleted).length;
-  const paused = ongoing.filter((f) => f.match?.paused_at).length;
+  if (!ongoing.length) return null;
   function matchRow(f: FixtureResult) {
     const status = f.match?.paused_at ? 'Paused' : 'Live';
     return (
@@ -161,14 +160,7 @@ function TournamentMatchStatus({ snapshot }: { snapshot: Snapshot }) {
   }
   return (
     <section aria-label="Tournament match status" className="mt-4 border-t border-white/10 pt-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <h2 className="font-semibold text-foreground">Matches</h2>
-        <span>{completed} played</span>
-        <span className={ongoing.length > paused ? 'text-lime-200' : ''}>{ongoing.length - paused} live</span>
-        {paused > 0 && <span className="text-amber-200">{paused} paused</span>}
-      </div>
-      {ongoing.length ? <ul aria-label="Ongoing tournament matches" className="mt-1 divide-y divide-white/5">{ongoing.map(matchRow)}</ul> : <p className="mt-2 text-xs text-muted-foreground">No games in progress.</p>}
-
+      <ul aria-label="Ongoing tournament matches" className="divide-y divide-white/5">{ongoing.map(matchRow)}</ul>
     </section>
   );
 }
