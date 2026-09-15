@@ -591,7 +591,7 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/components/highdarts/Fixtures.tsx`: Shared fixture rows, stable player-profile links and a refreshing personal schedule for self and read-only profiles. Uses full-draw first-name disambiguation from `lib/highdarts/standings.ts`.
 - `src/app/players/[playerId]/page.tsx`: Authenticated read-only player profile with stats, tournament schedule and an existing Slack identity link scoped to the viewer's workspace. Own-profile editing remains in `/profile`.
 - `src/app/api/highdarts/route.ts`: Snapshot includes current board availability, reusing the existing board endpoint's occupancy/readiness logic.
-- `src/app/new/page.tsx`: Tournament fixtures select the office and its named board; tournament starts cannot use the ordinary busy-board fallback to manual scoring.
+- `src/app/new/page.tsx`: Tournament fixtures select the office and its named board; unplayed head-to-head tournament fixtures support explicit manual scoring while retaining office reservations and locked rules.
 - `supabase/migrations/20260914190000_highdarts_board_availability.sql`: Atomic tournament claim guard for office/player conflicts, correct board selection and busy-board/manual bypass protection. Existing board locks still arbitrate X01 and party games.
 - `supabase/tests/highdarts_board_availability.sql` and `scripts/highdarts-profile.integration.mjs`: Rollback SQL regression and isolated native API concurrency checks. See `docs/HIGHDARTS_2026.md` for the required disposable environment.
 - `docs/highdarts-2026/{player-profile,player-profile-mobile,profile-setup}.png`: Profile, mobile schedule and tournament setup screenshots.
@@ -608,3 +608,11 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `supabase/tests/highdarts_counted_results.sql` and `scripts/highdarts-counting.integration.mjs`: Rollback SQL invariants and opt-in disposable API concurrency checks.
 
 - `src/lib/highdarts/reportedResults.ts`: Screenshot visit totals for Sogndal #1 and #12, applied only by the Bengt dashboard. Existing app matches take precedence; averages and dates remain unknown. No database or sheet writes.
+
+### Manual Highdarts starts
+- `supabase/migrations/20260915120000_highdarts_manual_scoring.sql`: Allows manual fixture starts and reserves the office against competing Scolia X01/party games without routing hardware throws to the manual match.
+- `src/app/api/scolia/boards/available/route.ts`: Shows active manual tournament matches as office-board occupants.
+- `supabase/tests/highdarts_manual_scoring.sql`: Rollback regression for manual/offline starts, pair/rule validation, duplicate fixtures and reservations in both directions.
+- `scripts/highdarts-manual.integration.mjs`: Opt-in concurrent API start check against disposable `bengt_manual` on port 56555 and preview 3022; removes its synthetic records.
+
+- `src/components/highdarts/Dashboard.tsx`: Header match status lists live/paused fixtures with leg scores and profile/spectator links; expandable finished games include completed, reported and early-ended results. Uses the existing 15-second snapshot refresh.

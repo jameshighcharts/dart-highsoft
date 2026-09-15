@@ -10,7 +10,7 @@ import {
 import { afterEach, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type { FixtureResult, Snapshot } from '@/lib/highdarts/standings';
-import { fixture } from '@/test-utils/highdartsFixtures';
+import { fixture, finish } from '@/test-utils/highdartsFixtures';
 import { HighdartsDashboard } from './Dashboard';
 const snapshot = { fixtures: [], players: [] };
 afterEach(() => {
@@ -153,4 +153,34 @@ it('replaces a reported result with the real active match on refresh without off
   expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuenow', '1');
   expect(screen.getByRole('link', { name: 'Watch live' })).toHaveAttribute('href', '/match/canonical-live');
   expect(screen.queryByRole('link', { name: /Start.*Johan/ })).not.toBeInTheDocument();
+});
+
+it('shows live, paused and finished matches in the header and reconciles refreshed status', async () => {
+  const live = { ...finish(fixture('bergen', 'Ada', 'Ben'), 'Ada'), match_id: 'live-match' };
+  live.match = { ...live.match!, completed_at: null, winner_player_id: null };
+  const paused = { ...finish(fixture('vik', 'Cara', 'Dan'), 'Cara'), match_id: 'paused-match' };
+  paused.match = { ...paused.match!, completed_at: null, winner_player_id: null, paused_at: '2026-09-15T10:00:00Z' };
+  const ended = finish(fixture('bergen', 'Eve', 'Finn', 2), 'Eve');
+  ended.match = { ...ended.match!, ended_early: true };
+  const done = finish(fixture('vik', 'Gia', 'Hal', 2), 'Gia');
+  const data: Snapshot = { players: [], fixtures: [live, paused, ended, done] };
+  const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => data });
+  vi.stubGlobal('fetch', fetch);
+  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  const status = within(screen.getByRole('region', { name: 'Tournament match status' }));
+  expect(status.getByText('1 played')).toBeInTheDocument();
+  expect(status.getByText('1 live')).toBeInTheDocument();
+  expect(status.getByText('1 paused')).toBeInTheDocument();
+  expect(status.getByRole('link', { name: 'Live: Bergen #1' })).toHaveAttribute('href', '/match/live-match?spectator=true');
+  expect(status.getByRole('link', { name: 'Paused: Vik #1' })).toBeInTheDocument();
+  fireEvent.click(status.getByText('Finished games (2)'));
+  expect(status.getByRole('link', { name: 'Completed: Vik #2' })).toHaveAttribute('href', `/match/${done.match_id}/report`);
+  expect(status.getByRole('link', { name: 'Ended early: Bergen #2' })).toBeInTheDocument();
+  await act(async () => {});
+  const updated = { ...data, fixtures: [finish(live, 'Ada'), paused, ended, done] };
+  fetch.mockResolvedValue({ ok: true, json: async () => updated });
+  fireEvent.focus(window);
+  await waitFor(() => expect(status.getByText('2 played')).toBeInTheDocument());
+  expect(status.getByText('0 live')).toBeInTheDocument();
+  expect(status.queryByRole('link', { name: 'Live: Bergen #1' })).not.toBeInTheDocument();
 });

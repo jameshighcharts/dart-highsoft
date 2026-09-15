@@ -30,6 +30,7 @@ import {
   normalizeName,
   personalFixtures,
   type Office,
+  type FixtureResult,
   fixtureLabel,
   officeName,
   resultStats,
@@ -131,6 +132,54 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
     </Tooltip>
   );
 }
+function TournamentMatchStatus({ snapshot }: { snapshot: Snapshot }) {
+  const ongoing = snapshot.fixtures.filter((f) => f.match && !isCompleted(f) && !f.match.completed_at && !f.match.winner_player_id && !f.match.ended_early);
+  const finished = snapshot.fixtures.filter((f) => isCompleted(f) || f.match?.ended_early);
+  const completed = finished.filter(isCompleted).length;
+  const paused = ongoing.filter((f) => f.match?.paused_at).length;
+  function matchRow(f: FixtureResult) {
+    const done = isCompleted(f);
+    const status = f.match?.ended_early ? 'Ended early' : done ? (f.reportedResult ? 'Reported' : 'Completed') : f.match?.paused_at ? 'Paused' : 'Live';
+    return (
+      <li key={f.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2.5 text-xs">
+        <div className="min-w-0">
+          <p className="mb-1 text-[10px] text-muted-foreground">{fixtureLabel(f)}</p>
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            <TournamentPlayerName playerId={f.player_a_id} name={f.player_a_name} snapshot={snapshot} className="font-medium" />
+            <span className="text-muted-foreground">vs</span>
+            <TournamentPlayerName playerId={f.player_b_id} name={f.player_b_name} snapshot={snapshot} className="font-medium" />
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="font-semibold tabular-nums" aria-label="Leg score">{resultStats(f, f.player_a_id).legs}–{resultStats(f, f.player_b_id).legs}</span>
+          {f.match_id ? (
+            <Link href={done ? `/match/${f.match_id}/report` : `/match/${f.match_id}?spectator=true`} className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-white/10 ${status === 'Live' ? 'text-lime-200' : status === 'Paused' ? 'text-amber-200' : 'text-cyan-200'}`} aria-label={`${status}: ${fixtureLabel(f)}`}>
+              {status}<ArrowUpRight className="size-3" />
+            </Link>
+          ) : <span className="px-2 py-1.5 text-muted-foreground">{status}</span>}
+        </div>
+      </li>
+    );
+  }
+  return (
+    <section aria-label="Tournament match status" className="mt-4 border-t border-white/10 pt-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <h2 className="font-semibold text-foreground">Matches</h2>
+        <span>{completed} played</span>
+        <span className={ongoing.length > paused ? 'text-lime-200' : ''}>{ongoing.length - paused} live</span>
+        {paused > 0 && <span className="text-amber-200">{paused} paused</span>}
+      </div>
+      {ongoing.length ? <ul aria-label="Ongoing tournament matches" className="mt-1 divide-y divide-white/5">{ongoing.map(matchRow)}</ul> : <p className="mt-2 text-xs text-muted-foreground">No games in progress.</p>}
+      {finished.length > 0 && (
+        <details className="mt-2 text-xs">
+          <summary className="w-fit cursor-pointer py-1 text-cyan-200 hover:underline">Finished games ({finished.length})</summary>
+          <ul aria-label="Finished tournament matches" className="mt-1 max-h-64 divide-y divide-white/5 overflow-y-auto">{finished.map(matchRow)}</ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
 export function HighdartsDashboard({
   initial,
   isAdmin,
@@ -302,6 +351,7 @@ export function HighdartsDashboard({
               {activity.groupToday} group games today
             </span>
           </div>
+          {snapshot && <TournamentMatchStatus snapshot={snapshot} />}
         </header>
         {error && (
           <p

@@ -41,6 +41,7 @@ export type FixtureResult = Fixture & {
     winner_player_id: string | null;
     completed_at: string | null;
     ended_early: boolean;
+    paused_at?: string | null;
     legs: { winner_player_id: string | null; turns: ResultTurn[] }[];
   } | null;
 };
@@ -55,7 +56,6 @@ export function fixtureAvailability(fixture: Fixture, snapshot: Snapshot) {
   const boards = fixture.office ? (snapshot.boards ?? []).filter((b) => b.name.toLowerCase().includes(fixture.office ?? '')) : [];
   const busy = boards.find((b) => b.activeMatchId || b.activeGameSessionId);
   if (busy) return { reason: `${officeName(fixture.office)} board is in use.`, href: busy.activeMatchId ? `/match/${busy.activeMatchId}` : `/game/${busy.activeGameSessionId}` };
-  if (boards.length && !boards.some((b) => b.selectable)) return { reason: `${officeName(fixture.office)} board is not ready.`, href: '/boards' };
   return null;
 }
 
