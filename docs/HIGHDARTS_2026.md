@@ -1,6 +1,6 @@
 # Highdarts 2026
 
-`/bengt` shows the office tournament, rules, recent results, remaining fixtures and projected finalists. It reads app match data; the Google Sheet is only an authenticated convenience embed. No sheet import runs on the server. Results refresh every 15 seconds while the page is visible and when the window regains focus.
+`/bengt` shows the office tournament, rules, recent results, remaining fixtures and projected finalists. It reads app match data; the embedded Google Sheet mirrors the app through a one-way five-minute Apps Script sync. No sheet import runs on the server. App results refresh every 15 seconds while the page is visible and when the window regains focus.
 
 ## Deployment
 
@@ -135,3 +135,15 @@ Final follow-up validation: 1,450 tests passed, lint reported zero errors (23 ex
 ![Linked player profile](highdarts-2026/player-profile.png)
 ![Mobile player schedule](highdarts-2026/player-profile-mobile.png)
 ![Tournament fixture setup](highdarts-2026/profile-setup.png)
+
+## Google Sheet sync
+
+The published rev.3 workbook is [Highdarts_2026 rev.3](https://docs.google.com/spreadsheets/d/1gIbV9OM3RsItTwQQPgwQjAxwOfPsfaPLRA08RXqsp_c/edit). The Bengt iframe uses its published URL. Its bound [Apps Script project](https://script.google.com/home/projects/1EcrAbJqHvGcZ21GMfV4MghaI1l-vO1qSavdf1ym67Sj1RDoNG4JdPKYx/edit) runs `scripts/highdarts-sheet/Code.gs`.
+
+`GET /api/highdarts/sheet` exports only the data displayed in that public workbook. This exact read-only path is public so the script can fetch it without storing app sessions or privileged database credentials. It excludes player IDs, avatars, Slack identities, boards, match IDs and raw throws. Other tournament API paths retain their existing authentication. The feed reuses `buildStandings` and `resultStats`; the sheet does not recalculate qualification or averages independently. Stored per-player counting choices are exported as Tel for A/B.
+
+The sync owns Kampoppsett C:H and J:K on rows 3–32, 34–46 and 48–80; Tabell A:E on rows 5–16, 21–25 and 30–42; and Sluttspilltre B6:B9, B13:D16, B20:D23, B27:D28 and B32:D32. It updates each tab's A1 explanation and Sluttspilltre B2 after success. Winner/points formulas, notes, other helper cells and all formatting remain in place. Standings values replace the visible table formulas to preserve the app's dart-weighted averages, ranking and tie-break behavior. Finals show the locked draw and confirmed winners; an unlocked draw clears its old entries.
+
+Run `installHighdartsSync` once in the bound script to refresh and create one five-minute trigger owned by the installing Google account. Repeated installation does not duplicate the trigger. `@OnlyCurrentDoc` limits spreadsheet authorization to this workbook. A Highdarts menu also provides manual refresh. The script verifies all 76 office/fixture-number pairs, table sizes and the entire response before editing any cells. A fetch failure or invalid response leaves existing values intact. An execution error is visible in Apps Script Executions. The published iframe may lag the editable sheet by several minutes.
+
+Validate with `npm run test:run -- src/lib/highdarts/sheetExport.test.ts scripts/highdarts-sheet/Code.test.mjs src/proxy.test.ts`; the Apps Script tests execute the actual `.gs` source in Node. After installation, run a manual refresh and compare the API projection to all owned sheet ranges, then confirm a scheduled execution succeeds.
