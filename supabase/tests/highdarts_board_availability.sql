@@ -28,10 +28,6 @@ begin
 
   insert into public.scolia_boards(id,serial_number,name,enabled,worker_connection_status,board_status,worker_heartbeat_at)
     values (board,'board-test-' || board,'Scolia Bergen test',true,'connected','Ready',now());
-  begin
-    perform public.create_highdarts_match_atomic(second_fixture,array[c,d],'301','single_out',2,false);
-    raise exception 'Bypassed office board through manual scoring';
-  exception when invalid_parameter_value then null; end;
 
   select id into first_match from public.create_x01_match_atomic('301','single_out',2,false,array[a,b],board);
   begin

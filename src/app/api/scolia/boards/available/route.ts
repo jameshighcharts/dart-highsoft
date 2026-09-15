@@ -17,6 +17,7 @@ type BoardRow = {
 type ActiveMatchRow = {
   id: string;
   scolia_board_id: string | null;
+  highdarts_fixture?: { office: string | null } | null;
 };
 
 /**
@@ -67,10 +68,11 @@ export async function GET() {
         .order('name'),
       supabase
         .from('matches')
-        .select('id, scolia_board_id')
+        .select('id, scolia_board_id, highdarts_fixture:highdarts_fixtures!matches_highdarts_fixture_id_fkey(office)')
         .is('completed_at', null)
         .is('winner_player_id', null)
-        .eq('ended_early', false),
+        .eq('ended_early', false)
+        .overrideTypes<ActiveMatchRow[], { merge: false }>(),
       supabase
         .from('game_sessions')
         .select('id, scolia_board_id')
@@ -93,10 +95,17 @@ export async function GET() {
     );
 
     const activeMatchesByBoard = new Map(
-      ((activeMatchesResult.data ?? []) as ActiveMatchRow[])
+      (activeMatchesResult.data ?? [])
         .filter((match): match is ActiveMatchRow & { scolia_board_id: string } => Boolean(match.scolia_board_id))
         .map((match) => [match.scolia_board_id, match.id])
     );
+    for (const match of activeMatchesResult.data ?? []) {
+      const office = match.highdarts_fixture?.office;
+      if (match.scolia_board_id || !office) continue;
+      for (const board of (boardsResult.data ?? []) as BoardRow[]) {
+        if (board.name.toLowerCase().includes(office)) activeMatchesByBoard.set(board.id, match.id);
+      }
+    }
     // Summaries are informational, so a failure here must not hide the boards.
     const [matchSummaries, gameSummaries] = await Promise.all([
       summarizeActiveMatches(supabase, [...activeMatchesByBoard.values()]).catch((error: unknown) => {

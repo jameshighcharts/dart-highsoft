@@ -60,7 +60,7 @@
     @apply bg-background text-foreground;
   }
 
-  /* Light palette for the admin surface and sign-in page. Applied on a
+  /* Light palette for the admin surface and admin sign-in page. Applied on a
      wrapper so the rest of the app keeps its dark scoreboard theme. */
   .theme-light {
     --background: 0 0% 100%;

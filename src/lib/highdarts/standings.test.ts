@@ -133,12 +133,12 @@ it('shortens unique names and disambiguates repeated first names across the full
   expect(name('c', 'Ben Taylor')).toBe('Ben T');
 });
 
-it('blocks busy or offline office boards while allowing an independent office', () => {
+it('blocks busy offices but allows manual setup when the board is offline', () => {
   const upcoming = fixture('bergen', 'a', 'b');
   const board = { id: 'board', name: 'Bergen board', isHomeSbc: true, workerConnectionStatus: 'connected' as const, boardStatus: 'Ready', workerHeartbeatAt: new Date().toISOString(), activeMatchId: null, activeGameSessionId: null, selectable: true };
   expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming], boards: [board] })).toBeNull();
   expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming], boards: [{ ...board, activeGameSessionId: 'busy', selectable: false }] })?.href).toBe('/game/busy');
-  expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming], boards: [{ ...board, selectable: false }] })?.href).toBe('/boards');
+  expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming], boards: [{ ...board, selectable: false }] })).toBeNull();
   const elsewhere = { ...fixture('vik', 'c', 'd'), match_id: 'live' };
   expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming, elsewhere] })).toBeNull();
   expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming, { ...elsewhere, player_a_id: 'a' }] })?.href).toBe('/match/live');

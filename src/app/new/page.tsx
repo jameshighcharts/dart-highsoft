@@ -364,17 +364,18 @@ export default function NewMatchPage() {
     if (!highdartsLocked || boardsLoading || !highdartsFixture?.office) return;
     setEnabledLocations([highdartsFixture.office]);
     setIncludeNoLocation(false);
-    const board = boards.find((b) => b.name.toLowerCase().includes(highdartsFixture.office ?? ''));
-    setSelectedBoardId(board?.id ?? MANUAL_BOARD_VALUE);
+    setSelectedBoardId((current) => {
+      if (current === MANUAL_BOARD_VALUE || boards.some((b) => b.id === current && b.name.toLowerCase().includes(highdartsFixture.office ?? ''))) return current;
+      return boards.find((b) => b.selectable && b.name.toLowerCase().includes(highdartsFixture.office ?? ''))?.id ?? MANUAL_BOARD_VALUE;
+    });
   }, [highdartsLocked, highdartsFixture?.office, boardsLoading, boards]);
 
   const tournamentSetupError = requestedFixtureId && !highdartsLocked
     ? 'Keep the selected tournament pair and Highdarts rules, or return to Bengt to choose another fixture.'
     : highdartsLocked && highdartsFixture
       ? boardsError || fixtureAvailability(highdartsFixture, { fixtures: highdartsFixtures, players: [], boards })?.reason ||
-        (highdartsFixture.office && boards.some((b) => b.name.toLowerCase().includes(highdartsFixture.office ?? '')) &&
-          !boards.some((b) => b.id === selectedBoardId && b.name.toLowerCase().includes(highdartsFixture.office ?? ''))
-          ? 'Select the tournament office board.' : null)
+        (selectedBoardId !== MANUAL_BOARD_VALUE && !boards.some((b) => b.id === selectedBoardId && b.selectable && (!highdartsFixture.office || b.name.toLowerCase().includes(highdartsFixture.office)))
+          ? 'Select a ready office board or choose Manual scoring.' : null)
       : null;
 
   function chooseBoard(boardId: string) {
@@ -528,7 +529,7 @@ export default function NewMatchPage() {
    */
   function onStart() {
     if (tournamentSetupError) { setSubmitError(tournamentSetupError); return; }
-    if (selectedBoardId === MANUAL_BOARD_VALUE) {
+    if (selectedBoardId === MANUAL_BOARD_VALUE && !highdartsLocked) {
       const prompt = getManualScoringPrompt(boards);
       if (prompt) {
         setManualPrompt(prompt);
@@ -599,6 +600,7 @@ export default function NewMatchPage() {
                 {boardsError}. Manual scoring is still available.
               </p>
             ) : null}
+            {highdartsLocked && <p className="text-xs text-muted-foreground">Manual scoring counts toward this fixture. Enter darts in the app; tournament rules stay locked.</p>}
           </div>
 
           {gameMode === null && (

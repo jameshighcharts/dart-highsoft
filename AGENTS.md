@@ -255,7 +255,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `highdarts/MatchTag.tsx` | Pre-start scorer question with per-match friendly memory and scorer/spectator tournament badge |
 | `match/MatchScoringView.tsx` | Active scoring view — scores, dartboard/keypad, actions |
 | `match/MatchSpectatorView.tsx` | Read-only spectator view |
-| `match/SpectatorLiveMatchCard.tsx` | Responsive live player scoreboard grid with a compact inline match header, compact viewport-aware tile heights, container-scaled avatars, names, and larger scores with correction-safe impact motion, on-throw light sweeps, reduced-motion support, bold names, lime on-throw tiles, dart indicators, and compact stats with a chunkier responsive AVG value and average-rating emojis, retaining small Last/Best labels without a separate current-turn header; desktop grid fills the stretched card, with overflow scrolling and larger collapsed-board tiles sized for balanced six- and eight-player layouts |
+| `match/SpectatorLiveMatchCard.tsx` | Responsive live player scoreboard grid with a compact inline match header with fair-ending status after the leg target, compact viewport-aware tile heights, container-scaled avatars, names, and larger scores with correction-safe impact motion, on-throw light sweeps, reduced-motion support, bold names, lime on-throw tiles, dart indicators, and compact stats with a chunkier responsive AVG value and average-rating emojis, retaining small Last/Best labels without a separate current-turn header; desktop grid fills the stretched card, with overflow scrolling and larger collapsed-board tiles sized for balanced six- and eight-player layouts |
 | `match/DartIQLive.tsx` | DartIQ broadcast strip directly above the spectator Score Progress chart, with per-dart leg/match probabilities, large-field circular rail, and gated top-three next-dart landing predictions from the shared tracker |
 | `match/MatchPlayersCard.tsx` | Player list with scores, averages, legs won |
 | `match/LiveScoliaBoard.tsx` | Read-only spectator dartboard with live Scolia impact positions and detected dart orientation, plus a chunky current-player avatar left of the name that follows visit/takeout handoffs; lower-right collapse toggle remembers its state in browser-local storage across matches and reloads, hides the board, stacks a larger avatar above the centered player name, and stacks dart scores in a narrow one-fifth-width desktop column while expanding the responsive player grid, with a smooth column resize, board shrink/fade, borderless ghost toggle with press feedback, and reduced-motion support; viewport-height card scales the SVG and readouts to fit, without resize work in the dart-processing path |
@@ -592,7 +592,7 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/components/highdarts/Fixtures.tsx`: Shared fixture rows, stable player-profile links and a refreshing personal schedule for self and read-only profiles. Uses full-draw first-name disambiguation from `lib/highdarts/standings.ts`.
 - `src/app/players/[playerId]/page.tsx`: Authenticated read-only player profile with stats, tournament schedule and an existing Slack identity link scoped to the viewer's workspace. Own-profile editing remains in `/profile`.
 - `src/app/api/highdarts/route.ts`: Snapshot includes current board availability, reusing the existing board endpoint's occupancy/readiness logic.
-- `src/app/new/page.tsx`: Tournament fixtures select the office and its named board; tournament starts cannot use the ordinary busy-board fallback to manual scoring.
+- `src/app/new/page.tsx`: Tournament fixtures select the office and its named board; unplayed head-to-head tournament fixtures support explicit manual scoring while retaining office reservations and locked rules.
 - `supabase/migrations/20260914190000_highdarts_board_availability.sql`: Atomic tournament claim guard for office/player conflicts, correct board selection and busy-board/manual bypass protection. Existing board locks still arbitrate X01 and party games.
 - `supabase/tests/highdarts_board_availability.sql` and `scripts/highdarts-profile.integration.mjs`: Rollback SQL regression and isolated native API concurrency checks. See `docs/HIGHDARTS_2026.md` for the required disposable environment.
 - `docs/highdarts-2026/{player-profile,player-profile-mobile,profile-setup}.png`: Profile, mobile schedule and tournament setup screenshots.
@@ -609,3 +609,17 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `supabase/tests/highdarts_counted_results.sql` and `scripts/highdarts-counting.integration.mjs`: Rollback SQL invariants and opt-in disposable API concurrency checks.
 
 - `src/lib/highdarts/reportedResults.ts`: Screenshot visit totals for Sogndal #1 and #12, applied only by the Bengt dashboard. Existing app matches take precedence; averages and dates remain unknown. No database or sheet writes.
+
+### Manual Highdarts starts
+- `supabase/migrations/20260915120000_highdarts_manual_scoring.sql`: Allows manual fixture starts and reserves the office against competing Scolia X01/party games without routing hardware throws to the manual match.
+- `src/app/api/scolia/boards/available/route.ts`: Shows active manual tournament matches as office-board occupants.
+- `supabase/tests/highdarts_manual_scoring.sql`: Rollback regression for manual/offline starts, pair/rule validation, duplicate fixtures and reservations in both directions.
+- `scripts/highdarts-manual.integration.mjs`: Opt-in concurrent API start check against disposable `bengt_manual` on port 56555 and preview 3022; removes its synthetic records.
+
+- `src/components/highdarts/Dashboard.tsx`: Header match status appears only for ongoing matches, with a Live count beside Today and compact player/location/spectator links inside that stat; finished games stay in Recent results. Uses the existing 15-second snapshot refresh.
+
+- `src/components/auth/SignInCard.tsx`: Shared OAuth sign-in form uses the app dark theme by default for `/login`; `/signin` explicitly retains the light admin theme.
+
+- Tabell stage badges and row tints in `src/components/highdarts/Dashboard.tsx` share a pastel palette with matching hover/focus states; qualification logic and labels remain authoritative.
+
+- Tabell rank badges use tournament status for every player, including six-fixture players; pending exclusions stay in the counting controls and qualification guards.

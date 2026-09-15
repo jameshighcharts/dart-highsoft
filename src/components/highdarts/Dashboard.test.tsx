@@ -10,7 +10,7 @@ import {
 import { afterEach, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type { FixtureResult, Snapshot } from '@/lib/highdarts/standings';
-import { fixture } from '@/test-utils/highdartsFixtures';
+import { fixture, finish } from '@/test-utils/highdartsFixtures';
 import { HighdartsDashboard } from './Dashboard';
 const snapshot = { fixtures: [], players: [] };
 afterEach(() => {
@@ -153,4 +153,53 @@ it('replaces a reported result with the real active match on refresh without off
   expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuenow', '1');
   expect(screen.getByRole('link', { name: 'Watch live' })).toHaveAttribute('href', '/match/canonical-live');
   expect(screen.queryByRole('link', { name: /Start.*Johan/ })).not.toBeInTheDocument();
+});
+
+it('shows only ongoing matches in the header and removes them when finished', async () => {
+  const live = { ...finish(fixture('bergen', 'Ada', 'Ben'), 'Ada'), match_id: 'live-match' };
+  live.match = { ...live.match!, completed_at: null, winner_player_id: null };
+  const paused = { ...finish(fixture('vik', 'Cara', 'Dan'), 'Cara'), match_id: 'paused-match' };
+  paused.match = { ...paused.match!, completed_at: null, winner_player_id: null, paused_at: '2026-09-15T10:00:00Z' };
+  const ended = finish(fixture('bergen', 'Eve', 'Finn', 2), 'Eve');
+  ended.match = { ...ended.match!, ended_early: true };
+  const done = finish(fixture('vik', 'Gia', 'Hal', 2), 'Gia');
+  const data: Snapshot = { players: [], fixtures: [live, paused, ended, done] };
+  const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => data });
+  vi.stubGlobal('fetch', fetch);
+  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  const status = within(screen.getByRole('region', { name: 'Tournament match status' }));
+  expect(within(screen.getByLabelText('Live games')).getByText('1')).toBeInTheDocument();
+  expect(status.getByText('Bergen')).toBeInTheDocument();
+  expect(status.queryByRole('heading')).not.toBeInTheDocument();
+  expect(status.queryByText(/played/)).not.toBeInTheDocument();
+  expect(status.getByRole('link', { name: 'Live: Bergen #1' })).toHaveAttribute('href', '/match/live-match?spectator=true');
+  expect(status.getByRole('link', { name: 'Paused: Vik #1' })).toBeInTheDocument();
+  expect(status.queryByText(/Finished games/)).not.toBeInTheDocument();
+  expect(status.queryByText('Gia')).not.toBeInTheDocument();
+  expect(status.queryByText('Eve')).not.toBeInTheDocument();
+  await act(async () => {});
+  const updated = { ...data, fixtures: [finish(live, 'Ada'), finish(paused, 'Cara'), ended, done] };
+  fetch.mockResolvedValue({ ok: true, json: async () => updated });
+  fireEvent.focus(window);
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Tournament match status' })).not.toBeInTheDocument());
+  expect(screen.queryByText('No games in progress.')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Live games')).not.toBeInTheDocument();
+});
+
+it('shows tournament status for six-fixture players while retaining their counting controls', async () => {
+  const sindre = Array.from({ length: 6 }, (_, n) => fixture('sogndal', 'Sindre', `Opponent ${n}`, n + 1));
+  sindre[0] = finish(sindre[0], 'Sindre');
+  const data: Snapshot = { players: [], fixtures: [
+    ...sindre,
+    ...Array.from({ length: 6 }, (_, n) => fixture('vik', 'Gjertrud', `Vik opponent ${n}`, n + 1)),
+  ] };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => data }));
+  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  await userEvent.click(screen.getByRole('tab', { name: 'Tabell' }));
+  const sogndal = within(screen.getByRole('table', { name: 'Sogndal standings' }));
+  const vik = within(screen.getByRole('table', { name: 'Vik standings' }));
+  expect(within(sogndal.getByRole('row', { name: /Sindre/ })).getByText('Bye')).toBeInTheDocument();
+  expect(within(vik.getByRole('row', { name: /Gjertrud/ })).getByText('Not started')).toBeInTheDocument();
+  expect(screen.queryByText('Choose 1 to exclude')).not.toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Counting matches' })).toBeInTheDocument();
 });

@@ -19,7 +19,7 @@ type BoardRow = {
   worker_heartbeat_at: string | null;
 };
 
-type ActiveRow = { id: string; scolia_board_id: string | null };
+type ActiveRow = { id: string; scolia_board_id: string | null; highdarts_fixture?: { office: string | null } | null };
 
 function readyBoard(id: string, overrides: Partial<BoardRow> = {}): BoardRow {
   return {
@@ -93,7 +93,7 @@ function mockSupabase({
             return this;
           },
           eq() {
-            return Promise.resolve({ data: activeMatches, error: null });
+            return { overrideTypes: () => Promise.resolve({ data: activeMatches, error: null }) };
           },
           in() {
             return Promise.resolve({ data: matchDetails, error: null });
@@ -132,6 +132,17 @@ describe('GET /api/scolia/boards/available', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('reserves the office board for an active manual tournament match', async () => {
+    getSupabaseServerClientMock.mockReturnValue(mockSupabase({
+      boards: [readyBoard('bergen'), readyBoard('vik')],
+      activeMatches: [{ id: 'manual', scolia_board_id: null, highdarts_fixture: { office: 'bergen' } }],
+    }));
+    const response = await GET();
+    const { boards } = await response.json();
+    expect(boards[0]).toMatchObject({ activeMatchId: 'manual', selectable: false });
+    expect(boards[1]).toMatchObject({ activeMatchId: null, selectable: true });
   });
 
   it('marks only live, ready, unused boards as selectable', async () => {

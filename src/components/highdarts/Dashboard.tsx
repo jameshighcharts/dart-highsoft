@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Search,
   Trophy,
-  Flame,
 } from 'lucide-react';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { Button } from '@/components/ui/button';
@@ -30,6 +29,7 @@ import {
   normalizeName,
   personalFixtures,
   type Office,
+  type FixtureResult,
   fixtureLabel,
   officeName,
   resultStats,
@@ -77,8 +77,8 @@ function Progress({
   );
 }
 const FIXTURES_PER_PAGE = 6;
-function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
-  const status = row.needsDiscard ? 'Choose 1 to exclude' : !row.played
+function rankStatus(row: Standing, complete: boolean) {
+  return !row.played
     ? 'Not started'
     : row.tiedForFourth || row.tiedForBye
       ? 'Tie-break'
@@ -91,15 +91,20 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
             : complete
               ? 'Out'
               : 'Group stage';
-  const color =
-    status === 'Bye'
-      ? 'bg-amber-300/15 text-amber-200'
-      : status === 'Tie-break'
-        ? 'bg-orange-300/15 text-orange-200'
-        : status === 'Play-off' || status === 'Bye?'
-          ? 'bg-cyan-300/10 text-cyan-200'
-          : 'bg-white/5 text-slate-400';
-  const explanation = row.needsDiscard ? 'Six fixtures are scheduled. Choose one to exclude before qualification is finalized.' : !row.played
+}
+const stageTint = {
+  'Not started': { row: 'hover:bg-slate-300/[0.04] focus-within:bg-slate-300/[0.04]', badge: 'border-slate-300/10 bg-slate-300/5 text-slate-400' },
+  'Group stage': { row: 'bg-violet-300/[0.04] hover:bg-violet-300/[0.08] focus-within:bg-violet-300/[0.08]', badge: 'border-violet-300/20 bg-violet-300/10 text-violet-200' },
+  'Play-off': { row: 'bg-cyan-300/[0.04] hover:bg-cyan-300/[0.08] focus-within:bg-cyan-300/[0.08]', badge: 'border-cyan-300/20 bg-cyan-300/10 text-cyan-200' },
+  'Bye?': { row: 'bg-blue-300/[0.04] hover:bg-blue-300/[0.08] focus-within:bg-blue-300/[0.08]', badge: 'border-blue-300/20 bg-blue-300/10 text-blue-200' },
+  'Bye': { row: 'bg-amber-200/[0.04] hover:bg-amber-200/[0.08] focus-within:bg-amber-200/[0.08]', badge: 'border-amber-200/20 bg-amber-200/10 text-amber-200' },
+  'Tie-break': { row: 'bg-pink-300/[0.04] hover:bg-pink-300/[0.08] focus-within:bg-pink-300/[0.08]', badge: 'border-pink-300/20 bg-pink-300/10 text-pink-200' },
+  'Out': { row: 'bg-slate-300/[0.02] hover:bg-slate-300/[0.06] focus-within:bg-slate-300/[0.06]', badge: 'border-slate-300/15 bg-slate-300/5 text-slate-300' },
+};
+function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
+  const status = rankStatus(row, complete);
+  const color = stageTint[status].badge;
+  const explanation = !row.played
     ? 'No completed tournament matches yet.'
     : row.tiedForFourth
       ? 'Fourth place is tied on wins and average. A tie-break decides who advances.'
@@ -121,7 +126,7 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
       <TooltipTrigger asChild>
         <span
           tabIndex={0}
-          className={`mt-1 inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-medium ${color}`}
+          className={`mt-1 inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[9px] font-medium ${color}`}
         >
           {status}
         </span>
@@ -130,6 +135,34 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
     </Tooltip>
   );
 }
+function TournamentMatchStatus({ snapshot, fixtures }: { snapshot: Snapshot; fixtures: FixtureResult[] }) {
+  if (!fixtures.length) return null;
+  return (
+    <section aria-label="Tournament match status" className="mt-2 max-h-40 overflow-y-auto">
+      <ul aria-label="Ongoing tournament matches" className="divide-y divide-white/5">
+        {fixtures.map((f) => (
+          <li key={f.id} className="py-1.5 first:pt-0 last:pb-0">
+            <div className="flex flex-wrap items-center gap-x-1 text-[11px] leading-4">
+              <TournamentPlayerName playerId={f.player_a_id} name={f.player_a_name} snapshot={snapshot} className="font-medium" />
+              <span className="text-muted-foreground">vs</span>
+              <TournamentPlayerName playerId={f.player_b_id} name={f.player_b_name} snapshot={snapshot} className="font-medium" />
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 text-[10px]">
+              <span className="text-muted-foreground">{officeName(f.office)}</span>
+              {f.match?.paused_at && <span className="text-amber-200">Paused</span>}
+              {f.match_id && (
+                <Link href={`/match/${f.match_id}?spectator=true`} className="ml-auto inline-flex min-h-6 items-center gap-0.5 text-cyan-200 hover:text-cyan-100 hover:underline" aria-label={`${f.match?.paused_at ? 'Paused' : 'Live'}: ${fixtureLabel(f)}`}>
+                  Watch<ArrowUpRight className="size-3" />
+                </Link>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function HighdartsDashboard({
   initial,
   isAdmin,
@@ -187,6 +220,8 @@ export function HighdartsDashboard({
   }, []);
   const data = snapshot ? buildStandings(snapshot) : null;
   const activity = tournamentActivity(snapshot?.fixtures ?? []);
+  const ongoing = (snapshot?.fixtures ?? []).filter((f) => f.match && !isCompleted(f) && !f.match.completed_at && !f.match.winner_player_id && !f.match.ended_early);
+  const liveCount = ongoing.filter((f) => !f.match?.paused_at).length;
   const byes =
     data?.byes.filter((r) => r.played && !r.tiedForFourth && !r.tiedForBye) ??
     [];
@@ -252,7 +287,7 @@ export function HighdartsDashboard({
               </div>
             </div>
           </div>
-          <div className="mt-6 grid grid-cols-[1fr_auto] items-end gap-4">
+          <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Group games played
@@ -266,17 +301,24 @@ export function HighdartsDashboard({
                 </span>
               </p>
             </div>
-            <div className="rounded-xl border border-lime-300/15 bg-lime-300/5 px-4 py-3 text-right">
-              <p className="flex items-center justify-end gap-1.5 text-xs text-lime-200">
-                <Flame className="size-3.5" />
-                Today
-              </p>
-              <p className="mt-1 text-3xl font-bold tabular-nums text-lime-200">
-                {activity.today}
-              </p>
-              <p className="text-[10px] text-muted-foreground">
-                tournament games
-              </p>
+            <div className="mb-1 flex max-w-full items-start divide-x divide-white/10">
+              <div className="border-l border-white/10 px-4 sm:px-5">
+                <p className="text-xs font-medium text-muted-foreground">Today</p>
+                <p className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className={`text-3xl font-semibold tracking-tight tabular-nums ${activity.today > 0 ? 'text-lime-200' : 'text-slate-300'}`}>{activity.today}</span>
+                  <span className="text-xs text-muted-foreground">{activity.today === 1 ? 'game' : 'games'}</span>
+                </p>
+              </div>
+              {ongoing.length > 0 && (
+                <div aria-label="Live games" className="min-w-0 max-w-52 pl-4 sm:pl-5">
+                  <p className="text-xs font-medium text-muted-foreground">Live</p>
+                  <p className="mt-1.5 flex items-baseline gap-1.5">
+                    <span className="text-3xl font-semibold tracking-tight text-cyan-200 tabular-nums">{liveCount}</span>
+                    <span className="text-xs text-muted-foreground">{liveCount === 1 ? 'game' : 'games'}</span>
+                  </p>
+                  {snapshot && <TournamentMatchStatus snapshot={snapshot} fixtures={ongoing} />}
+                </div>
+              )}
             </div>
           </div>
           <div className="mb-2 mt-5 flex justify-between text-xs text-muted-foreground">
@@ -566,11 +608,6 @@ export function HighdartsDashboard({
             </div>
           </TabsContent>
           <TabsContent value="leaderboard" className="space-y-6">
-            <p className="text-sm text-muted-foreground">
-              Current projections. Wins, then three-dart average. Cutoff ties
-              need a play-off; leg difference does not settle them.
-            </p>
-            {data?.averagesIncomplete && <p className="text-sm text-amber-200">Reported scores are included. Missing dart counts leave averages and qualification projections pending.</p>}
             <div
               className="grid items-start gap-4 lg:grid-cols-3"
               aria-label="Office leaderboards"
@@ -616,7 +653,7 @@ export function HighdartsDashboard({
                         {o.table.map((row) => (
                           <tr
                             key={row.key}
-                            className={`border-t border-white/5 ${row.player.id === myId ? 'bg-cyan-300/5' : ''}`}
+                            className={`border-t border-white/5 transition-colors motion-reduce:transition-none ${row.player.id === myId ? 'bg-cyan-300/5 hover:bg-cyan-300/10 focus-within:bg-cyan-300/10' : stageTint[rankStatus(row, o.played === o.total)].row}`}
                           >
                             <td className="py-3 pl-3 text-slate-500">
                               {row.rank}

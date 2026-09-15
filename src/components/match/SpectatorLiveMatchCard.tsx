@@ -9,13 +9,13 @@ import { computeCheckoutSuggestions } from '@/utils/checkoutSuggestions';
 import { computeSetupSuggestions } from '@/utils/setupSuggestions';
 import { getLegRoundStats, getSpectatorScore } from '@/utils/matchStats';
 import { decorateAvg } from '@/utils/playerStats';
-import type { Player, ThrowRecord, TurnRecord, TurnWithThrows } from '@/lib/match/types';
+import type { MatchRecord, Player, ThrowRecord, TurnRecord, TurnWithThrows } from '@/lib/match/types';
 import type { FairEndingState } from '@/utils/fairEnding';
 import type { FinishRule } from '@/utils/x01';
 import { useEffect, useMemo, useRef } from 'react';
 
 type Props = {
-  match: { start_score: string; finish: string; legs_to_win: number };
+  match: Pick<MatchRecord, 'start_score' | 'finish' | 'legs_to_win' | 'fair_ending'>;
   orderPlayers: Player[];
   spectatorCurrentPlayer: Player | null;
   turns: TurnRecord[];
@@ -112,7 +112,7 @@ export function SpectatorLiveMatchCard({
       <CardHeader className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1.5">
         <CardTitle>{title}</CardTitle>
         <CardDescription className="text-xs">
-          {match.start_score} · {match.finish.replace('_', ' ')} · First to {match.legs_to_win}
+          {match.start_score} · {match.finish.replace('_', ' ')} · First to {match.legs_to_win} · Fair ending {match.fair_ending ? 'on' : 'off'}
         </CardDescription>
         <span className="ml-auto text-xs font-medium tabular-nums text-muted-foreground">{orderPlayers.length} players</span>
       </CardHeader>
