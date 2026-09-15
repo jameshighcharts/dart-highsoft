@@ -136,35 +136,26 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
     </Tooltip>
   );
 }
-function TournamentMatchStatus({ snapshot }: { snapshot: Snapshot }) {
-  const ongoing = snapshot.fixtures.filter((f) => f.match && !isCompleted(f) && !f.match.completed_at && !f.match.winner_player_id && !f.match.ended_early);
-  if (!ongoing.length) return null;
-  function matchRow(f: FixtureResult) {
-    const status = f.match?.paused_at ? 'Paused' : 'Live';
-    return (
-      <li key={f.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2.5 text-xs">
-        <div className="min-w-0">
-          <p className="mb-1 text-[10px] text-muted-foreground">{fixtureLabel(f)}</p>
-          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+function TournamentMatchStatus({ snapshot, fixtures }: { snapshot: Snapshot; fixtures: FixtureResult[] }) {
+  if (!fixtures.length) return null;
+  return (
+    <section aria-label="Tournament match status" className="mt-3 border-t border-white/10 pt-1">
+      <ul aria-label="Ongoing tournament matches" className="divide-y divide-white/5">
+        {fixtures.map((f) => (
+          <li key={f.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2 text-xs">
             <TournamentPlayerName playerId={f.player_a_id} name={f.player_a_name} snapshot={snapshot} className="font-medium" />
             <span className="text-muted-foreground">vs</span>
             <TournamentPlayerName playerId={f.player_b_id} name={f.player_b_name} snapshot={snapshot} className="font-medium" />
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="font-semibold tabular-nums" aria-label="Leg score">{resultStats(f, f.player_a_id).legs}–{resultStats(f, f.player_b_id).legs}</span>
-          {f.match_id ? (
-            <Link href={`/match/${f.match_id}?spectator=true`} className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-white/10 ${status === 'Live' ? 'text-lime-200' : status === 'Paused' ? 'text-amber-200' : 'text-cyan-200'}`} aria-label={`${status}: ${fixtureLabel(f)}`}>
-              {status}<ArrowUpRight className="size-3" />
-            </Link>
-          ) : <span className="px-2 py-1.5 text-muted-foreground">{status}</span>}
-        </div>
-      </li>
-    );
-  }
-  return (
-    <section aria-label="Tournament match status" className="mt-4 border-t border-white/10 pt-3">
-      <ul aria-label="Ongoing tournament matches" className="divide-y divide-white/5">{ongoing.map(matchRow)}</ul>
+            <span className="text-muted-foreground">· {officeName(f.office)}</span>
+            {f.match?.paused_at && <span className="text-amber-200">· Paused</span>}
+            {f.match_id && (
+              <Link href={`/match/${f.match_id}?spectator=true`} className="ml-auto inline-flex items-center gap-1 py-1 text-cyan-200 hover:text-cyan-100 hover:underline" aria-label={`${f.match?.paused_at ? 'Paused' : 'Live'}: ${fixtureLabel(f)}`}>
+                Watch<ArrowUpRight className="size-3" />
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -226,6 +217,8 @@ export function HighdartsDashboard({
   }, []);
   const data = snapshot ? buildStandings(snapshot) : null;
   const activity = tournamentActivity(snapshot?.fixtures ?? []);
+  const ongoing = (snapshot?.fixtures ?? []).filter((f) => f.match && !isCompleted(f) && !f.match.completed_at && !f.match.winner_player_id && !f.match.ended_early);
+  const liveCount = ongoing.filter((f) => !f.match?.paused_at).length;
   const byes =
     data?.byes.filter((r) => r.played && !r.tiedForFourth && !r.tiedForBye) ??
     [];
@@ -291,7 +284,7 @@ export function HighdartsDashboard({
               </div>
             </div>
           </div>
-          <div className="mt-6 grid grid-cols-[1fr_auto] items-end gap-4">
+          <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Group games played
@@ -305,12 +298,23 @@ export function HighdartsDashboard({
                 </span>
               </p>
             </div>
-            <div className="mb-1 border-l border-white/10 pl-5 sm:pl-6">
-              <p className="text-xs font-medium text-muted-foreground">Today</p>
-              <p className="mt-1.5 flex items-baseline gap-1.5">
-                <span className={`text-3xl font-semibold tracking-tight tabular-nums ${activity.today > 0 ? 'text-lime-200' : 'text-slate-300'}`}>{activity.today}</span>
-                <span className="text-xs text-muted-foreground">{activity.today === 1 ? 'game' : 'games'}</span>
-              </p>
+            <div className="mb-1 flex items-end divide-x divide-white/10">
+              <div className="border-l border-white/10 px-4 sm:px-5">
+                <p className="text-xs font-medium text-muted-foreground">Today</p>
+                <p className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className={`text-3xl font-semibold tracking-tight tabular-nums ${activity.today > 0 ? 'text-lime-200' : 'text-slate-300'}`}>{activity.today}</span>
+                  <span className="text-xs text-muted-foreground">{activity.today === 1 ? 'game' : 'games'}</span>
+                </p>
+              </div>
+              {ongoing.length > 0 && (
+                <div aria-label="Live games" className="pl-4 sm:pl-5">
+                  <p className="text-xs font-medium text-muted-foreground">Live</p>
+                  <p className="mt-1.5 flex items-baseline gap-1.5">
+                    <span className="text-3xl font-semibold tracking-tight text-cyan-200 tabular-nums">{liveCount}</span>
+                    <span className="text-xs text-muted-foreground">{liveCount === 1 ? 'game' : 'games'}</span>
+                  </p>
+                </div>
+              )}
             </div>
           </div>
           <div className="mb-2 mt-5 flex justify-between text-xs text-muted-foreground">
@@ -335,7 +339,7 @@ export function HighdartsDashboard({
               {activity.groupToday} group games today
             </span>
           </div>
-          {snapshot && <TournamentMatchStatus snapshot={snapshot} />}
+          {snapshot && <TournamentMatchStatus snapshot={snapshot} fixtures={ongoing} />}
         </header>
         {error && (
           <p

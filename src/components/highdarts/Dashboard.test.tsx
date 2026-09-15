@@ -168,6 +168,8 @@ it('shows only ongoing matches in the header and removes them when finished', as
   vi.stubGlobal('fetch', fetch);
   render(<HighdartsDashboard initial={data} isAdmin={false} />);
   const status = within(screen.getByRole('region', { name: 'Tournament match status' }));
+  expect(within(screen.getByLabelText('Live games')).getByText('1')).toBeInTheDocument();
+  expect(status.getByText('· Bergen')).toBeInTheDocument();
   expect(status.queryByRole('heading')).not.toBeInTheDocument();
   expect(status.queryByText(/played/)).not.toBeInTheDocument();
   expect(status.getByRole('link', { name: 'Live: Bergen #1' })).toHaveAttribute('href', '/match/live-match?spectator=true');
@@ -181,6 +183,7 @@ it('shows only ongoing matches in the header and removes them when finished', as
   fireEvent.focus(window);
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Tournament match status' })).not.toBeInTheDocument());
   expect(screen.queryByText('No games in progress.')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Live games')).not.toBeInTheDocument();
 });
 
 it('shows tournament status for six-fixture players while retaining their counting controls', async () => {
