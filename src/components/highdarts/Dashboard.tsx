@@ -20,9 +20,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { withReportedResults } from '@/lib/highdarts/reportedResults';
 import { apiRequest } from '@/lib/apiClient';
 import {
   buildStandings,
+  isCompleted,
+  fixtureWinner,
   tournamentActivity,
   normalizeName,
   personalFixtures,
@@ -135,7 +138,8 @@ export function HighdartsDashboard({
   initial: Snapshot | null;
   isAdmin: boolean;
 }) {
-  const [snapshot, setSnapshot] = useState(initial);
+  const [sourceSnapshot, setSnapshot] = useState(initial);
+  const snapshot = sourceSnapshot ? withReportedResults(sourceSnapshot) : null;
   const [error, setError] = useState(
     initial ? '' : 'Highdarts is not available yet.',
   );
@@ -196,7 +200,7 @@ export function HighdartsDashboard({
       await apiRequest<Snapshot>('/api/highdarts', { method: 'GET' }),
     );
   const yourFixtures = snapshot && myId
-    ? personalFixtures(snapshot, myId).filter((f) => !f.match?.completed_at && !f.match?.ended_early)
+    ? personalFixtures(snapshot, myId).filter((f) => !isCompleted(f) && !f.match?.ended_early)
     : [];
   const selectedOffice = data?.offices.find((o) => o.office === office);
   const query = normalizeName(search);
@@ -291,7 +295,7 @@ export function HighdartsDashboard({
           <div className="mt-3 flex gap-4 text-[11px] text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <span className="size-1.5 rounded-full bg-cyan-300" />
-              Before today
+              {data?.averagesIncomplete ? 'Other completed games' : 'Before today'}
             </span>
             <span className="flex items-center gap-1.5">
               <span className="size-1.5 rounded-full bg-lime-300" />
@@ -497,12 +501,12 @@ export function HighdartsDashboard({
                     >
                       <div className="mb-2 flex justify-between text-[11px] text-muted-foreground">
                         <span>{fixtureLabel(f)}</span>
-                        <span>{f.match?.completed_at?.slice(0, 10)}</span>
+                        <span>{f.reportedResult ? 'Reported result' : f.match?.completed_at?.slice(0, 10)}</span>
                       </div>
                       <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 text-sm">
                         <span
                           className={
-                            f.match?.winner_player_id === f.player_a_id
+                            fixtureWinner(f) === f.player_a_id
                               ? 'font-bold'
                               : ''
                           }
@@ -512,7 +516,7 @@ export function HighdartsDashboard({
                         <span className="tabular-nums">{a.legs}</span>
                         <span
                           className={
-                            f.match?.winner_player_id === f.player_b_id
+                            fixtureWinner(f) === f.player_b_id
                               ? 'font-bold'
                               : ''
                           }
@@ -524,6 +528,8 @@ export function HighdartsDashboard({
                       <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
                         {f.match?.ended_early ? (
                           'Ended early · Excluded from standings'
+                        ) : f.reportedResult ? (
+                          'Three-dart averages unavailable from screenshots'
                         ) : (
                           <>
                             <span className="rounded-full bg-white/5 px-2 py-1">
@@ -538,7 +544,22 @@ export function HighdartsDashboard({
                         )}
                       </div>
                       {snapshot && <FixtureCountingNote fixture={f} snapshot={snapshot} />}
-                      <Link href={`/match/${f.match_id}/report`} className="mt-3 inline-block text-xs text-cyan-300">View result</Link>
+                      {f.match_id && <Link href={`/match/${f.match_id}/report`} className="mt-3 inline-block text-xs text-cyan-300">View result</Link>}
+                      {f.reportedResult && (
+                        <details className="mt-3 text-xs">
+                          <summary className="cursor-pointer text-cyan-300">Leg breakdowns</summary>
+                          {f.reportedResult.legs.map((leg, index) => (
+                            <div key={index} className="mt-3 space-y-1 text-muted-foreground">
+                              <p className="font-semibold">Leg {index + 1} · {leg.winner_player_id === f.player_a_id ? aName : bName} won</p>
+                              {leg.visits.map((visit) => (
+                                <p key={visit.player_id} className="break-words">
+                                  {visit.player_id === f.player_a_id ? aName : bName}: {visit.scores.join(', ')}
+                                </p>
+                              ))}
+                            </div>
+                          ))}
+                        </details>
+                      )}
                     </div>
                   );
                 })}
@@ -550,6 +571,7 @@ export function HighdartsDashboard({
               Current projections. Wins, then three-dart average. Cutoff ties
               need a play-off; leg difference does not settle them.
             </p>
+            {data?.averagesIncomplete && <p className="text-sm text-amber-200">Reported scores are included. Missing dart counts leave averages and qualification projections pending.</p>}
             <div
               className="grid items-start gap-4 lg:grid-cols-3"
               aria-label="Office leaderboards"
@@ -630,7 +652,7 @@ export function HighdartsDashboard({
                               {row.losses}
                             </td>
                             <td className="text-center font-semibold tabular-nums">
-                              {row.average.toFixed(2)}
+                              {row.averageIncomplete ? '—' : row.average.toFixed(2)}
                             </td>
                             <td className="text-center tabular-nums text-muted-foreground">
                               {row.remaining}

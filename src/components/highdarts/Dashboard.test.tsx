@@ -10,6 +10,7 @@ import {
 import { afterEach, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type { FixtureResult, Snapshot } from '@/lib/highdarts/standings';
+import { fixture } from '@/test-utils/highdartsFixtures';
 import { HighdartsDashboard } from './Dashboard';
 const snapshot = { fixtures: [], players: [] };
 afterEach(() => {
@@ -110,4 +111,46 @@ it('keeps an unplayed tournament free of result and qualification claims', async
   expect(screen.queryByText('Tied for 4th')).not.toBeInTheDocument();
   expect(screen.queryByText('Bye')).not.toBeInTheDocument();
   expect(screen.getAllByText('Awaiting results')).toHaveLength(2);
+});
+
+it('keeps the two reported scores visible after refresh with leg totals and unknown averages', async () => {
+  const data: Snapshot = { players: [], fixtures: [
+    fixture('sogndal', 'Sindre Jensen', 'Jon Skjerdal', 1),
+    fixture('sogndal', 'Johan Flo', 'Jon Skjerdal', 12),
+    fixture('sogndal', 'Jon Skjerdal', 'Johan Flo', 13),
+  ] };
+  const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => data });
+  vi.stubGlobal('fetch', fetch);
+  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  expect(screen.getAllByText('Reported result')).toHaveLength(2);
+  expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuenow', '2');
+  expect(screen.getAllByText('Leg breakdowns')).toHaveLength(2);
+  expect(screen.getByText('Leg 3 · Sindre Jensen won')).toBeInTheDocument();
+  expect(screen.getByText('Leg 3 · Jon Skjerdal won')).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'View result' })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('tab', { name: 'Tabell' }));
+  const table = screen.getByRole('table', { name: 'Sogndal standings' });
+  expect(within(table).getAllByText('—')).toHaveLength(3);
+});
+
+it('replaces a reported result with the real active match on refresh without offering a duplicate start', async () => {
+  const data: Snapshot = { players: [], fixtures: [
+    fixture('sogndal', 'Sindre Jensen', 'Jon Skjerdal', 1),
+    fixture('sogndal', 'Johan Flo', 'Jon Skjerdal', 12),
+  ] };
+  const active: Snapshot = { ...data, fixtures: [data.fixtures[0], { ...data.fixtures[1], match_id: 'canonical-live' }] };
+  const fetch = vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => data })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ player: { id: 'Jon Skjerdal' } }) })
+    .mockResolvedValue({ ok: true, json: async () => active });
+  vi.stubGlobal('fetch', fetch);
+  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  expect(screen.getAllByText('Reported result')).toHaveLength(2);
+  await act(async () => window.dispatchEvent(new Event('focus')));
+  expect(screen.getAllByText('Reported result')).toHaveLength(1);
+  expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuenow', '1');
+  expect(screen.getByRole('link', { name: 'Watch live' })).toHaveAttribute('href', '/match/canonical-live');
+  expect(screen.queryByRole('link', { name: /Start.*Johan/ })).not.toBeInTheDocument();
 });

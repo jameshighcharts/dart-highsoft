@@ -606,3 +606,5 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/components/highdarts/Rules.tsx`: `HighdartsCountingRules` provides the detailed rule dialog from the info button next to Counting matches.
 - `src/lib/highdarts/standings.ts`: Counted player sides determine wins/losses/legs/average. Physical match progress stays unchanged; `pendingDiscards` prevents finalizing qualification before all required choices.
 - `supabase/tests/highdarts_counted_results.sql` and `scripts/highdarts-counting.integration.mjs`: Rollback SQL invariants and opt-in disposable API concurrency checks.
+
+- `src/lib/highdarts/reportedResults.ts`: Screenshot visit totals for Sogndal #1 and #12, applied only by the Bengt dashboard. Existing app matches take precedence; averages and dates remain unknown. No database or sheet writes.

@@ -14,6 +14,7 @@ import {
 import { apiRequest } from "@/lib/apiClient";
 import {
   fixtureAvailability,
+  fixtureWinner,
   countsForPlayer,
   isCompleted,
   resultStats,
@@ -102,7 +103,9 @@ export function FixtureCard({
           </div>
         </div>
       </div>
-      {f.match_id ? (
+      {f.reportedResult ? (
+        <span className="text-xs text-cyan-300">{resultStats(f, f.player_a_id).legs}–{resultStats(f, f.player_b_id).legs} · Reported</span>
+      ) : f.match_id ? (
         <Link
           className="inline-flex min-h-10 items-center gap-1 text-xs font-semibold text-cyan-300"
           href={`/match/${f.match_id}`}
@@ -415,7 +418,7 @@ export function GroupCountingChoice({
                 <option key={f.id} value={f.id}>
                   {fixtureLabel(f)} vs {label}
                   {isCompleted(f)
-                    ? ` · ${f.match?.winner_player_id === playerId ? "Won" : "Lost"} · ${resultStats(f, playerId).average.toFixed(2)} AVG`
+                    ? ` · ${fixtureWinner(f) === playerId ? "Won" : "Lost"} · ${f.reportedResult ? "AVG unavailable" : `${resultStats(f, playerId).average.toFixed(2)} AVG`}`
                     : " · Not finished"}
                 </option>
               );
