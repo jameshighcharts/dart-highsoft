@@ -135,3 +135,17 @@ Final follow-up validation: 1,450 tests passed, lint reported zero errors (23 ex
 ![Linked player profile](highdarts-2026/player-profile.png)
 ![Mobile player schedule](highdarts-2026/player-profile-mobile.png)
 ![Tournament fixture setup](highdarts-2026/profile-setup.png)
+
+## Five counting results from six fixtures
+
+Gjertrud in Vik and Sindre in Sogndal have six group fixtures because their offices have an odd number of participants. Each chooses one fixture to exclude from their own tournament wins, losses, legs and dart-weighted average. The opponent still gets their complete result. All six games remain required for group completion, and match history, global Elo and non-tournament statistics are unchanged. The app never automatically picks the worst result.
+
+On **Bengt → Tabell**, each six-fixture player has a choice control. Their profile has the same control. The linked player or an admin can choose, change or clear it until the finals draw is locked. Everyone can see which result is excluded. Standings are provisional while a required choice is missing; qualification tie-break creation and finals locking are blocked in both the app and database. An organiser must unlock an unstarted finals draw before changing a choice.
+
+`counts_for_a` and `counts_for_b` are the app equivalent of the sheet's **Tel A** and **Tel B**. This does not import or synchronize cell changes with Google Sheets. Save the choices in the app. Both flags default to true, preserving existing results until a player chooses. Apply `20260915090000_highdarts_counted_results.sql` before deploying this feature. The previous two profile/board migrations were applied to production on September 14; this new migration has only been applied to the disposable local preview.
+
+Verification uses `supabase/tests/highdarts_counted_results.sql` in a disposable database and `HIGHDARTS_COUNTING_NATIVE=1 node scripts/highdarts-counting.integration.mjs` against the prepared `bengt_profile` database on port 56555 and app on 3020. The API test creates its own hidden synthetic event and removes only its own rows. It races two choices, checks that exactly five results count for the owner and all six count for opponents, rejects a stale replacement, and verifies safe retries and clearing.
+
+Validation: 1,469 tests passed, lint reported zero errors with 23 existing warnings, and the webpack production build passed. The database regression and concurrent API checks passed. Browser verification saved a choice from Tabell, confirmed it on the linked profile alongside all six fixtures, and cleared the local test choice afterward.
+
+Rollback: no match or result is deleted by this migration. To disable choices, leave the added flags and guards in place and disable the editing UI. Do not roll back to app code that ignores saved exclusions, because it would show incorrect standings. If a full schema rollback is required, preserve/export the two flags first and restore both to true before removing the new RPC, qualification trigger/function, constraints and columns. This intentionally restores six-counted-match behavior and requires an organiser to review qualification.

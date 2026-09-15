@@ -174,7 +174,8 @@ export function projectFinals(standings: Standings) {
     resolved &&
     standings.total > 0 &&
     standings.played === standings.total &&
-    standings.ties.length === 0;
+    standings.ties.length === 0 &&
+    standings.pendingDiscards.length === 0;
   return {
     ...draw,
     eligible,
@@ -199,7 +200,7 @@ export function validateDraw(
     return {
       ok: false,
       error:
-        'Complete every group fixture and resolve qualification ties before locking the draw.',
+        'Complete every group fixture, choose the required excluded results, and resolve qualification ties before locking the draw.',
     };
   if (selection.byes.length !== 4 || selection.playoffs.length !== 4)
     return {

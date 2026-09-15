@@ -33,7 +33,7 @@ import {
   type Snapshot,
   type Standing,
 } from '@/lib/highdarts/standings';
-import { FixtureCard, TournamentPlayerName } from './Fixtures';
+import { FixtureCard, FixtureCountingNote, GroupCountingChoice, TournamentPlayerName } from './Fixtures';
 import { HighdartsRules } from './Rules';
 import { HighdartsBracket, HighdartsTieControls } from './HighdartsBracket';
 
@@ -76,7 +76,7 @@ function Progress({
 }
 const FIXTURES_PER_PAGE = 6;
 function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
-  const status = !row.played
+  const status = row.needsDiscard ? 'Choose 1 to exclude' : !row.played
     ? 'Not started'
     : row.tiedForFourth || row.tiedForBye
       ? 'Tie-break'
@@ -97,7 +97,7 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
         : status === 'Play-off' || status === 'Bye?'
           ? 'bg-cyan-300/10 text-cyan-200'
           : 'bg-white/5 text-slate-400';
-  const explanation = !row.played
+  const explanation = row.needsDiscard ? 'Six fixtures are scheduled. Choose one to exclude before qualification is finalized.' : !row.played
     ? 'No completed tournament matches yet.'
     : row.tiedForFourth
       ? 'Fourth place is tied on wins and average. A tie-break decides who advances.'
@@ -537,6 +537,7 @@ export function HighdartsDashboard({
                           </>
                         )}
                       </div>
+                      {snapshot && <FixtureCountingNote fixture={f} snapshot={snapshot} />}
                       <Link href={`/match/${f.match_id}/report`} className="mt-3 inline-block text-xs text-cyan-300">View result</Link>
                     </div>
                   );
@@ -549,6 +550,10 @@ export function HighdartsDashboard({
               Current projections. Wins, then three-dart average. Cutoff ties
               need a play-off; leg difference does not settle them.
             </p>
+            {snapshot && data && <div className="grid gap-4 md:grid-cols-2">
+              {data.offices.flatMap((o) => o.table.filter((row) => row.scheduled === 6 && row.player.id)).map((row) =>
+                <GroupCountingChoice key={row.key} playerId={row.player.id} snapshot={snapshot} canEdit={isAdmin || row.player.id === myId} onRefresh={refreshSnapshot} />)}
+            </div>}
             <div
               className="grid items-start gap-4 lg:grid-cols-3"
               aria-label="Office leaderboards"
@@ -614,6 +619,7 @@ export function HighdartsDashboard({
                                 >
                                   {snapshot && <TournamentPlayerName playerId={row.player.id} name={row.player.display_name} snapshot={snapshot} />}
                                 </span>
+                                {row.excluded > 0 && <span className="mt-1 block text-[9px] text-amber-200">{row.excluded} excluded</span>}
                                 <RankBadge
                                   row={row}
                                   complete={o.played === o.total}

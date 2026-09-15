@@ -76,7 +76,7 @@ export default async function PlayerProfilePage({
           )}
         </div>
       </header>
-      <ProfileFixtures playerId={player.id} title="Highdarts 2026 schedule" />
+      <ProfileFixtures playerId={player.id} title="Highdarts 2026 schedule" canEditCounting={session.user.isAdmin === true || Boolean(slackUserId && slackUserId === session.user.slackUserId)} />
       <ProfileSummaryCard playerId={player.id} />
       <div className="grid gap-6 md:grid-cols-2">
         <PlayerEloStats player={player} showHistory />

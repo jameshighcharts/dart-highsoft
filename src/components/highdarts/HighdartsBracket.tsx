@@ -239,7 +239,7 @@ export function HighdartsBracket({ snapshot, isAdmin, onRefresh }: Props) {
           <p className="mt-1 text-xs text-muted-foreground">
             {locked
               ? 'Winners advance automatically. Best of three in every round.'
-              : 'Unresolved places stay TBD. Four byes, eight play-off players, one champion.'}
+              : standings.pendingDiscards.length ? 'Choose the required excluded results in Tabell before qualification. Standings are provisional.' : 'Unresolved places stay TBD. Four byes, eight play-off players, one champion.'}
           </p>
         </div>
         {isAdmin && (

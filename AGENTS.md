@@ -596,3 +596,10 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 
 - `supabase/migrations/20260914191500_highdarts_player_identities.sql`: Reviewed sheet aliases resolve through existing Highsoft Slack links, filling missing participant IDs only on unclaimed group fixtures.
 - `src/lib/auth/devBypass.ts`: Optional `AUTH_DEV_SLACK_USER_ID` selects an existing local preview identity when the development-only auth bypass is enabled.
+
+### Highdarts counted results
+- `supabase/migrations/20260915090000_highdarts_counted_results.sql`: Per-side `counts_for_a` / `counts_for_b` flags, service-only atomic choice RPC with Slack ownership/admin checks, six-fixture eligibility, stale-write protection, and qualification/finals guards.
+- `src/app/api/highdarts/counting/route.ts` and tests: Signed-in player/admin choice endpoint; trusted session identity is passed to the database guard.
+- `src/components/highdarts/Fixtures.tsx`: `GroupCountingChoice` selects one excluded result on Tabell and profiles; `FixtureCountingNote` labels exclusions without removing matches from schedules/history.
+- `src/lib/highdarts/standings.ts`: Counted player sides determine wins/losses/legs/average. Physical match progress stays unchanged; `pendingDiscards` prevents finalizing qualification before all required choices.
+- `supabase/tests/highdarts_counted_results.sql` and `scripts/highdarts-counting.integration.mjs`: Rollback SQL invariants and opt-in disposable API concurrency checks.

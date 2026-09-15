@@ -14,6 +14,9 @@ import {
 import { apiRequest } from "@/lib/apiClient";
 import {
   fixtureAvailability,
+  countsForPlayer,
+  isCompleted,
+  resultStats,
   fixtureLabel,
   personalFixtures,
   tournamentNames,
@@ -149,15 +152,22 @@ export function FixtureCard({
           </TooltipContent>
         </Tooltip>
       )}
+      {(f.counts_for_a === false || f.counts_for_b === false) && (
+        <div className="col-span-2 col-start-2">
+          <FixtureCountingNote fixture={f} snapshot={snapshot} />
+        </div>
+      )}
     </div>
   );
 }
 export function ProfileFixtures({
   playerId,
   title = "Your Highdarts 2026 schedule",
+  canEditCounting = false,
 }: {
   playerId: string;
   title?: string;
+  canEditCounting?: boolean;
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState("");
@@ -232,6 +242,18 @@ export function ProfileFixtures({
             </p>
           )}
         </div>
+        {snapshot && (
+          <GroupCountingChoice
+            playerId={playerId}
+            snapshot={snapshot}
+            canEdit={canEditCounting}
+            onRefresh={async () =>
+              setSnapshot(
+                await apiRequest<Snapshot>("/api/highdarts", { method: "GET" }),
+              )
+            }
+          />
+        )}
         {snapshot &&
           remaining.map((f) => (
             <FixtureCard
@@ -258,5 +280,154 @@ export function ProfileFixtures({
         )}
       </section>
     </TooltipProvider>
+  );
+}
+
+export function FixtureCountingNote({
+  fixture,
+  snapshot,
+}: {
+  fixture: FixtureResult;
+  snapshot: Snapshot;
+}) {
+  const names = tournamentNames(snapshot);
+  const excluded = [
+    fixture.counts_for_a === false
+      ? names(fixture.player_a_id, fixture.player_a_name)
+      : null,
+    fixture.counts_for_b === false
+      ? names(fixture.player_b_id, fixture.player_b_name)
+      : null,
+  ].filter((name) => name !== null);
+  return excluded.length ? (
+    <p className="text-xs text-amber-200">
+      Excluded from {excluded.join(" and ")}’s tournament results.
+    </p>
+  ) : null;
+}
+
+export function GroupCountingChoice({
+  playerId,
+  snapshot,
+  canEdit,
+  onRefresh,
+}: {
+  playerId: string;
+  snapshot: Snapshot;
+  canEdit: boolean;
+  onRefresh: () => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<{
+    choice: string;
+    expected: string | null;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const fixtures = personalFixtures(snapshot, playerId).filter(
+    (f) => f.stage === "group",
+  );
+  if (fixtures.length !== 6) return null;
+  const excluded = fixtures.find((f) => !countsForPlayer(f, playerId));
+  const current = excluded?.id ?? null;
+  const locked = snapshot.fixtures.some(
+    (f) => f.event_id === fixtures[0].event_id && f.stage === "final",
+  );
+  const name = tournamentNames(snapshot)(playerId, "Player");
+  async function save() {
+    if (!draft || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await apiRequest("/api/highdarts/counting", {
+        method: "PUT",
+        body: {
+          eventId: fixtures[0].event_id,
+          playerId,
+          excludedFixtureId: draft.choice || null,
+          expectedExcludedFixtureId: draft.expected,
+        },
+      });
+      setDraft(null);
+      try {
+        await onRefresh();
+      } catch {
+        setError(
+          "Choice saved, but the standings could not refresh. Reload to see it.",
+        );
+      }
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not save the excluded result.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section
+      aria-label={`${name} counted results`}
+      className="space-y-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4"
+    >
+      <h3 className="text-sm font-semibold">{name}: five counting matches</h3>
+      <p className="text-xs text-muted-foreground">
+        Play all six matches and choose one to exclude from your wins, losses,
+        legs and average. The result still counts for your opponent. Choices
+        lock with the finals draw.
+      </p>
+      <p className="text-xs text-amber-200">
+        {excluded
+          ? `${fixtureLabel(excluded)} is excluded for ${name}.`
+          : "Choose one match. Standings stay provisional until the choice is saved."}
+      </p>
+      {canEdit && !locked ? (
+        <div className="flex flex-wrap gap-2">
+          <select
+            aria-label={`Excluded match for ${name}`}
+            className="min-h-10 min-w-0 max-w-full flex-1 rounded-md border bg-background px-2 text-sm"
+            disabled={busy}
+            value={draft?.choice ?? current ?? ""}
+            onChange={(e) =>
+              setDraft({ choice: e.target.value, expected: current })
+            }
+          >
+            <option value="">No match excluded yet</option>
+            {fixtures.map((f) => {
+              const opponent =
+                f.player_a_id === playerId ? f.player_b_id : f.player_a_id;
+              const opponentName =
+                f.player_a_id === playerId ? f.player_b_name : f.player_a_name;
+              const label = tournamentNames(snapshot)(opponent, opponentName);
+              return (
+                <option key={f.id} value={f.id}>
+                  {fixtureLabel(f)} vs {label}
+                  {isCompleted(f)
+                    ? ` · ${f.match?.winner_player_id === playerId ? "Won" : "Lost"} · ${resultStats(f, playerId).average.toFixed(2)} AVG`
+                    : " · Not finished"}
+                </option>
+              );
+            })}
+          </select>
+          <Button
+            size="sm"
+            className="min-h-10"
+            disabled={busy || !draft || (draft.choice || null) === current}
+            onClick={() => void save()}
+          >
+            {busy ? "Saving…" : "Save choice"}
+          </Button>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {locked
+            ? "The finals draw is locked."
+            : "The player or an organiser can save this choice."}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="text-sm text-amber-200">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }

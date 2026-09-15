@@ -17,6 +17,8 @@ export type Fixture = {
   player_a_id: string | null;
   player_b_id: string | null;
   match_id: string | null;
+  counts_for_a?: boolean;
+  counts_for_b?: boolean;
   next_fixture_id?: string | null;
   next_slot?: 'a' | 'b' | null;
   tie_context?: string | null;
@@ -57,6 +59,9 @@ export type Standing = {
   player: Player;
   rank: number;
   played: number;
+  scheduled: number;
+  excluded: number;
+  needsDiscard: boolean;
   wins: number;
   losses: number;
   legsFor: number;
@@ -137,6 +142,12 @@ export function isCompleted(f: FixtureResult) {
     f.match?.completed_at && f.match.winner_player_id && !f.match.ended_early,
   );
 }
+export function countsForPlayer(fixture: Fixture, playerId: string | null) {
+  if (!playerId) return true;
+  return fixture.player_a_id === playerId
+    ? fixture.counts_for_a !== false
+    : fixture.player_b_id === playerId && fixture.counts_for_b !== false;
+}
 export function resultStats(f: FixtureResult, playerId: string | null) {
   const turns =
     f.match?.legs
@@ -209,14 +220,16 @@ export function buildStandings({ fixtures, players }: Snapshot) {
           id: fixture.player_a_id,
           name: fixture.player_a_name,
           opponent: fixture.player_b_id,
+          counts: fixture.counts_for_a !== false,
         },
         {
           id: fixture.player_b_id,
           name: fixture.player_b_name,
           opponent: fixture.player_a_id,
+          counts: fixture.counts_for_b !== false,
         },
       ];
-      for (const { id, name, opponent } of sides) {
+      for (const { id, name, opponent, counts } of sides) {
         const key = id ?? `unlinked:${normalizeName(name)}`;
         let row = rows.get(key);
         if (!row) {
@@ -227,6 +240,9 @@ export function buildStandings({ fixtures, players }: Snapshot) {
               : { id: '', display_name: name },
             rank: 0,
             played: 0,
+            scheduled: 0,
+            excluded: 0,
+            needsDiscard: false,
             wins: 0,
             losses: 0,
             legsFor: 0,
@@ -240,10 +256,13 @@ export function buildStandings({ fixtures, players }: Snapshot) {
           };
           rows.set(key, row);
         }
+        row.scheduled++;
+        if (!counts) row.excluded++;
         if (!isCompleted(fixture)) {
           row.remaining++;
           continue;
         }
+        if (!counts) continue;
         row.played++;
         if (fixture.match?.winner_player_id === id) row.wins++;
         else row.losses++;
@@ -259,6 +278,7 @@ export function buildStandings({ fixtures, players }: Snapshot) {
       }
     }
     for (const row of rows.values()) {
+      row.needsDiscard = row.scheduled === 6 && row.excluded !== 1;
       row.average = calculate3DartAverage(playerTurns.get(row.key) ?? []);
       row.legDiff = row.legsFor - row.legsAgainst;
     }
@@ -342,7 +362,10 @@ export function buildStandings({ fixtures, players }: Snapshot) {
       });
     }
   }
+  const pendingDiscards = offices.flatMap((o) => o.table.filter((r) => r.needsDiscard));
+  if (pendingDiscards.length) ties.forEach((tie) => { tie.ready = false; });
   return {
+    pendingDiscards,
     ties,
     offices,
     total: offices.reduce((n, o) => n + o.total, 0),

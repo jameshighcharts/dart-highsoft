@@ -163,3 +163,40 @@ describe('tournamentActivity', () => {
     ).toEqual({ today: 10, groupToday: 9 });
   });
 });
+
+it('requires the six-match player choice before locking finals and recalculates qualification from counted results', () => {
+  const snapshot = completedGroups();
+  const g = snapshot.fixtures[0].player_a_id!;
+  const b = snapshot.fixtures[0].player_b_id!;
+  snapshot.fixtures.push(finish(fixture('bergen', g, b, 90), b, 10, 70), finish(fixture('bergen', g, 'extra', 91), 'extra', 10, 30));
+  const pending = buildStandings(snapshot);
+  expect(pending.pendingDiscards.map((r) => r.player.id)).toEqual([g]);
+  expect(projectFinals(pending).ready).toBe(false);
+  const selection = projectFinals(pending).selection;
+  expect(validateDraw(pending, selection).ok).toBe(false);
+  snapshot.fixtures[snapshot.fixtures.length - 1].counts_for_a = false;
+  const counted = buildStandings(snapshot);
+  expect(counted.pendingDiscards).toEqual([]);
+  expect(counted.offices[0].table.find((r) => r.player.id === g)?.played).toBe(5);
+  expect(counted.offices[0].table.find((r) => r.player.id === 'extra')?.wins).toBe(1);
+  expect(projectFinals(counted).eligible.map((r) => r.player.id)).toContain(g);
+});
+
+it('uses only the five chosen results to award the fourth bye by average', () => {
+  const snapshot = completedGroups();
+  const second = snapshot.fixtures[0].player_b_id!;
+  const low = finish(fixture('bergen', second, 'extra-low', 90), 'extra-low', 10, 30);
+  const high = finish(fixture('bergen', second, 'extra-high', 91), 'extra-high', 200, 30);
+  snapshot.fixtures.push(low, high);
+  high.counts_for_a = false;
+  const lowerAverage = buildStandings(snapshot);
+  expect(lowerAverage.byes.map((r) => r.player.id)).not.toContain(second);
+  expect(projectFinals(lowerAverage).ready).toBe(true);
+  high.counts_for_a = true;
+  low.counts_for_a = false;
+  const higherAverage = buildStandings(snapshot);
+  expect(higherAverage.byes.map((r) => r.player.id)).toContain(second);
+  const projection = projectFinals(higherAverage);
+  expect(projection.ready).toBe(true);
+  expect(validateDraw(higherAverage, projection.selection).ok).toBe(true);
+});
