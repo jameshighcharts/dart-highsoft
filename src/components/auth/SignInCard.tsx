@@ -111,6 +111,7 @@ function ProviderForm({
 }
 
 type SignInCardProps = {
+  theme?: 'app' | 'admin';
   title: string;
   subtitle: string;
   callbackUrl: string;
@@ -119,9 +120,9 @@ type SignInCardProps = {
   errorMessage: string | null;
 };
 
-export function SignInCard({ title, subtitle, callbackUrl, errorReturnPath, errorMessage }: SignInCardProps) {
+export function SignInCard({ title, subtitle, callbackUrl, errorReturnPath, errorMessage, theme = 'app' }: SignInCardProps) {
   return (
-    <main className="theme-light flex min-h-svh w-full items-center justify-center bg-background p-6 text-foreground">
+    <main className={`${theme === 'admin' ? 'theme-light ' : ''}flex min-h-svh w-full items-center justify-center bg-background p-6 text-foreground`}>
       <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-sm">
         <div className="flex flex-col items-center gap-3 text-center">
           <Image src="/icon-192x192.png" alt="" width={56} height={56} className="size-14 object-contain" priority />
@@ -151,7 +152,7 @@ export function SignInCard({ title, subtitle, callbackUrl, errorReturnPath, erro
         </div>
 
         {errorMessage ? (
-          <p role="alert" className="mt-4 text-center text-sm text-red-600">
+          <p role="alert" className={`mt-4 text-center text-sm ${theme === 'admin' ? 'text-red-600' : 'text-red-400'}`}>
             {errorMessage}
           </p>
         ) : null}

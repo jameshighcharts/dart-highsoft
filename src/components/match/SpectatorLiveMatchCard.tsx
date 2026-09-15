@@ -9,13 +9,13 @@ import { computeCheckoutSuggestions } from '@/utils/checkoutSuggestions';
 import { computeSetupSuggestions } from '@/utils/setupSuggestions';
 import { getLegRoundStats, getSpectatorScore } from '@/utils/matchStats';
 import { decorateAvg } from '@/utils/playerStats';
-import type { Player, ThrowRecord, TurnRecord, TurnWithThrows } from '@/lib/match/types';
+import type { MatchRecord, Player, ThrowRecord, TurnRecord, TurnWithThrows } from '@/lib/match/types';
 import type { FairEndingState } from '@/utils/fairEnding';
 import type { FinishRule } from '@/utils/x01';
 import { useEffect, useMemo, useRef } from 'react';
 
 type Props = {
-  match: { start_score: string; finish: string; legs_to_win: number };
+  match: Pick<MatchRecord, 'start_score' | 'finish' | 'legs_to_win' | 'fair_ending'>;
   orderPlayers: Player[];
   spectatorCurrentPlayer: Player | null;
   turns: TurnRecord[];
