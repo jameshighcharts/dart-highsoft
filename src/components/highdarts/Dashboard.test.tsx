@@ -182,3 +182,21 @@ it('shows only ongoing matches in the header and removes them when finished', as
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Tournament match status' })).not.toBeInTheDocument());
   expect(screen.queryByText('No games in progress.')).not.toBeInTheDocument();
 });
+
+it('shows tournament status for six-fixture players while retaining their counting controls', async () => {
+  const sindre = Array.from({ length: 6 }, (_, n) => fixture('sogndal', 'Sindre', `Opponent ${n}`, n + 1));
+  sindre[0] = finish(sindre[0], 'Sindre');
+  const data: Snapshot = { players: [], fixtures: [
+    ...sindre,
+    ...Array.from({ length: 6 }, (_, n) => fixture('vik', 'Gjertrud', `Vik opponent ${n}`, n + 1)),
+  ] };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => data }));
+  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  await userEvent.click(screen.getByRole('tab', { name: 'Tabell' }));
+  const sogndal = within(screen.getByRole('table', { name: 'Sogndal standings' }));
+  const vik = within(screen.getByRole('table', { name: 'Vik standings' }));
+  expect(within(sogndal.getByRole('row', { name: /Sindre/ })).getByText('Bye')).toBeInTheDocument();
+  expect(within(vik.getByRole('row', { name: /Gjertrud/ })).getByText('Not started')).toBeInTheDocument();
+  expect(screen.queryByText('Choose 1 to exclude')).not.toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Counting matches' })).toBeInTheDocument();
+});

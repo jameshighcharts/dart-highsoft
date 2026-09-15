@@ -80,7 +80,7 @@ function Progress({
 }
 const FIXTURES_PER_PAGE = 6;
 function rankStatus(row: Standing, complete: boolean) {
-  return row.needsDiscard ? 'Choose 1 to exclude' : !row.played
+  return !row.played
     ? 'Not started'
     : row.tiedForFourth || row.tiedForBye
       ? 'Tie-break'
@@ -101,13 +101,12 @@ const stageTint = {
   'Bye?': { row: 'bg-blue-300/[0.04] hover:bg-blue-300/[0.08] focus-within:bg-blue-300/[0.08]', badge: 'border-blue-300/20 bg-blue-300/10 text-blue-200' },
   'Bye': { row: 'bg-amber-200/[0.04] hover:bg-amber-200/[0.08] focus-within:bg-amber-200/[0.08]', badge: 'border-amber-200/20 bg-amber-200/10 text-amber-200' },
   'Tie-break': { row: 'bg-pink-300/[0.04] hover:bg-pink-300/[0.08] focus-within:bg-pink-300/[0.08]', badge: 'border-pink-300/20 bg-pink-300/10 text-pink-200' },
-  'Choose 1 to exclude': { row: 'bg-teal-200/[0.04] hover:bg-teal-200/[0.08] focus-within:bg-teal-200/[0.08]', badge: 'border-teal-200/20 bg-teal-200/10 text-teal-200' },
   'Out': { row: 'bg-slate-300/[0.02] hover:bg-slate-300/[0.06] focus-within:bg-slate-300/[0.06]', badge: 'border-slate-300/15 bg-slate-300/5 text-slate-300' },
 };
 function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
   const status = rankStatus(row, complete);
   const color = stageTint[status].badge;
-  const explanation = row.needsDiscard ? 'Six fixtures are scheduled. Choose one to exclude before qualification is finalized.' : !row.played
+  const explanation = !row.played
     ? 'No completed tournament matches yet.'
     : row.tiedForFourth
       ? 'Fourth place is tied on wins and average. A tie-break decides who advances.'

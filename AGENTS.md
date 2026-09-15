@@ -620,3 +620,5 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/components/auth/SignInCard.tsx`: Shared OAuth sign-in form uses the app dark theme by default for `/login`; `/signin` explicitly retains the light admin theme.
 
 - Tabell stage badges and row tints in `src/components/highdarts/Dashboard.tsx` share a pastel palette with matching hover/focus states; qualification logic and labels remain authoritative.
+
+- Tabell rank badges use tournament status for every player, including six-fixture players; pending exclusions stay in the counting controls and qualification guards.
