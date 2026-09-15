@@ -366,24 +366,38 @@ export function GroupCountingChoice({
   return (
     <section
       aria-label={`${name} counted results`}
-      className="space-y-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4"
+      className="space-y-2 py-3 first:pt-0 last:pb-0"
     >
-      <h3 className="text-sm font-semibold">{name}: five counting matches</h3>
-      <p className="text-xs text-muted-foreground">
-        Play all six matches and choose one to exclude from your wins, losses,
-        legs and average. The result still counts for your opponent. Choices
-        lock with the finals draw.
-      </p>
-      <p className="text-xs text-amber-200">
-        {excluded
-          ? `${fixtureLabel(excluded)} is excluded for ${name}.`
-          : "Choose one match. Standings stay provisional until the choice is saved."}
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-medium">
+          <TournamentPlayerName
+            playerId={playerId}
+            name={name}
+            snapshot={snapshot}
+          />
+        </h3>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={`Counting rule for ${name}`}
+              className="text-xs text-muted-foreground underline decoration-dotted underline-offset-4"
+            >
+              5 of 6 count
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-64">
+            Play all six. Exclude one from your wins, losses, legs and average.
+            Your opponent keeps their result. Choose before the finals draw
+            locks.
+          </TooltipContent>
+        </Tooltip>
+      </div>
       {canEdit && !locked ? (
         <div className="flex flex-wrap gap-2">
           <select
             aria-label={`Excluded match for ${name}`}
-            className="min-h-10 min-w-0 max-w-full flex-1 rounded-md border bg-background px-2 text-sm"
+            className="min-h-10 min-w-0 max-w-full flex-1 rounded-md border border-white/10 bg-background px-2 text-xs"
             disabled={busy}
             value={draft?.choice ?? current ?? ""}
             onChange={(e) =>
@@ -409,18 +423,19 @@ export function GroupCountingChoice({
           </select>
           <Button
             size="sm"
-            className="min-h-10"
+            variant="outline"
+            className="min-h-10 shrink-0"
+            aria-label={busy ? "Saving choice" : "Save choice"}
             disabled={busy || !draft || (draft.choice || null) === current}
             onClick={() => void save()}
           >
-            {busy ? "Saving…" : "Save choice"}
+            {busy ? "Saving…" : "Save"}
           </Button>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
-          {locked
-            ? "The finals draw is locked."
-            : "The player or an organiser can save this choice."}
+          {excluded ? `${fixtureLabel(excluded)} excluded` : "Awaiting choice"}
+          {locked && " · Finals draw locked"}
         </p>
       )}
       {error && (

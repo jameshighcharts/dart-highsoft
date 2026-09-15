@@ -1,5 +1,5 @@
 'use client';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -34,6 +34,40 @@ const steps = [
     'Four bye players + four play-off winners → semifinal with four players → final with two. The bracket is arranged so same-office players meet as late as possible, typically not before the semifinal or final. If an office has two bye players they are placed in opposite halves.',
   ],
 ];
+export function HighdartsCountingRules() {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label="About counting matches" className="size-6 text-muted-foreground hover:text-foreground [&_svg]:size-3.5">
+          <Info />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>How counting matches work</DialogTitle>
+          <DialogDescription>Everyone gets five counting group results.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
+          <p>Gjertrud in Vik and Sindre in Sogndal have six matches because their offices have an odd number of players. They each choose one match to exclude from their own tournament standings.</p>
+          <div>
+            <h3 className="mb-1 font-semibold text-foreground">What changes?</h3>
+            <p>The selected match is left out of that player&apos;s wins, losses, legs and three-dart average. Rankings and qualification use the five counting results. The opponent still gets their full result.</p>
+          </div>
+          <div>
+            <h3 className="mb-1 font-semibold text-foreground">Which match can I choose?</h3>
+            <p>Any of your six group matches, before or after playing it. The app does not automatically pick your worst result. You must still play all six; match history, Elo and other statistics keep every game.</p>
+          </div>
+          <div>
+            <h3 className="mb-1 font-semibold text-foreground">Who can save it, and when?</h3>
+            <p>You can save your own choice, and an admin can help either player. Change or clear it until the finals draw is locked. Both choices are required before qualification tie-breaks or the finals draw can be created.</p>
+          </div>
+          <p>This is the app&apos;s equivalent of Tel A and Tel B. Save your choice here; edits in Google Sheets do not sync to the app.</p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function HighdartsRules() {
   return (
     <Dialog>

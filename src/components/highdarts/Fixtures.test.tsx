@@ -2,7 +2,7 @@ import {
   act,
   cleanup,
   fireEvent,
-  render,
+  render as renderWithoutTooltip,
   screen,
   within,
 } from "@testing-library/react";
@@ -16,6 +16,9 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
+const render: typeof renderWithoutTooltip = (ui, options) =>
+  renderWithoutTooltip(ui, { wrapper: TooltipProvider, ...options });
+
 const players = [
   { id: "a", display_name: "Ada Jones" },
   { id: "b", display_name: "Ben Smith" },
@@ -139,7 +142,7 @@ it("keeps another player’s choice read-only and hides the control for five-fix
       onRefresh={async () => {}}
     />,
   );
-  expect(screen.getByText("Vik #1 is excluded for Ada.")).toBeVisible();
+  expect(screen.getByText("Vik #1 excluded")).toBeVisible();
   expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   rerender(
     <GroupCountingChoice
@@ -149,7 +152,9 @@ it("keeps another player’s choice read-only and hides the control for five-fix
       onRefresh={async () => {}}
     />,
   );
-  expect(screen.queryByText(/five counting matches/)).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("region", { name: "Ada counted results" }),
+  ).not.toBeInTheDocument();
 });
 it("blocks choice editing after a finals lock and labels only the excluded player", () => {
   const data: Snapshot = {
@@ -175,7 +180,7 @@ it("blocks choice editing after a finals lock and labels only the excluded playe
       <FixtureCard fixture={data.fixtures[0]} snapshot={data} />
     </>,
   );
-  expect(screen.getByText("The finals draw is locked.")).toBeVisible();
+  expect(screen.getByText(/Finals draw locked/)).toBeVisible();
   expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   expect(
     screen.getByText("Excluded from Ben S’s tournament results."),
@@ -190,15 +195,13 @@ it("reports a stale selection without changing displayed standings", async () =>
   };
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue({
-        ok: false,
-        status: 409,
-        json: async () => ({
-          error: "The excluded result changed. Refresh before choosing again",
-        }),
+    vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: "The excluded result changed. Refresh before choosing again",
       }),
+    }),
   );
   const refresh = vi.fn();
   render(
