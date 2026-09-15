@@ -30,7 +30,12 @@ export type ResultTurn = {
   darts_thrown: number;
   tiebreak_round: number | null;
 };
+export type ReportedResult = {
+  winner_player_id: string;
+  legs: { winner_player_id: string; visits: { player_id: string; scores: number[] }[] }[];
+};
 export type FixtureResult = Fixture & {
+  reportedResult?: ReportedResult;
   match: {
     id: string;
     winner_player_id: string | null;
@@ -68,6 +73,7 @@ export type Standing = {
   legsAgainst: number;
   legDiff: number;
   average: number;
+  averageIncomplete?: boolean;
   remaining: number;
   qualification: 'bye' | 'bye-candidate' | 'playoff' | null;
   tiedForFourth: boolean;
@@ -137,8 +143,11 @@ export function officeName(office: Office | null) {
 export function fixtureLabel(f: Fixture) {
   return `${f.stage === 'group' ? officeName(f.office) : stageName(f.stage)} #${f.fixture_no}`;
 }
+export function fixtureWinner(f: FixtureResult) {
+  return f.reportedResult?.winner_player_id ?? f.match?.winner_player_id;
+}
 export function isCompleted(f: FixtureResult) {
-  return Boolean(
+  return Boolean(f.reportedResult) || Boolean(
     f.match?.completed_at && f.match.winner_player_id && !f.match.ended_early,
   );
 }
@@ -156,8 +165,9 @@ export function resultStats(f: FixtureResult, playerId: string | null) {
     [];
   return {
     average: calculate3DartAverage(turns),
+    averageIncomplete: Boolean(f.reportedResult),
     legs:
-      f.match?.legs.filter(
+      (f.reportedResult?.legs ?? f.match?.legs)?.filter(
         (l) => l.winner_player_id === playerId && playerId !== null,
       ).length ?? 0,
   };
@@ -264,7 +274,8 @@ export function buildStandings({ fixtures, players }: Snapshot) {
         }
         if (!counts) continue;
         row.played++;
-        if (fixture.match?.winner_player_id === id) row.wins++;
+        if (fixture.reportedResult) row.averageIncomplete = true;
+        if (fixtureWinner(fixture) === id) row.wins++;
         else row.losses++;
         row.legsFor += resultStats(fixture, id).legs;
         row.legsAgainst += resultStats(fixture, opponent).legs;
@@ -363,9 +374,21 @@ export function buildStandings({ fixtures, players }: Snapshot) {
     }
   }
   const pendingDiscards = offices.flatMap((o) => o.table.filter((r) => r.needsDiscard));
+  const averagesIncomplete = offices.some((o) => o.table.some((r) => r.averageIncomplete));
+  if (averagesIncomplete) {
+    ties.length = 0;
+    for (const office of offices) {
+      for (const row of office.table) {
+        row.qualification = null;
+        row.tiedForFourth = false;
+        row.tiedForBye = false;
+      }
+    }
+  }
   if (pendingDiscards.length) ties.forEach((tie) => { tie.ready = false; });
   return {
     pendingDiscards,
+    averagesIncomplete,
     ties,
     offices,
     total: offices.reduce((n, o) => n + o.total, 0),
@@ -441,7 +464,7 @@ export function tournamentActivity(
     day: '2-digit',
   });
   const today = date.format(now);
-  const completed = fixtures.filter(isCompleted);
+  const completed = fixtures.filter((f) => isCompleted(f) && f.match?.completed_at);
   const playedToday = completed.filter(
     (f) => date.format(new Date(f.match!.completed_at!)) === today,
   );
