@@ -112,7 +112,7 @@ export function SpectatorLiveMatchCard({
       <CardHeader className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1.5">
         <CardTitle>{title}</CardTitle>
         <CardDescription className="text-xs">
-          {match.start_score} · {match.finish.replace('_', ' ')} · First to {match.legs_to_win}
+          {match.start_score} · {match.finish.replace('_', ' ')} · First to {match.legs_to_win} · Fair ending {match.fair_ending ? 'on' : 'off'}
         </CardDescription>
         <span className="ml-auto text-xs font-medium tabular-nums text-muted-foreground">{orderPlayers.length} players</span>
       </CardHeader>

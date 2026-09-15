@@ -155,7 +155,7 @@ it('replaces a reported result with the real active match on refresh without off
   expect(screen.queryByRole('link', { name: /Start.*Johan/ })).not.toBeInTheDocument();
 });
 
-it('shows live, paused and finished matches in the header and reconciles refreshed status', async () => {
+it('shows only ongoing matches in the header and removes them when finished', async () => {
   const live = { ...finish(fixture('bergen', 'Ada', 'Ben'), 'Ada'), match_id: 'live-match' };
   live.match = { ...live.match!, completed_at: null, winner_player_id: null };
   const paused = { ...finish(fixture('vik', 'Cara', 'Dan'), 'Cara'), match_id: 'paused-match' };
@@ -173,9 +173,9 @@ it('shows live, paused and finished matches in the header and reconciles refresh
   expect(status.getByText('1 paused')).toBeInTheDocument();
   expect(status.getByRole('link', { name: 'Live: Bergen #1' })).toHaveAttribute('href', '/match/live-match?spectator=true');
   expect(status.getByRole('link', { name: 'Paused: Vik #1' })).toBeInTheDocument();
-  fireEvent.click(status.getByText('Finished games (2)'));
-  expect(status.getByRole('link', { name: 'Completed: Vik #2' })).toHaveAttribute('href', `/match/${done.match_id}/report`);
-  expect(status.getByRole('link', { name: 'Ended early: Bergen #2' })).toBeInTheDocument();
+  expect(status.queryByText(/Finished games/)).not.toBeInTheDocument();
+  expect(status.queryByText('Gia')).not.toBeInTheDocument();
+  expect(status.queryByText('Eve')).not.toBeInTheDocument();
   await act(async () => {});
   const updated = { ...data, fixtures: [finish(live, 'Ada'), paused, ended, done] };
   fetch.mockResolvedValue({ ok: true, json: async () => updated });
