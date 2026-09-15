@@ -247,7 +247,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `profile/ProfileClient.tsx` | Own profile and stats, with admin-only player nickname editing |
 | `profile/AdminNicknameEditor.tsx` | Admin player picker and nickname form using the protected admin API; regression tests cover saving, clearing, and failures |
 | `match/BullOffRound.tsx` | Pre-game manual/Scolia Bull-off view with a full-screen navigation-free spectator shell: a large centered gradient Bull-off heading, viewport-centered expanded layout, provisional sorted cards, muted pending states, a bright cyan pulsing current-player card with Your throw/Remove dart badges instead of a separate status box, impact pops and rank movement, a minimal shared animated distance ruler with inch marks, takeout controls and commentary; reduced-motion support and UI regression tests |
-| `highdarts/Dashboard.tsx` | Oslo-day progress, office cards, searchable six-fixture pagination, compact side-by-side Tabell tables with one status pill per player, Sluttspill and dark-filtered Sheet tabs |
+| `highdarts/Dashboard.tsx` | Oslo-day progress, office cards, searchable six-fixture pagination, recent-result scorecards with player avatars, winner highlights, aligned averages and expandable reported legs, compact side-by-side Tabell tables with one status pill per player, Sluttspill and dark-filtered Sheet tabs |
 | `highdarts/HighdartsSheet.tsx` | Published Sheet iframe with a fresh URL on opening, manual refresh, and one-minute refresh while visible; releases its timer when the Sheet tab closes |
 | `highdarts/HighdartsBracket.tsx` | Responsive four-round Highdarts tree, projected/live modes, editable admin draw, lock/unlock controls and qualification tie-break creation |
 | `highdarts/Rules.tsx` | Tournament format table, Steps 0–3 and tie rules in a scrollable dialog |
@@ -608,7 +608,7 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/lib/highdarts/standings.ts`: Counted player sides determine wins/losses/legs/average. Physical match progress stays unchanged; `pendingDiscards` prevents finalizing qualification before all required choices.
 - `supabase/tests/highdarts_counted_results.sql` and `scripts/highdarts-counting.integration.mjs`: Rollback SQL invariants and opt-in disposable API concurrency checks.
 
-- `src/lib/highdarts/reportedResults.ts`: Screenshot visit totals for Sogndal #1 and #12, applied only by the Bengt dashboard. Existing app matches take precedence; averages and dates remain unknown. No database or sheet writes.
+- `src/lib/highdarts/reportedResults.ts`: Screenshot visit totals for Sogndal #1 and #12, applied only by the Bengt dashboard and included once in group progress. Recent-result cards show hardcoded estimated averages assuming three darts per visit; official standings averages remain unknown. Both matches have the user-confirmed Oslo date September 15, 2026, which feeds the header Today count and office progress. Existing app matches take precedence. No database or sheet writes.
 
 ### Manual Highdarts starts
 - `supabase/migrations/20260915120000_highdarts_manual_scoring.sql`: Allows manual fixture starts and reserves the office against competing Scolia X01/party games without routing hardware throws to the manual match.
