@@ -1,6 +1,6 @@
 # Highdarts 2026
 
-`/bengt` shows the office tournament, rules, recent results, remaining fixtures and projected finalists. It reads app match data; the Google Sheet is only an authenticated convenience embed. No sheet import runs on the server. Results refresh every 15 seconds while the page is visible and when the window regains focus.
+`/bengt` shows the office tournament, rules, recent results, remaining fixtures and projected finalists. It reads app match data; the embedded Google Sheet mirrors the app through a one-way five-minute Apps Script sync. No sheet import runs on the server. App results refresh every 15 seconds while the page is visible and when the window regains focus.
 
 ## Deployment
 
