@@ -79,8 +79,8 @@ function Progress({
   );
 }
 const FIXTURES_PER_PAGE = 6;
-function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
-  const status = row.needsDiscard ? 'Choose 1 to exclude' : !row.played
+function rankStatus(row: Standing, complete: boolean) {
+  return row.needsDiscard ? 'Choose 1 to exclude' : !row.played
     ? 'Not started'
     : row.tiedForFourth || row.tiedForBye
       ? 'Tie-break'
@@ -93,14 +93,20 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
             : complete
               ? 'Out'
               : 'Group stage';
-  const color =
-    status === 'Bye'
-      ? 'bg-amber-300/15 text-amber-200'
-      : status === 'Tie-break'
-        ? 'bg-orange-300/15 text-orange-200'
-        : status === 'Play-off' || status === 'Bye?'
-          ? 'bg-cyan-300/10 text-cyan-200'
-          : 'bg-white/5 text-slate-400';
+}
+const stageTint = {
+  'Not started': { row: 'hover:bg-slate-300/[0.04] focus-within:bg-slate-300/[0.04]', badge: 'border-slate-300/10 bg-slate-300/5 text-slate-400' },
+  'Group stage': { row: 'bg-violet-300/[0.04] hover:bg-violet-300/[0.08] focus-within:bg-violet-300/[0.08]', badge: 'border-violet-300/20 bg-violet-300/10 text-violet-200' },
+  'Play-off': { row: 'bg-cyan-300/[0.04] hover:bg-cyan-300/[0.08] focus-within:bg-cyan-300/[0.08]', badge: 'border-cyan-300/20 bg-cyan-300/10 text-cyan-200' },
+  'Bye?': { row: 'bg-blue-300/[0.04] hover:bg-blue-300/[0.08] focus-within:bg-blue-300/[0.08]', badge: 'border-blue-300/20 bg-blue-300/10 text-blue-200' },
+  'Bye': { row: 'bg-amber-200/[0.04] hover:bg-amber-200/[0.08] focus-within:bg-amber-200/[0.08]', badge: 'border-amber-200/20 bg-amber-200/10 text-amber-200' },
+  'Tie-break': { row: 'bg-pink-300/[0.04] hover:bg-pink-300/[0.08] focus-within:bg-pink-300/[0.08]', badge: 'border-pink-300/20 bg-pink-300/10 text-pink-200' },
+  'Choose 1 to exclude': { row: 'bg-teal-200/[0.04] hover:bg-teal-200/[0.08] focus-within:bg-teal-200/[0.08]', badge: 'border-teal-200/20 bg-teal-200/10 text-teal-200' },
+  'Out': { row: 'bg-slate-300/[0.02] hover:bg-slate-300/[0.06] focus-within:bg-slate-300/[0.06]', badge: 'border-slate-300/15 bg-slate-300/5 text-slate-300' },
+};
+function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
+  const status = rankStatus(row, complete);
+  const color = stageTint[status].badge;
   const explanation = row.needsDiscard ? 'Six fixtures are scheduled. Choose one to exclude before qualification is finalized.' : !row.played
     ? 'No completed tournament matches yet.'
     : row.tiedForFourth
@@ -123,7 +129,7 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
       <TooltipTrigger asChild>
         <span
           tabIndex={0}
-          className={`mt-1 inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-medium ${color}`}
+          className={`mt-1 inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[9px] font-medium ${color}`}
         >
           {status}
         </span>
@@ -652,7 +658,7 @@ export function HighdartsDashboard({
                         {o.table.map((row) => (
                           <tr
                             key={row.key}
-                            className={`border-t border-white/5 ${row.player.id === myId ? 'bg-cyan-300/5' : ''}`}
+                            className={`border-t border-white/5 transition-colors motion-reduce:transition-none ${row.player.id === myId ? 'bg-cyan-300/5 hover:bg-cyan-300/10 focus-within:bg-cyan-300/10' : stageTint[rankStatus(row, o.played === o.total)].row}`}
                           >
                             <td className="py-3 pl-3 text-slate-500">
                               {row.rank}

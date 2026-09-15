@@ -618,3 +618,5 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/components/highdarts/Dashboard.tsx`: Header match status appears only for ongoing matches and lists live/paused fixtures with leg scores and profile/spectator links; finished games stay in Recent results. Uses the existing 15-second snapshot refresh.
 
 - `src/components/auth/SignInCard.tsx`: Shared OAuth sign-in form uses the app dark theme by default for `/login`; `/signin` explicitly retains the light admin theme.
+
+- Tabell stage badges and row tints in `src/components/highdarts/Dashboard.tsx` share a pastel palette with matching hover/focus states; qualification logic and labels remain authoritative.
