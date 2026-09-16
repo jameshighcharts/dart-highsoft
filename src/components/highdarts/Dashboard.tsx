@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
@@ -27,6 +27,7 @@ import {
   isCompleted,
   fixtureWinner,
   tournamentActivity,
+  tournamentNames,
   normalizeName,
   personalFixtures,
   type Office,
@@ -161,6 +162,85 @@ function TournamentMatchStatus({ snapshot, fixtures }: { snapshot: Snapshot; fix
         ))}
       </ul>
     </section>
+  );
+}
+
+function TodaySummary({ snapshot, fixtures }: { snapshot: Snapshot; fixtures: FixtureResult[] }) {
+  const [mode, setMode] = useState<'closed' | 'preview' | 'pinned'>('closed');
+  const trigger = useRef<HTMLButtonElement>(null);
+  const name = tournamentNames(snapshot);
+  return (
+    <Tooltip
+      open={mode !== 'closed'}
+      delayDuration={150}
+      onOpenChange={(open) => setMode((current) => current === 'pinned' ? current : open ? 'preview' : 'closed')}
+    >
+      <TooltipTrigger asChild>
+        <button
+          ref={trigger}
+          type="button"
+          aria-label="Show today's tournament games"
+          aria-expanded={mode !== 'closed'}
+          onClick={() => setMode((current) => current === 'pinned' ? 'closed' : 'pinned')}
+          className="group rounded-lg px-2 py-1 text-left transition-colors hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-200"
+        >
+          <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">Today<ChevronDown aria-hidden="true" className="size-3 opacity-60" /></span>
+          <span className="mt-1.5 flex items-baseline gap-1.5">
+            <span className={`text-3xl font-semibold tracking-tight tabular-nums ${fixtures.length > 0 ? 'text-lime-200' : 'text-slate-300'}`}>{fixtures.length}</span>
+            <span className="text-xs text-muted-foreground">{fixtures.length === 1 ? 'game' : 'games'}</span>
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="end"
+        sideOffset={10}
+        collisionPadding={16}
+        onEscapeKeyDown={() => setMode('closed')}
+        onPointerDownOutside={(event) => {
+          if (event.target instanceof Node && trigger.current?.contains(event.target)) return;
+          setMode('closed');
+        }}
+        className="max-h-[min(28rem,var(--radix-tooltip-content-available-height))] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border-white/15 bg-slate-950 p-4 text-slate-100 shadow-xl"
+      >
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <p className="text-sm font-semibold">Today&apos;s games</p>
+          <span className="text-[11px] text-slate-400">{fixtures.length} completed</span>
+        </div>
+        {fixtures.length === 0 ? (
+          <p className="text-xs text-slate-400">No tournament games completed today.</p>
+        ) : (
+          <div className="divide-y divide-white/10">
+            {fixtures.map((f) => (
+              <div key={f.id} className="py-3 first:pt-0 last:pb-0">
+                <div className="mb-2 grid grid-cols-[minmax(0,1fr)_3.5rem_2rem] gap-2 text-[10px] text-slate-400">
+                  <span>{fixtureLabel(f)}{f.reportedResult ? ' · Reported' : ''}</span>
+                  <span className="text-right">{f.reportedResult ? 'Est. avg' : '3-dart avg'}</span>
+                  <span className="text-right">Legs</span>
+                </div>
+                {[
+                  { id: f.player_a_id, fallback: f.player_a_name },
+                  { id: f.player_b_id, fallback: f.player_b_name },
+                ].map((player, index) => {
+                  const stats = resultStats(f, player.id);
+                  const average = f.reportedResult
+                    ? f.reportedResult.estimatedAverages.find((entry) => entry.player_id === player.id)?.average
+                    : stats.average;
+                  const won = player.id !== null && fixtureWinner(f) === player.id;
+                  return (
+                    <div key={index} className={`grid grid-cols-[minmax(0,1fr)_3.5rem_2rem] items-center gap-2 py-1 text-sm ${won ? 'font-semibold text-lime-200' : 'text-slate-300'}`}>
+                      <span className="truncate" title={player.fallback}>{name(player.id, player.fallback)}{won && <span className="sr-only">, winner</span>}</span>
+                      <span className="text-right text-xs font-normal tabular-nums text-slate-400">{average === undefined ? '—' : average.toFixed(2)}</span>
+                      <span className="text-right font-semibold tabular-nums">{stats.legs}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -304,11 +384,7 @@ export function HighdartsDashboard({
             </div>
             <div className="mb-1 flex max-w-full items-start divide-x divide-white/10">
               <div role="group" aria-label="Games played today" className="border-l border-white/10 px-4 sm:px-5">
-                <p className="text-xs font-medium text-muted-foreground">Today</p>
-                <p className="mt-1.5 flex items-baseline gap-1.5">
-                  <span className={`text-3xl font-semibold tracking-tight tabular-nums ${activity.today > 0 ? 'text-lime-200' : 'text-slate-300'}`}>{activity.today}</span>
-                  <span className="text-xs text-muted-foreground">{activity.today === 1 ? 'game' : 'games'}</span>
-                </p>
+                <TodaySummary snapshot={snapshot ?? { fixtures: [], players: [] }} fixtures={activity.playedToday} />
               </div>
               {ongoing.length > 0 && (
                 <div aria-label="Live games" className="min-w-0 max-w-52 pl-4 sm:pl-5">

@@ -475,5 +475,6 @@ export function tournamentActivity(
   return {
     today: playedToday.length,
     groupToday: playedToday.filter((f) => f.stage === 'group').length,
+    playedToday,
   };
 }

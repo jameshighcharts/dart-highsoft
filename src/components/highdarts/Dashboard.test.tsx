@@ -162,7 +162,41 @@ it('shows four games played today when the two reported Sogndal games join two V
   expect(within(screen.getByRole('group', { name: 'Group games played' })).getByText('4')).toBeInTheDocument();
   expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuetext', '4 of 4 played, 4 today');
   expect(screen.getByRole('progressbar', { name: 'Sogndal completed' })).toHaveAttribute('aria-valuetext', '2 of 2 played, 2 today');
+  const today = screen.getByRole('button', { name: "Show today's tournament games" });
+  await userEvent.click(today);
+  const summary = within(screen.getByRole('tooltip'));
+  expect(summary.getByText('4 completed')).toBeInTheDocument();
+  expect(summary.getByText('Sogndal #1 · Reported')).toBeInTheDocument();
+  expect(summary.getByText('38.57')).toBeInTheDocument();
+  expect(summary.getByText('Vik #28')).toBeInTheDocument();
+  expect(summary.getByText('Linda', { exact: false })).toHaveTextContent('winner');
+  await userEvent.unhover(today);
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  expect(today).toHaveAttribute('aria-expanded', 'false');
   await act(async () => {});
+});
+
+it('previews today on hover, toggles on click, and dismisses outside or with Escape', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => snapshot }));
+  render(<HighdartsDashboard initial={snapshot} isAdmin={false} />);
+  const today = screen.getByRole('button', { name: "Show today's tournament games" });
+  await userEvent.hover(today);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('No tournament games completed today.');
+  await userEvent.click(today);
+  await userEvent.unhover(today);
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  await userEvent.click(today);
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  await userEvent.click(today);
+  await userEvent.click(screen.getByRole('heading', { name: 'Highdarts 2026' }));
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  today.focus();
+  await userEvent.keyboard('{Enter}');
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 });
 
 it('replaces a reported result with the real active match on refresh without offering a duplicate start', async () => {

@@ -160,7 +160,9 @@ describe('tournamentActivity', () => {
     matches[2].match!.completed_at = '2026-09-14T21:59:00Z';
     expect(
       tournamentActivity(matches, new Date('2026-09-14T22:30:00Z')),
-    ).toEqual({ today: 10, groupToday: 9 });
+    ).toMatchObject({ today: 10, groupToday: 9 });
+    expect(tournamentActivity(matches, new Date('2026-09-14T22:30:00Z')).playedToday)
+      .toEqual(matches.filter((_, index) => index !== 1 && index !== 2));
   });
 });
 

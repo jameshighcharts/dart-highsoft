@@ -48,10 +48,10 @@ describe('Bengt screenshot results', () => {
     }
     const snapshot = withReportedResults(original);
     expect(buildStandings(snapshot).played).toBe(4);
-    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-15T12:00:00Z'))).toEqual({ today: 4, groupToday: 4 });
-    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-14T21:59:59Z'))).toEqual({ today: 0, groupToday: 0 });
-    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-15T21:59:59Z'))).toEqual({ today: 4, groupToday: 4 });
-    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-15T22:00:00Z'))).toEqual({ today: 0, groupToday: 0 });
+    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-15T12:00:00Z'))).toMatchObject({ today: 4, groupToday: 4 });
+    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-14T21:59:59Z'))).toMatchObject({ today: 0, groupToday: 0 });
+    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-15T21:59:59Z'))).toMatchObject({ today: 4, groupToday: 4 });
+    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-15T22:00:00Z'))).toMatchObject({ today: 0, groupToday: 0 });
     expect(tournamentActivity(withReportedResults(snapshot).fixtures, new Date('2026-09-15T12:00:00Z')).today).toBe(4);
   });
 
