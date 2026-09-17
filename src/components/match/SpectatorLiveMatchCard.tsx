@@ -15,7 +15,7 @@ import type { FinishRule } from '@/utils/x01';
 import { useEffect, useMemo, useRef } from 'react';
 
 type Props = {
-  match: Pick<MatchRecord, 'start_score' | 'finish' | 'legs_to_win' | 'fair_ending'>;
+  match: Pick<MatchRecord, 'start_score' | 'finish' | 'legs_to_win' | 'fair_ending' | 'highdarts_fixture_id'>;
   orderPlayers: Player[];
   spectatorCurrentPlayer: Player | null;
   turns: TurnRecord[];
@@ -112,7 +112,7 @@ export function SpectatorLiveMatchCard({
       <CardHeader className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1.5">
         <CardTitle>{title}</CardTitle>
         <CardDescription className="text-xs">
-          {match.start_score} · {match.finish.replace('_', ' ')} · First to {match.legs_to_win} · Fair ending {match.fair_ending ? 'on' : 'off'}
+          {match.start_score} · {match.finish.replace('_', ' ')} · First to {match.legs_to_win} · Fair ending {match.fair_ending ? 'on' : 'off'} · {match.highdarts_fixture_id ? 'Bengt match' : 'normal match'}
         </CardDescription>
         <span className="ml-auto text-xs font-medium tabular-nums text-muted-foreground">{orderPlayers.length} players</span>
       </CardHeader>
