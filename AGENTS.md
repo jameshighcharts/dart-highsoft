@@ -625,3 +625,5 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - Tabell rank badges use tournament status for every player, including six-fixture players; pending exclusions stay in the counting controls and qualification guards.
 
 - `supabase/migrations/20260917150000_reset_ended_highdarts_matches.sql`: Service-only atomic early ending. Bengt attempts and their pending result jobs are removed; the same fixture becomes unplayed and board occupancy clears. Completed winners, published results, active result delivery, and locked draws remain protected. Deploy before the updated end route. `supabase/tests/end_match_early.sql` covers reset, discarded scores, legacy jobs, retry isolation, and result protection.
+
+- `tournamentActivity` in `src/lib/highdarts/standings.ts` supplies the Bengt Today dropdown in descending completion-time order; date-only reported results follow timed results.
