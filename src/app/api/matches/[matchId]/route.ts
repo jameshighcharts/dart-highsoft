@@ -1,25 +1,13 @@
-import { timingSafeEqual } from 'node:crypto';
+import { getAuthenticatedSession } from '@/auth';
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { loadMatch } from '@/lib/server/matchGuards';
 
-function hasValidPasscode(request: Request): boolean {
-  const configuredPasscode = process.env.GAME_DELETE_PASSCODE;
-  const suppliedPasscode = request.headers.get('x-admin-passcode');
-  if (!configuredPasscode || !suppliedPasscode) return false;
-
-  const configured = Buffer.from(configuredPasscode);
-  const supplied = Buffer.from(suppliedPasscode);
-  return configured.length === supplied.length && timingSafeEqual(configured, supplied);
-}
-
-export async function DELETE(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
+export async function DELETE(_: Request, { params }: { params: Promise<{ matchId: string }> }) {
   try {
-    if (!process.env.GAME_DELETE_PASSCODE) {
-      return NextResponse.json({ error: 'Game deletion is not configured' }, { status: 503 });
-    }
-    if (!hasValidPasscode(request)) {
-      return NextResponse.json({ error: 'Incorrect admin passcode' }, { status: 401 });
+    const session = await getAuthenticatedSession();
+    if (!session?.user.email || !session.user.slackTeamId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { matchId } = await params;

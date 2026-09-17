@@ -331,16 +331,15 @@ export default function GamesPage() {
 
   const handleDeleteGame = async (match: MatchWithDetails) => {
     if (preview) return;
-    const passcode = window.prompt(
-      `Enter the admin passcode to permanently delete this game (${match.players.map((player) => player.display_name).join(', ')}). This cannot be undone.`
+    const confirmed = window.confirm(
+      `Permanently delete this game (${match.players.map((player) => player.display_name).join(', ')}). This cannot be undone.`
     );
-    if (!passcode) return;
+    if (!confirmed) return;
 
     setDeletingMatchId(match.id);
     try {
       const response = await fetch(`/api/matches/${match.id}`, {
         method: 'DELETE',
-        headers: { 'x-admin-passcode': passcode },
       });
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { error?: string };

@@ -816,3 +816,28 @@ describe('useMatchActions', () => {
     });
   });
 });
+
+it.each([
+  { response: { ok: true, resetFixtureId: 'fixture-1' }, destination: '/bengt', reloads: 0 },
+  { response: { ok: true }, destination: '/', reloads: 1 },
+])('ends a match and returns to $destination', async ({ response, destination, reloads }) => {
+  apiRequestMock.mockResolvedValue(response);
+  const loadAll = vi.fn().mockResolvedValue(undefined);
+  const routerPush = vi.fn();
+  const { result } = renderHook(() => useMatchActions({
+    matchId: 'match-1', match: { id: 'match-1', mode: 'x01', start_score: '301', finish: 'single_out', legs_to_win: 2 },
+    players: [], legs: [], turns: [], turnThrowCounts: {}, currentLeg: undefined, currentPlayer: null,
+    orderPlayers: [], finishRule: 'single_out', matchWinnerId: null,
+    localTurn: { playerId: null, darts: [] }, ongoingTurnRef: useRef(null), setLocalTurn: vi.fn(),
+    loadAll, loadTurnsForLeg: async () => [], routerPush, getScoreForPlayer: () => 301,
+    canEditPlayers: false, canReorderPlayers: false, commentaryEnabled: false, personaId: 'chad',
+    setCurrentCommentary: vi.fn(), setCommentaryLoading: vi.fn(), setCommentaryPlaying: vi.fn(),
+    ttsServiceRef: { current: { getSettings: () => ({ enabled: false }), queueCommentary: async () => {}, getIsPlaying: () => false } },
+    fairEndingState: { phase: 'normal', checkedOutPlayerIds: [], tiebreakRound: 0, tiebreakPlayerIds: [], tiebreakScores: {}, winnerId: null },
+    startScore: 301,
+  }));
+  await act(async () => { await result.current.endGameEarly(); });
+  expect(apiRequestMock).toHaveBeenCalledWith('/api/matches/match-1/end', { method: 'PATCH' });
+  expect(routerPush).toHaveBeenCalledWith(destination);
+  expect(loadAll).toHaveBeenCalledTimes(reloads);
+});

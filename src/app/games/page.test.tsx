@@ -155,3 +155,30 @@ describe('Game activity calendar', () => {
     expect(screen.getByText(/2 games since September 2026/)).toBeInTheDocument();
   });
 });
+
+describe('Game deletion confirmation', () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); rowsByTable.matches = []; });
+  it('uses confirmation without requesting or sending a password', async () => {
+    rowsByTable.matches = [{
+      id: 'delete-me', legs: [], mode: 'x01', start_score: '301', finish: 'single_out', legs_to_win: 1,
+      created_at: new Date().toISOString(), ended_early: true, completed_at: new Date().toISOString(), winner_player_id: null,
+      match_players: [{ play_order: 0, players: { id: 'delete-player', display_name: 'Delete player' } }],
+    }];
+    getSupabaseClientMock.mockResolvedValue({ from: (table: string) => makeQuery(table) });
+    const confirm = vi.fn().mockReturnValue(false);
+    vi.stubGlobal('confirm', confirm);
+    const prompt = vi.fn();
+    vi.stubGlobal('prompt', prompt);
+    const fetch = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetch);
+    render(<GamesPage />);
+    const remove = await screen.findByRole('button', { name: 'Delete game' });
+    fireEvent.click(remove);
+    expect(fetch).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    fireEvent.click(remove);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/matches/delete-me', { method: 'DELETE' }));
+    expect(prompt).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByText('Delete player')).not.toBeInTheDocument());
+  });
+});
