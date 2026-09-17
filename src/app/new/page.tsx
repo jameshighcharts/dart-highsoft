@@ -21,10 +21,11 @@ import type {
 } from "@/lib/scolia/types";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowRight, UserPlus, Search, Scale, Target, Volume2, Trophy } from "lucide-react";
+import { ArrowRight, UserPlus, Search, Scale, Target, Volume2, Trophy, TriangleAlert } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -218,6 +219,9 @@ export default function NewMatchPage() {
   // Dev-only: the API returns simulated boards, so realtime must not override them.
   const [boardsSimulated, setBoardsSimulated] = useState(false);
   const [manualPrompt, setManualPrompt] = useState<ManualScoringPrompt | null>(null);
+  const [tournamentManualConfirmation, setTournamentManualConfirmation] = useState<'closed' | 'warning' | 'acknowledged'>('closed');
+  const boardPicker = useRef<HTMLDivElement>(null);
+  const returnToBoard = useRef<HTMLButtonElement>(null);
   const [endingGameId, setEndingGameId] = useState<string | null>(null);
   const [showBoardChoice, setShowBoardChoice] = useState(false);
   const [endGameError, setEndGameError] = useState<string | null>(null);
@@ -540,6 +544,11 @@ export default function NewMatchPage() {
   }
 
   function startWithBoard(boardId: string) {
+    if (highdartsLocked && boardId === MANUAL_BOARD_VALUE && tournamentManualConfirmation !== 'acknowledged') {
+      setTournamentManualConfirmation('warning');
+      return;
+    }
+    setTournamentManualConfirmation('closed');
     setManualPrompt(null);
     setShowBoardChoice(false);
     if (boardId !== MANUAL_BOARD_VALUE) chooseBoard(boardId);
@@ -587,7 +596,7 @@ export default function NewMatchPage() {
             <GameTypePicker value={gameType} onChange={changeGameType} />
           </div>
 
-          <div className="space-y-2">
+          <div ref={boardPicker} className="space-y-2">
             <div className="font-medium">Board</div>
             <BoardPicker
               boards={boards}
@@ -600,7 +609,15 @@ export default function NewMatchPage() {
                 {boardsError}. Manual scoring is still available.
               </p>
             ) : null}
-            {highdartsLocked && <p className="text-xs text-muted-foreground">Manual scoring counts toward this fixture. Enter darts in the app; tournament rules stay locked.</p>}
+            {highdartsLocked && selectedBoardId === MANUAL_BOARD_VALUE && (
+              <div role="alert" className="flex gap-3 rounded-xl border-2 border-red-400/70 bg-red-500/15 p-3 text-red-100">
+                <TriangleAlert aria-hidden="true" className="mt-0.5 size-6 shrink-0 text-red-300" />
+                <div>
+                  <p className="text-sm font-bold">No board connected</p>
+                  <p className="mt-1 text-xs leading-relaxed">This Bengt match will use manual scoring. Your darts will not be recorded automatically. Select your Scolia board above before starting.</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {gameMode === null && (
@@ -892,6 +909,47 @@ export default function NewMatchPage() {
           </div>
         </div>
       </div>
+      <Dialog
+        open={tournamentManualConfirmation !== 'closed'}
+        onOpenChange={(open) => { if (!open) setTournamentManualConfirmation('closed'); }}
+      >
+        <DialogContent
+          role="alertdialog"
+          className="max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl border-2 border-red-400 bg-slate-950 p-5 shadow-[0_0_60px_rgba(239,68,68,0.2)] sm:p-7"
+          onOpenAutoFocus={(event) => { event.preventDefault(); returnToBoard.current?.focus(); }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            boardPicker.current?.scrollIntoView({ block: 'nearest' });
+            boardPicker.current?.querySelector<HTMLButtonElement>('[role="combobox"]')?.focus();
+          }}
+        >
+          <DialogHeader className="text-left">
+            <TriangleAlert aria-hidden="true" className="mb-2 size-12 text-red-400" />
+            <DialogTitle className="pr-5 text-2xl font-black text-red-200 sm:text-3xl">STOP. No board connected.</DialogTitle>
+            <DialogDescription className="pt-2 text-base font-semibold text-white">
+              Your darts will NOT be recorded automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 rounded-xl border border-red-400/25 bg-red-500/10 p-4 text-sm leading-relaxed text-slate-200">
+            <p>You are about to start a real Bengt tournament match with <strong className="text-white">manual scoring</strong>.</p>
+            <p>Every dart must be entered by hand in the app. If you are playing on a Scolia board, go back and select it first.</p>
+          </div>
+          <Button ref={returnToBoard} type="button" size="lg" className="h-auto min-h-12 whitespace-normal bg-white px-4 py-3 text-slate-950 hover:bg-slate-200" onClick={() => setTournamentManualConfirmation('closed')}>
+            Go back and select a board
+          </Button>
+          <label className="flex min-h-12 cursor-pointer items-start gap-3 rounded-lg border border-white/10 p-3 text-sm leading-relaxed text-slate-300">
+            <Checkbox
+              className="mt-0.5 size-5"
+              checked={tournamentManualConfirmation === 'acknowledged'}
+              onCheckedChange={(checked) => setTournamentManualConfirmation(checked === true ? 'acknowledged' : 'warning')}
+            />
+            I understand. I want to enter every dart manually for this Bengt match.
+          </label>
+          <Button type="button" variant="outline" className="h-auto min-h-11 whitespace-normal border-red-400/40 px-4 py-3 text-red-200 hover:bg-red-500/15" disabled={tournamentManualConfirmation !== 'acknowledged' || submitting || Boolean(tournamentSetupError)} onClick={() => void startWithBoard(MANUAL_BOARD_VALUE)}>
+            Start Bengt match with manual scoring
+          </Button>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={manualPrompt !== null}
         onOpenChange={(open) => {
