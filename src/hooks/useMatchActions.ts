@@ -910,13 +910,13 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
     if (!match) return;
     try {
       setEndGameLoading(true);
-      await apiRequest(`/api/matches/${matchId}/end`, { method: 'PATCH' });
-
-      // Close the dialog and reload the match data
+      const result = await apiRequest<{ ok: true; resetFixtureId?: string }>(`/api/matches/${matchId}/end`, { method: 'PATCH' });
       setEndGameDialogOpen(false);
+      if (result.resetFixtureId) {
+        routerPush('/bengt');
+        return;
+      }
       await loadAll();
-
-      // Redirect to home page
       routerPush('/');
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error ending game';

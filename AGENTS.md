@@ -77,13 +77,13 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `tournaments/[id]/matches/[matchId]/open/` | POST | Verify bracket membership, claim the preferred board for the active match using database occupancy guards, and return the persisted commentary preference; route tests cover conflicts, manual and completed matches |
 | `matches/` | POST | Create a new match, optionally with a pre-game Bull-off |
 | `matches/[matchId]/bull-off/` | POST | Revision-checked manual bull-off distance/miss recording and dart-removal handoff; hardware matches reject manual entry |
-| `matches/[matchId]/` | DELETE | Passcode-protected permanent deletion of a standalone match and its dependent game data |
+| `matches/[matchId]/` | DELETE | Signed-in, confirmed permanent deletion of a standalone match and its dependent game data |
 | `matches/[matchId]/throws/` | POST, DELETE | Record or delete a dart throw |
 | `matches/[matchId]/throws/[throwId]/` | PATCH, DELETE | Edit or delete a specific throw |
 | `matches/[matchId]/turns/` | POST | Create a turn |
 | `matches/[matchId]/turns/[turnId]/` | PATCH, DELETE | Finish a turn (score, bust); auto-resolves leg on fair ending |
 | `matches/[matchId]/legs/[legId]/complete/` | POST | Complete a leg (set winner, create next leg or finalize match + Elo) |
-| `matches/[matchId]/end/` | PATCH | End match early |
+| `matches/[matchId]/end/` | PATCH | Atomically end a standalone match or remove an abandoned Bengt attempt and restore its fixture to unplayed |
 | `matches/[matchId]/pause/` | PATCH | Pause or resume an active match |
 | `matches/[matchId]/rematch/` | POST | Create a rematch |
 | `matches/[matchId]/players/` | POST | Add player to match |
@@ -253,7 +253,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `highdarts/Rules.tsx` | Tournament format table, Steps 0–3 and tie rules in a scrollable dialog |
 | `highdarts/AdminMapping.tsx` | Admin-only grouped sheet-name mapping across unstarted fixtures |
 | `highdarts/MatchTag.tsx` | Pre-start scorer question with per-match friendly memory and scorer/spectator tournament badge |
-| `match/MatchScoringView.tsx` | Active scoring view — scores, dartboard/keypad, actions |
+| `match/MatchScoringView.tsx` | Active scoring view — scores, dartboard/keypad, actions, and one shared desktop/mobile early-end confirmation explaining Bengt reset |
 | `match/MatchSpectatorView.tsx` | Read-only spectator view |
 | `match/SpectatorLiveMatchCard.tsx` | Responsive live player scoreboard grid with a compact inline match header with fair-ending status after the leg target, compact viewport-aware tile heights, container-scaled avatars, names, and larger scores with correction-safe impact motion, on-throw light sweeps, reduced-motion support, bold names, lime on-throw tiles, dart indicators, and compact stats with a chunkier responsive AVG value and average-rating emojis, retaining small Last/Best labels without a separate current-turn header; desktop grid fills the stretched card, with overflow scrolling and larger collapsed-board tiles sized for balanced six- and eight-player layouts |
 | `match/DartIQLive.tsx` | DartIQ broadcast strip directly above the spectator Score Progress chart, with per-dart leg/match probabilities, large-field circular rail, and gated top-three next-dart landing predictions from the shared tracker |
@@ -592,7 +592,7 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/components/highdarts/Fixtures.tsx`: Shared fixture rows, stable player-profile links and a refreshing personal schedule for self and read-only profiles. Uses full-draw first-name disambiguation from `lib/highdarts/standings.ts`.
 - `src/app/players/[playerId]/page.tsx`: Authenticated read-only player profile with stats, tournament schedule and an existing Slack identity link scoped to the viewer's workspace. Own-profile editing remains in `/profile`.
 - `src/app/api/highdarts/route.ts`: Snapshot includes current board availability, reusing the existing board endpoint's occupancy/readiness logic.
-- `src/app/new/page.tsx`: Tournament fixtures select the office and its named board; unplayed head-to-head tournament fixtures support explicit manual scoring while retaining office reservations and locked rules.
+- `src/app/new/page.tsx`: Tournament fixtures select the office and its named board; unplayed head-to-head tournament fixtures support explicit manual scoring while retaining office reservations and locked rules. Manual Bengt starts show a red inline warning and a blocking, keyboard-accessible confirmation requiring a fresh acknowledgement; `src/app/new/page.test.tsx` covers cancellation, acknowledgement, board-backed starts and ordinary matches.
 - `supabase/migrations/20260914190000_highdarts_board_availability.sql`: Atomic tournament claim guard for office/player conflicts, correct board selection and busy-board/manual bypass protection. Existing board locks still arbitrate X01 and party games.
 - `supabase/tests/highdarts_board_availability.sql` and `scripts/highdarts-profile.integration.mjs`: Rollback SQL regression and isolated native API concurrency checks. See `docs/HIGHDARTS_2026.md` for the required disposable environment.
 - `docs/highdarts-2026/{player-profile,player-profile-mobile,profile-setup}.png`: Profile, mobile schedule and tournament setup screenshots.
@@ -623,3 +623,7 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - Tabell stage badges and row tints in `src/components/highdarts/Dashboard.tsx` share a pastel palette with matching hover/focus states; qualification logic and labels remain authoritative.
 
 - Tabell rank badges use tournament status for every player, including six-fixture players; pending exclusions stay in the counting controls and qualification guards.
+
+- `supabase/migrations/20260917150000_reset_ended_highdarts_matches.sql`: Service-only atomic early ending. Bengt attempts and their pending result jobs are removed; the same fixture becomes unplayed and board occupancy clears. Completed winners, published results, active result delivery, and locked draws remain protected. Deploy before the updated end route. `supabase/tests/end_match_early.sql` covers reset, discarded scores, legacy jobs, retry isolation, and result protection.
+
+- `tournamentActivity` in `src/lib/highdarts/standings.ts` supplies the Bengt Today dropdown in descending completion-time order; date-only reported results follow timed results.

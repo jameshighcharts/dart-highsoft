@@ -471,7 +471,9 @@ export function tournamentActivity(
     if (f.reportedResult) return f.reportedResult.playedOn === today;
     const completedAt = f.match?.completed_at;
     return completedAt ? date.format(new Date(completedAt)) === today : false;
-  });
+  }).sort((a, b) =>
+    new Date(b.match?.completed_at ?? 0).getTime() - new Date(a.match?.completed_at ?? 0).getTime(),
+  );
   return {
     today: playedToday.length,
     groupToday: playedToday.filter((f) => f.stage === 'group').length,

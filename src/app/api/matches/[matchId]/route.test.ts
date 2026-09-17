@@ -6,6 +6,8 @@ vi.mock('server-only', () => ({}));
 
 const getSupabaseServerClientMock = vi.fn();
 const loadMatchMock = vi.fn();
+const sessionMock = vi.fn();
+vi.mock('@/auth', () => ({ getAuthenticatedSession: () => sessionMock() }));
 
 vi.mock('@/lib/supabaseServer', () => ({
   getSupabaseServerClient: () => getSupabaseServerClientMock(),
@@ -15,21 +17,19 @@ vi.mock('@/lib/server/matchGuards', () => ({
   loadMatch: (...args: unknown[]) => loadMatchMock(...args),
 }));
 
-function deleteRequest(passcode?: string) {
-  return new Request('http://localhost/api/matches/match-1', {
-    method: 'DELETE',
-    headers: passcode ? { 'x-admin-passcode': passcode } : undefined,
-  });
+function deleteRequest() {
+  return new Request('http://localhost/api/matches/match-1', { method: 'DELETE' });
 }
 
 describe('DELETE /api/matches/[matchId]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.GAME_DELETE_PASSCODE = '123';
+    sessionMock.mockResolvedValue({ user: { email: 'player@example.com', slackTeamId: 'team' } });
   });
 
-  it('requires the configured admin passcode', async () => {
-    const response = await DELETE(deleteRequest('wrong'), {
+  it('requires a signed-in workspace session', async () => {
+    sessionMock.mockResolvedValue(null);
+    const response = await DELETE(deleteRequest(), {
       params: Promise.resolve({ matchId: 'match-1' }),
     });
 
@@ -37,13 +37,13 @@ describe('DELETE /api/matches/[matchId]', () => {
     expect(getSupabaseServerClientMock).not.toHaveBeenCalled();
   });
 
-  it('deletes a standalone match', async () => {
+  it('deletes a standalone match without a passcode', async () => {
     const eq = vi.fn().mockResolvedValue({ error: null });
     const supabase = { from: vi.fn(() => ({ delete: () => ({ eq }) })) };
     getSupabaseServerClientMock.mockReturnValue(supabase);
     loadMatchMock.mockResolvedValue({ id: 'match-1', tournament_match_id: null });
 
-    const response = await DELETE(deleteRequest('123'), {
+    const response = await DELETE(deleteRequest(), {
       params: Promise.resolve({ matchId: 'match-1' }),
     });
 
@@ -52,12 +52,12 @@ describe('DELETE /api/matches/[matchId]', () => {
     expect(eq).toHaveBeenCalledWith('id', 'match-1');
   });
 
-  it('refuses to delete an individual tournament match', async () => {
+  it.each([{ tournament_match_id: 'tm-1' }, { highdarts_fixture_id: 'fixture-1' }])('refuses to delete a linked tournament result: %j', async (link) => {
     const from = vi.fn();
     getSupabaseServerClientMock.mockReturnValue({ from });
-    loadMatchMock.mockResolvedValue({ id: 'match-1', tournament_match_id: 'tm-1' });
+    loadMatchMock.mockResolvedValue({ id: 'match-1', ...link });
 
-    const response = await DELETE(deleteRequest('123'), {
+    const response = await DELETE(deleteRequest(), {
       params: Promise.resolve({ matchId: 'match-1' }),
     });
 

@@ -158,11 +158,12 @@ describe('tournamentActivity', () => {
     matches[0].stage = 'final';
     matches[1].match!.ended_early = true;
     matches[2].match!.completed_at = '2026-09-14T21:59:00Z';
+    matches[3].match!.completed_at = '2026-09-14T22:20:00Z';
     expect(
       tournamentActivity(matches, new Date('2026-09-14T22:30:00Z')),
     ).toMatchObject({ today: 10, groupToday: 9 });
     expect(tournamentActivity(matches, new Date('2026-09-14T22:30:00Z')).playedToday)
-      .toEqual(matches.filter((_, index) => index !== 1 && index !== 2));
+      .toEqual([matches[3], ...matches.filter((_, index) => ![1, 2, 3].includes(index))]);
   });
 });
 

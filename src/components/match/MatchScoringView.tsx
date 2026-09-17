@@ -10,7 +10,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import Dartboard from '@/components/Dartboard';
 import MobileKeypad from '@/components/MobileKeypad';
@@ -28,7 +27,7 @@ import type { LegRecord, MatchRecord, Player, TurnRecord, TurnWithThrows } from 
 import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
 import { MatchRulesLine } from './MatchRulesLine';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { Pause, Play } from 'lucide-react';
 
 type Props = {
@@ -142,6 +141,7 @@ export function MatchScoringView({
   isTournamentMatch = false,
   tournamentId,
 }: Props) {
+  const endGameTriggerRef = useRef<HTMLButtonElement | null>(null);
   const isScoliaMatch = Boolean(match.scolia_board_id);
   const isPaused = Boolean(match.paused_at);
   const scoringDisabled = isPaused || Boolean(matchWinnerId);
@@ -405,32 +405,14 @@ export function MatchScoringView({
                 </Button>
               )}
               {!matchWinnerId && !isTournamentMatch && (
-                <Dialog open={endGameDialogOpen} onOpenChange={onEndGameDialogOpenChange}>
-                  <DialogTrigger asChild>
-                    <Button variant="destructive" size="sm" className="text-xs whitespace-nowrap">
-                      End Game
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>End Game Early?</DialogTitle>
-                      <DialogDescription>
-                        Are you sure you want to end this game early? This action cannot be undone.
-                        <br />
-                        <br />
-                        <strong>Warning:</strong> This match and all its statistics will not count towards player records.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => onEndGameDialogOpenChange(false)} disabled={endGameLoading}>
-                        Cancel
-                      </Button>
-                      <Button variant="destructive" onClick={onEndGameEarly} disabled={endGameLoading}>
-                        {endGameLoading ? 'Ending...' : 'End Game'}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                <Button variant="destructive" size="sm" className="text-xs whitespace-nowrap"
+                  onClick={(event) => {
+                    endGameTriggerRef.current = event.currentTarget;
+                    onEndGameDialogOpenChange(true);
+                  }}
+                >
+                  End Game
+                </Button>
               )}
               {matchWinnerId && isTournamentMatch && (
                 <Button asChild size="sm" className="text-xs whitespace-nowrap">
@@ -613,37 +595,46 @@ export function MatchScoringView({
           </Button>
         )}
         {!matchWinnerId && !isTournamentMatch && (
-          <Dialog open={endGameDialogOpen} onOpenChange={onEndGameDialogOpenChange}>
-            <DialogTrigger asChild>
-              <Button variant="destructive" className="flex-1 sm:max-w-xs">
-                End Game Early
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>End Game Early?</DialogTitle>
-                <DialogDescription>
-                  Are you sure you want to end this game early? This action cannot be undone.
-                  <br />
-                  <br />
-                  <strong>Warning:</strong> This match and all its statistics will not count towards player records.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => onEndGameDialogOpenChange(false)} disabled={endGameLoading}>
-                  Cancel
-                </Button>
-                <Button variant="destructive" onClick={onEndGameEarly} disabled={endGameLoading}>
-                  {endGameLoading ? 'Ending...' : 'End Game'}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <Button variant="destructive" className="flex-1 sm:max-w-xs"
+            onClick={(event) => {
+              endGameTriggerRef.current = event.currentTarget;
+              onEndGameDialogOpenChange(true);
+            }}
+          >
+            End Game Early
+          </Button>
         )}
         <Button variant="outline" onClick={onToggleSpectatorMode} className="flex-1 sm:max-w-xs">
           Enter Spectator Mode
         </Button>
       </div>
+      {!matchWinnerId && !isTournamentMatch && (
+        <Dialog open={endGameDialogOpen} onOpenChange={onEndGameDialogOpenChange}>
+          <DialogContent onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            endGameTriggerRef.current?.focus();
+          }}>
+            <DialogHeader>
+              <DialogTitle>{match.highdarts_fixture_id ? 'End game and reset Bengt fixture?' : 'End Game Early?'}</DialogTitle>
+              <DialogDescription>
+                {match.highdarts_fixture_id ? (
+                  <>This attempt and its scores will be removed. The Bengt fixture will return to unplayed, with the same players, ready to start again and select a board. This cannot be undone.</>
+                ) : (
+                  <>Are you sure you want to end this game early? This cannot be undone. This match and its statistics will not count towards player records.</>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onEndGameDialogOpenChange(false)} disabled={endGameLoading}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={onEndGameEarly} disabled={endGameLoading}>
+                {endGameLoading ? 'Ending...' : match.highdarts_fixture_id ? 'End and reset fixture' : 'End Game'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
