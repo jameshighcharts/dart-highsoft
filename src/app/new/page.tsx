@@ -615,7 +615,7 @@ export default function NewMatchPage() {
                 <div>
                   <p className="text-sm font-bold">No board connected</p>
                   <p className="mt-1 text-xs leading-relaxed">This Bengt match will use manual scoring. Your darts will not be recorded automatically. Select your Scolia board above before starting.</p>
-                  <p className="mt-2 text-xs leading-relaxed"><strong>Tip:</strong> Turn the board off and back on. Do not throw any darts while it reconnects. Wait until it is ready, then select it before starting.</p>
+                  <p className="mt-3 rounded-lg border-2 border-yellow-300/80 bg-yellow-300/10 p-3 text-xs leading-relaxed text-yellow-100"><strong>Tip:</strong> Turn the board off and back on. Do not throw any darts while it reconnects. Wait until it is ready, then select it before starting.</p>
                 </div>
               </div>
             )}
@@ -934,7 +934,7 @@ export default function NewMatchPage() {
           <div className="space-y-2 rounded-xl border border-red-400/25 bg-red-500/10 p-4 text-sm leading-relaxed text-slate-200">
             <p>You are about to start a real Bengt tournament match with <strong className="text-white">manual scoring</strong>.</p>
             <p>Every dart must be entered by hand in the app. If you are playing on a Scolia board, go back and select it first.</p>
-            <p><strong className="text-white">Tip:</strong> Turn the board off and back on. <strong className="text-white">Do not throw any darts while it reconnects.</strong> Wait until it is ready, then select it before starting.</p>
+            <p className="rounded-lg border-2 border-yellow-300/80 bg-yellow-300/10 p-3 text-yellow-100"><strong>Tip:</strong> Turn the board off and back on. <strong>Do not throw any darts while it reconnects.</strong> Wait until it is ready, then select it before starting.</p>
           </div>
           <Button ref={returnToBoard} type="button" size="lg" className="h-auto min-h-12 whitespace-normal bg-white px-4 py-3 text-slate-950 hover:bg-slate-200" onClick={() => setTournamentManualConfirmation('closed')}>
             Go back and select a board
