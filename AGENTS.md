@@ -271,6 +271,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 | `games/GamePlayerCard.tsx` | Shared X01-style party-game player tiles with current/last-visit darts and mode-specific scores |
 | `games/GameHeader.tsx` | Party-game title, status, round, and same-tab spectator navigation |
 | `games/GameControls.tsx` | Party-game undo, end confirmation, and rematch controls |
+| `CompassTvButton.tsx` | Post-match Compass TV iframe, fullscreen request, reload/sign-in link, and return to results; used by X01 and party-game scorer/spectator views |
 | `games/RematchPanel.tsx` | Shared rematch dialog with location filters, searchable avatar rows, and selected-player chips for scorer and spectator views |
 | `games/GameResults.tsx` | Party-game result and rematch display |
 | `games/CricketBoard.tsx` | Cricket targets, marks, and points display |

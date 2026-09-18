@@ -4,6 +4,7 @@ import { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AlertCircle, Radio } from 'lucide-react';
 
+import { CompassTvButton } from '@/components/CompassTvButton';
 import { RematchPanel } from '@/components/games/RematchPanel';
 import { GAME_MODE_INFO } from '@/lib/games/labels';
 import { Button } from '@/components/ui/button';
@@ -191,6 +192,7 @@ function GameClientInner({ gameId }: GameClientProps) {
           players={players}
           winnerId={winnerId}
         >
+          <CompassTvButton />
           {!spectator && (
             <GameControls
               isActive={false}

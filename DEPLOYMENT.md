@@ -590,3 +590,10 @@ An unresolved Google session retries on its next request after one minute. Resol
 ### Highdarts 2026
 
 Apply `supabase/migrations/20260914120000_highdarts_2026.sql` before releasing the Bengt tournament page. Set `SLACK_HIGHDARTS_CHANNEL_ID` to the result channel ID and invite the existing `SLACK_BOT_TOKEN` bot to it. An event's `slack_channel_id` overrides the environment value. `NEXT_PUBLIC_APP_URL` provides result links. Missing Slack configuration skips delivery. Complete the player-name mapping in `/admin`; details, tests, and delivery recovery are in [Highdarts 2026](docs/HIGHDARTS_2026.md).
+
+
+## Compass TV after a match
+
+Completed or ended X01 matches and party games offer a **Compass TV** button in scoring and spectator views. It opens `https://compass.highsoftlabs.com/tv` in a fullscreen iframe. **Back to darts** closes the iframe and keeps the match results. If the browser refuses fullscreen, the slideshow fills the browser viewport. Existing browser fullscreen is preserved when returning.
+
+Compass requires its own signed-in session. Its default `SameSite=Lax` session cookie cannot be sent inside an iframe from `hsdart.vercel.app`. For authenticated embedding, serve the dart app over HTTPS on a sibling domain such as `darts.highsoftlabs.com`, configured as a custom domain in Vercel with DNS and the dart app's OAuth callback URLs updated. Sign in to Compass on that browser first. The slideshow controls include **Open Compass** for sign-in and **Reload slideshow** afterward. Opening Compass separately also works while the dart app still uses the Vercel domain; signing in alone does not fix cross-site iframe cookies. This feature does not make Compass public or change its authentication/cookie policy.

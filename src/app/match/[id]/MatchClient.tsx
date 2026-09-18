@@ -3,6 +3,7 @@
 import { BullOffRound } from '@/components/match/BullOffRound';
 import { HighdartsMatchTag } from '@/components/highdarts/MatchTag';
 import { bullOffBrief } from '@/lib/commentary/bullOff';
+import { CompassTvButton } from '@/components/CompassTvButton';
 import { RematchPanel } from '@/components/games/RematchPanel';
 import { MatchScoringView } from '@/components/match/MatchScoringView';
 import { RealtimeDebugPanel } from '@/components/match/RealtimeDebugPanel';
@@ -675,6 +676,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     <>
       {rematchPanel}
       {highdartsTag}
+      {(matchWinnerId || match.ended_early) && <div className="mb-4 flex justify-end"><CompassTvButton /></div>}
       <MatchScoringView
         realtimeConnectionStatus={realtime.connectionStatus}
           realtimeConnectionError={realtime.connectionError}
