@@ -594,6 +594,6 @@ Apply `supabase/migrations/20260914120000_highdarts_2026.sql` before releasing t
 
 ## Compass TV after a match
 
-Completed or ended X01 matches and party games offer a **Compass TV** button in scoring and spectator views. It opens `https://compass.highsoftlabs.com/tv` in a fullscreen iframe. **Back to darts** closes the iframe and keeps the match results. If the browser refuses fullscreen, the slideshow fills the browser viewport. Existing browser fullscreen is preserved when returning.
+Completed or ended X01 matches and party games offer a **Compass TV** button in scoring and spectator views. It navigates directly to `https://compass.highsoftlabs.com/tv` in the same tab. Users can return to darts with the browser's Back button and enter fullscreen using Compass's slideshow controls.
 
-Compass requires its own signed-in session. Its default `SameSite=Lax` session cookie cannot be sent inside an iframe from `hsdart.vercel.app`. For authenticated embedding, serve the dart app over HTTPS on a sibling domain such as `darts.highsoftlabs.com`, configured as a custom domain in Vercel with DNS and the dart app's OAuth callback URLs updated. Sign in to Compass on that browser first. The slideshow controls include **Open Compass** for sign-in and **Reload slideshow** afterward. Opening Compass separately also works while the dart app still uses the Vercel domain; signing in alone does not fix cross-site iframe cookies. This feature does not make Compass public or change its authentication/cookie policy.
+Compass uses its existing sign-in flow and session. No custom dart-app domain, iframe configuration, or OAuth callback changes are required for this link.

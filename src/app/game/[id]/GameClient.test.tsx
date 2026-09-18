@@ -57,7 +57,7 @@ it('spectators can exit but cannot score, undo, end, or rematch', () => {
   expect(screen.queryByRole('button',{name:'Undo'})).not.toBeInTheDocument();
   expect(screen.queryByRole('button',{name:'End game'})).not.toBeInTheDocument();
   expect(screen.queryByRole('button',{name:'Rematch'})).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Compass TV' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Compass TV' })).not.toBeInTheDocument();
 });
 
 it('disables keyboard scoring while saving and hides manual input for Scolia', () => {
@@ -75,7 +75,7 @@ describe.each(['cricket','killer','shanghai','around_the_clock'] as const)('%s',
     mocks.data.session.status='ended_early';
     render(<GameClient gameId="game" />);
     expect(screen.getByText('No winner')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Compass TV' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Compass TV' })).toBeInTheDocument();
     expect(screen.queryByRole('region',{name:'Current turn'})).not.toBeInTheDocument();
     for(const card of screen.getAllByRole('article'))expect(card).not.toHaveAttribute('aria-current');
   });
@@ -88,5 +88,5 @@ it('shows a rematch after Shanghai while keeping finished scores read-only', () 
   expect(screen.getByText('Winner')).toBeInTheDocument();
   expect(screen.queryByRole('region',{name:'Current turn'})).not.toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Rematch'})).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Compass TV' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Compass TV' })).toBeInTheDocument();
 });
