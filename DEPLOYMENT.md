@@ -590,3 +590,10 @@ An unresolved Google session retries on its next request after one minute. Resol
 ### Highdarts 2026
 
 Apply `supabase/migrations/20260914120000_highdarts_2026.sql` before releasing the Bengt tournament page. Set `SLACK_HIGHDARTS_CHANNEL_ID` to the result channel ID and invite the existing `SLACK_BOT_TOKEN` bot to it. An event's `slack_channel_id` overrides the environment value. `NEXT_PUBLIC_APP_URL` provides result links. Missing Slack configuration skips delivery. Complete the player-name mapping in `/admin`; details, tests, and delivery recovery are in [Highdarts 2026](docs/HIGHDARTS_2026.md).
+
+
+## Compass TV after a match
+
+Completed or ended X01 matches and party games offer a **Compass TV** button in scoring and spectator views. It navigates directly to `https://compass.highsoftlabs.com/tv` in the same tab. Users can return to darts with the browser's Back button and enter fullscreen using Compass's slideshow controls.
+
+Compass uses its existing sign-in flow and session. No custom dart-app domain, iframe configuration, or OAuth callback changes are required for this link.
