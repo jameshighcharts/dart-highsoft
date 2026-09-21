@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AlertCircle, Radio } from 'lucide-react';
 
@@ -23,6 +23,7 @@ import { ShanghaiBoard } from '@/components/games/ShanghaiBoard';
 import { useGameActions } from '@/hooks/useGameActions';
 import { rowToThrowInput, useGameData } from '@/hooks/useGameData';
 import type { GamePlayerData } from '@/hooks/useGameData';
+import { playHitSound } from '@/utils/sound';
 import type {
   AroundTheClockEvent,
   CricketEvent,
@@ -88,6 +89,23 @@ function GameClientInner({ gameId }: GameClientProps) {
   const state = view?.state ?? null;
 
   const { throwDart, undo, endEarly, rematch, busy, message } = useGameActions({ gameId, state, setThrows, refetch });
+
+  const lastHitSoundKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    lastHitSoundKeyRef.current = null;
+  }, [gameId]);
+  useEffect(() => {
+    if (view?.mode !== 'shanghai' && view?.mode !== 'around_the_clock') return;
+    const latestThrow = throws.at(-1);
+    if (!latestThrow) return;
+    const key = `${gameId}:${latestThrow.id}`;
+    const isInitialLoad = lastHitSoundKeyRef.current === null;
+    if (lastHitSoundKeyRef.current === key) return;
+    lastHitSoundKeyRef.current = key;
+    if (isInitialLoad) return;
+    const event = state?.lastEvent as { hit?: boolean } | null | undefined;
+    if (event?.hit) playHitSound();
+  }, [gameId, view?.mode, throws, state]);
 
   if (loading && !session) {
     return <div className="max-w-5xl mx-auto p-6 text-center text-muted-foreground">Loading game...</div>;
