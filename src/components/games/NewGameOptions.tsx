@@ -61,11 +61,10 @@ export type SavedGameSetup = {
   legsToWin: number;
   fairEnding: boolean;
   closestToBull?: boolean;
-  commentaryEnabled?: boolean;
   highdartsEnabled?: boolean;
 };
 
-/** Restore only recognized options; stale or malformed preferences use defaults. */
+/** Restore only recognized options; stale or malformed preferences use defaults. Commentary is never restored. */
 export function loadStoredSetup(): SavedGameSetup | null {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(SETUP_STORAGE_KEY) ?? "null");
@@ -110,7 +109,6 @@ export function loadStoredSetup(): SavedGameSetup | null {
       legsToWin,
       closestToBull: saved.closestToBull === true,
       fairEnding: legsToWin === 1 && saved.fairEnding === true,
-      commentaryEnabled: saved.commentaryEnabled === true,
       highdartsEnabled: saved.highdartsEnabled === true,
     };
   } catch {

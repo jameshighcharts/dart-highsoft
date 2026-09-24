@@ -21,9 +21,13 @@ describe('remembered game setup', () => {
  afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
  it('round-trips rules and ordered players', () => {
   const setup = { gameType: 'x01' as const, gameConfig: {}, selectedIds: ['ben', 'ada'], startScore: '501' as const, finish: 'double_out' as const, legsToWin: 1, fairEnding: true,
-      closestToBull: true, commentaryEnabled: true, highdartsEnabled: true };
+      closestToBull: true, highdartsEnabled: true };
   storeSetup(setup);
   expect(loadStoredSetup()).toEqual(setup);
+ });
+ it('drops a legacy saved commentary preference', () => {
+  localStorage.setItem(SETUP_STORAGE_KEY, JSON.stringify({ gameType: 'x01', gameConfig: {}, selectedIds: [], commentaryEnabled: true }));
+  expect(loadStoredSetup()).not.toHaveProperty('commentaryEnabled');
  });
  it('restores party options and Killer number assignments', () => {
   localStorage.setItem(SETUP_STORAGE_KEY, JSON.stringify({ gameType: 'killer', gameConfig: { lives: 5, assignment: 'choose', assignedNumbers: { ada: 16, ben: 8 } }, selectedIds: ['ada', 'ben'] }));
@@ -31,7 +35,7 @@ describe('remembered game setup', () => {
  });
  it('repairs invalid rules, duplicate IDs, and malformed party options', () => {
   localStorage.setItem(SETUP_STORAGE_KEY, JSON.stringify({ gameType: 'killer', gameConfig: { lives: -4, assignment: [], selfHitPenalty: 'false', assignedNumbers: { ada: 80 } }, selectedIds: ['ada', null, 'ada', 9, 'ben'], startScore: '999', finish: 'invalid', legsToWin: 3, fairEnding: true }));
-  expect(loadStoredSetup()).toMatchObject({ selectedIds: ['ada', 'ben'], startScore: '301', finish: 'single_out', legsToWin: 3, fairEnding: false, commentaryEnabled: false, gameConfig: { lives: 3, assignment: 'random', selfHitPenalty: true, assignedNumbers: {} } });
+  expect(loadStoredSetup()).toMatchObject({ selectedIds: ['ada', 'ben'], startScore: '301', finish: 'single_out', legsToWin: 3, fairEnding: false, gameConfig: { lives: 3, assignment: 'random', selfHitPenalty: true, assignedNumbers: {} } });
  });
  it('ignores corrupt storage and tolerates unavailable storage', () => {
   localStorage.setItem(SETUP_STORAGE_KEY, '{broken');

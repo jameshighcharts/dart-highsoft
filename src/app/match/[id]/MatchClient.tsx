@@ -535,7 +535,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     localTurn,
     ongoingTurnRef,
     setLocalTurn,
-    loadAll,
+    // Spectator reloads must not swap the TV view for the loading screen.
+    loadAll: isSpectatorMode ? loadAllSpectator : loadAll,
     loadTurnsForLeg,
     routerPush: router.push,
     getScoreForPlayer,
@@ -577,6 +578,13 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     }
     window.history.replaceState({}, '', url.toString());
   }, [isSpectatorMode]);
+
+  const undoSpectatorDart = useCallback(async () => {
+    // Spectators do not keep the local ongoing turn in sync, so undo from persisted throws.
+    ongoingTurnRef.current = null;
+    setLocalTurn({ playerId: null, darts: [] });
+    await undoLastThrow();
+  }, [undoLastThrow]);
 
   const backToGames = useCallback(() => {
     router.push('/games');
@@ -634,6 +642,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           matchWinnerId={matchWinnerId}
           onHome={() => router.push('/')}
           onToggleSpectatorMode={toggleSpectatorMode}
+          onUndoLastDart={undoSpectatorDart}
           commentaryEnabled={commentaryEnabled}
           realtimeCommentaryStatus={realtimeCommentaryStatus}
           onToggleQuickCommentary={toggleQuickCommentary}

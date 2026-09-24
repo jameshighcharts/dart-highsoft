@@ -153,7 +153,6 @@ export default function NewMatchPage() {
       setLegsToWin(setup.legsToWin);
       setFairEnding(setup.fairEnding);
       setClosestToBull(setup.closestToBull === true);
-      setCommentaryEnabled(setup.commentaryEnabled === true);
       setHighdartsEnabled(setup.highdartsEnabled === true);
     } else {
       const stored = loadStoredGameType();
@@ -315,8 +314,8 @@ export default function NewMatchPage() {
   useEffect(() => {
     // Do not overwrite saved players before hydration and roster reconciliation.
     if (!setupLoaded || !playersLoaded) return;
-    storeSetup({ gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, commentaryEnabled, highdartsEnabled });
-  }, [setupLoaded, playersLoaded, gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, commentaryEnabled, highdartsEnabled]);
+    storeSetup({ gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, highdartsEnabled });
+  }, [setupLoaded, playersLoaded, gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, highdartsEnabled]);
 
   useScoliaBoardRealtime({
     onUpsert: (status) =>

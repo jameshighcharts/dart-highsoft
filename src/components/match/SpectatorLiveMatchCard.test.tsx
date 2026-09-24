@@ -55,3 +55,30 @@ describe('scoreboard impact motion', () => {
     expect(animate).not.toHaveBeenCalled();
   });
 });
+
+describe('leg wins', () => {
+  const players = [player, { id: 'rival', display_name: 'Jonas' }];
+  const card = (legsToWin: number, legs: { winner_player_id: string | null }[]) => (
+    <SpectatorLiveMatchCard match={{ start_score: '301', finish: 'single_out', legs_to_win: legsToWin }}
+      orderPlayers={players} legs={legs} spectatorCurrentPlayer={null} turns={[]}
+      currentLegId="leg" startScore={301} finishRule="single_out"
+      turnThrowCounts={{}} getAvgForPlayer={() => 0} />
+  );
+
+  it('shows a pip per leg to win, filled for each leg won', () => {
+    render(card(3, [{ winner_player_id: 'player' }, { winner_player_id: 'rival' }, { winner_player_id: 'player' }, { winner_player_id: null }]));
+    const nora = screen.getByRole('img', { name: '2 of 3 legs won' });
+    expect([...nora.children].map((pip) => pip.getAttribute('data-won'))).toEqual(['true', 'true', 'false']);
+    expect(screen.getByRole('img', { name: '1 of 3 legs won' })).toBeInTheDocument();
+  });
+
+  it('switches to a count for long matches', () => {
+    render(card(7, [{ winner_player_id: 'player' }]));
+    expect(screen.getByRole('img', { name: '1 of 7 legs won' })).toHaveTextContent('1 / 7');
+  });
+
+  it('hides leg wins in single-leg matches', () => {
+    render(card(1, [{ winner_player_id: null }]));
+    expect(screen.queryByRole('img', { name: /legs won/ })).toBeNull();
+  });
+});
