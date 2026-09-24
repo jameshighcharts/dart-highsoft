@@ -6,6 +6,7 @@ import { apiRequest } from '@/lib/apiClient';
 import type { AdminPlayer, AdminPlayersResponse } from '@/app/api/admin/players/route';
 import type { SlackMember } from '@/lib/slack/members';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { hasUploadedAvatar } from '@/lib/avatars';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
 import { formatNicknames } from '@/utils/nicknames';
 
@@ -177,8 +178,8 @@ export function AdminUsersPanel({ viewer }: { viewer: Viewer }) {
   async function removeAvatar(player: AdminPlayer) {
     if (!window.confirm(`Remove ${player.display_name}'s picture?`)) return;
     await run(`${player.id}:avatar`, async () => {
-      await apiRequest(`/api/admin/players/${player.id}/avatar`, { method: 'DELETE' });
-      patchLocal(player.id, { avatar_url: null });
+      const data = await apiRequest<{ avatarUrl?: string | null }>(`/api/admin/players/${player.id}/avatar`, { method: 'DELETE' });
+      patchLocal(player.id, { avatar_url: data.avatarUrl ?? null });
     });
   }
 
@@ -325,14 +326,14 @@ export function AdminUsersPanel({ viewer }: { viewer: Viewer }) {
                           <button
                             type="button"
                             className="block rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            title={player.avatar_url ? 'Replace picture' : 'Upload picture'}
-                            aria-label={`${player.avatar_url ? 'Replace' : 'Upload'} picture for ${player.display_name}`}
+                            title={hasUploadedAvatar(player) ? 'Replace picture' : 'Upload picture'}
+                            aria-label={`${hasUploadedAvatar(player) ? 'Replace' : 'Upload'} picture for ${player.display_name}`}
                             onClick={() => pickAvatar(player)}
                             disabled={rowBusy}
                           >
                             <PlayerAvatar player={player} size="md" />
                           </button>
-                          {player.avatar_url ? (
+                          {hasUploadedAvatar(player) ? (
                             <button
                               type="button"
                               className="absolute -right-1 -top-1 hidden size-4 items-center justify-center rounded-full border border-border bg-background text-[10px] leading-none shadow-xs group-hover:flex"
