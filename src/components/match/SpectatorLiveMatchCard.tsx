@@ -9,7 +9,7 @@ import { computeCheckoutSuggestions } from '@/utils/checkoutSuggestions';
 import { computeSetupSuggestions } from '@/utils/setupSuggestions';
 import { getLegRoundStats, getSpectatorScore } from '@/utils/matchStats';
 import { decorateAvg } from '@/utils/playerStats';
-import type { MatchRecord, Player, ThrowRecord, TurnRecord, TurnWithThrows } from '@/lib/match/types';
+import type { LegRecord, MatchRecord, Player, ThrowRecord, TurnRecord, TurnWithThrows } from '@/lib/match/types';
 import type { FairEndingState } from '@/utils/fairEnding';
 import type { FinishRule } from '@/utils/x01';
 import { useEffect, useMemo, useRef } from 'react';
@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef } from 'react';
 type Props = {
   match: Pick<MatchRecord, 'start_score' | 'finish' | 'legs_to_win' | 'fair_ending' | 'highdarts_fixture_id'>;
   orderPlayers: Player[];
+  legs?: Pick<LegRecord, 'winner_player_id'>[];
   spectatorCurrentPlayer: Player | null;
   turns: TurnRecord[];
   currentLegId?: string;
@@ -33,6 +34,7 @@ type Props = {
 export function SpectatorLiveMatchCard({
   match,
   orderPlayers,
+  legs = [],
   spectatorCurrentPlayer,
   turns,
   currentLegId,
@@ -50,6 +52,13 @@ export function SpectatorLiveMatchCard({
   const previousScores = useRef(new Map<string, { score: number; legId?: string }>());
   const scoreAnimations = useRef(new Map<string, Animation>());
   const currentPlayerId = spectatorCurrentPlayer?.id;
+  const legsWonByPlayer = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const leg of legs) {
+      if (leg.winner_player_id) counts.set(leg.winner_player_id, (counts.get(leg.winner_player_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [legs]);
   const reducedMotion = useMemo(() => {
     if (typeof window === 'undefined') return false;
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -237,6 +246,9 @@ export function SpectatorLiveMatchCard({
                       className="h-[clamp(2rem,17cqw,4.5rem)] w-[clamp(2rem,17cqw,4.5rem)]"
                     />
                     <span className="min-w-0 break-words text-[clamp(1.125rem,9cqw,2.75rem)] font-bold leading-tight tracking-tight">{player.display_name}</span>
+                    {match.legs_to_win > 1 && (
+                      <LegWins won={legsWonByPlayer.get(player.id) ?? 0} toWin={match.legs_to_win} />
+                    )}
                   </div>
 
                   <div className="my-auto flex flex-col items-start gap-2">
@@ -286,5 +298,34 @@ export function SpectatorLiveMatchCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+const MAX_LEG_PIPS = 5;
+
+/** Legs won toward the match target: pips for short matches, a count for long ones. */
+function LegWins({ won, toWin }: { won: number; toWin: number }) {
+  const label = `${won} of ${toWin} legs won`;
+  return (
+    <span className="ml-auto flex shrink-0 items-center gap-[clamp(0.25rem,1.5cqw,0.5rem)] self-center" role="img" aria-label={label} title={label}>
+      {toWin <= MAX_LEG_PIPS ? (
+        Array.from({ length: toWin }, (_, index) => (
+          <span
+            key={index}
+            data-won={index < won}
+            className={`size-[clamp(0.875rem,5cqw,1.5rem)] rounded-full border-2 transition-colors duration-300 motion-reduce:transition-none ${
+              index < won
+                ? 'border-amber-300 bg-amber-300 shadow-[0_0_12px_rgb(252_211_77/0.45)]'
+                : 'border-white/40 bg-white/[0.04]'
+            }`}
+          />
+        ))
+      ) : (
+        <span className="text-[clamp(1rem,7cqw,2.25rem)] font-black leading-none tabular-nums">
+          <span className={won > 0 ? 'text-amber-300' : 'text-foreground'}>{won}</span>
+          <span className="text-muted-foreground"> / {toWin}</span>
+        </span>
+      )}
+    </span>
   );
 }

@@ -359,7 +359,29 @@ describe('MatchClient', () => {
       const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
 
       await screen.findByText('Live Match', undefined, { timeout: 5_000 });
-      expect(screen.queryByText('Undo dart')).toBeNull();
+      // Scoring-only controls stay hidden; spectators get the hover toolbar instead.
+      expect(screen.queryByText('Edit throws')).toBeNull();
+      expect(screen.getByRole('toolbar', { name: 'Spectator controls' })).toBeInTheDocument();
+
+      view.unmount();
+    });
+
+    it('undoes the latest persisted dart from the spectator toolbar', async () => {
+      setSearchParams('spectator=true');
+      mockDb.turns = [{ id: 'turn-1', leg_id: 'leg-1', player_id: 'player-1', turn_number: 1, total_scored: 40, busted: false }];
+      mockDb.throws = [
+        { id: 'throw-1', turn_id: 'turn-1', dart_index: 1, segment: 'S20', scored: 20, match_id: 'match-1' },
+        { id: 'throw-2', turn_id: 'turn-1', dart_index: 2, segment: 'S20', scored: 20, match_id: 'match-1' },
+      ];
+      const user = userEvent.setup();
+      const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
+
+      const toolbar = await screen.findByRole('toolbar', { name: 'Spectator controls' }, { timeout: 5_000 });
+      await user.click(within(toolbar).getByRole('button', { name: 'Undo dart' }));
+
+      await vi.waitFor(() => expect(mockDb.throws.map((t) => t.id)).toEqual(['throw-1']));
+      await vi.waitFor(() => expect(within(toolbar).getByRole('button', { name: 'Undo dart' })).toBeEnabled());
+      expect(mockDb.turns[0]).toMatchObject({ total_scored: 20, busted: false });
 
       view.unmount();
     });

@@ -5,6 +5,7 @@ import { ArrowLeft, Home } from 'lucide-react';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { TurnRow } from '@/components/TurnRow';
 import { SpectatorLiveMatchCard } from '@/components/match/SpectatorLiveMatchCard';
+import { SpectatorHoverControls, SpectatorUndoDartButton } from '@/components/match/SpectatorHoverControls';
 import CommentaryDisplay from '@/components/CommentaryDisplay';
 import CommentarySettings from '@/components/CommentarySettings';
 import { CommentaryQuickToggle } from '@/components/match/CommentaryQuickToggle';
@@ -73,6 +74,7 @@ type Props = {
   matchWinnerId: string | null;
   onHome: () => void;
   onToggleSpectatorMode: () => void;
+  onUndoLastDart: () => Promise<void>;
   commentaryEnabled: boolean;
   realtimeCommentaryStatus: RealtimeCommentaryStatus;
   onToggleQuickCommentary: () => void;
@@ -182,6 +184,7 @@ export function MatchSpectatorView({
   matchWinnerId,
   onHome,
   onToggleSpectatorMode,
+  onUndoLastDart,
   commentaryEnabled,
   realtimeCommentaryStatus,
   onToggleQuickCommentary,
@@ -312,6 +315,11 @@ export function MatchSpectatorView({
 
   return (
     <div className="fixed inset-0 overflow-y-auto bg-background">
+      {!isHistoryView && (
+        <SpectatorHoverControls onExit={onToggleSpectatorMode}>
+          <SpectatorUndoDartButton onUndo={onUndoLastDart} disabled={!!matchWinnerId || !!match.ended_early} />
+        </SpectatorHoverControls>
+      )}
       <div className="w-full space-y-3 md:space-y-6 px-4 md:px-6 xl:px-8 py-6 pb-24 md:pb-6 relative">
         {match.paused_at && (
           <div className="rounded-md border border-amber-400/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/70 dark:bg-amber-950/30 dark:text-amber-100">
@@ -541,6 +549,7 @@ export function MatchSpectatorView({
           <SpectatorLiveMatchCard
             match={match}
             orderPlayers={orderPlayers}
+            legs={legs}
             spectatorCurrentPlayer={isHistoryView ? null : spectatorCurrentPlayer}
             turns={turns}
             currentLegId={currentLegId}
