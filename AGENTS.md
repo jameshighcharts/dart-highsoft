@@ -603,6 +603,7 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 
 ### Highdarts counted results
 - `supabase/migrations/20260915090000_highdarts_counted_results.sql`: Per-side `counts_for_a` / `counts_for_b` flags, service-only atomic choice RPC with Slack ownership/admin checks, six-fixture eligibility, stale-write protection, and qualification/finals guards.
+- `supabase/migrations/20260915140000_highdarts_digest.sql`: Hourly `pg_cron` enqueue gated on the Oslo hour, one `highdarts_digests` row per event per local day as the delivery idempotency record, and server-only grants; matching rollback-only SQL regression.
 - `src/app/api/highdarts/counting/route.ts` and tests: Signed-in player/admin choice endpoint; trusted session identity is passed to the database guard.
 - `src/components/highdarts/Fixtures.tsx`: Compact `GroupCountingChoice` rows select one excluded result below the Sogndal card on Tabell and on profiles; `FixtureCountingNote` labels exclusions without removing matches from schedules/history.
 - `src/components/highdarts/Rules.tsx`: `HighdartsCountingRules` provides the detailed rule dialog from the info button next to Counting matches.
