@@ -28,7 +28,7 @@ import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
 import { MatchRulesLine } from './MatchRulesLine';
 import { useMemo, useRef } from 'react';
-import { Pause, Play } from 'lucide-react';
+import { Pause, Play, RotateCcw } from 'lucide-react';
 
 type Props = {
   realtimeConnectionStatus: string;
@@ -52,6 +52,7 @@ type Props = {
   onTogglePause: () => void;
   rematchLoading: boolean;
   onStartRematch: () => void;
+  onRemake?: () => void;
   editOpen: boolean;
   onEditOpenChange: (open: boolean) => void;
   editingThrows: EditableThrow[];
@@ -108,6 +109,7 @@ export function MatchScoringView({
   onTogglePause,
   rematchLoading,
   onStartRematch,
+  onRemake,
   editOpen,
   onEditOpenChange,
   editingThrows,
@@ -392,6 +394,7 @@ export function MatchScoringView({
               <Button variant="outline" size="sm" onClick={onToggleSpectatorMode} className="text-xs whitespace-nowrap">
                 Spectator
               </Button>
+              {onRemake && <Button variant="outline" size="sm" onClick={onRemake} className="gap-1.5 text-xs whitespace-nowrap"><RotateCcw size={14} aria-hidden="true" />Remake match</Button>}
               {!matchWinnerId && (
                 <Button
                   variant="outline"
@@ -428,6 +431,7 @@ export function MatchScoringView({
           </div>
           {/* Mobile: buttons below keypad */}
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2 md:hidden">
+            {onRemake && <Button variant="outline" size="sm" onClick={onRemake} className="gap-1.5 text-xs sm:text-sm"><RotateCcw size={14} aria-hidden="true" />Remake match</Button>}
             <Button variant="outline" size="sm" onClick={onUndoLastThrow} disabled={!!matchWinnerId} className="text-xs sm:text-sm">
               Undo dart
             </Button>

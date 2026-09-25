@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { GAME_MODE_INFO, GAME_MODE_ORDER, type ConfigField } from "@/lib/games/labels";
 import { isGameMode, type GameMode } from "@/lib/games/types";
+import type { MatchRecord, Player } from "@/lib/match/types";
 
 export type GameType = "x01" | GameMode;
 
@@ -63,6 +64,20 @@ export type SavedGameSetup = {
   closestToBull?: boolean;
   highdartsEnabled?: boolean;
 };
+
+export function setupFromMatch(match: MatchRecord, players: Pick<Player, "id">[]): SavedGameSetup {
+  return {
+    gameType: "x01",
+    gameConfig: {},
+    selectedIds: players.map((player) => player.id),
+    startScore: match.start_score,
+    finish: match.finish,
+    legsToWin: match.legs_to_win,
+    fairEnding: match.fair_ending === true,
+    closestToBull: Boolean(match.bull_off),
+    highdartsEnabled: false,
+  };
+}
 
 /** Restore only recognized options; stale or malformed preferences use defaults. Commentary is never restored. */
 export function loadStoredSetup(): SavedGameSetup | null {

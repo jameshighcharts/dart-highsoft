@@ -51,9 +51,9 @@ import {
 import {
   BoardPicker,
   MANUAL_BOARD_VALUE,
+  boardForLocation,
   boardShortName,
-  loadStoredBoardId,
-  storeBoardId,
+  describeBoardStatus,
 } from "@/components/games/BoardPicker";
 import { SelectedPlayerLineup } from "@/components/games/SelectedPlayerLineup";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
@@ -141,8 +141,10 @@ export default function NewMatchPage() {
   const [gameType, setGameType] = useState<GameType>("x01");
   const [gameConfig, setGameConfig] = useState<Record<string, unknown>>({});
   const [setupLoaded, setSetupLoaded] = useState(false);
+  const [remaking, setRemaking] = useState(false);
   const [playersLoaded, setPlayersLoaded] = useState(false);
   useEffect(() => {
+    setRemaking(new URLSearchParams(window.location.search).get("remake") === "1");
     const setup = loadStoredSetup();
     if (setup) {
       setGameType(setup.gameType);
@@ -208,12 +210,9 @@ export default function NewMatchPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [boards, setBoards] = useState<ScoliaBoardOption[]>([]);
-  // Start on manual for SSR and pick up the last chosen board after hydration.
   const [selectedBoardId, setSelectedBoardId] = useState(MANUAL_BOARD_VALUE);
-  useEffect(() => {
-    const stored = loadStoredBoardId();
-    if (stored !== MANUAL_BOARD_VALUE) setSelectedBoardId(stored);
-  }, []);
+  const [creatorLocation, setCreatorLocation] = useState<LocationValue | null>(null);
+  const boardChosenByUser = useRef(false);
   const [boardsLoading, setBoardsLoading] = useState(true);
   // Dev-only: the API returns simulated boards, so realtime must not override them.
   const [boardsSimulated, setBoardsSimulated] = useState(false);
@@ -306,6 +305,13 @@ export default function NewMatchPage() {
     };
     void loadPlayers();
     void loadBoards(true);
+    void apiRequest<{ player: { location: string | null } | null }>("/api/me", { method: "GET" })
+      .then(({ player }) => {
+        if (cancelled) return;
+        const location = LOCATIONS.find((item) => item.value === player?.location);
+        setCreatorLocation(location?.value ?? null);
+      })
+      .catch(() => { /* Leave manual scoring selected if the profile is unavailable. */ });
     return () => {
       cancelled = true;
     };
@@ -354,9 +360,14 @@ export default function NewMatchPage() {
     return () => window.clearInterval(interval);
   }, []);
 
+  // Keep automatic selection tied to the creator's location until they choose a board.
+  useEffect(() => {
+    if (boardsLoading || highdartsLocked || !creatorLocation || boardChosenByUser.current) return;
+    const localBoard = boardForLocation(boards, creatorLocation);
+    setSelectedBoardId(localBoard?.selectable ? localBoard.id : MANUAL_BOARD_VALUE);
+  }, [boards, boardsLoading, creatorLocation, highdartsLocked]);
+
   // Fall back to manual scoring if the chosen board goes offline or gets taken.
-  // Waits for the first board load so a remembered board is not wiped early.
-  // The stored preference is kept so the board is reselected once it is back.
   useEffect(() => {
     if (boardsLoading || highdartsLocked || selectedBoardId === MANUAL_BOARD_VALUE) return;
     const board = boards.find((b) => b.id === selectedBoardId);
@@ -380,10 +391,14 @@ export default function NewMatchPage() {
         (selectedBoardId !== MANUAL_BOARD_VALUE && !boards.some((b) => b.id === selectedBoardId && b.selectable && (!highdartsFixture.office || b.name.toLowerCase().includes(highdartsFixture.office)))
           ? 'Select a ready office board or choose Manual scoring.' : null)
       : null;
+  const boardLocation = highdartsLocked ? highdartsFixture?.office ?? creatorLocation : creatorLocation;
+  const localBoard = boardLocation ? boardForLocation(boards, boardLocation) : undefined;
+  const localBoardStatus = localBoard ? describeBoardStatus(localBoard) : null;
+  const locationName = LOCATIONS.find((location) => location.value === boardLocation)?.label;
 
   function chooseBoard(boardId: string) {
+    boardChosenByUser.current = true;
     setSelectedBoardId(boardId);
-    storeBoardId(boardId);
   }
 
   function toggleNoLocation() {
@@ -590,6 +605,7 @@ export default function NewMatchPage() {
       <div className="grid items-start gap-5 lg:h-full lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)] xl:gap-8 xl:grid-cols-[320px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-5 rounded-2xl bg-slate-900/40 p-4 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain [scrollbar-width:thin] [&_button[data-slot=select-trigger]]:border-white/10 [&_input]:border-white/10 [&_button[data-variant=outline]]:border-white/10">
           <h1 className="text-3xl font-black tracking-tight">New Game</h1>
+          {remaking && <p role="status" className="rounded-lg border border-cyan-400/40 bg-cyan-400/10 p-3 text-sm text-cyan-100">Review the match settings and players before starting the new match.</p>}
           <div className="space-y-2">
             <div className="font-medium">Game type</div>
             <GameTypePicker value={gameType} onChange={changeGameType} />
@@ -597,6 +613,19 @@ export default function NewMatchPage() {
 
           <div ref={boardPicker} className="space-y-2">
             <div className="font-medium">Board</div>
+            <div className="rounded-xl border-2 border-red-400/80 bg-red-500/10 p-3 text-sm leading-relaxed">
+              {!boardsLoading && locationName && localBoardStatus && localBoardStatus.tone !== "ready" && (
+                <p role="status" className="mb-2 font-semibold text-amber-200">
+                  {locationName} board: {localBoardStatus.text}. {selectedBoardId === MANUAL_BOARD_VALUE ? "Manual scoring is selected." : "Choose a ready board or manual scoring."}
+                </p>
+              )}
+              {!boardsLoading && locationName && !localBoard && (
+                <p role="status" className="mb-2 font-semibold text-amber-200">
+                  No {locationName} board is set up. {selectedBoardId === MANUAL_BOARD_VALUE ? "Manual scoring is selected." : "Choose a ready board or manual scoring."}
+                </p>
+              )}
+              <p>Don&apos;t throw darts during setup. Not working? Turn the board off / on</p>
+            </div>
             <BoardPicker
               boards={boards}
               value={selectedBoardId}
@@ -614,7 +643,6 @@ export default function NewMatchPage() {
                 <div>
                   <p className="text-sm font-bold">No board connected</p>
                   <p className="mt-1 text-xs leading-relaxed">This Bengt match will use manual scoring. Your darts will not be recorded automatically. Select your Scolia board above before starting.</p>
-                  <p className="mt-3 rounded-lg border-2 border-yellow-300/80 bg-yellow-300/10 p-3 text-xs leading-relaxed text-yellow-100"><strong>Tip:</strong> Turn the board off and back on. Do not throw any darts while it reconnects. Wait until it is ready, then select it before starting.</p>
                 </div>
               </div>
             )}
@@ -656,45 +684,39 @@ export default function NewMatchPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <div className="font-medium mb-1">Legs to win</div>
-                  <div className="flex items-stretch gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-white/10 bg-white/5 hover:bg-white/10"
-                      disabled={highdartsLocked}
-                      onClick={() => {
-                        setLegsToWin((v) => {
-                          const next = Math.max(1, v - 1);
-                          if (next !== 1) setFairEnding(false);
-                          return next;
-                        });
-                      }}
-                    >
-                      −
-                    </Button>
-                    <Input
-                      readOnly
-                      className="text-center select-none"
-                      value={String(legsToWin)}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-white/10 bg-white/5 hover:bg-white/10"
-                      disabled={highdartsLocked}
-                      onClick={() => {
-                        setLegsToWin((v) => {
-                          const next = v + 1;
-                          if (next !== 1) setFairEnding(false);
-                          return next;
-                        });
-                      }}
-                    >
-                      +
-                    </Button>
+              </div>
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                <div id="legs-to-win-label" className="text-sm font-semibold">Legs to win</div>
+                <div className="flex items-center gap-1" role="group" aria-labelledby="legs-to-win-label">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 w-9 shrink-0 border-white/10 bg-white/5 p-0 text-lg hover:bg-white/10"
+                    aria-label="Remove one leg"
+                    disabled={highdartsLocked || legsToWin === 1}
+                    onClick={() => setLegsToWin((value) => value - 1)}
+                  >
+                    −
+                  </Button>
+                  <div className="min-w-8 text-center" aria-live="polite">
+                    <span className="text-base font-bold tabular-nums">{highdartsLocked ? 2 : legsToWin}</span>
+                    <span className="sr-only">{legsToWin === 1 && !highdartsLocked ? " leg" : " legs"}</span>
                   </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 w-9 shrink-0 border-white/10 bg-white/5 p-0 text-lg hover:bg-white/10"
+                    aria-label="Add one leg"
+                    disabled={highdartsLocked}
+                    onClick={() => {
+                      setLegsToWin((value) => value + 1);
+                      setFairEnding(false);
+                    }}
+                  >
+                    +
+                  </Button>
                 </div>
               </div>
               <div className="space-y-2">

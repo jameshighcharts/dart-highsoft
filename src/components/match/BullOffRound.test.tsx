@@ -38,3 +38,9 @@ it('offers no manual scoring controls to hardware matches or spectators', () => 
   render(<BullOffRound {...props} spectator hardware state={createBullOff(['a', 'b'])} />);
   expect(screen.queryByRole('button', { name: 'Record distance' })).not.toBeInTheDocument();
 });
+it('opens match setup from the bull-off screen', () => {
+  const onRemake = vi.fn();
+  render(<BullOffRound {...props} spectator state={createBullOff(['a', 'b'])} onRemake={onRemake} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Remake match' }));
+  expect(onRemake).toHaveBeenCalledOnce();
+});

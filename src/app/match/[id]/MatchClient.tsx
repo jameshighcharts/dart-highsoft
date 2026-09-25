@@ -5,6 +5,7 @@ import { HighdartsMatchTag } from '@/components/highdarts/MatchTag';
 import { bullOffBrief } from '@/lib/commentary/bullOff';
 import { CompassTvButton } from '@/components/CompassTvButton';
 import { RematchPanel } from '@/components/games/RematchPanel';
+import { setupFromMatch, storeSetup } from '@/components/games/NewGameOptions';
 import { MatchScoringView } from '@/components/match/MatchScoringView';
 import { RealtimeDebugPanel } from '@/components/match/RealtimeDebugPanel';
 import { PerfDebugPanel } from '@/components/match/PerfDebugPanel';
@@ -590,6 +591,12 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     router.push('/games');
   }, [router]);
 
+  const remakeMatch = () => {
+    if (!match) return;
+    storeSetup(setupFromMatch(match, orderPlayers));
+    router.push('/new?remake=1');
+  };
+
 
   if (loading) return <div className="p-4">Loading…</div>;
   if (error) return <div className="p-4 text-red-600">{error}</div>;
@@ -598,7 +605,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     <BullOffRound matchId={matchId} state={match.bull_off} players={players} spectator={isSpectatorMode}
       hardware={Boolean(match.scolia_board_id)} reload={async () => { await loadMatchOnly(); }}
       commentaryEnabled={commentaryEnabled} commentaryStatus={realtimeCommentaryStatus} toggleCommentary={toggleQuickCommentary}
-      commentary={currentCommentary ?? ''} toggleSpectator={toggleSpectatorMode} />
+      commentary={currentCommentary ?? ''} toggleSpectator={toggleSpectatorMode}
+      onRemake={!match.tournament_match_id ? remakeMatch : undefined} />
   );
   const matchUrl = origin ? `${origin}/match/${matchId}` : '';
 
@@ -618,6 +626,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
         {rematchPanel}
         {highdartsTag}
         <SpectatorView
+          onRemake={!match.tournament_match_id ? remakeMatch : undefined}
           rematchOpen={rematchOpen}
           onRematch={!match.tournament_match_id ? () => setRematchOpen(true) : undefined}
           celebration={celebration}
@@ -687,6 +696,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
       {highdartsTag}
       {(matchWinnerId || match.ended_early) && <div className="mb-4 flex justify-end"><CompassTvButton /></div>}
       <MatchScoringView
+        onRemake={!match.tournament_match_id ? remakeMatch : undefined}
         realtimeConnectionStatus={realtime.connectionStatus}
           realtimeConnectionError={realtime.connectionError}
         currentPlayer={currentPlayer}

@@ -1,7 +1,7 @@
 import { RealtimeConnectionError } from './RealtimeConnectionError';
 import QRCode from 'react-qr-code';
 import { CompassTvButton } from '@/components/CompassTvButton';
-import { ArrowLeft, Home } from 'lucide-react';
+import { ArrowLeft, Home, RotateCcw } from 'lucide-react';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { TurnRow } from '@/components/TurnRow';
 import { SpectatorLiveMatchCard } from '@/components/match/SpectatorLiveMatchCard';
@@ -50,6 +50,7 @@ type CelebrationState = {
 } | null;
 
 type Props = {
+  onRemake?: () => void;
   onRematch?: () => void;
   rematchOpen?: boolean;
   celebration: CelebrationState;
@@ -160,6 +161,7 @@ function ConfettiOverlay() {
 }
 
 export function MatchSpectatorView({
+  onRemake,
   onRematch,
   rematchOpen = false,
   celebration,
@@ -743,6 +745,7 @@ export function MatchSpectatorView({
         {/* Navigation Buttons */}
         <div className="flex flex-wrap justify-center gap-3 pt-6 pb-20 md:pb-6">
           {(matchWinnerId || match.ended_early) && <CompassTvButton />}
+          {onRemake && <Button variant="outline" onClick={onRemake} className="flex-1 max-w-xs gap-2"><RotateCcw size={16} aria-hidden="true" />Remake match</Button>}
           <Button variant="outline" onClick={onHome} className="flex items-center gap-2 flex-1 max-w-xs">
             <Home size={16} />
             Home

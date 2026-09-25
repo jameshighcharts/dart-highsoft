@@ -1,6 +1,7 @@
 'use client';
 
 import { useLayoutEffect, useRef, useState } from 'react';
+import { RotateCcw } from 'lucide-react';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,10 +10,10 @@ import { formatBullDistance, liveBullOffOrder, type BullOffState } from '@/lib/m
 import type { Player } from '@/lib/match/types';
 import type { RealtimeCommentaryStatus } from '@/services/realtimeCommentaryService';
 
-export function BullOffRound({ matchId, state, players, spectator, hardware, reload, commentaryEnabled, commentaryStatus, toggleCommentary, commentary, toggleSpectator }: {
+export function BullOffRound({ matchId, state, players, spectator, hardware, reload, commentaryEnabled, commentaryStatus, toggleCommentary, commentary, toggleSpectator, onRemake }: {
   matchId: string; state: BullOffState; players: Player[]; spectator: boolean; hardware: boolean;
   reload: () => Promise<void>; commentaryEnabled: boolean; commentaryStatus: RealtimeCommentaryStatus;
-  toggleCommentary: () => void; commentary: string; toggleSpectator?: () => void;
+  toggleCommentary: () => void; commentary: string; toggleSpectator?: () => void; onRemake?: () => void;
 }) {
   const [distance, setDistance] = useState('');
   const [unit, setUnit] = useState<'in' | 'mm'>('in');
@@ -136,6 +137,9 @@ export function BullOffRound({ matchId, state, players, spectator, hardware, rel
       @keyframes bull-impact { 0% { scale: 2.8; opacity: .2; } 60% { scale: .8; opacity: 1; } 100% { scale: 1; } }
       @media (prefers-reduced-motion: reduce) { .bull-lane, .bull-length, .bull-marker { transition: none; } .bull-current, .bull-landed, .bull-number, .bull-flash, .bull-dot { animation: none; } .bull-flash { opacity: 0; } }
     `}</style>
-    {toggleSpectator && <Button variant="ghost" onClick={toggleSpectator}>{spectator ? 'Open scoring controls' : 'Spectator view'}</Button>}
+    <div className="flex flex-wrap justify-center gap-2">
+      {toggleSpectator && <Button variant="ghost" onClick={toggleSpectator}>{spectator ? 'Open scoring controls' : 'Spectator view'}</Button>}
+      {onRemake && <Button variant="outline" onClick={onRemake} className="gap-2"><RotateCcw size={16} aria-hidden="true" />Remake match</Button>}
+    </div>
   </section></div>;
 }

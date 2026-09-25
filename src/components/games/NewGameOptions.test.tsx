@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { GameConfigFields, loadStoredSetup, storeSetup, SETUP_STORAGE_KEY } from './NewGameOptions';
+import { GameConfigFields, loadStoredSetup, setupFromMatch, storeSetup, SETUP_STORAGE_KEY } from './NewGameOptions';
+import { createMockMatch } from '@/test-utils/factories';
+import { createBullOff } from '@/lib/match/bullOff';
 afterEach(cleanup);
 describe('party-game setup',()=>{
  it('hides irrelevant bull requirements when finishing on Bull is off',()=>{
@@ -24,6 +26,14 @@ describe('remembered game setup', () => {
       closestToBull: true, highdartsEnabled: true };
   storeSetup(setup);
   expect(loadStoredSetup()).toEqual(setup);
+ });
+ it('copies match rules and player order for a reviewed remake', () => {
+  const match = { ...createMockMatch({ start_score: '501', finish: 'double_out', legs_to_win: 3, fair_ending: false }), bull_off: createBullOff(['ben', 'ada']) };
+  expect(setupFromMatch(match, [{ id: 'ben' }, { id: 'ada' }])).toMatchObject({
+    gameType: 'x01', selectedIds: ['ben', 'ada'], startScore: '501',
+    finish: 'double_out', legsToWin: 3, closestToBull: true,
+    highdartsEnabled: false,
+  });
  });
  it('drops a legacy saved commentary preference', () => {
   localStorage.setItem(SETUP_STORAGE_KEY, JSON.stringify({ gameType: 'x01', gameConfig: {}, selectedIds: [], commentaryEnabled: true }));

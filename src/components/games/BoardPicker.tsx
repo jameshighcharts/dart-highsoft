@@ -2,6 +2,7 @@
 
 import { PencilLine, Wifi } from "lucide-react";
 import type { ScoliaBoardOption } from "@/lib/scolia/types";
+import type { LocationValue } from "@/utils/locations";
 import {
   Select,
   SelectContent,
@@ -49,6 +50,10 @@ const BOARD_SLOTS = [
 export function boardShortName(name: string): string {
   const slot = BOARD_SLOTS.find((s) => name.toLowerCase().includes(s.keyword));
   return slot ? slot.label.replace(/^Scolia /, "") : name;
+}
+
+export function boardForLocation(boards: ScoliaBoardOption[], location: LocationValue): ScoliaBoardOption | undefined {
+  return boards.find((board) => board.name.toLowerCase().includes(location));
 }
 
 type Tone = "ready" | "busy" | "offline" | "none";
