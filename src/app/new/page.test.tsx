@@ -35,18 +35,30 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 async function setup(boards: ScoliaBoardOption[] = []) {
   vi.mocked(apiRequest).mockImplementation(async (url) => {
+    if (url === '/api/me') return { player: { location: 'vik' } };
     if (url === '/api/highdarts') return { fixtures: [drawn], players: [], boards };
     if (url === '/api/scolia/boards/available') return { boards };
     if (url === '/api/matches') return { matchId: 'created-match' };
     throw new Error(`Unexpected request: ${url}`);
   });
   render(<NewMatchPage />);
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Start match' })).toBeEnabled());
+  if (boards.length) {
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Board' })).toHaveTextContent('Scolia Vik'));
+  } else {
+    await waitFor(() => expect(screen.getByText(/No Vik board is set up/)).toBeInTheDocument());
+  }
 }
 const starts = () => vi.mocked(apiRequest).mock.calls.filter(([url]) => url === '/api/matches');
+async function chooseManual() {
+  await userEvent.click(screen.getByRole('combobox', { name: 'Board' }));
+  await userEvent.click(screen.getByRole('option', { name: /Manual/ }));
+}
 
 it('blocks Bengt manual starts even with no online boards until the warning is acknowledged', async () => {
   await setup();
+  expect(screen.getByRole('combobox', { name: 'Board' })).toHaveTextContent('Scolia Vik');
+  await chooseManual();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Start match' })).toBeEnabled());
   expect(screen.getByRole('alert')).toHaveTextContent('No board connected');
   await userEvent.click(screen.getByRole('button', { name: 'Start match' }));
   const dialog = within(screen.getByRole('alertdialog', { name: 'STOP. No board connected.' }));
@@ -68,6 +80,8 @@ it('blocks Bengt manual starts even with no online boards until the warning is a
 
 it('requires a fresh acknowledgement after dismissing the warning', async () => {
   await setup();
+  await chooseManual();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Start match' })).toBeEnabled());
   await userEvent.click(screen.getByRole('button', { name: 'Start match' }));
   await userEvent.click(screen.getByRole('checkbox', { name: /I understand/ }));
   await userEvent.keyboard('{Escape}');
@@ -86,10 +100,26 @@ it('starts a Bengt match on its selected ready board without the manual warning'
   expect(starts()[0][1]?.body).toMatchObject({ highdartsFixtureId: drawn.id, scoliaBoardId: 'vik-board' });
 });
 
+it('keeps the local board selected while offline and requires an explicit manual choice', async () => {
+  window.history.replaceState({}, '', '/new');
+  storeSetup({ gameType: 'x01', gameConfig: {}, selectedIds: ['Askel', 'Helga'], startScore: '301', finish: 'single_out', legsToWin: 1, fairEnding: false });
+  await setup([{ ...readyBoard, boardStatus: 'Offline', selectable: false }]);
+  expect(screen.getByRole('combobox', { name: 'Board' })).toHaveTextContent('Offline');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Start match' })).toBeEnabled());
+  await userEvent.click(screen.getByRole('button', { name: 'Start match' }));
+  expect(await screen.findByText(/Wait until it is Ready, or choose Manual scoring/)).toBeInTheDocument();
+  expect(starts()).toHaveLength(0);
+  await chooseManual();
+  await userEvent.click(screen.getByRole('button', { name: 'Start match' }));
+  expect(starts()).toHaveLength(1);
+  expect(starts()[0][1]?.body).toMatchObject({ scoliaBoardId: null });
+});
+
 it('keeps ordinary manual matches unchanged', async () => {
   window.history.replaceState({}, '', '/new');
   storeSetup({ gameType: 'x01', gameConfig: {}, selectedIds: ['Askel', 'Helga'], startScore: '301', finish: 'single_out', legsToWin: 1, fairEnding: false });
   await setup();
+  await chooseManual();
   await userEvent.click(screen.getByRole('button', { name: 'Start match' }));
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   expect(starts()).toHaveLength(1);
