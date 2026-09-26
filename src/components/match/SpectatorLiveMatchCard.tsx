@@ -1,17 +1,15 @@
 "use client";
 
 import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { ThrowSegmentBadges } from '@/components/ThrowSegmentBadges';
-import { computeCheckoutSuggestions } from '@/utils/checkoutSuggestions';
-import { computeSetupSuggestions } from '@/utils/setupSuggestions';
+import { CheckoutRoute } from '@/components/match/CheckoutRoute';
+import type { SpectatorCheckout } from '@/utils/spectatorCheckout';
 import { getLegRoundStats, getSpectatorScore } from '@/utils/matchStats';
 import { decorateAvg } from '@/utils/playerStats';
 import type { LegRecord, MatchRecord, Player, ThrowRecord, TurnRecord, TurnWithThrows } from '@/lib/match/types';
 import type { FairEndingState } from '@/utils/fairEnding';
-import type { FinishRule } from '@/utils/x01';
 import { useEffect, useMemo, useRef } from 'react';
 
 type Props = {
@@ -22,10 +20,11 @@ type Props = {
   turns: TurnRecord[];
   currentLegId?: string;
   startScore: number;
-  finishRule: FinishRule;
   turnThrowCounts: Record<string, number>;
   getAvgForPlayer: (playerId: string) => number;
   fairEndingState?: FairEndingState;
+  /** Finish route for the player on throw; hidden during tiebreaks by the caller. */
+  checkout?: SpectatorCheckout | null;
   title?: string;
   className?: string;
   spacious?: boolean;
@@ -39,10 +38,10 @@ export function SpectatorLiveMatchCard({
   turns,
   currentLegId,
   startScore,
-  finishRule,
   turnThrowCounts,
   getAvgForPlayer,
   fairEndingState,
+  checkout,
   title = 'Live Match',
   className,
   spacious = false,
@@ -52,6 +51,8 @@ export function SpectatorLiveMatchCard({
   const previousScores = useRef(new Map<string, { score: number; legId?: string }>());
   const scoreAnimations = useRef(new Map<string, Animation>());
   const currentPlayerId = spectatorCurrentPlayer?.id;
+  // Seven or more players beside an expanded board squeeze tiles into three short rows.
+  const roomyTiles = spacious || orderPlayers.length <= 6;
   const legsWonByPlayer = useMemo(() => {
     const counts = new Map<string, number>();
     for (const leg of legs) {
@@ -127,59 +128,6 @@ export function SpectatorLiveMatchCard({
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col gap-4">
-          {/* Checkout suggestions (hidden during tiebreak) */}
-          {(() => {
-            const isTiebreak = fairEndingState?.phase === 'tiebreak';
-            if (!spectatorCurrentPlayer || isTiebreak) return null;
-
-            const currentScore = getSpectatorScore(
-              turns,
-              currentLegId,
-              startScore,
-              turnThrowCounts,
-              spectatorCurrentPlayer.id
-            );
-            const playerTurns = turns.filter((turn) => turn.player_id === spectatorCurrentPlayer.id);
-            const lastTurn = playerTurns.length > 0 ? playerTurns[playerTurns.length - 1] : null;
-            const throwCount = lastTurn ? turnThrowCounts[lastTurn.id] || 0 : 0;
-
-            // Determine if this is a new turn starting or continuing an incomplete turn
-            // New turn if: no turns yet, last turn was busted, or last turn completed (3 throws)
-            const isNewTurnStarting = !lastTurn || lastTurn.busted || throwCount === 3;
-            const dartsLeft = isNewTurnStarting ? 3 : Math.max(0, 3 - throwCount);
-
-            const paths = computeCheckoutSuggestions(currentScore, dartsLeft, finishRule);
-
-            // Only show checkout suggestions if we're actually in a checkout scenario
-            const shouldShowCheckout = currentScore > 0 && currentScore <= 170 && dartsLeft > 0;
-            const hasCheckout = shouldShowCheckout && paths.length > 0;
-            const setup = !hasCheckout && currentScore > 0 && dartsLeft > 0
-              ? computeSetupSuggestions(currentScore, dartsLeft, finishRule)
-              : null;
-
-            if (!hasCheckout && !setup && !shouldShowCheckout) return null;
-
-            return (
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                {hasCheckout ? (
-                  paths.map((p, i) => (
-                    <Badge key={i} variant="outline" className="text-xs">
-                      {p.join(', ')}
-                    </Badge>
-                  ))
-                ) : setup ? (
-                  <Badge variant="secondary" className="text-xs">
-                    Setup: {setup.path.join(', ')} → {setup.target}
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-xs text-muted-foreground">
-                    No checkout available
-                  </Badge>
-                )}
-              </div>
-            );
-          })()}
-
           {/* Player scores with inline throw indicators */}
           <div
             ref={listRef}
@@ -197,6 +145,9 @@ export function SpectatorLiveMatchCard({
               const averageDecoration = decorateAvg(avg);
               const isCurrent = spectatorCurrentPlayer?.id === player.id;
               const isCheckedOut = fairEndingState?.checkedOutPlayerIds?.includes(player.id);
+              const tileCheckout = isCurrent && checkout?.playerId === player.id ? checkout : null;
+              // The route header shows this visit's darts, so the tile drops its own throw row to save height.
+              const routeOwnsThrows = Boolean(tileCheckout && tileCheckout.kind !== 'none');
 
               // Get throws to display for this player
               let displayThrows: ThrowRecord[] = [];
@@ -230,6 +181,7 @@ export function SpectatorLiveMatchCard({
                   data-score={score}
                   data-finished={Boolean(isCheckedOut || (!isTiebreak && score === 0))}
                   aria-current={isCurrent ? 'true' : undefined}
+                  data-on-finish={tileCheckout?.kind === 'checkout' ? 'true' : undefined}
                   className={`scoreboard-tile @container relative flex min-h-[clamp(13rem,22dvh,16rem)] min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border p-4 transition-colors duration-300 motion-reduce:transition-none ${
                     isCurrent
                       ? 'border-lime-300/80 bg-gradient-to-br from-lime-300/20 via-lime-300/5 to-transparent shadow-[inset_0_1px_0_0_rgb(190_242_100/0.25)]'
@@ -260,7 +212,7 @@ export function SpectatorLiveMatchCard({
                         {isTiebreakPlayer ? `Round ${fairEndingState!.tiebreakRound} score` : 'Remaining'}
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 pb-0.5">
+                    {!routeOwnsThrows ? <div className="flex flex-wrap items-center gap-2 pb-0.5">
                       {isCurrent ? (
                         <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-lime-300">
                           <span className="scoreboard-turn-dot h-1.5 w-1.5 rounded-full bg-lime-300" />On throw
@@ -273,8 +225,16 @@ export function SpectatorLiveMatchCard({
                         highlightIncomplete={isCurrent}
                         placeholder="·"
                       />
-                    </div>
+                    </div> : null}
                   </div>
+
+                  {tileCheckout ? (
+                    <CheckoutRoute
+                      checkout={tileCheckout}
+                      showAlternative={roomyTiles}
+                      throws={<ThrowSegmentBadges throws={displayThrows} highlightIncomplete placeholder="·" />}
+                    />
+                  ) : null}
 
                   <div className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-white/10 pt-2.5 text-xs tabular-nums text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
