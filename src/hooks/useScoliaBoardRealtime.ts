@@ -13,6 +13,7 @@ type StatusRow = {
   worker_connection_status: ScoliaBoardPublicStatus['workerConnectionStatus'];
   board_status: string | null;
   board_phase: string | null;
+  board_phase_changed_at?: string | null;
   error_type: string | null;
   last_event_at: string | null;
   worker_heartbeat_at: string | null;
@@ -33,6 +34,7 @@ function publicStatusFromRow(row: StatusRow): ScoliaBoardPublicStatus {
     workerConnectionStatus: row.worker_connection_status,
     boardStatus: row.board_status,
     boardPhase: row.board_phase,
+    boardPhaseChangedAt: row.board_phase_changed_at ?? null,
     errorType: row.error_type,
     lastEventAt: row.last_event_at,
     workerHeartbeatAt: row.worker_heartbeat_at,

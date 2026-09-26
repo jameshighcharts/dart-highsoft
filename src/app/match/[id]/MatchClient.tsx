@@ -1,6 +1,7 @@
 "use client";
 
 import { BullOffRound } from '@/components/match/BullOffRound';
+import { ScoliaTakeoutRecovery } from '@/components/match/ScoliaPhaseRecovery';
 import { HighdartsMatchTag } from '@/components/highdarts/MatchTag';
 import { bullOffBrief } from '@/lib/commentary/bullOff';
 import { CompassTvButton } from '@/components/CompassTvButton';
@@ -594,12 +595,17 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   if (loading) return <div className="p-4">Loading…</div>;
   if (error) return <div className="p-4 text-red-600">{error}</div>;
   if (!match || !currentLeg) return <div className="p-4">No leg available</div>;
-  if (match.bull_off && (match.bull_off.phase === 'throwing' || (bullOffHandoffPending && !bullOffTransitionReady)) && !match.ended_early && !matchWinnerId) return (
+  const matchHasDarts = Object.values(turnThrowCounts).some(n => n > 0) || legs.length > 1 || localTurn.darts.length > 0;
+  const takeoutRecovery = match.scolia_board_id && !historyParam && !matchWinnerId && !match.ended_early && !match.paused_at
+    ? <ScoliaTakeoutRecovery matchId={matchId} boardId={match.scolia_board_id} matchCreatedAt={match.created_at} matchStarted={matchHasDarts} />
+    : null;
+  if (match.bull_off && (match.bull_off.phase === 'throwing' || (bullOffHandoffPending && !bullOffTransitionReady)) && !match.ended_early && !matchWinnerId) return (<>
+    {takeoutRecovery}
     <BullOffRound matchId={matchId} state={match.bull_off} players={players} spectator={isSpectatorMode}
       hardware={Boolean(match.scolia_board_id)} reload={async () => { await loadMatchOnly(); }}
       commentaryEnabled={commentaryEnabled} commentaryStatus={realtimeCommentaryStatus} toggleCommentary={toggleQuickCommentary}
       commentary={currentCommentary ?? ''} toggleSpectator={toggleSpectatorMode} />
-  );
+  </>);
   const matchUrl = origin ? `${origin}/match/${matchId}` : '';
 
   const rematchPanel = (matchWinnerId || match.ended_early) && !match.tournament_match_id ? (
@@ -608,13 +614,14 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   ) : null;
 
   const highdartsTag = <HighdartsMatchTag match={match} players={players}
-    hasThrows={Object.values(turnThrowCounts).some(n => n > 0) || legs.length > 1 || localTurn.darts.length > 0}
+    hasThrows={matchHasDarts}
     spectator={isSpectatorMode} reload={isSpectatorMode ? loadAllSpectator : loadAll} />;
 
   // Spectator Mode View
   if (isSpectatorMode) {
     return (
       <>
+        {takeoutRecovery}
         {rematchPanel}
         {highdartsTag}
         <SpectatorView
@@ -683,6 +690,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
 
   return (
     <>
+      {takeoutRecovery}
       {rematchPanel}
       {highdartsTag}
       {(matchWinnerId || match.ended_early) && <div className="mb-4 flex justify-end"><CompassTvButton /></div>}
