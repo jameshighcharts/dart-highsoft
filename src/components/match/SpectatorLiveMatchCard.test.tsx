@@ -14,7 +14,7 @@ function view(scored = 0, legId = 'leg') {
   }] : [];
   return <SpectatorLiveMatchCard match={{ start_score: '301', finish: 'single_out', legs_to_win: 1 }}
     orderPlayers={[player]} spectatorCurrentPlayer={null} turns={turns}
-    currentLegId={legId} startScore={301} finishRule="single_out"
+    currentLegId={legId} startScore={301}
     turnThrowCounts={{ turn: 3 }} getAvgForPlayer={() => scored} />;
 }
 beforeEach(() => {
@@ -61,7 +61,7 @@ describe('leg wins', () => {
   const card = (legsToWin: number, legs: { winner_player_id: string | null }[]) => (
     <SpectatorLiveMatchCard match={{ start_score: '301', finish: 'single_out', legs_to_win: legsToWin }}
       orderPlayers={players} legs={legs} spectatorCurrentPlayer={null} turns={[]}
-      currentLegId="leg" startScore={301} finishRule="single_out"
+      currentLegId="leg" startScore={301}
       turnThrowCounts={{}} getAvgForPlayer={() => 0} />
   );
 
@@ -80,5 +80,33 @@ describe('leg wins', () => {
   it('hides leg wins in single-leg matches', () => {
     render(card(1, [{ winner_player_id: null }]));
     expect(screen.queryByRole('img', { name: /legs won/ })).toBeNull();
+  });
+});
+
+describe('checkout route', () => {
+  const card = (checkout: React.ComponentProps<typeof SpectatorLiveMatchCard>['checkout'], current: typeof player | null = player) => (
+    <SpectatorLiveMatchCard match={{ start_score: '501', finish: 'double_out', legs_to_win: 1 }}
+      orderPlayers={[player]} spectatorCurrentPlayer={current} turns={[]}
+      currentLegId="leg" startScore={501}
+      turnThrowCounts={{}} getAvgForPlayer={() => 0} checkout={checkout} />
+  );
+
+  it('shows the route inside the tile of the player on throw and marks the tile as on a finish', () => {
+    render(card({ kind: 'checkout', playerId: player.id, score: 121, dartsLeft: 3, routes: [['T20', 'S11', 'DB'], ['T17', 'T10', 'D5']] }));
+    const route = screen.getByRole('group', { name: 'Checkout 121: T20, S11, DB' });
+    expect(route).toHaveTextContent('BULL');
+    expect(route).toHaveTextContent('or T17 · T10 · D5');
+    expect(screen.getByRole('listitem', { current: true })).toHaveAttribute('data-on-finish', 'true');
+  });
+
+  it('shows setups with the leave target', () => {
+    render(card({ kind: 'setup', playerId: player.id, score: 57, dartsLeft: 1, path: ['SB'], target: 32 }));
+    expect(screen.getByRole('group', { name: 'Setup: SB, leaving 32' })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { current: true })).not.toHaveAttribute('data-on-finish');
+  });
+
+  it('hides the route when it belongs to someone else', () => {
+    render(card({ kind: 'checkout', playerId: 'rival', score: 40, dartsLeft: 3, routes: [['D20']] }));
+    expect(screen.queryByRole('group', { name: /Checkout/ })).toBeNull();
   });
 });

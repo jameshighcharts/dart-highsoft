@@ -16,12 +16,13 @@ export type MatchRow = {
   tournament_match_id: string | null;
   scolia_board_id?: string | null;
   rematch_of_match_id?: string | null;
+  created_at?: string;
 };
 
 export async function loadMatch(supabase: SupabaseClient, matchId: string): Promise<MatchRow | null> {
   const { data, error } = await supabase
     .from('matches')
-    .select('id, winner_player_id, completed_at, ended_early, start_score, finish, legs_to_win, fair_ending, paused_at, highdarts_fixture_id, tournament_match_id, scolia_board_id, rematch_of_match_id, bull_off')
+    .select('id, winner_player_id, completed_at, ended_early, start_score, finish, legs_to_win, fair_ending, paused_at, highdarts_fixture_id, tournament_match_id, scolia_board_id, rematch_of_match_id, bull_off, created_at')
     .eq('id', matchId)
     .single();
   if (error || !data) return null;

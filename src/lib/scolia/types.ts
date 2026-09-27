@@ -64,6 +64,7 @@ export type ScoliaBoardPublicStatus = {
   workerConnectionStatus: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
   boardStatus: string | null;
   boardPhase: string | null;
+  boardPhaseChangedAt?: string | null;
   errorType: string | null;
   lastEventAt: string | null;
   workerHeartbeatAt: string | null;

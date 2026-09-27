@@ -30,6 +30,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { VoiceOption } from '@/services/ttsService';
 import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
+import { getSpectatorCheckout } from '@/utils/spectatorCheckout';
 import type { DartIQLiveEvidence, DartIQLiveInput } from '@/lib/dartiq/liveWorker';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
@@ -295,6 +296,18 @@ export function MatchSpectatorView({
     setWinnerModalOpen(Boolean(matchWinnerId) && !isHistoryView);
   }, [isHistoryView, matchWinnerId]);
 
+  const checkout = useMemo(() => {
+    if (!spectatorCurrentPlayer || isHistoryView || matchWinnerId || fairEndingState?.phase === 'tiebreak') return null;
+    return getSpectatorCheckout({
+      turns,
+      currentLegId,
+      startScore,
+      turnThrowCounts,
+      finishRule,
+      playerId: spectatorCurrentPlayer.id,
+    });
+  }, [currentLegId, fairEndingState?.phase, finishRule, isHistoryView, matchWinnerId, spectatorCurrentPlayer, startScore, turnThrowCounts, turns]);
+
   const topThreeTurns = useMemo(
     () =>
       turns
@@ -539,6 +552,7 @@ export function MatchSpectatorView({
               boardPhase={scoliaBoardPhase}
               collapsed={boardCollapsed}
               onToggleCollapsed={toggleBoardCollapsed}
+              checkout={checkout}
               actions={<CommentaryQuickToggle
                 enabled={commentaryEnabled && audioEnabled}
                 status={realtimeCommentaryStatus}
@@ -554,10 +568,10 @@ export function MatchSpectatorView({
             turns={turns}
             currentLegId={currentLegId}
             startScore={startScore}
-            finishRule={finishRule}
             turnThrowCounts={turnThrowCounts}
             getAvgForPlayer={getAvgForPlayer}
             fairEndingState={fairEndingState}
+            checkout={checkout}
             title={isHistoryView ? 'Match Summary' : 'Live Match'}
             className="xl:col-span-1 xl:row-span-1 xl:self-stretch"
             spacious={Boolean(match.scolia_board_id) && boardCollapsed}

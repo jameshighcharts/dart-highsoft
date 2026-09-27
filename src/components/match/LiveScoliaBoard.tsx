@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { PlayerAvatar, type AvatarPlayer } from '@/components/PlayerAvatar';
 import { Card, CardContent } from '@/components/ui/card';
 import type { ThrowRecord, TurnRecord, TurnWithThrows } from '@/lib/match/types';
+import { describeSegment, type SpectatorCheckout } from '@/utils/spectatorCheckout';
 
 const SIZE = 500;
 const CENTER = SIZE / 2;
@@ -56,6 +57,61 @@ function flashTargetForThrow(dart?: ThrowRecord): FlashTarget | null {
   const radius = Math.hypot(dart.impact_x_mm ?? 0, dart.impact_y_mm ?? 0);
   const [inner, outer] = radius <= 103 ? [15.9, 99] : [107, 162];
   return { kind: 'path', d: sectorPath(inner, outer, start, end), intensity: 'single' };
+}
+
+/** "an 81", "an 18", "an 11", but "a 121". */
+function finishArticle(score: number) {
+  return /^(8\d?|11|18)$/.test(String(score)) ? 'an' : 'a';
+}
+
+function sectorAngles(number: number) {
+  const index = NUMBERS.indexOf(number);
+  if (index < 0) return null;
+  return {
+    start: ((index * 18 - 99) * Math.PI) / 180,
+    end: (((index + 1) * 18 - 99) * Math.PI) / 180,
+  };
+}
+
+/** Board areas that score a route label; singles light both single beds. */
+function targetShapes(label: string): ({ kind: 'path'; d: string } | { kind: 'circle'; r: number; ring?: number })[] {
+  if (label === 'DB') return [{ kind: 'circle', r: 6.35 }];
+  if (label === 'SB') return [{ kind: 'circle', r: (6.35 + 15.9) / 2, ring: 15.9 - 6.35 }];
+  const match = label.match(/^([SDT])(\d+)$/);
+  const angles = match ? sectorAngles(Number(match[2])) : null;
+  if (!match || !angles) return [];
+  const { start, end } = angles;
+  if (match[1] === 'T') return [{ kind: 'path', d: sectorPath(99, 107, start, end) }];
+  if (match[1] === 'D') return [{ kind: 'path', d: sectorPath(162, 170, start, end) }];
+  return [
+    { kind: 'path', d: sectorPath(15.9, 99, start, end) },
+    { kind: 'path', d: sectorPath(107, 162, start, end) },
+  ];
+}
+
+/** Lights the next dart's target brightly and outlines the rest of the route. */
+function CheckoutTargets({ route }: { route: string[] }) {
+  const seen = new Set<string>();
+  const targets = route.flatMap((label, index) => {
+    if (seen.has(label)) return [];
+    seen.add(label);
+    return [{ label, index }];
+  });
+  // Later targets paint first so the next dart's glow sits on top.
+  return (
+    <g className="checkout-targets" aria-hidden="true">
+      <circle className="checkout-spotlight" cx={CENTER} cy={CENTER} r="171" fill="#000" />
+      {[...targets].reverse().map(({ label, index }) => (
+        <g key={`${index}-${label}`} className={`checkout-target ${index === 0 ? 'checkout-target--next' : 'checkout-target--later'}`}>
+          {targetShapes(label).map((shape, shapeIndex) => shape.kind === 'circle' ? (
+            <circle key={shapeIndex} cx={CENTER} cy={CENTER} r={shape.r} fill={shape.ring ? 'none' : 'currentColor'} stroke="currentColor" strokeWidth={shape.ring ?? 2} />
+          ) : (
+            <path key={shapeIndex} d={shape.d} fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+          ))}
+        </g>
+      ))}
+    </g>
+  );
 }
 
 function ImpactSectionFlash({ dart }: { dart?: ThrowRecord }) {
@@ -116,8 +172,26 @@ function throwPresentation(segment: string) {
   };
 }
 
-function ThrowReadout({ dart, index }: { dart?: ThrowRecord; index: number }) {
+/** An empty dart slot showing where the checkout route says to aim. */
+function GhostTarget({ label, order }: { label: string; order: number }) {
+  const { kind, prefix, value } = describeSegment(label);
+  return (
+    <div
+      className={`ghost-target ghost-target--${kind} ${order === 0 ? 'ghost-target--next' : ''} relative flex h-[clamp(3rem,12dvh,9rem)] items-center justify-center`}
+      style={{ animationDelay: `${order * 110}ms` }}
+      aria-label={`Aim for ${label}`}
+    >
+      <div className="throw-score ghost-target-score flex items-baseline justify-center font-mono font-black italic leading-none tracking-[-0.11em]">
+        {prefix ? <span className="mr-1 text-[0.48em] tracking-normal">{prefix}</span> : null}
+        <span>{value}</span>
+      </div>
+    </div>
+  );
+}
+
+function ThrowReadout({ dart, index, aim, aimOrder = 0 }: { dart?: ThrowRecord; index: number; aim?: string; aimOrder?: number }) {
   if (!dart) {
+    if (aim) return <GhostTarget label={aim} order={aimOrder} />;
     return <div className="h-[clamp(3rem,12dvh,9rem)]" aria-hidden="true" />;
   }
 
@@ -153,6 +227,7 @@ export function LiveScoliaBoard({
   actions,
   collapsed = false,
   onToggleCollapsed,
+  checkout,
 }: {
   turns: TurnRecord[];
   currentLegId?: string;
@@ -163,6 +238,7 @@ export function LiveScoliaBoard({
   actions?: ReactNode;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  checkout?: SpectatorCheckout | null;
 }) {
   const latestVisit = useMemo(() => {
     let latest: TurnWithThrows | undefined;
@@ -176,6 +252,8 @@ export function LiveScoliaBoard({
   const [clearedVisitId, setClearedVisitId] = useState<string | null>(null);
   const latestVisitId = latestVisit?.id;
   const latestVisitThrowCount = latestVisit?.throws?.length ?? 0;
+  // A visit is over after three darts or a bust; only then can a takeout clear it.
+  const latestVisitFinished = latestVisitThrowCount >= 3 || Boolean(latestVisit?.busted);
 
   useEffect(() => {
     const previousPhase = previousBoardPhaseRef.current;
@@ -185,13 +263,13 @@ export function LiveScoliaBoard({
       previousPhase === 'Takeout'
       && boardPhase === 'Throw'
       && latestVisitId
-      && latestVisitThrowCount >= 3
+      && latestVisitFinished
     ) {
       setClearedVisitId(latestVisitId);
     }
-  }, [boardPhase, latestVisitId, latestVisitThrowCount]);
+  }, [boardPhase, latestVisitId, latestVisitFinished]);
 
-  const visitWasTakenOut = clearedVisitId === latestVisitId && latestVisitThrowCount >= 3;
+  const visitWasTakenOut = clearedVisitId === latestVisitId && latestVisitFinished;
   const currentVisit = visitWasTakenOut ? undefined : latestVisit;
   const currentThrows = useMemo(
     () => [...(currentVisit?.throws ?? [])].sort((a, b) => a.dart_index - b.dart_index),
@@ -203,6 +281,14 @@ export function LiveScoliaBoard({
     ? playerById?.[currentVisit.player_id]
     : currentPlayer;
   const displayedPlayerName = displayedPlayer?.display_name ?? currentPlayerName;
+  // Only coach the visit on screen: the route belongs to the player on throw, and must fit the empty slots.
+  const displayedPlayerId = currentVisit ? currentVisit.player_id : currentPlayer?.id;
+  const emptySlots = 3 - currentThrows.length;
+  const aimRoute = checkout?.kind === 'checkout'
+    && checkout.playerId === displayedPlayerId
+    && checkout.routes[0].length <= emptySlots
+    ? checkout.routes[0]
+    : null;
   const wedges = useMemo(() => NUMBERS.flatMap((_, index) => {
     const start = ((index * 18 - 99) * Math.PI) / 180;
     const end = (((index + 1) * 18 - 99) * Math.PI) / 180;
@@ -244,6 +330,7 @@ export function LiveScoliaBoard({
               return <text key={number} x={position.x} y={position.y} fill="white" fontSize="18" fontWeight="700" textAnchor="middle" dominantBaseline="middle">{number}</text>;
             })}
           </g>
+          {aimRoute ? <CheckoutTargets key={aimRoute.join('-')} route={aimRoute} /> : null}
           <ImpactSectionFlash dart={latestDart} />
           {(currentVisit?.throws ?? []).map((dart) => {
             if (dart.impact_x_mm == null || dart.impact_y_mm == null) return null;
@@ -281,6 +368,12 @@ export function LiveScoliaBoard({
             .segment-flare--double .segment-flare-core { animation-duration: .72s; }
             .segment-flare--triple .segment-flare-glow,
             .segment-flare--triple .segment-flare-core { animation-duration: .84s; }
+            .checkout-spotlight { opacity: .5; animation: checkout-spotlight .7s ease-out both; }
+            .checkout-target { color: #fde047; }
+            .checkout-target--next { animation: checkout-target-pulse 1.6s ease-in-out infinite; filter: drop-shadow(0 0 6px rgba(253, 224, 71, .95)) drop-shadow(0 0 16px rgba(250, 204, 21, .6)); }
+            .checkout-target--next > * { fill-opacity: .55; stroke: #fefce8; }
+            .checkout-target--later > * { fill-opacity: .14; stroke-opacity: .75; stroke-dasharray: 5 4; }
+            .checkout-target--later { animation: checkout-target-arrive .6s ease-out both; }
             .impact-flash { animation: impact-flash .5s ease-out both; transform-box: fill-box; transform-origin: center; }
             .impact-wave { animation: impact-wave .7s cubic-bezier(.1,.7,.2,1) both; transform-box: fill-box; transform-origin: center; }
             .impact-wave-secondary { animation-delay: .07s; }
@@ -322,12 +415,18 @@ export function LiveScoliaBoard({
               52% { opacity: .32; }
               100% { opacity: 0; filter: brightness(1); }
             }
+            @keyframes checkout-target-pulse {
+              0%, 100% { opacity: .75; }
+              50% { opacity: 1; }
+            }
+            @keyframes checkout-spotlight { 0% { opacity: 0; } 100% { opacity: .5; } }
+            @keyframes checkout-target-arrive { 0% { opacity: 0; } 100% { opacity: 1; } }
             @keyframes impact-flash { 0% { opacity: 1; transform: scale(.2); } 45% { opacity: .85; } 100% { opacity: 0; transform: scale(2.6); } }
             @keyframes impact-wave { 0% { opacity: 1; transform: scale(.35); stroke-width: 5; } 100% { opacity: 0; transform: scale(4.2); stroke-width: .5; } }
             @keyframes impact-core { 0% { transform: scale(3.4); opacity: 0; } 55% { transform: scale(.68); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
             @keyframes impact-pulse { 0%, 45% { opacity: .9; transform: scale(.75); } 100% { opacity: 0; transform: scale(1.7); } }
             @media (prefers-reduced-motion: reduce) {
-              .live-dart, .impact-core, .board-impact { animation: none; }
+              .live-dart, .impact-core, .board-impact, .checkout-target, .checkout-spotlight { animation: none; }
               .segment-flare { opacity: .28; }
               .segment-flare-glow, .segment-flare-core { animation: none; }
               .impact-flash, .impact-wave, .impact-ring { display: none; }
@@ -349,9 +448,15 @@ export function LiveScoliaBoard({
                 />
               ) : null}
               <div className="live-board-player-label min-w-0 text-left">
-                <div className="text-[10px] font-black uppercase tracking-[0.42em] text-cyan-500/70 sm:text-xs">
-                  Current player
-                </div>
+                {aimRoute && checkout ? (
+                  <div key={`finish-${checkout.score}`} className="checkout-callout text-[10px] font-black uppercase tracking-[0.42em] sm:text-xs">
+                    On {finishArticle(checkout.score)} {checkout.score} finish
+                  </div>
+                ) : (
+                  <div className="text-[10px] font-black uppercase tracking-[0.42em] text-cyan-500/70 sm:text-xs">
+                    Current player
+                  </div>
+                )}
                 <div className="live-board-player-name mt-1 truncate bg-gradient-to-r from-cyan-300 via-white to-sky-400 bg-clip-text text-[clamp(1.25rem,5dvh,3.75rem)] font-black uppercase italic leading-none tracking-[-0.04em] text-transparent drop-shadow-[0_0_18px_rgba(56,189,248,0.32)]" title={displayedPlayerName}>
                   {displayedPlayerName}
                 </div>
@@ -365,7 +470,12 @@ export function LiveScoliaBoard({
           <div className="throw-readout-grid grid grid-cols-3 gap-3" role="list">
             {Array.from({ length: 3 }, (_, index) => (
               <div key={currentThrows[index]?.id ?? `empty-${index}`} role="listitem">
-                <ThrowReadout dart={currentThrows[index]} index={index} />
+                <ThrowReadout
+                  dart={currentThrows[index]}
+                  index={index}
+                  aim={aimRoute?.[index - currentThrows.length]}
+                  aimOrder={index - currentThrows.length}
+                />
               </div>
             ))}
           </div>
@@ -460,6 +570,31 @@ export function LiveScoliaBoard({
         .throw-readout--bull .throw-aura {
           background: radial-gradient(circle, rgba(251, 191, 36, .3), rgba(251, 191, 36, 0) 74%);
         }
+        .ghost-target {
+          animation: ghost-enter .6s cubic-bezier(.12,.9,.2,1.2) both;
+        }
+        .ghost-target-score {
+          color: transparent;
+          -webkit-text-stroke: 2px rgba(255, 255, 255, .28);
+        }
+        .ghost-target--triple { --ghost: 251, 113, 133; }
+        .ghost-target--double { --ghost: 103, 232, 249; }
+        .ghost-target--bull, .ghost-target--outer-bull { --ghost: 253, 224, 71; }
+        .ghost-target--single { --ghost: 255, 255, 255; }
+        .ghost-target--next .ghost-target-score {
+          -webkit-text-stroke-color: rgba(var(--ghost), .95);
+          color: rgba(var(--ghost), .1);
+          filter: drop-shadow(0 0 14px rgba(var(--ghost), .55));
+          animation: ghost-breathe 1.6s ease-in-out infinite;
+        }
+        .checkout-callout {
+          background: linear-gradient(90deg, #fde047, #fbbf24 40%, #fef9c3 50%, #fbbf24 60%, #fde047);
+          background-size: 250% 100%;
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+          animation: checkout-callout-shine 2.8s linear infinite, total-enter .4s cubic-bezier(.12,.9,.2,1.2) both;
+        }
         .visit-total {
           animation: total-enter .4s cubic-bezier(.12,.9,.2,1.2) both;
         }
@@ -501,13 +636,26 @@ export function LiveScoliaBoard({
           78% { transform: translateX(3px) scale(1.025) skewX(-1deg); }
           100% { opacity: 1; transform: translateX(0) scale(1) skewX(0); filter: brightness(1); }
         }
+        @keyframes ghost-enter {
+          0% { opacity: 0; transform: scale(.7); filter: blur(6px); }
+          100% { opacity: 1; transform: scale(1); filter: blur(0); }
+        }
+        @keyframes ghost-breathe {
+          0%, 100% { transform: scale(1); opacity: .8; }
+          50% { transform: scale(1.04); opacity: 1; }
+        }
+        @keyframes checkout-callout-shine {
+          0% { background-position: 100% 0; }
+          100% { background-position: -150% 0; }
+        }
         @keyframes next-player-flash {
           0% { opacity: 0; transform: scale(.3); }
           30% { opacity: 1; }
           100% { opacity: 0; transform: scale(1.6); }
         }
         @media (prefers-reduced-motion: reduce) {
-          .throw-readout, .visit-total, .next-player-stage, .next-player-stage::before { animation: none; }
+          .throw-readout, .visit-total, .next-player-stage, .next-player-stage::before,
+          .ghost-target, .ghost-target--next .ghost-target-score, .checkout-callout { animation: none; }
           .live-board-card .live-board-content, .live-board-content > svg, .live-board-card .live-board-player img, .board-collapse-toggle { transition: none; }
           .board-collapse-toggle:active { transform: none; }
         }
