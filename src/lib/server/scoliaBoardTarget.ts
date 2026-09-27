@@ -10,6 +10,15 @@ export async function findActiveScoliaBoardTarget(
   supabase: SupabaseClient,
   boardId: string
 ): Promise<ScoliaBoardTarget | null> {
+  const occupant = await findActiveScoliaBoardOccupant(supabase, boardId);
+  return occupant && { kind: occupant.kind, id: occupant.id } as ScoliaBoardTarget;
+}
+
+/** The active target plus when it started, so older board events can be kept out of it. */
+export async function findActiveScoliaBoardOccupant(
+  supabase: SupabaseClient,
+  boardId: string
+): Promise<(ScoliaBoardTarget & { createdAt: string }) | null> {
   const [matchResult, gameResult] = await Promise.all([
     supabase
       .from('matches')
@@ -39,11 +48,11 @@ export async function findActiveScoliaBoardTarget(
   if (match && game) {
     console.warn(`[scolia] board ${boardId} has both an active match and game session; using the newest`);
     return Date.parse(game.created_at) > Date.parse(match.created_at)
-      ? { kind: 'game', id: game.id }
-      : { kind: 'match', id: match.id };
+      ? { kind: 'game', id: game.id, createdAt: game.created_at }
+      : { kind: 'match', id: match.id, createdAt: match.created_at };
   }
-  if (match) return { kind: 'match', id: match.id };
-  if (game) return { kind: 'game', id: game.id };
+  if (match) return { kind: 'match', id: match.id, createdAt: match.created_at };
+  if (game) return { kind: 'game', id: game.id, createdAt: game.created_at };
   return null;
 }
 

@@ -19,6 +19,7 @@ export type MatchRecord = {
   tournament_match_id?: string | null;
   scolia_board_id?: string | null;
   rematch_of_match_id?: string | null;
+  created_at?: string;
 };
 
 export type LegRecord = {

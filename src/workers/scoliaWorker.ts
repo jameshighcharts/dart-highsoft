@@ -20,7 +20,7 @@ import {
   type StoredScoliaEvent,
   type ScoliaThrowIngestionResult,
 } from '../lib/server/scoliaThrowIngestion.ts';
-import { findActiveScoliaBoardTarget } from '../lib/server/scoliaBoardTarget.ts';
+import { findActiveScoliaBoardOccupant, findActiveScoliaBoardTarget } from '../lib/server/scoliaBoardTarget.ts';
 import {
   staleCommandAction,
   staleCommandCutoff,
@@ -43,6 +43,14 @@ const BOARD_SYNC_INTERVAL_MS = 30_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const COMMAND_POLL_INTERVAL_MS = 15_000;
 const COMMENTARY_RETRY_INTERVAL_MS = 15_000;
+// A quiet socket is probed with GET_SBC_STATUS; no reply in time means it is dead
+// even if it still looks open, so darts would silently never arrive.
+const LIVENESS_PROBE_AFTER_MS = 30_000;
+const LIVENESS_TIMEOUT_MS = 20_000;
+// One event failing forever must not hold every later dart on the board hostage.
+const MESSAGE_MAX_ATTEMPTS = 15;
+// Recovered darts older than this are abandoned rather than scored into a later visit.
+const PENDING_THROW_MAX_AGE_MS = 5 * 60_000;
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -86,6 +94,8 @@ export class BoardConnection {
   private flushingCommands = false;
   private commandRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private latestAcceptedThrowId: string | null = null;
+  private lastMessageAt = 0;
+  private livenessProbeSentAt: number | null = null;
 
   constructor(
     board: StoredBoard,
@@ -103,7 +113,7 @@ export class BoardConnection {
       error => console.warn(`[scolia] ${this.board.name}: retrying board status`, error));
     this.messageQueue = new OrderedWorkQueue((error) => {
       console.error(`[scolia] ${this.board.name}: retrying queued event`, error);
-    });
+    }, 1_000, MESSAGE_MAX_ATTEMPTS);
     this.commentaryQueue = new OrderedWorkQueue((error) => {
       console.warn(`[commentary] ${this.board.name}: retrying delivery`, error);
     }, 2_000, 3);
@@ -143,6 +153,8 @@ export class BoardConnection {
     socket.addEventListener('open', () => {
       if (this.socket !== socket || this.stopped) return;
       this.reconnectAttempt = 0;
+      this.lastMessageAt = Date.now();
+      this.livenessProbeSentAt = null;
       console.info(`[scolia] ${this.board.name}: cloud connection open`);
       void this.updateBoard({ worker_connection_status: 'connected' });
       socket.send(JSON.stringify({ type: 'GET_SBC_STATUS', id: crypto.randomUUID() }));
@@ -152,6 +164,8 @@ export class BoardConnection {
 
     socket.addEventListener('message', (event) => {
       if (this.socket !== socket || typeof event.data !== 'string') return;
+      this.lastMessageAt = Date.now();
+      this.livenessProbeSentAt = null;
       const message = parseScoliaMessage(event.data);
       if (!message) {
         console.warn(`[scolia] ${this.board.name}: ignored invalid message`);
@@ -166,17 +180,50 @@ export class BoardConnection {
     });
 
     socket.addEventListener('close', (event) => {
-      if (this.socket === socket) this.socket = null;
+      // A socket we already abandoned (e.g. after a liveness timeout) must not start a second connection.
+      if (this.socket !== socket) return;
+      this.socket = null;
       if (this.stopped) return;
       const delay = reconnectDelayMs(event.code, this.reconnectAttempt++);
-      console.warn(`[scolia] ${this.board.name}: closed (${event.code}); retrying in ${delay}ms`);
+      const reason = event.code === 4101
+        ? ' - another connection holds this board; is a second worker running with the same Scolia token?'
+        : '';
+      console.warn(`[scolia] ${this.board.name}: closed (${event.code}); retrying in ${delay}ms${reason}`);
       void this.updateBoard({ worker_connection_status: 'reconnecting' });
-      this.reconnectTimer = setTimeout(() => void this.connect(), delay);
+      this.scheduleReconnect(delay);
     });
+  }
+
+  private scheduleReconnect(delay: number) {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.connect();
+    }, delay);
+  }
+
+  /** Detect a half-open socket: it never closes, so darts would stop with no error at all. */
+  private checkLiveness(now = Date.now()) {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (this.livenessProbeSentAt !== null) {
+      if (now - this.livenessProbeSentAt < LIVENESS_TIMEOUT_MS) return;
+      console.warn(`[scolia] ${this.board.name}: no reply to status probe; reconnecting`);
+      this.socket = null;
+      this.livenessProbeSentAt = null;
+      socket.close(4000, 'Liveness timeout');
+      void this.updateBoard({ worker_connection_status: 'reconnecting' });
+      this.scheduleReconnect(0);
+      return;
+    }
+    if (now - this.lastMessageAt < LIVENESS_PROBE_AFTER_MS) return;
+    this.livenessProbeSentAt = now;
+    socket.send(JSON.stringify({ type: 'GET_SBC_STATUS', id: crypto.randomUUID() }));
   }
 
   async heartbeat() {
     if (this.stopped) return;
+    this.checkLiveness();
     await this.updateBoard({ worker_heartbeat_at: new Date().toISOString() });
     if (this.messageQueue.idle) this.enqueue(() => this.processPendingThrows());
   }
@@ -283,21 +330,43 @@ export class BoardConnection {
   private async processPendingThrows() {
     const { data, error } = await this.supabase
       .from('scolia_events')
-      .select('id, board_id, message_id, event_type, payload')
+      .select('id, board_id, message_id, event_type, payload, received_at')
       .eq('board_id', this.board.id)
       .eq('event_type', 'THROW_DETECTED')
       .in('processing_status', ['pending', 'failed'])
       .order('id', { ascending: true });
     if (error) throw new Error(error.message);
-    for (const event of (data ?? []) as StoredScoliaEvent[]) {
-      const result = await ingestScoliaThrowEvent(this.supabase, event, this.atomicIngestion);
-      if (result.status === 'processed') {
-        console.info(`[scolia] ${this.board.name}: recovered throw ${event.message_id}`);
-        if (result.target.kind === 'match') {
-          this.publishCommentary(result.target.id, result.throwId, result.accepted);
+    const events = (data ?? []) as (StoredScoliaEvent & { received_at: string | null })[];
+    if (events.length === 0) return;
+    const target = await findActiveScoliaBoardOccupant(this.supabase, this.board.id);
+    for (const event of events) {
+      const abandon = recoveryAbandonReason(event.received_at, target?.createdAt ?? null);
+      if (abandon) {
+        await this.markEvent(event.id, 'ignored', abandon);
+        console.warn(`[scolia] ${this.board.name}: abandoned throw ${event.message_id}: ${abandon}`);
+        continue;
+      }
+      // One stubborn event must not block recovery of the rest.
+      try {
+        const result = await ingestScoliaThrowEvent(this.supabase, event, this.atomicIngestion);
+        if (result.status === 'processed') {
+          console.info(`[scolia] ${this.board.name}: recovered throw ${event.message_id}`);
+          if (result.target.kind === 'match') {
+            this.publishCommentary(result.target.id, result.throwId, result.accepted);
+          }
         }
+      } catch (recoveryError) {
+        console.error(`[scolia] ${this.board.name}: could not recover throw ${event.message_id}`, recoveryError);
       }
     }
+  }
+
+  private async markEvent(eventId: number, status: 'ignored', reason: string) {
+    const { error } = await this.supabase
+      .from('scolia_events')
+      .update({ processing_status: status, processed_at: new Date().toISOString(), processing_error: reason })
+      .eq('id', eventId);
+    if (error) throw new Error(error.message);
   }
 
   private async persistMessage(message: ScoliaMessage, receivedAtMs = Date.now()) {
@@ -314,6 +383,15 @@ export class BoardConnection {
       storedEvent = persisted.event;
       prepared = persisted.prepared;
       committed = persisted.result;
+    } else if (message.type === 'SBC_STATUS') {
+      // Replies to our own status requests (including liveness probes) carry state, not history.
+      void this.updateBoard({
+        ...boardStatePatchForMessage(message),
+        worker_connection_status: 'connected',
+        worker_heartbeat_at: now,
+        last_event_at: now,
+      });
+      return;
     } else {
       const { data: insertedEvent, error: eventError } = await this.supabase.from('scolia_events').upsert(
         {
@@ -412,7 +490,7 @@ export class BoardConnection {
     if (message.type !== 'ACKNOWLEDGED' && message.type !== 'REFUSED') return;
     const replyTo = message.payload?.replyTo;
     if (typeof replyTo !== 'string') return;
-    const { error } = await this.supabase
+    const { data: command, error } = await this.supabase
       .from('scolia_commands')
       .update({
         status: message.type === 'ACKNOWLEDGED' ? 'acknowledged' : 'refused',
@@ -424,8 +502,26 @@ export class BoardConnection {
       })
       .eq('id', replyTo)
       .eq('board_id', this.board.id)
-      .eq('status', 'sent');
+      .eq('status', 'sent')
+      .select('command_type, match_id')
+      .maybeSingle();
     if (error) throw new Error(error.message);
+    if (message.type === 'ACKNOWLEDGED' && command?.command_type === 'RESET_PHASE') {
+      await this.afterPhaseReset(command.match_id as string | null);
+    }
+  }
+
+  /** Scolia sends no takeout event after RESET_PHASE, so settle what that event would have. */
+  private async afterPhaseReset(matchId: string | null) {
+    void this.updateBoard({ board_phase: 'Throw' });
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({ type: 'GET_SBC_STATUS', id: crypto.randomUUID() }));
+    }
+    if (!matchId) return;
+    const bullMatch = await loadBullOffMatch(this.supabase, matchId);
+    if (bullMatch?.bull_off?.phase === 'throwing' && bullMatch.bull_off.awaitingTakeout) {
+      await updateBullOff(this.supabase, matchId, bullMatch.bull_off, 'takeout');
+    }
   }
 
   private async updateBoard(values: Record<string, unknown>) {
@@ -439,6 +535,15 @@ export class BoardConnection {
       .eq('id', this.board.id);
     if (error) throw new Error(error.message);
   }
+}
+
+/** Why a recovered dart must not be scored now, or null when it is still safe to apply. */
+export function recoveryAbandonReason(receivedAt: string | null, targetCreatedAt: string | null, now = Date.now()): string | null {
+  const received = receivedAt ? Date.parse(receivedAt) : Number.NaN;
+  if (!Number.isFinite(received)) return null;
+  if (targetCreatedAt && received < Date.parse(targetCreatedAt)) return 'Thrown before the current match or game started';
+  if (now - received > PENDING_THROW_MAX_AGE_MS) return 'Gave up after repeated processing failures';
+  return null;
 }
 
 async function startScoliaWorker() {
