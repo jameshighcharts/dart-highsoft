@@ -2,6 +2,7 @@
 
 import { PencilLine, Wifi } from "lucide-react";
 import type { ScoliaBoardOption } from "@/lib/scolia/types";
+import type { LocationValue } from "@/utils/locations";
 import {
   Select,
   SelectContent,
@@ -51,6 +52,14 @@ export function boardShortName(name: string): string {
   return slot ? slot.label.replace(/^Scolia /, "") : name;
 }
 
+export function boardForLocation(boards: ScoliaBoardOption[], location: LocationValue): ScoliaBoardOption | undefined {
+  return boards.find((board) => board.name.toLowerCase().includes(location));
+}
+
+export function boardValueForLocation(boards: ScoliaBoardOption[], location: LocationValue): string {
+  return boardForLocation(boards, location)?.id ?? `slot:${location}`;
+}
+
 type Tone = "ready" | "busy" | "offline" | "none";
 
 const DOT_CLASS: Record<Tone, string> = {
@@ -72,6 +81,7 @@ export function describeBoardStatus(board: ScoliaBoardOption): { tone: Tone; tex
       return { tone: "busy", text: "Connecting…" };
     case "connected":
       if (board.selectable) return { tone: "ready", text: "Ready" };
+      if (board.boardStatus?.toLowerCase() === "offline") return { tone: "offline", text: "Offline" };
       return {
         tone: "busy",
         text: `Board ${(board.boardStatus ?? "unknown").toLowerCase()}`,
@@ -113,7 +123,7 @@ export function buildBoardItems(boards: ScoliaBoardOption[], loading: boolean): 
         label: slot.label,
         tone: status.tone,
         status: status.text,
-        disabled: !board.selectable,
+        disabled: Boolean(board.activeMatchId || board.activeGameSessionId),
         icon: "board",
       });
     } else {
@@ -135,7 +145,7 @@ export function buildBoardItems(boards: ScoliaBoardOption[], loading: boolean): 
       label: board.name,
       tone: status.tone,
       status: status.text,
-      disabled: !board.selectable,
+      disabled: Boolean(board.activeMatchId || board.activeGameSessionId),
       icon: "board",
     });
   }
