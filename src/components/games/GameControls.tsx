@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Gamepad2, Plus, RotateCcw, Square, Undo2 } from 'lucide-react';
+import { Gamepad2, Plus, RotateCcw, SkipForward, Square, Undo2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -21,10 +21,19 @@ type GameControlsProps = {
   onUndo: () => void;
   onEndEarly: () => void;
   onRematch: () => void;
+  onSkipPlayer?: () => void;
+  currentPlayerName?: string;
 };
 
-export function GameControls({ isActive, canUndo, busy, onUndo, onEndEarly, onRematch }: GameControlsProps) {
+export function GameControls({ isActive, canUndo, busy, onUndo, onEndEarly, onRematch, onSkipPlayer, currentPlayerName }: GameControlsProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const handleSkipPlayer = () => {
+    if (!onSkipPlayer) return;
+    const name = currentPlayerName ?? 'this player';
+    if (!window.confirm(`Skip ${name}? Their remaining darts this turn will be scored as misses.`)) return;
+    onSkipPlayer();
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -32,6 +41,12 @@ export function GameControls({ isActive, canUndo, busy, onUndo, onEndEarly, onRe
         <Undo2 className="size-4" />
         Undo
       </Button>
+      {isActive && onSkipPlayer && (
+        <Button variant="outline" size="sm" onClick={handleSkipPlayer} disabled={busy} className="min-h-11 gap-1 border-white/15">
+          <SkipForward className="size-4" />
+          Skip player
+        </Button>
+      )}
       {isActive && (
         <Button variant="outline" size="sm" onClick={() => setConfirmOpen(true)} disabled={busy} className="min-h-11 gap-1 border-white/15">
           <Square className="size-4" />

@@ -84,6 +84,7 @@ type UseMatchActionsResult = {
   pauseLoading: boolean;
   rematchLoading: boolean;
   handleBoardClick: (_x: number, _y: number, result: SegmentResult) => Promise<void>;
+  skipPlayer: () => Promise<void>;
   undoLastThrow: () => Promise<void>;
   openEditModal: () => Promise<void>;
   updateSelectedThrow: (seg: SegmentResult) => Promise<void>;
@@ -563,6 +564,18 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
     [processBoardClick]
   );
 
+  const skipPlayer = useCallback(async () => {
+    if (matchWinnerId || match?.paused_at) return;
+    if (!currentLeg || !currentPlayer) return;
+    syncTurnFromStateIfNeeded();
+    const missSegment: SegmentResult = { kind: 'Miss', scored: 0, label: 'Miss' };
+    const dartsSoFar = ongoingTurnRef.current?.darts.length ?? 0;
+    const remaining = 3 - dartsSoFar;
+    for (let i = 0; i < remaining; i++) {
+      await handleBoardClick(0, 0, missSegment);
+    }
+  }, [matchWinnerId, match?.paused_at, currentLeg, currentPlayer, syncTurnFromStateIfNeeded, ongoingTurnRef, handleBoardClick]);
+
   const undoLastThrow = useCallback(async () => {
     if (!currentLeg) return;
     const supabase = await getSupabaseClient();
@@ -960,6 +973,7 @@ export function useMatchActions(args: UseMatchActionsArgs): UseMatchActionsResul
     pauseLoading,
     rematchLoading,
     handleBoardClick,
+    skipPlayer,
     undoLastThrow,
     openEditModal,
     updateSelectedThrow,
