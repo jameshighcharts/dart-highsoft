@@ -41,6 +41,7 @@ type Props = {
   matchWinnerId: string | null;
   onBoardClick: (_x: number, _y: number, result: ReturnType<typeof computeHit>) => void;
   onUndoLastThrow: () => void;
+  onSkipPlayer: () => void;
   onOpenEditModal: () => void;
   onOpenEditPlayersModal: () => void;
   onToggleSpectatorMode: () => void;
@@ -98,6 +99,7 @@ export function MatchScoringView({
   matchWinnerId,
   onBoardClick,
   onUndoLastThrow,
+  onSkipPlayer,
   onOpenEditModal,
   onOpenEditPlayersModal,
   onToggleSpectatorMode,
@@ -144,6 +146,11 @@ export function MatchScoringView({
   tournamentId,
 }: Props) {
   const endGameTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const handleSkipPlayer = () => {
+    const name = currentPlayer?.display_name ?? 'this player';
+    if (!window.confirm(`Skip ${name}? Their remaining darts this turn will be scored as misses.`)) return;
+    onSkipPlayer();
+  };
   const isScoliaMatch = Boolean(match.scolia_board_id);
   const isPaused = Boolean(match.paused_at);
   const scoringDisabled = isPaused || Boolean(matchWinnerId);
@@ -374,6 +381,15 @@ export function MatchScoringView({
               <Button
                 variant="outline"
                 size="sm"
+                onClick={handleSkipPlayer}
+                disabled={!!matchWinnerId || !currentPlayer}
+                className="text-xs whitespace-nowrap"
+              >
+                Skip player
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={onOpenEditModal}
                 disabled={!currentLeg}
                 className="text-xs whitespace-nowrap"
@@ -434,6 +450,9 @@ export function MatchScoringView({
             {onRemake && <Button variant="outline" size="sm" onClick={onRemake} className="gap-1.5 text-xs sm:text-sm"><RotateCcw size={14} aria-hidden="true" />Remake match</Button>}
             <Button variant="outline" size="sm" onClick={onUndoLastThrow} disabled={!!matchWinnerId} className="text-xs sm:text-sm">
               Undo dart
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleSkipPlayer} disabled={!!matchWinnerId || !currentPlayer} className="text-xs sm:text-sm">
+              Skip player
             </Button>
             <Button variant="outline" size="sm" onClick={onOpenEditModal} disabled={!currentLeg} className="text-xs sm:text-sm">
               Edit throws

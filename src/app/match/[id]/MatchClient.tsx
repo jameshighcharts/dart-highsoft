@@ -509,6 +509,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     pauseLoading,
     rematchLoading,
     handleBoardClick,
+    skipPlayer,
     undoLastThrow,
     openEditModal,
     updateSelectedThrow,
@@ -715,6 +716,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
         matchWinnerId={matchWinnerId}
         onBoardClick={handleBoardClick}
         onUndoLastThrow={undoLastThrow}
+        onSkipPlayer={skipPlayer}
         onOpenEditModal={openEditModal}
         onOpenEditPlayersModal={openEditPlayersModal}
         onToggleSpectatorMode={toggleSpectatorMode}

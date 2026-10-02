@@ -67,58 +67,82 @@ export function useGameActions({ gameId, state, setThrows, refetch }: UseGameAct
     return run;
   }, []);
 
+  const sendThrow = useCallback(
+    async (segmentLabel: string, scored: number, playerId: string, roundNumber: number, turnIndex: number, dartIndex: number) => {
+      const optimistic: GameThrowData = {
+        id: pendingId(),
+        session_id: gameId,
+        player_id: playerId,
+        round_number: roundNumber,
+        turn_index: turnIndex,
+        dart_index: dartIndex,
+        segment: segmentLabel,
+        scored,
+        meta: {},
+        pending: true,
+      };
+      setThrows((prev) => [...prev, optimistic]);
+
+      try {
+        const response = await fetch(`/api/games/${gameId}/throws`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ segment: segmentLabel, scored, playerId }),
+        });
+
+        if (response.status === 201) {
+          const data = await readJson<ApiThrowResponse>(response);
+          if (data?.throw) {
+            setThrows((prev) => prev.map((row) => (row.id === optimistic.id ? { ...data.throw, pending: false } : row)));
+          }
+          await refetch();
+          return true;
+        }
+
+        const errorBody = (await readJson<ApiError>(response)) ?? {};
+        setThrows((prev) => prev.filter((row) => row.id !== optimistic.id));
+        if (response.status === 409 && (errorBody.code === 'slot_taken' || errorBody.code === 'wrong_player')) {
+          await refetch();
+          showMessage(errorBody.error ?? 'The board changed. Reloaded the latest state.');
+          return false;
+        }
+        if (response.status === 409) await refetch();
+        showMessage(errorBody.error ?? `Failed to record dart (${response.status})`);
+        return false;
+      } catch (err) {
+        setThrows((prev) => prev.filter((row) => row.id !== optimistic.id));
+        showMessage(err instanceof Error ? err.message : 'Failed to record dart');
+        return false;
+      }
+    },
+    [gameId, refetch, setThrows, showMessage]
+  );
+
   const throwDart = useCallback(
     (segmentLabel: string, scored: number) =>
       enqueue(async () => {
         const current = stateRef.current;
         if (!current || current.finished || !current.currentPlayerId) return;
+        await sendThrow(segmentLabel, scored, current.currentPlayerId, current.round, current.turnIndex, current.dartsThrownInTurn + 1);
+      }),
+    [enqueue, sendThrow]
+  );
+
+  const skipPlayer = useCallback(
+    () =>
+      enqueue(async () => {
+        const current = stateRef.current;
+        if (!current || current.finished || !current.currentPlayerId) return;
         const playerId = current.currentPlayerId;
-
-        const optimistic: GameThrowData = {
-          id: pendingId(),
-          session_id: gameId,
-          player_id: playerId,
-          round_number: current.round,
-          turn_index: current.turnIndex,
-          dart_index: current.dartsThrownInTurn + 1,
-          segment: segmentLabel,
-          scored,
-          meta: {},
-          pending: true,
-        };
-        setThrows((prev) => [...prev, optimistic]);
-
-        try {
-          const response = await fetch(`/api/games/${gameId}/throws`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ segment: segmentLabel, scored, playerId }),
-          });
-
-          if (response.status === 201) {
-            const data = await readJson<ApiThrowResponse>(response);
-            if (data?.throw) {
-              setThrows((prev) => prev.map((row) => (row.id === optimistic.id ? { ...data.throw, pending: false } : row)));
-            }
-            await refetch();
-            return;
-          }
-
-          const errorBody = (await readJson<ApiError>(response)) ?? {};
-          setThrows((prev) => prev.filter((row) => row.id !== optimistic.id));
-          if (response.status === 409 && (errorBody.code === 'slot_taken' || errorBody.code === 'wrong_player')) {
-            await refetch();
-            showMessage(errorBody.error ?? 'The board changed. Reloaded the latest state.');
-            return;
-          }
-          if (response.status === 409) await refetch();
-          showMessage(errorBody.error ?? `Failed to record dart (${response.status})`);
-        } catch (err) {
-          setThrows((prev) => prev.filter((row) => row.id !== optimistic.id));
-          showMessage(err instanceof Error ? err.message : 'Failed to record dart');
+        const round = current.round;
+        const turnIndex = current.turnIndex;
+        const remaining = 3 - current.dartsThrownInTurn;
+        for (let i = 0; i < remaining; i++) {
+          const ok = await sendThrow('Miss', 0, playerId, round, turnIndex, current.dartsThrownInTurn + i + 1);
+          if (!ok) break;
         }
       }),
-    [enqueue, gameId, refetch, setThrows, showMessage]
+    [enqueue, sendThrow]
   );
 
   const undo = useCallback(
@@ -174,5 +198,5 @@ export function useGameActions({ gameId, state, setThrows, refetch }: UseGameAct
     [enqueue, gameId, router]
   );
 
-  return { throwDart, undo, endEarly, rematch, busy, message, clearMessage: () => setMessage(null) };
+  return { throwDart, skipPlayer, undo, endEarly, rematch, busy, message, clearMessage: () => setMessage(null) };
 }

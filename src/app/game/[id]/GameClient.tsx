@@ -88,7 +88,7 @@ function GameClientInner({ gameId }: GameClientProps) {
   const view = derived.view;
   const state = view?.state ?? null;
 
-  const { throwDart, undo, endEarly, rematch, busy, message } = useGameActions({ gameId, state, setThrows, refetch });
+  const { throwDart, skipPlayer, undo, endEarly, rematch, busy, message } = useGameActions({ gameId, state, setThrows, refetch });
 
   const lastHitSoundKeyRef = useRef<string | null>(null);
   useEffect(() => {
@@ -253,7 +253,8 @@ function GameClientInner({ gameId }: GameClientProps) {
           </div>}
 
           {!spectator && <GameControls isActive canUndo={throws.length > 0} busy={busy}
-            onUndo={() => void undo()} onEndEarly={() => void endEarly()} onRematch={() => void rematch()} />}
+            onUndo={() => void undo()} onEndEarly={() => void endEarly()} onRematch={() => void rematch()}
+            onSkipPlayer={() => void skipPlayer()} currentPlayerName={currentPlayer?.display_name} />}
 
           {showInput && <div className="rounded-2xl border border-white/10 bg-card p-3 md:p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
