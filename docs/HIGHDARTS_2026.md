@@ -65,6 +65,16 @@ The handler builds a plain-text fallback and Block Kit result with player mentio
 
 A conditional `NULL` → `sending` update claims delivery before contacting Slack. After success, the timestamp replaces `sending`; retries skip timestamps already recorded. If the network result is uncertain, `sending` is retained and retries fail without posting again. This chooses duplicate prevention over automatic retries that could post a second result. To recover, check the Slack channel: if the message exists, record its actual timestamp; otherwise clear the marker and requeue the failed job. Never clear it without checking. The app cannot atomically commit a database transaction and Slack's remote HTTP side effect.
 
+## Daily digest
+
+`enqueue_highdarts_digest` runs hourly through `pg_cron` and returns immediately unless the Oslo wall clock reads 16. Gating on local time rather than a fixed UTC hour keeps the post at 16:00 through both daylight-saving shifts. It enqueues one `highdarts_digest` background job per event per local day, skipping any day already recorded in `highdarts_digests`.
+
+`highdarts_digests` holds one row per event per local day and is the idempotency record. The handler inserts that row with a `sending` marker before contacting Slack, so a retried or concurrent job loses the insert and stops. `covered_through` stores the completion timestamp of the newest result already reported, and the next digest reports only what finished after it. A day with nothing to report keeps its row, clears the marker and leaves `covered_through` untouched, so quiet days stay silent instead of posting an empty update.
+
+The message lists each new result with the winner first, the legs score and the fixture label, names the current office leaders, shows overall and per-office progress, and links the Bengt page. Matches that ended early are reported as such rather than as a win. At most twelve results are listed; the rest are counted. Delivery reuses the result publisher's configuration: `highdarts_events.slack_channel_id` overrides `SLACK_HIGHDARTS_CHANNEL_ID`, and a missing channel or bot token skips with a `console.info`.
+
+The table is server-only with no client read grant, unlike the fixtures and events tables.
+
 ## Finals draw
 
 The Sluttspill tab has four rounds. Play-offs use 301 straight out; quarterfinals and semifinals use 301 double out; the final uses 501 double out. Every match is first to two legs, with fair ending off. The new-match page and pre-start tagging use the fixture's stage to select and enforce these settings. Fair ending remains visible beside Highdarts and can be enabled for regular single-leg matches.

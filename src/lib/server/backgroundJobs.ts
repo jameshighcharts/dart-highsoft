@@ -3,6 +3,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { publishHighdartsResult } from '../highdarts/slackResult';
+import { publishHighdartsDigest } from '../highdarts/slackDigest';
 import { finalizeSlackDartPollById } from '@/lib/slack/dartPollService';
 import { runDartIQCalibration, runDartIQTraining } from './dartiqCalibration';
 import {
@@ -100,6 +101,19 @@ async function runJob(
     case 'highdarts_result':
       await publishHighdartsResult(supabase, requiredPayloadId(job.payload, 'fixtureId', job.job_type), appOrigin);
       return;
+    case 'highdarts_digest': {
+      const digestDate = requiredPayloadId(job.payload, 'digestDate', job.job_type);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(digestDate)) {
+        throw new PermanentJobError('highdarts_digest requires an ISO digestDate');
+      }
+      await publishHighdartsDigest(
+        supabase,
+        requiredPayloadId(job.payload, 'eventId', job.job_type),
+        digestDate,
+        appOrigin,
+      );
+      return;
+    }
     case 'slack_dart_poll':
       await finalizeSlackDartPollById({
         supabase,
