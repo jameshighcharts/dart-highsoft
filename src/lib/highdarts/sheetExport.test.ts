@@ -50,4 +50,15 @@ describe('published tournament sheet export', () => {
     expect(live.finals[0].values).toEqual(['a', 'b', 'a']);
     expect(buildSheetExport({ fixtures: [counted], players: [] }).finals).toEqual([]);
   });
+  it('includes the manual estimates in match results and weighted standings without duplicating a recorded game', () => {
+    const manual = fixture('sogndal', 'Sindre Jensen', 'Jon Skjerdal', 1);
+    const recorded = finish(fixture('sogndal', 'Johan Flo', 'Jon Skjerdal', 12), 'Jon Skjerdal', 42, 39);
+    const output = buildSheetExport({ players: [], fixtures: [manual, recorded] });
+    expect(output.fixtures[0].result[2]).toBeCloseTo(38.57, 2);
+    expect(output.fixtures[0].result[3]).toBeCloseTo(35.61, 2);
+    expect(output.fixtures[1].result).toEqual([0, 2, 42, 39]);
+    expect(output.standings[2].rows.find((r) => r[1] === 'Sindre Jensen')?.[4]).toBeCloseTo(38.57, 2);
+    expect(output.standings[2].rows.find((r) => r[1] === 'Jon Skjerdal')?.[3]).toBe(2);
+  });
+
 });

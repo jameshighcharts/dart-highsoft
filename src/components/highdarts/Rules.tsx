@@ -19,7 +19,7 @@ const stages = [
 const steps = [
   [
     'Office group stage',
-    'Each registered player is randomly drawn into 5 matches against other registered players from the same office. Gjertrud and Sindre each play 6 because their offices have an odd number of players. They choose one match to exclude from their own wins, losses, legs and average, leaving 5 counting matches. That match still counts for their opponent. Choices can change until the finals draw is locked. Wins form the office table; the top four advance. Ties only matter for 4th place.',
+    'Each player gets 5 counting group matches against players from the same office. Some players have 6 scheduled matches because of the draw or a late entry. They choose one match to exclude from their own wins, losses, legs and average, leaving 5 counting matches. That match still counts for their opponent. Choices can change until the finals draw is locked. Wins form the office table; the top four advance. Ties only matter for 4th place.',
   ],
   [
     'Four byes to the quarterfinal',
@@ -48,7 +48,7 @@ export function HighdartsCountingRules() {
           <DialogDescription>Everyone gets five counting group results.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
-          <p>Gjertrud in Vik and Sindre in Sogndal have six matches because their offices have an odd number of players. They each choose one match to exclude from their own tournament standings.</p>
+          <p>Any player with six scheduled group matches chooses one match to exclude from their own tournament standings, leaving five counting results. This also applies when a late entry adds a sixth match.</p>
           <div>
             <h3 className="mb-1 font-semibold text-foreground">What changes?</h3>
             <p>The selected match is left out of that player&apos;s wins, losses, legs and three-dart average. Rankings and qualification use the five counting results. The opponent still gets their full result.</p>
@@ -59,7 +59,7 @@ export function HighdartsCountingRules() {
           </div>
           <div>
             <h3 className="mb-1 font-semibold text-foreground">Who can save it, and when?</h3>
-            <p>You can save your own choice, and an admin can help either player. Change or clear it until the finals draw is locked. Both choices are required before qualification tie-breaks or the finals draw can be created.</p>
+            <p>You can save your own choice, and an admin can help any player. Change or clear it until the finals draw is locked. All required choices must be saved before qualification tie-breaks or the finals draw can be created.</p>
           </div>
           <p>Save your choice here. The Google Sheet sync copies it to Tel A and Tel B every five minutes. Edits in the sheet do not update the app.</p>
         </div>
