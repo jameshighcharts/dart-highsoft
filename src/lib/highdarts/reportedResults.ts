@@ -3,7 +3,7 @@ import { normalizeName, type Snapshot } from './standings';
 // Transcribed from six unique screenshots supplied on 2026-09-15.
 // The user confirmed both matches were played on 2026-09-15 in Norway.
 // Checkout dart counts were not shown.
-// Display-only averages assume three darts per recorded visit, including checkouts.
+// Estimated averages assume three darts per recorded visit, including checkouts.
 export const REPORTED_RESULTS = [
   {
     fixtureNo: 12, a: 'Johan Flo', b: 'Jon Skjerdal', winner: 'b', playedOn: '2026-09-15',

@@ -17,7 +17,7 @@ function reportedSnapshot() {
 }
 
 describe('Bengt screenshot results', () => {
-  it('counts exactly two matches, preserves the second Johan meeting and keeps official averages unknown', () => {
+  it('counts exactly two matches, preserves the second Johan meeting and includes estimated averages', () => {
     const original = reportedSnapshot();
     const snapshot = withReportedResults(original);
     expect(original.fixtures.every((f) => !isCompleted(f))).toBe(true);
@@ -115,4 +115,21 @@ describe('Bengt screenshot results', () => {
       }
     }
   });
+  it('weights estimated visits with real darts and removes only an excluded player contribution', () => {
+    const source = reportedSnapshot();
+    source.fixtures[3] = finish(source.fixtures[3], 'Sindre Jensen', 60, 90);
+    const snapshot = withReportedResults(source);
+    const report = REPORTED_RESULTS.find((r) => r.fixtureNo === 1)!;
+    const scores = report.legs.flatMap((leg) => leg.a);
+    const points = scores.reduce((a, b) => a + b, 0);
+    const row = buildStandings(snapshot).offices[2].table.find((r) => r.key === 'Sindre Jensen');
+    expect(row?.average).toBeCloseTo((points + 90) / (scores.length + 1), 10);
+    expect(resultStats(snapshot.fixtures[0], 'Sindre Jensen').average).toBeCloseTo(38.57, 2);
+    expect(buildStandings(snapshot).offices[2].table.find((r) => r.key === 'Johan Flo')?.average).toBeGreaterThan(0);
+    snapshot.fixtures[0].counts_for_a = false;
+    const excluded = buildStandings(snapshot).offices[2].table;
+    expect(excluded.find((r) => r.key === 'Sindre Jensen')?.average).toBe(90);
+    expect(excluded.find((r) => r.key === 'Jon Skjerdal')?.average).toBeGreaterThan(0);
+  });
+
 });

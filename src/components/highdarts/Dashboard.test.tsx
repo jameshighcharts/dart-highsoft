@@ -138,7 +138,9 @@ it('keeps the two reported scores visible after refresh with leg totals, estimat
   expect(screen.queryByRole('link', { name: 'View result' })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('tab', { name: 'Tabell' }));
   const table = screen.getByRole('table', { name: 'Sogndal standings' });
-  expect(within(table).getAllByText('—')).toHaveLength(3);
+  expect(within(table).getByText('≈38.57')).toBeInTheDocument();
+  expect(within(table).getByText('≈34.71')).toBeInTheDocument();
+  expect(within(table).getAllByTitle('Includes a manual estimate using three darts per recorded visit.')).toHaveLength(3);
 });
 
 it('shows four games played today when the two reported Sogndal games join two Vik results', async () => {

@@ -159,12 +159,23 @@ export function countsForPlayer(fixture: Fixture, playerId: string | null) {
     ? fixture.counts_for_a !== false
     : fixture.player_b_id === playerId && fixture.counts_for_b !== false;
 }
+function resultTurns(f: FixtureResult, playerId: string | null): ResultTurn[] {
+  if (f.match) {
+    return f.match.legs.flatMap((l) => l.turns)
+      .filter((t) => t.player_id === playerId && t.tiebreak_round === null);
+  }
+  return f.reportedResult?.legs.flatMap((leg) => leg.visits
+    .filter((visit) => visit.player_id === playerId)
+    .flatMap((visit) => visit.scores.map((score) => ({
+      player_id: visit.player_id,
+      total_scored: score,
+      darts_thrown: 3,
+      busted: false,
+      tiebreak_round: null,
+    })))) ?? [];
+}
 export function resultStats(f: FixtureResult, playerId: string | null) {
-  const turns =
-    f.match?.legs
-      .flatMap((l) => l.turns)
-      .filter((t) => t.player_id === playerId && t.tiebreak_round === null) ??
-    [];
+  const turns = resultTurns(f, playerId);
   return {
     average: calculate3DartAverage(turns),
     averageIncomplete: Boolean(f.reportedResult),
@@ -283,10 +294,7 @@ export function buildStandings({ fixtures, players }: Snapshot) {
         row.legsAgainst += resultStats(fixture, opponent).legs;
         playerTurns.set(key, [
           ...(playerTurns.get(key) ?? []),
-          ...(fixture.match?.legs
-            .flatMap((l) => l.turns)
-            .filter((t) => t.player_id === id && t.tiebreak_round === null) ??
-            []),
+          ...resultTurns(fixture, id),
         ]);
       }
     }

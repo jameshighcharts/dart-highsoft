@@ -191,3 +191,35 @@ Rollback: deploy the previous application first, then drop `public.end_match_ear
 Game-history deletion now uses a confirmation instead of `GAME_DELETE_PASSCODE`. A signed-in workspace session is still required, and linked tournament results cannot be deleted through that standalone endpoint. The old environment variable can be removed after deployment.
 
 Production deployment on September 17: installed `20260917150000_reset_ended_highdarts_matches` through the Supabase SQL Editor and recorded its exact source in migration history. Verified that the function body matches the locally tested function, uses security invoker, denies browser roles, and allows service role execution. The missing-match guard was exercised under `service_role` without modifying records. Fixture and match counts stayed at 76 and 68. Local reset regressions, all 1,507 unit/component tests, lint, and the webpack build passed. Desktop and mobile browser checks confirmed the yellow board-restart tip inside the red manual-scoring warning.
+
+## Yanyi admission and estimated averages, October 2
+
+The approved Sogndal change preserves all played results. Migration `20261002110000_admit_yanyi_highdarts.sql` prefers unclaimed fixture #9, Jørgen–Sindre, for Jørgen–Yanyi. If #9 is claimed or excluded it uses the unclaimed, fully counted #7 instead. It adds #14 Yanyi–Sindre, #15 Yanyi–Jon, #16 Yanyi–Johan, and #17 Yanyi–Mykhailo. Both candidate repeats being unavailable aborts the transaction. Existing fixture numbers and counting choices stay intact. The resulting schedule has five games for Yanyi and Jørgen and six for Sindre, Jon, Johan and Mykhailo. Each six-game player chooses one exclusion, before or after play, before qualification. Tournament office comes from the fixture; Yanyi's global player location is not changed.
+
+The migration locks the event and fixtures, rejects a begun qualification stage, checks reviewed active/non-test identities, validates the entire resulting schedule, and leaves retries unchanged. Fresh databases without the reviewed production IDs skip the data change. A partially populated identity set fails for review. No scoring settings, match history, Elo, RLS or match links are changed.
+
+Reported Sogndal #1 and #12 now contribute estimated points and three darts per recorded visit to the weighted group average. Zero visits count as three darts because the screenshots do not distinguish misses from busts. The UI marks affected averages with ≈, and the sheet explains the estimate. A canonical app match always overrides a report, so #12's recorded result remains authoritative. Excluding a match removes the estimate only for the selecting player. Existing qualification safeguards for noncanonical results remain in place.
+
+### Release order
+
+1. Save a copy of the current bound Apps Script and replace it with `scripts/highdarts-sheet/Code.gs`. Run `refreshHighdarts` against the existing 76-fixture feed. The script supports both layouts and validates all data before changing any rows. It expands Sogndal from 13 to 17 rows exactly once when the 80-fixture feed arrives, moves Vik down four rows, copies each new row's formulas, and uses the verified empty sixth standings row at A26:E26.
+2. Merge/deploy the PR app and migration through the existing workflows. The updated sheet endpoint accepts both complete draws. If migration deployment beats the app deployment, the old endpoint returns 503 and the bound script preserves existing cells until the new app is ready; do not replace it with an empty export.
+3. Verify the live snapshot has 80 group fixtures, Sogndal has 17, Yanyi has five opponents, and all preexisting match links/results and exclusions are unchanged. Run the sheet refresh and verify Yanyi plus all six Sogndal standings, the shifted Vik results/formulas, and the estimated Sindre/Jon averages. Check the five-minute trigger still runs.
+
+The bound Apps Script was updated through its Chrome editor on October 2, 2026, its saved text matched the tested source, and `refreshHighdarts` completed against the existing 76-fixture production feed. The previous script matched `origin/main:scripts/highdarts-sheet/Code.gs` and is preserved in Git. The PR migration has not yet changed live fixtures; merging/deploying applies admission with the app update.
+
+### Rollback
+
+Before deployment, export the event's fixtures and keep the old bound script. If any new/reassigned Yanyi fixture has been claimed, played, excluded, or published, stop and review; do not rewrite its history. Before any such activity and before qualification, an organiser can transactionally restore the saved repeat's exact player fields and remove only the four new unclaimed rows #14–17, verifying the original 13 Sogndal fixtures and all original match links and choices. Keep the updated app and script; both understand the old feed. The script may keep the expanded blank space after rollback; confirm/clear only the obsolete new rows and sixth standings row after saving a workbook copy. Never delete a scored match to roll back admission.
+
+Local admission check, with an empty disposable `bengt_yanyi_test` database on 127.0.0.1:56565 and PostgreSQL 18 binaries installed:
+
+```sh
+HIGHDARTS_YANYI_NATIVE=1 node scripts/highdarts-yanyi.integration.mjs
+```
+
+The regression uses the real fixture schema, counting RPC and admission body, with minimal parent tables. Every scenario rolls back. It is not a production deployment or an end-to-end scoring test.
+
+Verification: 1,579 unit/component tests pass, lint has zero errors and 23 existing warnings, and the webpack production build passes. The local PostgreSQL harness verifies admission, safe retries, preservation of recorded fixtures and Sindre's exclusion, fallback to the other unclaimed repeat, new players' exclusion choices, and rollback for started repeats/qualification/partial admissions/changed schedules. Chrome verification and the actual local sheet API used a read-only live snapshot with the proposed fixture changes. The live bound script was saved, matched against the tested source, and completed a 76-fixture refresh; its existing time-based `refreshHighdarts` trigger remains installed.
+
+![Chrome preview with Yanyi and estimated averages](highdarts-2026/yanyi-estimated-averages.png)

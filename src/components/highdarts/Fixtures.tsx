@@ -418,7 +418,7 @@ export function GroupCountingChoice({
                 <option key={f.id} value={f.id}>
                   {fixtureLabel(f)} vs {label}
                   {isCompleted(f)
-                    ? ` · ${fixtureWinner(f) === playerId ? "Won" : "Lost"} · ${f.reportedResult ? "AVG unavailable" : `${resultStats(f, playerId).average.toFixed(2)} AVG`}`
+                    ? ` · ${fixtureWinner(f) === playerId ? "Won" : "Lost"} · ${f.reportedResult ? "≈" : ""}${resultStats(f, playerId).average.toFixed(2)} AVG`
                     : " · Not finished"}
                 </option>
               );

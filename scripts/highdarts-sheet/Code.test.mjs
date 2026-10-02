@@ -56,8 +56,65 @@ describe('bound Apps Script', () => {
       SpreadsheetApp: { getActiveSpreadsheet: () => ({ getId: () => '1gIbV9OM3RsItTwQQPgwQjAxwOfPsfaPLRA08RXqsp_c', getSheetByName: () => { writes++; } }) },
       UrlFetchApp: { fetch: () => ({ getResponseCode: () => 503 }) },
     };
-    expect(() => runInNewContext(source + '\nrefreshHighdarts();', context)).toThrow('HTTP 503');
+    expect(() => runInNewContext(source + '\nrefreshHighdarts();', { ...context })).toThrow('HTTP 503');
     expect(released).toBe(true);
     expect(writes).toBe(0);
   });
+  it('accepts the expanded Sogndal draw without overwriting the shifted Vik block', () => {
+    const { data, schedule } = sample();
+    schedule.splice(46, 0, ...Array.from({ length: 4 }, (_, i) => ['Sogndal', i + 14]));
+    for (let i = 14; i <= 17; i++) data.fixtures.push({ office: 'sogndal', number: i, players: ['Yanyi', 'Opponent'], result: ['', '', '', ''], counts: [1, 1] });
+    data.standings.find((o) => o.office === 'sogndal').rows.push([6, 'Yanyi', 0, 0, 0]);
+    const writes = plan(data, schedule);
+    expect(writes.find((w) => w.sheet === 'Kampoppsett' && w.row === 34 && w.column === 3).values).toHaveLength(17);
+    expect(writes.find((w) => w.sheet === 'Kampoppsett' && w.row === 52 && w.column === 3).values).toHaveLength(33);
+    expect(writes.find((w) => w.sheet === 'Tabell' && w.row === 21).values).toHaveLength(6);
+    expect(() => plan(data, sample().schedule)).toThrow('Fixture rows changed');
+    data.fixtures.pop();
+    expect(() => plan(data, schedule)).toThrow('Incomplete tournament export');
+  });
+
+  it('expands once, preserves winner formulas, and validates bad expanded data before inserting rows', () => {
+    const { data, schedule } = sample();
+    for (let i = 14; i <= 17; i++) data.fixtures.push({ office: 'sogndal', number: i, players: ['Yanyi', 'Opponent'], result: ['', '', '', ''], counts: [1, 1] });
+    data.standings.find((o) => o.office === 'sogndal').rows.push([6, 'Yanyi', 0, 0, 0]);
+    let inserts = 0;
+    const copies = [];
+    const range = (sheet, ...args) => ({
+      args,
+      getValues: () => schedule,
+      setValues: (values) => {
+        if (sheet === 'Kampoppsett' && args[0] === 'A47:B50') values.forEach((v, i) => schedule[46 + i] = v);
+      },
+      setValue: () => {},
+      copyTo: (destination) => copies.push(destination.args),
+    });
+    const context = {
+      LockService: { getDocumentLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
+      SpreadsheetApp: {
+        getActiveSpreadsheet: () => ({
+          getId: () => '1gIbV9OM3RsItTwQQPgwQjAxwOfPsfaPLRA08RXqsp_c',
+          getSheetByName: (name) => ({
+            getRange: (...args) => range(name, ...args),
+            insertRowsAfter: (row, count) => { inserts++; schedule.splice(row, 0, ...Array.from({ length: count }, () => [])); },
+          }),
+        }),
+        flush: () => {},
+      },
+      UrlFetchApp: { fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify(data) }) },
+      Utilities: { formatDate: () => 'now' },
+      console: { log: () => {} },
+    };
+    data.standings[2].rows[12][4] = null;
+    expect(() => runInNewContext(source + '\nrefreshHighdarts();', { ...context })).toThrow('Invalid tournament values');
+    expect(inserts).toBe(0);
+    data.standings[2].rows[12][4] = 0;
+    runInNewContext(source + '\nrefreshHighdarts();', { ...context });
+    runInNewContext(source + '\nrefreshHighdarts();', { ...context });
+    expect(inserts).toBe(1);
+    expect(copies.slice(0, 4)).toEqual([47, 48, 49, 50].map((row) => [row, 1, 1, 14]));
+    expect(schedule[51]).toEqual(['vik', 1]);
+    expect(schedule[49]).toEqual(['Sogndal', 17]);
+  });
+
 });

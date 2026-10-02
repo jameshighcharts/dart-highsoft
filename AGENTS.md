@@ -612,7 +612,7 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/lib/highdarts/standings.ts`: Counted player sides determine wins/losses/legs/average. Physical match progress stays unchanged; `pendingDiscards` prevents finalizing qualification before all required choices.
 - `supabase/tests/highdarts_counted_results.sql` and `scripts/highdarts-counting.integration.mjs`: Rollback SQL invariants and opt-in disposable API concurrency checks.
 
-- `src/lib/highdarts/reportedResults.ts`: Screenshot visit totals for Sogndal #1 and #12, applied only by the Bengt dashboard and included once in group progress. Recent-result cards show hardcoded estimated averages assuming three darts per visit; official standings averages remain unknown. Both matches have the user-confirmed Oslo date September 15, 2026, which feeds the header Today count and office progress. Existing app matches take precedence. No database or sheet writes.
+- `src/lib/highdarts/reportedResults.ts`: Screenshot visit totals for Sogndal #1 and #12, applied by the Bengt dashboard and sheet export and included once in group progress. Recent-result cards and standings include estimated averages assuming three darts per reported visit. Counted estimates are combined with recorded darts by points/darts, marked ≈ in standings, and exported to the Sheet. Exact qualification remains blocked until canonical results replace reports. Both matches have the user-confirmed Oslo date September 15, 2026, which feeds the header Today count and office progress. Existing app matches take precedence. Does not create scoring rows; the sheet export includes the reported results.
 
 ### Manual Highdarts starts
 - `supabase/migrations/20260915120000_highdarts_manual_scoring.sql`: Allows manual fixture starts and reserves the office against competing Scolia X01/party games without routing hardware throws to the manual match.
@@ -631,3 +631,10 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `supabase/migrations/20260917150000_reset_ended_highdarts_matches.sql`: Service-only atomic early ending. Bengt attempts and their pending result jobs are removed; the same fixture becomes unplayed and board occupancy clears. Completed winners, published results, active result delivery, and locked draws remain protected. Deploy before the updated end route. `supabase/tests/end_match_early.sql` covers reset, discarded scores, legacy jobs, retry isolation, and result protection.
 
 - `tournamentActivity` in `src/lib/highdarts/standings.ts` supplies the Bengt Today dropdown in descending completion-time order; date-only reported results follow timed results.
+
+### Yanyi Highdarts admission
+- `supabase/migrations/20261002110000_admit_yanyi_highdarts.sql`: Atomic, retry-safe Sogndal admission for reviewed player IDs. Replaces one unclaimed counted Sindre–Jørgen repeat, adds four Yanyi fixtures, preserves existing choices/results, and aborts after qualification or conflicting schedule changes. No-op on fresh databases without these production identities.
+- `scripts/highdarts-yanyi.integration.mjs`: Opt-in local PostgreSQL regression on port 56565, database `bengt_yanyi_test`; admission, retries, exclusion choices and rollback guards.
+- `scripts/highdarts-sheet/Code.gs`: Accepts the original 76 and expanded 80 fixtures; validates the full export before inserting four Sogndal rows once and writing six standings rows. Deploy the bound script before the admission migration.
+- `src/app/api/highdarts/sheet/route.test.ts`: Old/new draw compatibility and fail-closed incomplete/duplicate fixture export checks.
+- `docs/highdarts-2026/yanyi-estimated-averages.png`: Chrome preview of the approved expanded draw and estimated standings, using a read-only copy of the live snapshot.

@@ -1,6 +1,8 @@
+import { withReportedResults } from './reportedResults';
 import { buildStandings, isCompleted, normalizeName, resultStats, type Snapshot } from './standings';
 
-export function buildSheetExport(snapshot: Snapshot) {
+export function buildSheetExport(source: Snapshot) {
+  const snapshot = withReportedResults(source);
   const standings = buildStandings(snapshot);
   const group = snapshot.fixtures.filter((f) => f.stage === 'group');
   const names = new Map<string, string>();
