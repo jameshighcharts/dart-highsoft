@@ -7,6 +7,7 @@ import { BarChart3, Camera, Trash2 } from 'lucide-react';
 
 import type { MeResponse } from '@/app/api/me/route';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { hasUploadedAvatar } from '@/lib/avatars';
 import { PlayerEloStats } from '@/components/PlayerEloStats';
 import { PlayerMultiEloStats } from '@/components/PlayerMultiEloStats';
 import { AdminNicknameEditor } from '@/components/profile/AdminNicknameEditor';
@@ -115,8 +116,8 @@ export function ProfileClient() {
   async function removeAvatar() {
     if (!window.confirm('Remove your picture?')) return;
     await run('avatar', async () => {
-      await apiRequest('/api/me/avatar', { method: 'DELETE' });
-      setMe((current) => (current?.player ? { ...current, player: { ...current.player, avatar_url: null } } : current));
+      const data = await apiRequest<{ avatarUrl?: string | null }>('/api/me/avatar', { method: 'DELETE' });
+      setMe((current) => (current?.player ? { ...current, player: { ...current.player, avatar_url: data.avatarUrl ?? null } } : current));
     });
   }
 
@@ -230,7 +231,7 @@ export function ProfileClient() {
                   className="group relative rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={busy !== null}
-                  aria-label={player.avatar_url ? 'Replace picture' : 'Upload picture'}
+                  aria-label={hasUploadedAvatar(player) ? 'Replace picture' : 'Upload picture'}
                 >
                   <PlayerAvatar player={player} size="xl" />
                   <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
@@ -240,9 +241,9 @@ export function ProfileClient() {
                 <div className="flex gap-1">
                   <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => fileInputRef.current?.click()}>
                     <Camera />
-                    {player.avatar_url ? 'Replace' : 'Upload'}
+                    {hasUploadedAvatar(player) ? 'Replace' : 'Upload'}
                   </Button>
-                  {player.avatar_url ? (
+                  {hasUploadedAvatar(player) ? (
                     <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void removeAvatar()} aria-label="Remove picture">
                       <Trash2 />
                     </Button>

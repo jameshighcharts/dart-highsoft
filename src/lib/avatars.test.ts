@@ -7,6 +7,8 @@ import {
   avatarFallbackColor,
   defaultAvatarKey,
   defaultAvatarUrl,
+  hasUploadedAvatar,
+  isDefaultAvatarUrl,
   playerInitials,
   renderPlayerAvatarHtml,
   renderPlayerCellHtml,
@@ -47,10 +49,11 @@ describe('avatarStyle', () => {
 });
 
 describe('default avatars', () => {
-  it('keys all 40 goblins in sheet order', () => {
+  it('keys all 80 goblins in sheet order', () => {
+    expect(DEFAULT_AVATAR_COUNT).toBe(80);
     expect(DEFAULT_AVATAR_KEYS).toHaveLength(DEFAULT_AVATAR_COUNT);
     expect(DEFAULT_AVATAR_KEYS[0]).toBe('goblin-01');
-    expect(DEFAULT_AVATAR_KEYS[39]).toBe('goblin-40');
+    expect(DEFAULT_AVATAR_KEYS[79]).toBe('goblin-80');
     expect(new Set(DEFAULT_AVATAR_KEYS).size).toBe(DEFAULT_AVATAR_COUNT);
   });
 
@@ -59,7 +62,21 @@ describe('default avatars', () => {
     expect(DEFAULT_AVATAR_KEYS).toContain(defaultAvatarKey('any-seed'));
     expect(defaultAvatarUrl('p1')).toBe(`/avatars/default/${defaultAvatarKey('p1')}.png`);
     const picked = new Set(Array.from({ length: 400 }, (_, i) => defaultAvatarKey(`player-${i}`)));
-    expect(picked.size).toBeGreaterThan(30);
+    expect(picked.size).toBeGreaterThan(60);
+  });
+
+  it('tells a stored default goblin apart from an uploaded picture', () => {
+    expect(isDefaultAvatarUrl('/avatars/default/goblin-57.png')).toBe(true);
+    expect(isDefaultAvatarUrl('https://x.supabase.co/storage/v1/object/public/avatars/players/p1.png')).toBe(false);
+    expect(isDefaultAvatarUrl(null)).toBe(false);
+    expect(hasUploadedAvatar({ avatar_url: '/avatars/default/goblin-57.png' })).toBe(false);
+    expect(hasUploadedAvatar({ avatar_url: null })).toBe(false);
+    expect(hasUploadedAvatar({ avatar_url: 'https://x/y.png' })).toBe(true);
+  });
+
+  it('shows the database-assigned default goblin as the picture', () => {
+    expect(resolveAvatarUrl({ id: 'p1', avatar_url: '/avatars/default/goblin-57.png' })).toBe('/avatars/default/goblin-57.png');
+    expect(renderPlayerAvatarHtml({ id: 'p1', display_name: 'A', avatar_url: '/avatars/default/goblin-57.png' })).toContain('src="/avatars/default/goblin-57.png"');
   });
 
   it('prefers an uploaded picture over the default', () => {

@@ -76,7 +76,11 @@ export async function setPlayerAvatar(
   return avatarUrl;
 }
 
-export async function clearPlayerAvatar(supabase: SupabaseClient, playerId: string): Promise<void> {
+/**
+ * Removes the uploaded picture. The database trigger then assigns the player a
+ * fresh default goblin, which is returned so callers can show it right away.
+ */
+export async function clearPlayerAvatar(supabase: SupabaseClient, playerId: string): Promise<string | null> {
   const player = await supabase.from('players').select('id, avatar_url').eq('id', playerId).maybeSingle();
   if (player.error) throw new Error(player.error.message);
   if (!player.data) throw new AvatarError('Player not found', 404);
@@ -86,6 +90,7 @@ export async function clearPlayerAvatar(supabase: SupabaseClient, playerId: stri
     const removed = await supabase.storage.from(AVATAR_BUCKET).remove([path]);
     if (removed.error) throw new Error(removed.error.message);
   }
-  const updated = await supabase.from('players').update({ avatar_url: null }).eq('id', playerId);
+  const updated = await supabase.from('players').update({ avatar_url: null }).eq('id', playerId).select('avatar_url').maybeSingle();
   if (updated.error) throw new Error(updated.error.message);
+  return (updated.data?.avatar_url as string | null) ?? null;
 }

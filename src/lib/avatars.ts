@@ -10,12 +10,17 @@ export function avatarStoragePathFromUrl(url: string | null): string | null {
   return path.startsWith('players/') && !path.includes('..') ? path : null;
 }
 
-// Default profile pictures: 40 goblin icons in public/avatars/default, keyed
-// goblin-01..goblin-40 (row-major order of the source sheet). A player without
-// an uploaded picture gets one picked deterministically from their id, so the
-// same player always shows the same goblin everywhere.
+// Default profile pictures: 80 goblin icons in public/avatars/default, keyed
+// goblin-01..goblin-80 (two 40-goblin sheets, row-major). The database assigns
+// each player without an uploaded picture a random goblin no other player has
+// (trigger in migration 20260911120000) and stores it in players.avatar_url as
+// an app-relative path, so it is unique per player and shows up everywhere the
+// picture does. The hash below is only the fallback for rows with no
+// avatar_url at all (e.g. before the migration ran).
 
-export const DEFAULT_AVATAR_COUNT = 40;
+export const DEFAULT_AVATAR_COUNT = 80;
+
+export const DEFAULT_AVATAR_PATH_PREFIX = '/avatars/default/';
 
 export const DEFAULT_AVATAR_KEYS: readonly string[] = Array.from({ length: DEFAULT_AVATAR_COUNT }, (_, i) => `goblin-${String(i + 1).padStart(2, '0')}`);
 
@@ -24,7 +29,17 @@ export function defaultAvatarKey(seed: string): string {
 }
 
 export function defaultAvatarUrl(seed: string): string {
-  return `/avatars/default/${defaultAvatarKey(seed)}.png`;
+  return `${DEFAULT_AVATAR_PATH_PREFIX}${defaultAvatarKey(seed)}.png`;
+}
+
+/** True when the url is one of the built-in default goblins rather than an upload. */
+export function isDefaultAvatarUrl(url: string | null | undefined): boolean {
+  return !!url && url.startsWith(DEFAULT_AVATAR_PATH_PREFIX);
+}
+
+/** True when the player has a picture of their own (not a default goblin). */
+export function hasUploadedAvatar(player: { avatar_url?: string | null }): boolean {
+  return !!player.avatar_url && !isDefaultAvatarUrl(player.avatar_url);
 }
 
 /** Picture to show for a player: their upload, or their assigned default goblin. */

@@ -33,8 +33,8 @@ export async function DELETE() {
     const supabase = getSupabaseServerClient();
     const player = await findLinkedPlayer(supabase, guard.user.slackTeamId, guard.user.slackUserId);
     if (!player) return NextResponse.json({ error: 'No player linked to your account' }, { status: 404 });
-    await clearPlayerAvatar(supabase, player.id);
-    return NextResponse.json({ playerId: player.id, avatarUrl: null });
+    const avatarUrl = await clearPlayerAvatar(supabase, player.id);
+    return NextResponse.json({ playerId: player.id, avatarUrl });
   } catch (error) {
     return errorResponse(error, 'Failed to remove avatar');
   }
