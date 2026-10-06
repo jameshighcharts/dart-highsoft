@@ -30,12 +30,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
 });
-function setup(extra = {}) {
+function setup(extra = {}, reported = false) {
   const fetch = vi
     .fn()
     .mockResolvedValue({
       ok: true,
-      json: async () => ({ fixtures: [fixture], players }),
+      json: async () => ({ fixtures: [{ ...fixture, ...(reported ? { reportedResult: { accepted: true, winner_player_id: 'a' } } : {}) }], players }),
     });
   vi.stubGlobal('fetch', fetch);
   const reload = vi.fn().mockResolvedValue(undefined);
@@ -84,3 +84,9 @@ it.each([{ hasThrows: true }, { spectator: true }])(
     expect(fetch).not.toHaveBeenCalled();
   },
 );
+
+it('does not offer an accepted screenshot game for linking again', async () => {
+  const { fetch } = setup({}, true);
+  await waitFor(() => expect(fetch).toHaveBeenCalled());
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});

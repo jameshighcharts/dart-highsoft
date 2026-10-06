@@ -29,6 +29,7 @@ export function withReportedResults(snapshot: Snapshot): Snapshot {
   return {
     ...snapshot,
     fixtures: snapshot.fixtures.map((fixture) => {
+      if (fixture.reportedResult) return fixture;
       // A later Scolia game claimed #12 after the September 15
       // screenshot game. Keep that app match and recover the report in #13.
       const restoreReturnFixture = fixture.fixture_no === 13 && snapshot.fixtures.some((other) =>

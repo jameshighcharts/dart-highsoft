@@ -125,3 +125,17 @@ it('keeps ordinary manual matches unchanged', async () => {
   expect(starts()).toHaveLength(1);
   expect(starts()[0][1]?.body).not.toHaveProperty('highdartsFixtureId');
 });
+
+it('rejects a deep link to an already accepted screenshot result', async () => {
+  vi.mocked(apiRequest).mockImplementation(async (url) => {
+    if (url === '/api/me') return { player: { location: 'vik' } };
+    if (url === '/api/highdarts') return { fixtures: [{ ...drawn, reportedResult: { accepted: true, winner_player_id: 'Askel' } }], players: [], boards: [] };
+    if (url === '/api/scolia/boards/available') return { boards: [] };
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  render(<NewMatchPage />);
+  expect(await screen.findByText(/This fixture is unavailable/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Start match' })).toBeDisabled();
+  expect(screen.getByRole('switch', { name: 'Highdarts 2026 match' })).toBeDisabled();
+  expect(starts()).toHaveLength(0);
+});

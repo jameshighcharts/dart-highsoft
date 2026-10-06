@@ -205,10 +205,10 @@ export function ProfileFixtures({
   }, []);
   const fixtures = snapshot ? personalFixtures(snapshot, playerId) : [];
   const remaining = fixtures.filter(
-    (f) => !f.match?.completed_at && !f.match?.ended_early,
+    (f) => !isCompleted(f) && !f.match?.ended_early,
   );
   const history = fixtures.filter(
-    (f) => f.match?.completed_at || f.match?.ended_early,
+    (f) => isCompleted(f) || f.match?.ended_early,
   );
   return (
     <TooltipProvider>

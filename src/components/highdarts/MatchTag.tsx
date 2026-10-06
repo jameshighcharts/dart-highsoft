@@ -7,7 +7,8 @@ import {
   fixtureLabel,
   fixtureFormat,
   fixturesForPair,
-  type Fixture,
+  isCompleted,
+  type FixtureResult,
   type Snapshot,
 } from '@/lib/highdarts/standings';
 import { Button } from '@/components/ui/button';
@@ -33,7 +34,7 @@ export function HighdartsMatchTag({
   spectator: boolean;
   reload: () => Promise<void>;
 }) {
-  const [fixtures, setFixtures] = useState<Fixture[]>([]);
+  const [fixtures, setFixtures] = useState<FixtureResult[]>([]);
   const [dismissed, setDismissed] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -78,7 +79,7 @@ export function HighdartsMatchTag({
   const available = fixturesForPair(
     fixtures,
     players.map((p) => p.id),
-  ).filter((f) => !f.match_id);
+  ).filter((f) => !f.match_id && !isCompleted(f));
   const candidate = available.find((f) => f.id === chosenId) ?? available[0];
   const format = fixtureFormat(candidate?.stage ?? 'group');
   const open =

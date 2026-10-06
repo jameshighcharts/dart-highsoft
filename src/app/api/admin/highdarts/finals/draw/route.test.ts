@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { NextResponse } from 'next/server';
 import { POST, DELETE } from './route';
-import { completedGroups } from '@/test-utils/highdartsFixtures';
+import { completedGroups, completedGroupsWithAcceptedReport } from '@/test-utils/highdartsFixtures';
 import { buildStandings } from '@/lib/highdarts/standings';
 import { projectFinals } from '@/lib/highdarts/finals';
 const { guard, rpc } = vi.hoisted(() => ({ guard: vi.fn(), rpc: vi.fn() }));
@@ -68,4 +68,16 @@ it('rejects duplicate or stale locks without creating another graph', async () =
   );
   expect((await POST(request())).status).toBe(409);
   expect((await DELETE()).status).toBe(409);
+});
+
+
+it('locks a complete draw using accepted database reports and the unchanged authoritative snapshot', async () => {
+  const source = completedGroupsWithAcceptedReport();
+  rpc.mockImplementation(async (name: string) => name === 'highdarts_snapshot'
+    ? { data: source, error: null }
+    : { error: null });
+  const approved = projectFinals(buildStandings(source));
+  expect(approved.ready).toBe(true);
+  expect((await POST(request(approved.selection))).status).toBe(200);
+  expect(rpc).toHaveBeenLastCalledWith('lock_highdarts_draw_atomic', expect.objectContaining({ p_expected: source }));
 });

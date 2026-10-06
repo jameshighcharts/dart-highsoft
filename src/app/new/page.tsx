@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { fixturesForPair, fixtureAvailability, fixtureLabel, fixtureFormat, type FixtureResult, type Snapshot } from "@/lib/highdarts/standings";
+import { fixturesForPair, isCompleted, fixtureAvailability, fixtureLabel, fixtureFormat, type FixtureResult, type Snapshot } from "@/lib/highdarts/standings";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { apiRequest } from "@/lib/apiClient";
@@ -175,7 +175,7 @@ export default function NewMatchPage() {
       const requested = new URLSearchParams(window.location.search).get('highdarts');
       if (!requested) return;
       const f = data.fixtures.find(f => f.id === requested);
-      if (!f || !f.player_a_id || !f.player_b_id || f.match_id) {
+      if (!f || !f.player_a_id || !f.player_b_id || f.match_id || isCompleted(f)) {
         setHighdartsError('This fixture is unavailable. Check its player links and status on the Bengt page.');
         setHighdartsEnabled(false);
         setHighdartsDeepLinkError(true);
@@ -200,7 +200,7 @@ export default function NewMatchPage() {
     return () => { cancelled = true; };
   }, [setupLoaded, playersLoaded]);
   const pairFixtures = fixturesForPair(highdartsFixtures, selectedIds);
-  const availableFixtures = pairFixtures.filter(f => !f.match_id);
+  const availableFixtures = pairFixtures.filter(f => !f.match_id && !isCompleted(f));
   const highdartsFixture = availableFixtures.find(f => f.id === requestedFixtureId) ?? availableFixtures[0];
   const highdartsLocked = gameType === 'x01' && highdartsEnabled && Boolean(highdartsFixture);
   const highdartsFormat = fixtureFormat(highdartsFixture?.stage ?? 'group');
@@ -725,9 +725,9 @@ export default function NewMatchPage() {
                 <div className={`flex items-center gap-3 rounded-xl border p-3 ${highdartsLocked ? 'border-violet-400/30 bg-violet-400/10' : 'border-white/10 bg-white/[0.03]'}`}>
                   <Trophy className="size-5 shrink-0 text-violet-300" aria-hidden="true" />
                   <div className="min-w-0 flex-1"><label htmlFor="highdarts-toggle" className="text-sm font-semibold">Highdarts 2026 match</label>
-                    <p id="highdarts-description" className="mt-1 text-xs text-muted-foreground">{highdartsError || (highdartsLoading ? 'Loading tournament fixtures…' : selectedIds.length !== 2 ? 'Select exactly two players.' : highdartsFixture ? `Fixture ${fixtureLabel(highdartsFixture)} · ${highdartsFixture.player_a_name} vs ${highdartsFixture.player_b_name}` : pairFixtures.length ? 'These fixtures have already been started.' : "These two aren't drawn against each other in Highdarts 2026")}</p>
+                    <p id="highdarts-description" className="mt-1 text-xs text-muted-foreground">{highdartsError || (highdartsLoading ? 'Loading tournament fixtures…' : selectedIds.length !== 2 ? 'Select exactly two players.' : highdartsFixture ? `Fixture ${fixtureLabel(highdartsFixture)} · ${highdartsFixture.player_a_name} vs ${highdartsFixture.player_b_name}` : pairFixtures.length ? 'These fixtures have already been started or completed.' : "These two aren't drawn against each other in Highdarts 2026")}</p>
                     {highdartsError && <Link href="/bengt" className="text-xs text-cyan-300 underline">Back to Bengt</Link>}
-                    {!highdartsFixture && pairFixtures.map(f => <Link key={f.id} href={`/match/${f.match_id}`} className="mr-2 text-xs text-cyan-300 underline">View {fixtureLabel(f)}</Link>)}
+                    {!highdartsFixture && pairFixtures.map(f => <Link key={f.id} href={f.match_id ? `/match/${f.match_id}` : "/bengt"} className="mr-2 text-xs text-cyan-300 underline">View {fixtureLabel(f)}</Link>)}
                     {highdartsLocked && <p className="mt-1 text-xs text-violet-200">Locked by Highdarts 2026 rules · {highdartsFormat.startScore} / {highdartsFormat.finish.replace("_", " ")} / first to 2</p>}
                     {highdartsLocked && availableFixtures.length > 1 && <select aria-label="Highdarts fixture" value={highdartsFixture?.id} onChange={e=>setRequestedFixtureId(e.target.value)} className="mt-2 w-full rounded border bg-background p-1 text-xs">{availableFixtures.map(f=><option key={f.id} value={f.id}>{fixtureLabel(f)}</option>)}</select>}
                   </div>

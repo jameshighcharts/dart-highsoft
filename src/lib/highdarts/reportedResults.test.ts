@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixture, finish } from '@/test-utils/highdartsFixtures';
+import { completedGroupsWithAcceptedReport, fixture, finish } from '@/test-utils/highdartsFixtures';
 import { buildStandings, isCompleted, resultStats, tournamentActivity } from './standings';
 import { projectFinals, validateDraw } from './finals';
 import { REPORTED_RESULTS, withReportedResults } from './reportedResults';
@@ -221,5 +221,42 @@ describe('the screenshot game displaced by the later recorded Jon–Johan meetin
       if (state === 'completed-return') source.fixtures[2] = finish(target, 'Johan Flo');
       expect(withReportedResults(source).fixtures[2]).toBe(source.fixtures[2]);
     }
+  });
+});
+
+
+describe('accepted database screenshot results', () => {
+  it('uses accepted estimates for qualification while retaining their estimate label', () => {
+    const snapshot = completedGroupsWithAcceptedReport();
+    const standings = buildStandings(snapshot);
+    expect(standings.played).toBe(standings.total);
+    expect(standings.averagesIncomplete).toBe(false);
+    expect(standings.offices[0].table.filter((row) => row.averageEstimated)).toHaveLength(2);
+    const projection = projectFinals(standings);
+    expect(projection.ready).toBe(true);
+    expect(validateDraw(standings, projection.selection).ok).toBe(true);
+    expect(resultStats(snapshot.fixtures[0], snapshot.fixtures[0].player_a_id)).toMatchObject({ averageEstimated: true, averageIncomplete: false });
+    expect(withReportedResults(snapshot).fixtures[0]).toBe(snapshot.fixtures[0]);
+
+    const report = snapshot.fixtures[0].reportedResult;
+    if (!report) throw new Error('Expected report');
+    report.accepted = false;
+    expect(projectFinals(buildStandings(snapshot)).ready).toBe(false);
+  });
+
+  it('does not let an accepted estimate bypass an unfinished group game', () => {
+    const snapshot = completedGroupsWithAcceptedReport();
+    snapshot.fixtures[1] = { ...snapshot.fixtures[1], match_id: null, match: null };
+    expect(buildStandings(snapshot).averagesIncomplete).toBe(false);
+    expect(projectFinals(buildStandings(snapshot)).ready).toBe(false);
+  });
+
+  it('preserves a persisted accepted report instead of reapplying the legacy fallback', () => {
+    const source = withReportedResults(reportedSnapshot());
+    const report = source.fixtures[0].reportedResult;
+    if (!report) throw new Error('Expected report');
+    report.accepted = true;
+    expect(withReportedResults(source).fixtures[0]).toBe(source.fixtures[0]);
+    expect(withReportedResults(source).fixtures[0].reportedResult?.accepted).toBe(true);
   });
 });

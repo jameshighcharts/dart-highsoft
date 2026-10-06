@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { fixture, finish } from "@/test-utils/highdartsFixtures";
+import { withReportedResults } from "@/lib/highdarts/reportedResults";
 import type { Snapshot } from "@/lib/highdarts/standings";
 import { ProfileFixtures, FixtureCard, GroupCountingChoice } from "./Fixtures";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -222,4 +223,25 @@ it("reports a stale selection without changing displayed standings", async () =>
     "The excluded result changed",
   );
   expect(refresh).not.toHaveBeenCalled();
+});
+
+
+it("keeps accepted screenshot games in finished history after refresh and never offers another start", async () => {
+  const data = withReportedResults({ players: [], fixtures: [
+    fixture('sogndal', 'Sindre Jensen', 'Jon Skjerdal', 1),
+    fixture('sogndal', 'Jon Skjerdal', 'Johan Flo', 13),
+  ] });
+  const report = data.fixtures[0].reportedResult;
+  if (!report) throw new Error('Expected report');
+  report.accepted = true;
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => data }));
+  render(<ProfileFixtures playerId="Jon Skjerdal" />);
+  await screen.findByText('1 remaining · 1 finished');
+  await act(async () => window.dispatchEvent(new Event('focus')));
+  expect(screen.getByText('1 remaining · 1 finished')).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Start Sindre Jensen vs Jon Skjerdal, Sogndal #1', hidden: true })).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /Start Jon Skjerdal vs Johan Flo/ })).toBeInTheDocument();
+  const history = screen.getByText('Finished matches (1)').closest('details');
+  if (!history) throw new Error('Expected history');
+  expect(within(history).getByText('2–1 · Reported')).toBeInTheDocument();
 });
