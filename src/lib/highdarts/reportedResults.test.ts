@@ -3,6 +3,7 @@ import { fixture, finish } from '@/test-utils/highdartsFixtures';
 import { buildStandings, isCompleted, resultStats, tournamentActivity } from './standings';
 import { projectFinals, validateDraw } from './finals';
 import { REPORTED_RESULTS, withReportedResults } from './reportedResults';
+import { buildSheetExport } from './sheetExport';
 
 function reportedSnapshot() {
   return {
@@ -132,4 +133,93 @@ describe('Bengt screenshot results', () => {
     expect(excluded.find((r) => r.key === 'Jon Skjerdal')?.average).toBeGreaterThan(0);
   });
 
+});
+
+function displacedScreenshotSnapshot() {
+  const source = reportedSnapshot();
+  const matchId = 'cd0f9577-5ce2-44ba-9566-b9644d9b9b5d';
+  const recorded = finish(source.fixtures[1], 'Jon Skjerdal', 81, 80);
+  if (!recorded.match) throw new Error('Expected a completed app match');
+  recorded.match_id = matchId;
+  recorded.match.id = matchId;
+  recorded.match.completed_at = '2026-09-21T12:00:00Z';
+  recorded.match.legs[0].turns[1].darts_thrown = 2;
+  source.fixtures[1] = recorded;
+  return source;
+}
+
+describe('the screenshot game displaced by the later recorded Jon–Johan meeting', () => {
+  it('restores the September 15 screenshot once to the reverse fixture without changing the recorded game', () => {
+    const source = displacedScreenshotSnapshot();
+    const snapshot = withReportedResults(source);
+    expect(snapshot.fixtures[1]).toBe(source.fixtures[1]);
+    expect(snapshot.fixtures[2].reportedResult).toMatchObject({
+      winner_player_id: 'Jon Skjerdal',
+      playedOn: '2026-09-15',
+      estimatedAverages: [
+        { player_id: 'Johan Flo', average: 34.71 },
+        { player_id: 'Jon Skjerdal', average: 33.32 },
+      ],
+    });
+    expect(resultStats(snapshot.fixtures[2], 'Jon Skjerdal')).toMatchObject({ legs: 2, averageIncomplete: true });
+    expect(resultStats(snapshot.fixtures[2], 'Jon Skjerdal').average).toBeCloseTo(33.32, 2);
+    expect(resultStats(snapshot.fixtures[2], 'Johan Flo').legs).toBe(1);
+    expect(buildStandings(snapshot).played).toBe(3);
+    expect(tournamentActivity(snapshot.fixtures, new Date('2026-09-15T12:00:00Z')).today).toBe(2);
+    expect(tournamentActivity(snapshot.fixtures, new Date('2026-10-06T12:00:00Z')).today).toBe(0);
+    expect(source.fixtures[2].reportedResult).toBeUndefined();
+    expect(withReportedResults(snapshot)).toEqual(snapshot);
+  });
+
+  it('includes both games in weighted averages and the sheet, respecting each side’s exclusion', () => {
+    const source = displacedScreenshotSnapshot();
+    source.fixtures[0].counts_for_b = false;
+    const snapshot = withReportedResults(source);
+    const standings = buildStandings(snapshot);
+    const jon = standings.offices[2].table.find((row) => row.key === 'Jon Skjerdal');
+    const johan = standings.offices[2].table.find((row) => row.key === 'Johan Flo');
+    // Jon: 833 points in 25 reported visits plus the two-dart recorded visit.
+    expect(jon).toMatchObject({ played: 2, wins: 2, losses: 0, legsFor: 4, legsAgainst: 1, remaining: 0, averageIncomplete: true });
+    expect(jon?.average).toBeCloseTo((833 + 80) * 3 / (75 + 2), 10);
+    expect(johan?.average).toBeCloseTo((833 + 81) * 3 / (72 + 3), 10);
+    const sheet = buildSheetExport(source);
+    expect(sheet.fixtures[1].result).toEqual([0, 2, 81, 120]);
+    expect(sheet.fixtures[2].result).toEqual([2, 1, 833 / 25, 833 / 24]);
+    expect(sheet.standings[2].rows.find((row) => row[1] === 'Jon Skjerdal')?.[4]).toBe(jon?.average);
+    expect(projectFinals(standings).ready).toBe(false);
+
+    source.fixtures[2].counts_for_a = false;
+    const excluded = buildStandings(withReportedResults(source));
+    expect(excluded.played).toBe(3);
+    expect(excluded.offices[2].table.find((row) => row.key === 'Jon Skjerdal')).toMatchObject({ played: 1, wins: 1, average: 120 });
+    expect(excluded.offices[2].table.find((row) => row.key === 'Johan Flo')?.average).toBe(johan?.average);
+    source.fixtures[2].counts_for_b = false;
+    expect(buildStandings(withReportedResults(source)).offices[2].table.find((row) => row.key === 'Johan Flo')).toMatchObject({ played: 1, losses: 1, average: 81 });
+  });
+
+  it('does not relocate reports for an unrelated, active or early-ended app match', () => {
+    for (const state of ['different-match', 'active', 'ended-early', 'no-winner']) {
+      const source = displacedScreenshotSnapshot();
+      const recorded = source.fixtures[1];
+      if (!recorded.match) throw new Error('Expected an app match');
+      if (state === 'different-match') recorded.match_id = recorded.match.id = 'unrelated';
+      if (state === 'active') recorded.match.completed_at = null;
+      if (state === 'ended-early') recorded.match.ended_early = true;
+      if (state === 'no-winner') recorded.match.winner_player_id = null;
+      expect(withReportedResults(source).fixtures[2]).toBe(source.fixtures[2]);
+    }
+  });
+
+  it('requires the same event and linked pair and never overrides a claimed return fixture', () => {
+    for (const state of ['other-event', 'wrong-pair', 'unlinked', 'active-return', 'completed-return']) {
+      const source = displacedScreenshotSnapshot();
+      const target = source.fixtures[2];
+      if (state === 'other-event') target.event_id = 'another-event';
+      if (state === 'wrong-pair') target.player_a_id = 'another-jon';
+      if (state === 'unlinked') target.player_a_id = null;
+      if (state === 'active-return') target.match_id = 'active-return';
+      if (state === 'completed-return') source.fixtures[2] = finish(target, 'Johan Flo');
+      expect(withReportedResults(source).fixtures[2]).toBe(source.fixtures[2]);
+    }
+  });
 });

@@ -29,14 +29,27 @@ export function withReportedResults(snapshot: Snapshot): Snapshot {
   return {
     ...snapshot,
     fixtures: snapshot.fixtures.map((fixture) => {
+      // A later Scolia game claimed #12 after the September 15
+      // screenshot game. Keep that app match and recover the report in #13.
+      const restoreReturnFixture = fixture.fixture_no === 13 && snapshot.fixtures.some((other) =>
+        other.event_id === fixture.event_id && other.stage === 'group' &&
+        other.office === 'sogndal' && other.fixture_no === 12 &&
+        other.match_id === 'cd0f9577-5ce2-44ba-9566-b9644d9b9b5d' &&
+        other.match?.id === other.match_id && Boolean(other.match.completed_at) &&
+        !other.match.ended_early && other.match.winner_player_id === other.player_b_id &&
+        other.player_a_id === fixture.player_b_id && other.player_b_id === fixture.player_a_id &&
+        normalizeName(other.player_a_name) === 'johan flo' &&
+        normalizeName(other.player_b_name) === 'jon skjerdal');
       const report = REPORTED_RESULTS.find((r) =>
         fixture.stage === 'group' && fixture.office === 'sogndal' &&
-        fixture.fixture_no === r.fixtureNo &&
-        normalizeName(fixture.player_a_name) === normalizeName(r.a) &&
-        normalizeName(fixture.player_b_name) === normalizeName(r.b));
+        (restoreReturnFixture ? 12 : fixture.fixture_no) === r.fixtureNo &&
+        normalizeName(fixture.player_a_name) === normalizeName(restoreReturnFixture ? r.b : r.a) &&
+        normalizeName(fixture.player_b_name) === normalizeName(restoreReturnFixture ? r.a : r.b));
       if (!report || fixture.match_id || fixture.match ||
           !fixture.player_a_id || !fixture.player_b_id) return fixture;
-      const ids = { a: fixture.player_a_id, b: fixture.player_b_id };
+      const ids = restoreReturnFixture
+        ? { a: fixture.player_b_id, b: fixture.player_a_id }
+        : { a: fixture.player_a_id, b: fixture.player_b_id };
       return {
         ...fixture,
         reportedResult: {
