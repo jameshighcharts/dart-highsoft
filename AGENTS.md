@@ -322,7 +322,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 |------|---------|
 | `factories.ts` | Test data factories: `createMockPlayer`, `createMockMatch`, `createMockLeg`, `createMockTurn`, `createMockThrow`, `createTwoPlayerGameSetup` |
 | `mockSupabase.ts` | In-memory mock Supabase client with query builder operating on JS arrays |
-| `highdartsFixtures.ts` | Deterministic fixtures, completed results and office standings for tournament tests |
+| `highdartsFixtures.ts` | Deterministic fixtures, completed results, accepted screenshot reports and office standings for tournament tests |
 | `e2e/highdarts.spec.ts` | Opt-in disposable native E2E: browser setup/scoring/undo, simultaneous claims, rematch isolation, tie-break, draw lifecycle and all eleven finals matches |
 | `playwright.highdarts.config.ts` | Serial local Highdarts E2E on port 3017 with reports outside the working tree; requires the isolated environment documented in HIGHDARTS_2026.md |
 | `gameFixtures.ts` | Party-game session, player, and throw factories |
@@ -612,7 +612,7 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `src/lib/highdarts/standings.ts`: Counted player sides determine wins/losses/legs/average. Physical match progress stays unchanged; `pendingDiscards` prevents finalizing qualification before all required choices.
 - `supabase/tests/highdarts_counted_results.sql` and `scripts/highdarts-counting.integration.mjs`: Rollback SQL invariants and opt-in disposable API concurrency checks.
 
-- `src/lib/highdarts/reportedResults.ts`: Screenshot visit totals for Sogndal #1 and #12, applied by the Bengt dashboard and sheet export and included once in group progress. Recent-result cards and standings include estimated averages assuming three darts per reported visit. Counted estimates are combined with recorded darts by points/darts, marked ≈ in standings, and exported to the Sheet. Exact qualification remains blocked until canonical results replace reports. Both matches have the user-confirmed Oslo date September 15, 2026, which feeds the header Today count and office progress. Existing app matches take precedence. Does not create scoring rows; the sheet export includes the reported results.
+- `src/lib/highdarts/reportedResults.ts`: Screenshot visit totals for Sogndal #1 and the September 15 Jon–Johan game, applied by the Bengt dashboard and sheet export and included once in group progress. Recent-result cards and standings include estimated averages assuming three darts per reported visit. Counted estimates are combined with recorded darts by points/darts, marked ≈ in standings, and exported to the Sheet. Persisted reports accepted by the organiser count for qualification; unaccepted legacy fallbacks still block it. Estimated averages retain the ≈ label. Both matches have the user-confirmed Oslo date September 15, 2026, which feeds the header Today count and office progress. Existing app matches take precedence. The verified later app match `cd0f9577-5ce2-44ba-9566-b9644d9b9b5d` displaced the Jon–Johan report from #12; only that completed match enables recovery in the same event’s unclaimed, reverse-pair #13, preserving player-side averages and exclusions. Other recorded matches never trigger reassignment. Does not create scoring rows; the sheet export includes the reported results.
 
 ### Manual Highdarts starts
 - `supabase/migrations/20260915120000_highdarts_manual_scoring.sql`: Allows manual fixture starts and reserves the office against competing Scolia X01/party games without routing hardware throws to the manual match.
@@ -638,3 +638,9 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `scripts/highdarts-sheet/Code.gs`: Accepts the original 76 and expanded 80 fixtures; validates the full export before inserting four Sogndal rows once and writing six standings rows. Deploy the bound script before the admission migration.
 - `src/app/api/highdarts/sheet/route.test.ts`: Old/new draw compatibility and fail-closed incomplete/duplicate fixture export checks.
 - `docs/highdarts-2026/yanyi-estimated-averages.png`: Chrome preview of the approved expanded draw and estimated standings, using a read-only copy of the live snapshot.
+
+- `supabase/migrations/20261006094831_highdarts_accepted_reports.sql`: Service-managed accepted screenshot JSON on group fixtures, authoritative snapshot serialization and draw completion support. A report cannot coexist with an app match; existing draw/counting locks remain effective.
+- `supabase/migrations/20261006094832_accept_sogndal_screenshot_results.sql`: Guarded, retry-safe acceptance of September 15 Sogndal #1 and the Jon–Johan report restored in #13; verifies player identities and the distinct recorded #12 before writing. No scoring rows, Elo or Slack jobs are created.
+- `scripts/highdarts-reports.integration.mjs`: Opt-in rollback-only PostgreSQL regression on port 56575, database `bengt_reports_test`, exercising actual migrations, weighted app/sheet totals, import/link/draw guards and privileges. See `docs/HIGHDARTS_2026.md`.
+- `src/components/highdarts/Fixtures.tsx`: Accepted reports appear in profile finished history; shared completion status controls remaining fixtures and their ordering. New-match deep links/pickers and `MatchTag.tsx` exclude completed reports, including reports without an app match ID.
+- `docs/highdarts-2026/accepted-reports.jpg`: Chrome verification of the accepted reports using the rollback-only local database snapshot.

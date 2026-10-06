@@ -223,3 +223,27 @@ The regression uses the real fixture schema, counting RPC and admission body, wi
 Verification: 1,579 unit/component tests pass, lint has zero errors and 23 existing warnings, and the webpack production build passes. The local PostgreSQL harness verifies admission, safe retries, preservation of recorded fixtures and Sindre's exclusion, fallback to the other unclaimed repeat, new players' exclusion choices, and rollback for started repeats/qualification/partial admissions/changed schedules. Chrome verification and the actual local sheet API used a read-only live snapshot with the proposed fixture changes. The live bound script was saved, matched against the tested source, and completed a 76-fixture refresh; its existing time-based `refreshHighdarts` trigger remains installed.
 
 ![Chrome preview with Yanyi and estimated averages](highdarts-2026/yanyi-estimated-averages.png)
+
+
+## Accepted screenshot results, October 6
+
+The organiser approved the screenshot estimates as official tournament averages. The September 15 results are Sogndal #1, Sindre 2–1 Jon (≈38.57 / ≈35.61), and #13, Jon 2–1 Johan Flo (≈33.32 / ≈34.71). The latter was originally reported as #12, which now contains the distinct recorded app match `cd0f9577-5ce2-44ba-9566-b9644d9b9b5d`. That app match stays intact. The October 6 screenshot is the already-reported September 15 game, not another result.
+
+Accepted reports live in `highdarts_fixtures.reported_result` and reach every consumer through `highdarts_snapshot` as `reportedResult`. The app combines visit points and three assumed darts per visit with recorded points/darts, preserving zero visits and per-player exclusions. Standings, the sheet, cutoff ties, byes and finals use that weighted average; ≈ still identifies estimates. Unaccepted legacy fallbacks remain provisional. Profiles classify accepted reports as finished, and new-match setup/tagging cannot offer them again. No individual throws, global player statistics, Elo updates or Slack posts are manufactured.
+
+Deploy `20261006094831_highdarts_accepted_reports.sql`, then `20261006094832_accept_sogndal_screenshot_results.sql`, before the updated app. The import locks the event and fixtures, verifies the exact three player IDs and recorded #12, and accepts only unclaimed #1/#13. Different reports, changed identities, partial production identities or qualification already underway abort the transaction. Exact retries preserve data and counting choices; fresh databases without the reviewed identities skip the import. The snapshot and draw RPC remain service-only. Older app code remains conservative about qualification until the app deploy completes. The existing bound Sheet script needs no update.
+
+Rollback the app without dropping the column or deleting accepted data; qualification will become provisional again. If the accepted data itself must be reversed, use a reviewed forward migration matching the exact stored reports and source identities, before qualification, and preserve an export first. Once a draw exists, its existing unlock/scoring guards apply: do not clear reports behind a locked or played draw. Never change the immutable applied migrations or delete the recorded #12 match.
+
+Verification requires an empty disposable PostgreSQL database `bengt_reports_test` listening only on `127.0.0.1:56575` and `psql` on PATH (or `PSQL_BIN` pointing at the installed binary):
+
+```sh
+HIGHDARTS_REPORTS_NATIVE=1 node --experimental-strip-types --import ./scripts/workerLoader.mjs scripts/highdarts-reports.integration.mjs
+```
+
+The harness creates minimal parent tables and executes the actual tournament migrations inside rollback-only transactions. It checks both exact imports/retries, weighted app and sheet totals, unchanged scoring/fixture data, RPC grants, duplicate linking rollback, remapping rejection, unfinished groups, stale draw snapshots, accepted-result draw locking, post-lock protection, pending counting choices and conflicting-import rollback. Its local JSON snapshot in `/private/tmp/bengt-accepted-db-snapshot.json` can drive browser verification. This is not a production migration run or a Scolia hardware test.
+
+
+Validation: 1,591 unit/component tests passed; lint had zero errors and 23 existing warnings; the webpack production build passed. Chrome displayed both reports, their exact rounded estimates and weighted standings, expandable legs, and three finished Jon fixtures including #1/#13, with no browser console errors. Browser data came from the disposable migration harness, not live standings. Two independent static reviews found no actionable issues. No production database changes were made during verification.
+
+![Local Chrome verification of accepted screenshot results](highdarts-2026/accepted-reports.jpg)

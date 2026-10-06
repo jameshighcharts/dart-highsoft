@@ -784,8 +784,8 @@ export function HighdartsDashboard({
                             <td className="text-center tabular-nums text-muted-foreground">
                               {row.losses}
                             </td>
-                            <td className="text-center font-semibold tabular-nums" title={row.averageIncomplete ? 'Includes a manual estimate using three darts per recorded visit.' : undefined}>
-                              {row.averageIncomplete ? '≈' : ''}{row.average.toFixed(2)}
+                            <td className="text-center font-semibold tabular-nums" title={row.averageEstimated ? 'Includes a manual estimate using three darts per recorded visit.' : undefined}>
+                              {row.averageEstimated ? '≈' : ''}{row.average.toFixed(2)}
                             </td>
                             <td className="text-center tabular-nums text-muted-foreground">
                               {row.remaining}

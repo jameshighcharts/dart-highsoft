@@ -31,6 +31,7 @@ export type ResultTurn = {
   tiebreak_round: number | null;
 };
 export type ReportedResult = {
+  accepted?: boolean;
   winner_player_id: string;
   playedOn: string;
   estimatedAverages: { player_id: string; average: number }[];
@@ -76,6 +77,7 @@ export type Standing = {
   legDiff: number;
   average: number;
   averageIncomplete?: boolean;
+  averageEstimated?: boolean;
   remaining: number;
   qualification: 'bye' | 'bye-candidate' | 'playoff' | null;
   tiedForFourth: boolean;
@@ -122,12 +124,12 @@ export function personalFixtures(snapshot: Snapshot, playerId: string) {
   return snapshot.fixtures
     .filter((f) => f.player_a_id === playerId || f.player_b_id === playerId)
     .sort((a, b) => {
-      const status = (f: FixtureResult) => f.match?.completed_at || f.match?.ended_early ? 2 : f.match_id ? 0 : 1;
+      const status = (f: FixtureResult) => isCompleted(f) || f.match?.ended_early ? 2 : f.match_id ? 0 : 1;
       return status(a) - status(b) || a.fixture_no - b.fixture_no || a.id.localeCompare(b.id);
     });
 }
 
-export function fixturesForPair(fixtures: Fixture[], ids: string[]): Fixture[] {
+export function fixturesForPair<T extends Fixture>(fixtures: T[], ids: string[]): T[] {
   if (ids.length !== 2 || ids[0] === ids[1]) return [];
   return fixtures
     .filter(
@@ -178,7 +180,8 @@ export function resultStats(f: FixtureResult, playerId: string | null) {
   const turns = resultTurns(f, playerId);
   return {
     average: calculate3DartAverage(turns),
-    averageIncomplete: Boolean(f.reportedResult),
+    averageIncomplete: Boolean(f.reportedResult && !f.reportedResult.accepted),
+    averageEstimated: Boolean(f.reportedResult),
     legs:
       (f.reportedResult?.legs ?? f.match?.legs)?.filter(
         (l) => l.winner_player_id === playerId && playerId !== null,
@@ -287,7 +290,10 @@ export function buildStandings({ fixtures, players }: Snapshot) {
         }
         if (!counts) continue;
         row.played++;
-        if (fixture.reportedResult) row.averageIncomplete = true;
+        if (fixture.reportedResult) {
+          row.averageEstimated = true;
+          if (!fixture.reportedResult.accepted) row.averageIncomplete = true;
+        }
         if (fixtureWinner(fixture) === id) row.wins++;
         else row.losses++;
         row.legsFor += resultStats(fixture, id).legs;

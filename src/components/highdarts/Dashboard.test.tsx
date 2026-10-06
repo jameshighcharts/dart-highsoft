@@ -270,3 +270,36 @@ it('shows tournament status for six-fixture players while retaining their counti
   expect(screen.queryByText('Choose 1 to exclude')).not.toBeInTheDocument();
   expect(screen.getByRole('region', { name: 'Counting matches' })).toBeInTheDocument();
 });
+
+it('keeps the displaced screenshot game visible with the recorded meeting after refresh and in standings', async () => {
+  const matchId = 'cd0f9577-5ce2-44ba-9566-b9644d9b9b5d';
+  const recorded = finish(fixture('sogndal', 'Johan Flo', 'Jon Skjerdal', 12), 'Jon Skjerdal', 81, 80);
+  if (!recorded.match) throw new Error('Expected a completed match');
+  recorded.match_id = recorded.match.id = matchId;
+  const data: Snapshot = { players: [], fixtures: [
+    recorded,
+    fixture('sogndal', 'Jon Skjerdal', 'Johan Flo', 13),
+  ] };
+  const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => data });
+  vi.stubGlobal('fetch', fetch);
+  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  await act(async () => window.dispatchEvent(new Event('focus')));
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+  expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuenow', '2');
+  const report = within(screen.getByRole('article', { name: 'Sogndal #13' }));
+  expect(report.getByText('Reported result')).toBeInTheDocument();
+  expect(report.getByText('33.32')).toBeInTheDocument();
+  expect(report.getByText('34.71')).toBeInTheDocument();
+  expect(report.getByLabelText('2 legs, winner')).toBeInTheDocument();
+  expect(report.getByLabelText('1 leg')).toBeInTheDocument();
+  expect(report.getByText('Leg 1 · Jon Skjerdal won')).toBeInTheDocument();
+  expect(report.getByText('Leg 2 · Johan Flo won')).toBeInTheDocument();
+  expect(report.getByText('Leg 3 · Jon Skjerdal won')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'View result' })).toHaveAttribute('href', `/match/${matchId}/report`);
+  expect(screen.queryByRole('link', { name: /Start.*Jon/ })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('tab', { name: 'Tabell' }));
+  const table = within(screen.getByRole('table', { name: 'Sogndal standings' }));
+  expect(table.getByText(`≈${((833 + 80) / 26).toFixed(2)}`)).toBeInTheDocument();
+  expect(table.getByText(`≈${((833 + 81) / 25).toFixed(2)}`)).toBeInTheDocument();
+});

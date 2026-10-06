@@ -81,3 +81,28 @@ export function completedGroups(bestOffice = 0): Snapshot {
   }
   return { fixtures, players: [] };
 }
+
+export function completedGroupsWithAcceptedReport(): Snapshot {
+  const snapshot = completedGroups();
+  const original = snapshot.fixtures[0];
+  const a = original.player_a_id;
+  const b = original.player_b_id;
+  if (!a || !b) throw new Error('Expected linked test players');
+  snapshot.fixtures[0] = {
+    ...original,
+    match_id: null,
+    match: null,
+    reportedResult: {
+      accepted: true,
+      winner_player_id: a,
+      playedOn: '2026-09-15',
+      estimatedAverages: [{ player_id: a, average: 38.57 }, { player_id: b, average: 35.61 }],
+      legs: [
+        { winner_player_id: a, visits: [{ player_id: a, scores: [48, 48, 7, 78, 50, 39, 31] }, { player_id: b, scores: [28, 19, 68, 46, 25, 47, 36] }] },
+        { winner_player_id: b, visits: [{ player_id: a, scores: [44, 38, 23, 79, 57, 44, 0, 0] }, { player_id: b, scores: [31, 24, 23, 54, 31, 66, 54, 18] }] },
+        { winner_player_id: a, visits: [{ player_id: a, scores: [10, 81, 39, 63, 52, 0, 29, 27] }, { player_id: b, scores: [18, 80, 28, 21, 45, 24, 26, 7] }] },
+      ],
+    },
+  };
+  return snapshot;
+}
