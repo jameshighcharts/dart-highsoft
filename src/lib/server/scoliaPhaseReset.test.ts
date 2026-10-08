@@ -50,4 +50,23 @@ describe('stuck takeout reset guard', () => {
   ])('refuses finished matches, boards that recovered, and offline boards: %j %j', async (matchChanges, boardChanges) => {
     expect(await checkScoliaPhaseReset(database(matchChanges, boardChanges), 'match')).toHaveProperty('error');
   });
+
+  describe('manual reset', () => {
+    it('allows a reset mid-match, straight after the takeout starts', async () => {
+      expect(await checkScoliaPhaseReset(database({}, { board_phase_changed_at: secondsAgo(1) }, [{ id: 'dart' }]), 'match', { manual: true }))
+        .toEqual({ boardId: 'board' });
+    });
+
+    it('allows any phase other than Throw', async () => {
+      expect(await checkScoliaPhaseReset(database({}, { board_phase: 'Calibration' }), 'match', { manual: true })).toEqual({ boardId: 'board' });
+    });
+
+    it.each([
+      [{ completed_at: '2026-09-10' }, {}],
+      [{}, { board_phase: 'Throw' }],
+      [{}, { worker_connection_status: 'reconnecting' }],
+    ])('still refuses finished matches, boards in Throw, and offline boards: %j %j', async (matchChanges, boardChanges) => {
+      expect(await checkScoliaPhaseReset(database(matchChanges, boardChanges), 'match', { manual: true })).toHaveProperty('error');
+    });
+  });
 });

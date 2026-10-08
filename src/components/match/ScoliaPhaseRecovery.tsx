@@ -51,7 +51,8 @@ export function ScoliaTakeoutRecovery({ matchId, boardId, matchCreatedAt, matchS
   return takeoutKey && (leftOver || stuckKey === takeoutKey) ? <ScoliaPhaseRecovery matchId={matchId} onPhase={onPhase} /> : null;
 }
 
-export function ScoliaPhaseRecovery({ matchId, onPhase }: { matchId: string; onPhase: (phase: string) => void }) {
+/** Requests a board phase reset and polls until the board is back in Throw. */
+export function useScoliaPhaseReset(matchId: string, onPhase: (phase: string) => void, { manual = false } = {}) {
   const [busy, setBusy] = useState(false);
   const [commandId, setCommandId] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -68,7 +69,7 @@ export function ScoliaPhaseRecovery({ matchId, onPhase }: { matchId: string; onP
         const response = await fetch(`${endpoint}?commandId=${commandId}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]) });
         const body = await response.json();
         if (!response.ok || body.status === 'failed' || body.status === 'refused') throw new Error(body.error || 'The board refused the reset.');
-        if (body.phase === 'Throw') { onPhase('Throw'); return; }
+        if (body.phase === 'Throw') { setBusy(false); setCommandId(null); onPhase('Throw'); return; }
         setAccepted(body.status === 'acknowledged');
         if (Date.now() >= deadline) throw new Error('The board has not returned to throwing mode. Check the board connection and try again.');
         timer = setTimeout(() => void poll(), 1000);
@@ -82,11 +83,12 @@ export function ScoliaPhaseRecovery({ matchId, onPhase }: { matchId: string; onP
     return () => { controller.abort(); clearTimeout(timer); };
   }, [commandId, endpoint, onPhase]);
 
-  async function reset() {
+  const reset = useCallback(async () => {
     if (busy) return;
     setBusy(true); setError(''); setAccepted(false);
     try {
-      const response = await fetch(endpoint, { method: 'POST', signal: AbortSignal.timeout(10_000) });
+      const response = await fetch(endpoint, { method: 'POST', signal: AbortSignal.timeout(10_000),
+        ...(manual ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ manual: true }) } : {}) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Could not request a reset.');
       setCommandId(body.commandId);
@@ -94,7 +96,13 @@ export function ScoliaPhaseRecovery({ matchId, onPhase }: { matchId: string; onP
       setError(failure instanceof Error ? failure.message : 'Could not request a reset.');
       setBusy(false);
     }
-  }
+  }, [busy, endpoint, manual]);
+
+  return { busy, accepted, error, reset };
+}
+
+export function ScoliaPhaseRecovery({ matchId, onPhase }: { matchId: string; onPhase: (phase: string) => void }) {
+  const { busy, accepted, error, reset } = useScoliaPhaseReset(matchId, onPhase);
 
   return <Dialog open>
     <DialogContent onEscapeKeyDown={event => event.preventDefault()} onPointerDownOutside={event => event.preventDefault()}
