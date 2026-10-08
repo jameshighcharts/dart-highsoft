@@ -7,7 +7,9 @@ vi.mock('@/lib/supabaseServer', () => ({ getSupabaseServerClient: () => ({ from:
 import { POST } from './route';
 const matchId = '00000000-0000-4000-8000-000000000001';
 const context = { params: Promise.resolve({ matchId }) };
-function request(origin = 'http://localhost') { return new NextRequest(`http://localhost/api/matches/${matchId}/scolia/reset-phase`, { method: 'POST', headers: { origin } }); }
+function request(origin = 'http://localhost', body?: object) {
+  return new NextRequest(`http://localhost/api/matches/${matchId}/scolia/reset-phase`, { method: 'POST', headers: { origin }, body: body && JSON.stringify(body) });
+}
 beforeEach(() => { vi.clearAllMocks(); mocks.check.mockResolvedValue({ boardId: 'board' }); });
 
 describe('startup reset endpoint', () => {
@@ -19,6 +21,13 @@ describe('startup reset endpoint', () => {
     mocks.check.mockResolvedValue({ error: 'A dart has already registered. Reset cancelled.' });
     expect((await POST(request(), context)).status).toBe(409);
     expect(mocks.from).not.toHaveBeenCalled();
+  });
+  it('passes the manual flag to the guard only when requested', async () => {
+    mocks.check.mockResolvedValue({ error: 'nope' });
+    await POST(request(), context);
+    expect(mocks.check).toHaveBeenLastCalledWith(expect.anything(), matchId, { manual: false });
+    await POST(request('http://localhost', { manual: true }), context);
+    expect(mocks.check).toHaveBeenLastCalledWith(expect.anything(), matchId, { manual: true });
   });
   it.each([false, true])('queues a reset or reuses an existing pending request (%s)', async existing => {
     const insert = vi.fn();

@@ -3,10 +3,11 @@ import { isMatchActive, loadMatch } from './matchGuards.ts';
 import { isScoliaBoardReady, isScoliaTakeoutStuck } from '../scolia/availability.ts';
 
 /**
- * A reset is only offered at the start of a match, before its first dart, while the
- * board is stuck in Takeout. Mid-match takeouts are left to the board itself.
+ * The automatic prompt only resets at the start of a match, before its first dart, while the
+ * board is stuck in Takeout. A manual reset (spectator controls) may run at any point in an
+ * active match whenever the board is out of its Throw phase.
  */
-export async function checkScoliaPhaseReset(db: SupabaseClient, matchId: string) {
+export async function checkScoliaPhaseReset(db: SupabaseClient, matchId: string, { manual = false } = {}) {
   const match = await loadMatch(db, matchId);
   if (!match || !isMatchActive(match) || !match.scolia_board_id) {
     return { error: 'This match no longer has an active Scolia board.' } as const;
@@ -18,11 +19,15 @@ export async function checkScoliaPhaseReset(db: SupabaseClient, matchId: string)
       .eq('id', match.scolia_board_id).eq('enabled', true).maybeSingle(),
   ]);
   if (darts.error || board.error) throw new Error(darts.error?.message ?? board.error!.message);
-  if (darts.data?.length) return { error: 'The match has already started. Reset is only available before the first dart.' } as const;
+  if (!manual && darts.data?.length) return { error: 'The match has already started. Reset is only available before the first dart.' } as const;
   const b = board.data;
   if (!b || !isScoliaBoardReady({ workerConnectionStatus: b.worker_connection_status,
     boardStatus: b.board_status, workerHeartbeatAt: b.worker_heartbeat_at })) {
     return { error: 'The board is offline or not ready. Reconnect it before resetting.' } as const;
+  }
+  if (manual) {
+    if (b.board_phase === 'Throw') return { error: 'The board is already ready for throws.' } as const;
+    return { boardId: b.id as string } as const;
   }
   if (b.board_phase !== 'Takeout') return { error: 'The board is no longer waiting for dart removal.' } as const;
   if (!isScoliaTakeoutStuck({ boardPhase: b.board_phase, boardPhaseChangedAt: b.board_phase_changed_at }, Date.now(), match.created_at)) {

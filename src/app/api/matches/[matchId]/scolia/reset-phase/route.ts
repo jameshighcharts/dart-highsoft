@@ -12,8 +12,9 @@ export async function POST(request: NextRequest, { params }: Context) {
   const { matchId } = await params;
   if (!isUuid(matchId)) return NextResponse.json({ error: 'Invalid match' }, { status: 400 });
   try {
+    const body = await request.json().catch(() => null) as { manual?: unknown } | null;
     const db = getSupabaseServerClient();
-    const checked = await checkScoliaPhaseReset(db, matchId);
+    const checked = await checkScoliaPhaseReset(db, matchId, { manual: body?.manual === true });
     if ('error' in checked) return NextResponse.json({ error: checked.error }, { status: 409 });
     const pending = await db.from('scolia_commands').select('id').eq('match_id', matchId)
       .eq('board_id', checked.boardId).eq('command_type', 'RESET_PHASE').in('status', ['pending', 'sent']).limit(1).maybeSingle();

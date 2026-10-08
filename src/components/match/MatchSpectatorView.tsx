@@ -6,6 +6,7 @@ import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { TurnRow } from '@/components/TurnRow';
 import { SpectatorLiveMatchCard } from '@/components/match/SpectatorLiveMatchCard';
 import { SpectatorHoverControls, SpectatorUndoDartButton } from '@/components/match/SpectatorHoverControls';
+import { SpectatorBoardPhaseControls } from '@/components/match/SpectatorBoardPhaseControls';
 import CommentaryDisplay from '@/components/CommentaryDisplay';
 import CommentarySettings from '@/components/CommentarySettings';
 import { CommentaryQuickToggle } from '@/components/match/CommentaryQuickToggle';
@@ -333,6 +334,14 @@ export function MatchSpectatorView({
       {!isHistoryView && (
         <SpectatorHoverControls onExit={onToggleSpectatorMode}>
           <SpectatorUndoDartButton onUndo={onUndoLastDart} disabled={!!matchWinnerId || !!match.ended_early} />
+          {scoliaBoardId && (
+            <SpectatorBoardPhaseControls
+              matchId={match.id}
+              phase={scoliaBoardPhase}
+              onPhase={setScoliaBoardPhase}
+              disabled={!!matchWinnerId || !!match.ended_early}
+            />
+          )}
         </SpectatorHoverControls>
       )}
       <div className="w-full space-y-3 md:space-y-6 px-4 md:px-6 xl:px-8 py-6 pb-24 md:pb-6 relative">
