@@ -94,15 +94,24 @@ const RESOLVERS: Record<string, Resolver> = {
  * route and by a viewer who saw their game finish (`purgeSharedResults`).
  *
  * Returns the serialized data `name` and `params` ask for (see `fetchShared`), from the cache when it
- * holds it; null when there is no such data. Load errors are thrown and never cached.
+ * holds it, and whether this request had to compute it; null when there is no such data. Load
+ * errors are thrown and never cached.
  */
-export async function readSharedData(name: string, params: URLSearchParams): Promise<string | null> {
+export async function readSharedData(
+  name: string,
+  params: URLSearchParams,
+): Promise<{ body: string; computed: boolean } | null> {
   const entry = Object.hasOwn(RESOLVERS, name) ? RESOLVERS[name](params) : null;
   if (!entry) return null;
+  let computed = false;
   const cached = unstable_cache(
-    async () => serializeQueryCache(await entry.load()),
+    async () => {
+      computed = true;
+      return serializeQueryCache(await entry.load());
+    },
     ['shared-data', BUILD_ID, ...entry.key],
     { tags: [SHARED_DATA_TAG, SHARED_RESULTS_TAG], revalidate: MAX_AGE_SECONDS },
   );
-  return cached();
+  const body = await cached();
+  return { body, computed };
 }

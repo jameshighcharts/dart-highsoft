@@ -15,12 +15,13 @@ afterEach(() => {
 
 describe('GET /api/shared/[name]', () => {
   it('returns the cached JSON without letting the browser or CDN keep it', async () => {
-    vi.mocked(readSharedData).mockResolvedValue('{"a":1}');
+    vi.mocked(readSharedData).mockResolvedValue({ body: '{"a":1}', computed: false });
     const response = await get('bullers', '?x=1');
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('{"a":1}');
     expect(response.headers.get('content-type')).toBe('application/json');
     expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('server-timing')).toMatch(/^shared;desc="cached";dur=\d+\.\d$/);
     expect(vi.mocked(readSharedData).mock.calls[0][0]).toBe('bullers');
     expect(vi.mocked(readSharedData).mock.calls[0][1].get('x')).toBe('1');
   });
