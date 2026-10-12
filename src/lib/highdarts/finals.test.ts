@@ -10,6 +10,7 @@ import {
   fixture,
   finish,
   completedGroups,
+  groupsWithAbsentLeaders,
 } from '@/test-utils/highdartsFixtures';
 
 describe('projectFinals', () => {
@@ -202,4 +203,16 @@ it('uses only the five chosen results to award the fourth bye by average', () =>
   const projection = projectFinals(higherAverage);
   expect(projection.ready).toBe(true);
   expect(validateDraw(higherAverage, projection.selection).ok).toBe(true);
+});
+
+it('draws attending qualifiers using their qualifying ranks, including fifth and sixth in the table', () => {
+  const source = groupsWithAbsentLeaders();
+  const standings = buildStandings(source);
+  const draw = projectFinals(standings);
+  expect(draw.ready).toBe(true);
+  expect(draw.eligible).toHaveLength(12);
+  expect(draw.eligible.filter((r) => r.office === 'bergen').map((r) => r.rank)).toEqual([1, 2, 3, 4]);
+  expect(validateDraw(standings, draw.selection).ok).toBe(true);
+  expect(draw.eligible.some((r) => source.absentPlayerIds?.includes(r.player.id))).toBe(false);
+  expect(validateDraw(standings, { ...draw.selection, byes: ['absent-nick', ...draw.selection.byes.slice(1)] }).ok).toBe(false);
 });

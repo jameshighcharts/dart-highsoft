@@ -193,7 +193,7 @@ export function HighdartsBracket({ snapshot, isAdmin, onRefresh }: Props) {
         o.table.map((r) => ({
           player: r.player,
           office: o.office,
-          rank: r.rank,
+          rank: r.qualifyingRank ?? r.rank,
         })),
       )
       .find((p) => p.player.id === id);

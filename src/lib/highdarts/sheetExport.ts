@@ -15,10 +15,10 @@ export function buildSheetExport(source: Snapshot) {
   const locked = finals.some((f) => f.stage === 'final');
   const byes = locked ? finals.filter((f) => f.stage === 'quarterfinal').map((f) => f.player_a_id) : [];
   const byeForOffice = (office: string) => {
-    const row = standings.offices.find((o) => o.office === office)?.table.find((r) => r.rank === 1 && byes.includes(r.player.id));
+    const row = standings.offices.find((o) => o.office === office)?.table.find((r) => r.qualifyingRank === 1 && byes.includes(r.player.id));
     return row ? name(row.player.id, row.player.display_name) : '';
   };
-  const second = standings.offices.flatMap((o) => o.table).find((r) => r.rank === 2 && byes.includes(r.player.id));
+  const second = standings.offices.flatMap((o) => o.table).find((r) => r.qualifyingRank === 2 && byes.includes(r.player.id));
 
   return {
     version: 1,

@@ -10,7 +10,7 @@ import {
 import { afterEach, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type { FixtureResult, Snapshot } from '@/lib/highdarts/standings';
-import { fixture, finish } from '@/test-utils/highdartsFixtures';
+import { fixture, finish, groupsWithAbsentLeaders } from '@/test-utils/highdartsFixtures';
 import { HighdartsDashboard } from './Dashboard';
 const snapshot = { fixtures: [], players: [] };
 afterEach(() => {
@@ -302,4 +302,20 @@ it('keeps the displaced screenshot game visible with the recorded meeting after 
   const table = within(screen.getByRole('table', { name: 'Sogndal standings' }));
   expect(table.getByText(`≈${((833 + 80) / 26).toFixed(2)}`)).toBeInTheDocument();
   expect(table.getByText(`≈${((833 + 81) / 25).toFixed(2)}`)).toBeInTheDocument();
+});
+
+it('greys absent leaders without qualification badges or attendance controls', async () => {
+  const data = groupsWithAbsentLeaders();
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => data }));
+  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  await userEvent.click(screen.getByRole('tab', { name: 'Tabell' }));
+  const rows = screen.getAllByRole('row');
+  for (const id of data.absentPlayerIds ?? []) {
+    const row = rows.find((r) => r.textContent?.includes(id));
+    expect(row).toHaveClass('opacity-50', 'grayscale');
+    expect(row).toHaveAttribute('title', 'Not attending HS Week');
+    expect(row?.textContent).not.toMatch(/Bye|Play-off|Out/);
+  }
+  expect(screen.queryByRole('switch', { name: /attend/i })).not.toBeInTheDocument();
+  await act(async () => {});
 });

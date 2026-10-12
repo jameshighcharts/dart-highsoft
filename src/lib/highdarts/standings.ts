@@ -48,7 +48,7 @@ export type FixtureResult = Fixture & {
     legs: { winner_player_id: string | null; turns: ResultTurn[] }[];
   } | null;
 };
-export type Snapshot = { fixtures: FixtureResult[]; players: Player[]; boards?: ScoliaBoardOption[] };
+export type Snapshot = { fixtures: FixtureResult[]; players: Player[]; boards?: ScoliaBoardOption[]; absentPlayerIds?: string[] };
 
 export function fixtureAvailability(fixture: Fixture, snapshot: Snapshot) {
   const active = snapshot.fixtures.find((f) => f.id !== fixture.id && f.match_id && !f.match?.completed_at && !f.match?.ended_early && (
@@ -66,6 +66,7 @@ export type Standing = {
   key: string;
   player: Player;
   rank: number;
+  qualifyingRank: number | null;
   played: number;
   scheduled: number;
   excluded: number;
@@ -231,7 +232,8 @@ function resolveTie(
     players: rows.filter((r) => !defeated.has(r.player.id)),
   };
 }
-export function buildStandings({ fixtures, players }: Snapshot) {
+export function buildStandings({ fixtures, players, absentPlayerIds = [] }: Snapshot) {
+  const absent = new Set(absentPlayerIds);
   const ties: QualificationTie[] = [];
   const playerById = new Map(players.map((p) => [p.id, p]));
   const offices = OFFICES.map((office) => {
@@ -265,6 +267,7 @@ export function buildStandings({ fixtures, players }: Snapshot) {
               ? (playerById.get(id) ?? { id, display_name: name })
               : { id: '', display_name: name },
             rank: 0,
+            qualifyingRank: null,
             played: 0,
             scheduled: 0,
             excluded: 0,
@@ -316,11 +319,12 @@ export function buildStandings({ fixtures, players }: Snapshot) {
         b.legDiff - a.legDiff ||
         a.player.display_name.localeCompare(b.player.display_name),
     );
-    const fourth = table[3],
-      fifth = table[4];
+    const eligible = table.filter((r) => !absent.has(r.player.id));
+    const fourth = eligible[3],
+      fifth = eligible[4];
     if (fourth && fifth && sameOfficeTie(fourth, fifth)) {
-      const tied = table.filter((r) => sameOfficeTie(r, fourth));
-      const first = table.indexOf(tied[0]);
+      const tied = eligible.filter((r) => sameOfficeTie(r, fourth));
+      const first = eligible.indexOf(tied[0]);
       const tie = resolveTie(
         fixtures,
         tied,
@@ -336,7 +340,7 @@ export function buildStandings({ fixtures, players }: Snapshot) {
         });
       } else {
         const alive = new Set(tie.players.map((r) => r.key));
-        table.splice(
+        eligible.splice(
           first,
           tied.length,
           ...tied.filter((r) => alive.has(r.key)),
@@ -344,8 +348,13 @@ export function buildStandings({ fixtures, players }: Snapshot) {
         );
       }
     }
+    let eligibleIndex = 0;
     table.forEach((r, i) => {
-      r.rank = i + 1;
+      if (!absent.has(r.player.id)) table[i] = eligible[eligibleIndex++];
+      table[i].rank = i + 1;
+    });
+    eligible.forEach((r, i) => {
+      r.qualifyingRank = i + 1;
       r.qualification = r.tiedForFourth
         ? null
         : i === 0
@@ -364,7 +373,7 @@ export function buildStandings({ fixtures, players }: Snapshot) {
       upcoming: group.filter((f) => !isCompleted(f)),
     };
   });
-  const seconds = offices.flatMap((o) => (o.table[1] ? [o.table[1]] : []));
+  const seconds = offices.flatMap((o) => o.table.filter((r) => r.qualifyingRank === 2));
   const bestAverage = Math.max(...seconds.map((r) => r.average));
   // Across offices the fourth bye is decided by average alone, irrespective of
   // office win totals. Equal best averages require a playoff.
