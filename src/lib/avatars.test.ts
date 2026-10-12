@@ -57,7 +57,7 @@ describe('default avatars', () => {
   it('picks one goblin per player deterministically', () => {
     expect(defaultAvatarKey('p1')).toBe(defaultAvatarKey('p1'));
     expect(DEFAULT_AVATAR_KEYS).toContain(defaultAvatarKey('any-seed'));
-    expect(defaultAvatarUrl('p1')).toBe(`/avatars/default/${defaultAvatarKey('p1')}.png`);
+    expect(defaultAvatarUrl('p1')).toMatch(new RegExp(`/default-avatars/${defaultAvatarKey('p1')}\\.webp$`));
     const picked = new Set(Array.from({ length: 400 }, (_, i) => defaultAvatarKey(`player-${i}`)));
     expect(picked.size).toBeGreaterThan(30);
   });
@@ -66,5 +66,25 @@ describe('default avatars', () => {
     expect(resolveAvatarUrl({ id: 'p1', avatar_url: 'https://x/y.png' })).toBe('https://x/y.png');
     expect(resolveAvatarUrl({ id: 'p1', avatar_url: null })).toBe(defaultAvatarUrl('p1'));
     expect(resolveAvatarUrl({ display_name: 'Bo' })).toBe(defaultAvatarUrl('Bo'));
+  });
+});
+
+describe('uploaded avatars', () => {
+  const upload = 'https://x.supabase.co/storage/v1/object/public/avatars/players/abc.png?v=17';
+
+  it('fetches an upload resized to three times its shown size, keeping its version in the cache key', () => {
+    expect(resolveAvatarUrl({ id: 'p1', avatar_url: upload }, 'sm'))
+      .toBe(`/_next/image?url=${encodeURIComponent(upload)}&w=96&q=85`);
+    expect(resolveAvatarUrl({ id: 'p1', avatar_url: upload }, 'xs')).toContain('&w=64&');
+    expect(resolveAvatarUrl({ id: 'p1', avatar_url: upload }, 'xl')).toContain('&w=256&');
+    expect(renderPlayerAvatarHtml({ id: 'p1', avatar_url: upload }, 'md')).toContain('src="/_next/image?url=');
+  });
+
+  it('leaves pictures the optimizer cannot take as they are', () => {
+    // A local development Supabase over plain HTTP, and pictures hosted elsewhere.
+    const local = 'http://127.0.0.1:54321/storage/v1/object/public/avatars/players/abc.png?v=1';
+    expect(resolveAvatarUrl({ id: 'p1', avatar_url: local }, 'sm')).toBe(local);
+    expect(resolveAvatarUrl({ id: 'p1', avatar_url: 'https://elsewhere.example/a.png' }, 'sm')).toBe('https://elsewhere.example/a.png');
+    expect(resolveAvatarUrl({ id: 'p1', avatar_url: upload })).toBe(upload);
   });
 });

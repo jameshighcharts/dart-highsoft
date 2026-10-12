@@ -1,6 +1,21 @@
 import type { NextConfig } from "next";
 
+// Uploaded player pictures in Supabase Storage, which the image optimizer resizes (src/lib/avatars).
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL) : null;
+const avatarPattern = supabaseUrl?.protocol === 'https:'
+  ? [{ protocol: 'https' as const, hostname: supabaseUrl.hostname, pathname: '/storage/v1/object/public/avatars/**' }]
+  : [];
+
 const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: avatarPattern,
+    // 75 is the default; 85 for player photos (PHOTO_QUALITY in src/lib/imageAssets.ts).
+    qualities: [75, 85],
+    // Every optimized source changes URL when its content does (imported images are
+    // content-hashed, uploads carry a ?v= version), so browsers and the CDN can keep the
+    // results for a year instead of the default four hours.
+    minimumCacheTTL: 31_536_000,
+  },
   env: {
     // Identifies this build in the browser (the persisted query cache is discarded when it changes).
     // Vercel's system variables may not be exposed to the client, so fall back to the build time.

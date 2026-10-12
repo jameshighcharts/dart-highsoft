@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
+
+import bengtIcon from '@/assets/game-icons/bengt.png';
 import Link from 'next/link';
 import {
   ArrowUpRight,
@@ -252,7 +254,7 @@ function DashboardSkeleton() {
     <main aria-busy="true" className="mx-auto w-full max-w-[1600px] space-y-5 px-4 py-6 pb-24 sm:px-6 sm:py-8">
       <header className="rounded-2xl border border-violet-300/15 bg-gradient-to-r from-violet-400/10 via-card to-card p-4 sm:p-6">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-          <Image src="/game-icons/bengt.png" width={64} height={64} alt="Bengt" className="size-12 shrink-0 object-contain sm:size-16" priority />
+          <Image src={bengtIcon} width={64} height={64} alt="Bengt" className="size-12 shrink-0 object-contain sm:size-16" priority />
           <div className="min-w-0">
             <h1 className="text-xl font-black tracking-tight sm:text-3xl">Highdarts 2026</h1>
             <p className="mt-1 text-xs text-muted-foreground sm:text-sm">Three offices. Twelve places in the finals.</p>
@@ -348,7 +350,7 @@ export function HighdartsDashboard() {
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3 sm:gap-4">
               <Image
-                src="/game-icons/bengt.png"
+                src={bengtIcon}
                 width={64}
                 height={64}
                 alt="Bengt"

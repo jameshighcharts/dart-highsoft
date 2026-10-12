@@ -1,3 +1,6 @@
+import { DEFAULT_AVATARS } from '@/assets/images';
+import { imageUrl, optimizedImageUrl } from '@/lib/imageAssets';
+
 export const AVATAR_BUCKET = 'avatars';
 
 /** Public avatar URL -> storage object path inside the avatars bucket, or null. */
@@ -10,9 +13,9 @@ export function avatarStoragePathFromUrl(url: string | null): string | null {
   return path.startsWith('players/') && !path.includes('..') ? path : null;
 }
 
-// Default profile pictures: 40 goblin icons in public/avatars/default, keyed
-// goblin-01..goblin-40 (row-major order of the source sheet). A player without
-// an uploaded picture gets one picked deterministically from their id, so the
+// Default profile pictures: 40 goblin icons (src/assets/images/default-avatars, built from
+// scripts/assets/originals), keyed goblin-01..goblin-40 (row-major order of the source sheet).
+// A player without an uploaded picture gets one picked deterministically from their id, so the
 // same player always shows the same goblin everywhere.
 
 export const DEFAULT_AVATAR_COUNT = 40;
@@ -24,12 +27,28 @@ export function defaultAvatarKey(seed: string): string {
 }
 
 export function defaultAvatarUrl(seed: string): string {
-  return `/avatars/default/${defaultAvatarKey(seed)}.png`;
+  return imageUrl(DEFAULT_AVATARS[defaultAvatarKey(seed) as keyof typeof DEFAULT_AVATARS]);
 }
 
-/** Picture to show for a player: their upload, or their assigned default goblin. */
-export function resolveAvatarUrl(player: { id?: string | null; display_name?: string | null; avatar_url?: string | null }): string {
-  return player.avatar_url || defaultAvatarUrl(player.id || player.display_name || '');
+/**
+ * Uploads are only resized by Next's image optimizer when they are served over HTTPS (Supabase
+ * Storage in production); the optimizer refuses a local development Supabase on 127.0.0.1.
+ */
+function isOptimizableUpload(url: string): boolean {
+  return url.startsWith('https://') && avatarStoragePathFromUrl(url) !== null;
+}
+
+/**
+ * Picture to show for a player: their upload, or their assigned default goblin. With `size`, an
+ * upload is fetched resized to that size (at 3x) instead of at its original size.
+ */
+export function resolveAvatarUrl(
+  player: { id?: string | null; display_name?: string | null; avatar_url?: string | null },
+  size?: AvatarSize,
+): string {
+  if (!player.avatar_url) return defaultAvatarUrl(player.id || player.display_name || '');
+  if (size && isOptimizableUpload(player.avatar_url)) return optimizedImageUrl(player.avatar_url, AVATAR_PX[size]);
+  return player.avatar_url;
 }
 
 // Shared look for player avatars: one set of circle sizes, deterministic
@@ -92,7 +111,9 @@ export function renderPlayerAvatarHtml(
   const px = AVATAR_PX[size];
   const name = player.display_name ?? '';
   const common = `display:inline-flex;flex:none;width:${px}px;height:${px}px;border-radius:9999px;overflow:hidden;vertical-align:middle;`;
-  const url = player.avatar_url && isSafeImageUrl(player.avatar_url) ? player.avatar_url : defaultAvatarUrl(player.id || name);
+  const url = player.avatar_url && isSafeImageUrl(player.avatar_url)
+    ? resolveAvatarUrl(player, size)
+    : defaultAvatarUrl(player.id || name);
   if (url) {
     return `<img src="${escapeHtml(url)}" alt="" width="${px}" height="${px}" loading="lazy" decoding="async" style="${common}object-fit:cover;background:rgba(127,127,127,.2)" />`;
   }

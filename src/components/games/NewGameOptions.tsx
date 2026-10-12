@@ -2,7 +2,13 @@
 
 import { useState, type ComponentType } from "react";
 import { Check, Info, ShieldAlert, Target, FastForward, Scale } from "lucide-react";
-import Image from "next/image";
+import Image, { type StaticImageData } from "next/image";
+
+import aroundTheClockIcon from "@/assets/game-icons/around_the_clock.png";
+import cricketIcon from "@/assets/game-icons/cricket.png";
+import killerIcon from "@/assets/game-icons/killer.png";
+import shanghaiIcon from "@/assets/game-icons/shanghai.png";
+import x01Icon from "@/assets/game-icons/x01.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -172,9 +178,17 @@ type GameTypeCard = {
   icon: ComponentType<{ className?: string }>;
 };
 
-/** Rendered 3D artwork for each game, keyed from the icon sheet in public/game-icons. */
+const GAME_ART: Record<GameType, StaticImageData> = {
+  x01: x01Icon,
+  cricket: cricketIcon,
+  killer: killerIcon,
+  shanghai: shanghaiIcon,
+  around_the_clock: aroundTheClockIcon,
+};
+
+/** Rendered 3D artwork for each game, keyed from the icon sheet in src/assets/game-icons. */
 function makeGameArtIcon(type: GameType): ComponentType<{ className?: string }> {
-  const src = `/game-icons/${type}.png`;
+  const src = GAME_ART[type];
   function GameArtIcon({ className }: { className?: string }) {
     return (
       <Image

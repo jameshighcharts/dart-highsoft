@@ -1,4 +1,6 @@
 import Image from 'next/image';
+
+import appIcon from '../../../public/icon-192x192.png';
 import { redirect } from 'next/navigation';
 import { AuthError } from 'next-auth';
 
@@ -125,7 +127,7 @@ export function SignInCard({ title, subtitle, callbackUrl, errorReturnPath, erro
     <main className={`${theme === 'admin' ? 'theme-light ' : ''}flex min-h-svh w-full items-center justify-center bg-background p-6 text-foreground`}>
       <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-sm">
         <div className="flex flex-col items-center gap-3 text-center">
-          <Image src="/icon-192x192.png" alt="" width={56} height={56} className="size-14 object-contain" priority />
+          <Image src={appIcon} alt="" width={56} height={56} className="size-14 object-contain" priority />
           <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
           <p className="text-sm text-muted-foreground">{subtitle}</p>
         </div>

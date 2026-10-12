@@ -35,7 +35,7 @@ export function PlayerAvatar({
   );
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- remote Supabase Storage URL or static default icon; no optimizer config needed
-    <img src={resolveAvatarUrl(player)} alt="" title={name} className={cn(base, 'bg-muted object-cover')} loading="lazy" decoding="async" />
+    // eslint-disable-next-line @next/next/no-img-element -- the src is already sized (resolveAvatarUrl), and one <img> also serves the grid's HTML-string avatars
+    <img src={resolveAvatarUrl(player, size)} alt="" title={name} className={cn(base, 'bg-muted object-cover')} loading="lazy" decoding="async" />
   );
 }

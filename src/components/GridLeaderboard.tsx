@@ -12,7 +12,9 @@ import { useLeaderboardData } from '@/hooks/useLeaderboardData';
 import { LEADERBOARD_MIN_GAMES, qualifyingPlayerIds } from '@/lib/queries/leaderboardData';
 import { eloHistoryQuery } from '@/lib/queries/eloHistory';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
+import { ELO_BADGES, ELO_BADGES_FULL, LOCATION_BADGES } from '@/assets/images';
 import { renderPlayerCellHtml } from '@/lib/avatars';
+import { imageUrl } from '@/lib/imageAssets';
 import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 
 
@@ -115,7 +117,7 @@ function renderLocationPillHtml(value: unknown): string {
 
   if (image) {
     return (
-      `<span class="location-badge" style="background-image: url('/location-badges/${image}.png')">` +
+      `<span class="location-badge" style="background-image: url('${imageUrl(LOCATION_BADGES[image])}')">` +
       `<span class="location-badge__label">${value}</span>` +
       `</span>`
     );
@@ -480,11 +482,11 @@ function useEloBadgeStyle(): 'outline' | 'full' {
   return style;
 }
 
-const ELO_BADGE_IMAGE_CSS = [1, 2, 3, 4, 5, 6, 7, 8]
+const ELO_BADGE_IMAGE_CSS = ([1, 2, 3, 4, 5, 6, 7, 8] as const)
   .map(
     (tier) =>
-      `.grid-leaderboard .elo-badge--tier-${tier} { background-image: url('/elo-badges/tier-${tier}.png'); }
-        .grid-leaderboard.elo-style-full .elo-badge--tier-${tier} { background-image: url('/elo-badges-full/tier-${tier}.png'); }`,
+      `.grid-leaderboard .elo-badge--tier-${tier} { background-image: url('${imageUrl(ELO_BADGES[tier])}'); }
+        .grid-leaderboard.elo-style-full .elo-badge--tier-${tier} { background-image: url('${imageUrl(ELO_BADGES_FULL[tier])}'); }`,
   )
   .join('\n        ');
 
