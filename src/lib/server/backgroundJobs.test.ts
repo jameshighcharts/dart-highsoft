@@ -110,13 +110,19 @@ describe('processBackgroundJob', () => {
     expect(publishScoliaHealthAlert).toHaveBeenCalledOnce();
   });
 
-  it('expires the shared data through the hook the Next.js server passes in', async () => {
+  it('expires or purges the shared data through the hook the Next.js server passes in', async () => {
     const revalidateSharedData = vi.fn();
     const test = createSupabase({ ...dispatchingJob, job_type: 'revalidate_shared_data', payload: {} });
     await expect(processBackgroundJob({
       supabase: test.supabase, jobId: 'job-1', appOrigin: 'https://darts.example', hooks: { revalidateSharedData },
     })).resolves.toEqual({ id: 'job-1', status: 'completed' });
-    expect(revalidateSharedData).toHaveBeenCalledOnce();
+    expect(revalidateSharedData).toHaveBeenCalledWith({ purge: false });
+
+    const purge = createSupabase({ ...dispatchingJob, job_type: 'revalidate_shared_data', payload: { purge: true } });
+    await processBackgroundJob({
+      supabase: purge.supabase, jobId: 'job-1', appOrigin: 'https://darts.example', hooks: { revalidateSharedData },
+    });
+    expect(revalidateSharedData).toHaveBeenLastCalledWith({ purge: true });
 
     const withoutServer = createSupabase({ ...dispatchingJob, job_type: 'revalidate_shared_data', payload: {} });
     await expect(processBackgroundJob({ supabase: withoutServer.supabase, jobId: 'job-1', appOrigin: 'https://darts.example' }))

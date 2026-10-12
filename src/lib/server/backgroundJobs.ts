@@ -81,8 +81,11 @@ function requiredPayloadId(payload: Record<string, unknown>, key: string, jobTyp
  * the Scolia worker imports this module outside Next.js.
  */
 export type BackgroundJobServerHooks = {
-  /** Marks the shared leaderboard and statistics data stale (see `SHARED_DATA_TAG`). */
-  revalidateSharedData?: () => void;
+  /**
+   * Expires the shared leaderboard and statistics data (see `SHARED_DATA_TAG`): marks it stale,
+   * or with `purge` drops it so no request gets the copy from before.
+   */
+  revalidateSharedData?: (options: { purge: boolean }) => void;
 };
 
 async function runJob(
@@ -95,7 +98,7 @@ async function runJob(
   switch (job.job_type) {
     case 'revalidate_shared_data':
       if (!hooks.revalidateSharedData) throw new Error('revalidate_shared_data needs the Next.js server');
-      hooks.revalidateSharedData();
+      hooks.revalidateSharedData({ purge: job.payload.purge === true });
       return;
     case 'dartiq_training': {
       const windowEnd = requiredPayloadId(job.payload, 'windowEnd', job.job_type);

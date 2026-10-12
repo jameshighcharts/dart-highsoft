@@ -7,8 +7,9 @@ import { SHARED_DATA_TAG } from '@/lib/shared/tag';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
 const hooks: BackgroundJobServerHooks = {
-  // Viewers keep getting the previous copy while the first request after a change recomputes it.
-  revalidateSharedData: () => revalidateTag(SHARED_DATA_TAG, 'max'),
+  // Stale: viewers keep getting the previous copy while the first request after a change
+  // recomputes it. Purged (a leg or game result): the next request waits for the new copy.
+  revalidateSharedData: ({ purge }) => revalidateTag(SHARED_DATA_TAG, purge ? { expire: 0 } : 'max'),
 };
 
 type DispatchBody = { jobIds: string[] };

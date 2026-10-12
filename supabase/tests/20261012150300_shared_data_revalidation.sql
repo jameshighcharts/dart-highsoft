@@ -1,6 +1,6 @@
 begin;
 
-select plan(20);
+select plan(26);
 
 select has_trigger('public', t, 'queue_shared_data_revalidation', format('%s queues a revalidation', t))
 from unnest(array[
@@ -77,6 +77,52 @@ select results_eq(
   $$ select status, attempts from public.background_jobs where deduplication_key = 'revalidate_shared_data' $$,
   $$ values ('pending', 0) $$,
   'a write after the job failed queues it again'
+);
+
+select has_trigger('public', 'legs', 'purge_shared_data_on_leg_result', 'a leg result purges');
+select has_trigger('public', 'game_sessions', 'purge_shared_data_on_game_result', 'a party game result purges');
+
+delete from public.background_jobs where job_type = 'revalidate_shared_data';
+
+insert into public.matches (id, mode, start_score, finish, legs_to_win) values
+  ('65000000-0000-0000-0000-000000000001', 'x01', '501', 'double_out', 2);
+insert into public.match_players (match_id, player_id, play_order) values
+  ('65000000-0000-0000-0000-000000000001', '64000000-0000-0000-0000-000000000001', 0);
+insert into public.legs (id, match_id, leg_number, starting_player_id) values
+  ('66000000-0000-0000-0000-000000000001', '65000000-0000-0000-0000-000000000001', 1, '64000000-0000-0000-0000-000000000001');
+
+select is(
+  (select count(*)::int from public.background_jobs where deduplication_key = 'revalidate_shared_data:purge'),
+  0,
+  'starting a match and a leg only marks the data stale'
+);
+
+update public.legs set winner_player_id = '64000000-0000-0000-0000-000000000001'
+where id = '66000000-0000-0000-0000-000000000001';
+
+select results_eq(
+  $$ select status, payload from public.background_jobs where deduplication_key = 'revalidate_shared_data:purge' $$,
+  $$ values ('pending', '{"purge": true}'::jsonb) $$,
+  'winning a leg queues a purge'
+);
+
+update public.background_jobs set status = 'completed' where deduplication_key = 'revalidate_shared_data:purge';
+update public.legs set winner_player_id = null where id = '66000000-0000-0000-0000-000000000001';
+
+select is(
+  (select status from public.background_jobs where deduplication_key = 'revalidate_shared_data:purge'),
+  'pending',
+  'undoing a leg win queues a purge again'
+);
+
+update public.background_jobs set status = 'completed' where deduplication_key = 'revalidate_shared_data:purge';
+insert into public.game_sessions (id, mode, status) values ('67000000-0000-0000-0000-000000000001', 'cricket', 'active');
+update public.game_sessions set status = 'ended_early', completed_at = now() where id = '67000000-0000-0000-0000-000000000001';
+
+select results_eq(
+  $$ select deduplication_key, status from public.background_jobs where job_type = 'revalidate_shared_data' order by 1 $$,
+  $$ values ('revalidate_shared_data', 'pending'), ('revalidate_shared_data:purge', 'pending') $$,
+  'finishing a party game queues a purge, alongside the stale marking every write queues'
 );
 
 select * from finish();
