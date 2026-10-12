@@ -1,12 +1,30 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GAME_SESSION_STATUSES } from '@/lib/games/types';
+import {
+  browserTimeZone,
+  gameDateKey,
+  gamesActivityQuery,
+  liveGamesQuery,
+  recentGamesQuery,
+  RECENT_PAGE_SIZE,
+  tournamentsQuery,
+  type FeedRow,
+} from '@/lib/queries/games';
+import { TestQueryProvider } from '@/test-utils/renderWithProviders';
 import GamesPage from './page';
 import { GameActivityHeatmap } from '@/components/games/GameActivityHeatmap';
 
+const renderGamesPage = () => render(<TestQueryProvider><GamesPage /></TestQueryProvider>);
+
 const getSupabaseClientMock = vi.fn();
 const queryInCalls: Array<{ table: string; column: string; values: unknown[] }> = [];
+const queriedTables: string[] = [];
+const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+let rpcImpl: (name: string, args: Record<string, unknown>) => { data: unknown; error: { code: string; message: string } | null };
+const featureMissing = () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } });
 
 vi.mock('@/lib/supabaseClient', () => ({
   getSupabaseClient: () => getSupabaseClientMock(),
@@ -35,6 +53,7 @@ const rowsByTable: Record<string, unknown[]> = {
 };
 
 function makeQuery(table: string) {
+  queriedTables.push(table);
   const result = { data: rowsByTable[table] ?? [], error: null };
   const query = {
     select: vi.fn(() => query),
@@ -54,14 +73,26 @@ function makeQuery(table: string) {
   return query;
 }
 
-describe('GamesPage party-game history', () => {
-  afterEach(cleanup);
-  beforeEach(() => {
-    queryInCalls.length = 0;
-    getSupabaseClientMock.mockResolvedValue({
-      from: (table: string) => makeQuery(table),
-    });
+function mockSupabase() {
+  getSupabaseClientMock.mockResolvedValue({
+    from: (table: string) => makeQuery(table),
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ name, args });
+      return rpcImpl(name, args);
+    },
   });
+}
+
+beforeEach(() => {
+  queryInCalls.length = 0;
+  queriedTables.length = 0;
+  rpcCalls.length = 0;
+  rpcImpl = featureMissing;
+  mockSupabase();
+});
+
+describe('GamesPage before the games feed migration is deployed', () => {
+  afterEach(cleanup);
 
   it('finds players beyond the first page of history', async () => {
     const original = rowsByTable.game_sessions;
@@ -71,44 +102,59 @@ describe('GamesPage party-game history', () => {
       game_session_players: [{ play_order: 0, players: { id: `player-${index}`, display_name: index === 500 ? 'Older player' : 'Ada' } }],
     }));
     try {
-      render(<GamesPage />);
+      renderGamesPage();
       await screen.findByRole('textbox', { name: 'Search by player' });
       fireEvent.change(screen.getByRole('textbox', { name: 'Search by player' }), { target: { value: 'Older player' } });
-      expect(screen.getByText('Older player')).toBeInTheDocument();
-      expect(screen.getByText(/1 game since September 2026/)).toBeInTheDocument();
+      expect(await screen.findByText('Older player')).toBeInTheDocument();
+      expect(await screen.findByText(/1 game since September 2026/)).toBeInTheDocument();
     } finally {
       rowsByTable.game_sessions = original;
     }
   });
 
   it('filters games and activity by player and clears the search', async () => {
-    render(<GamesPage />);
+    renderGamesPage();
     await screen.findByText('Ada');
     const search = screen.getByRole('textbox', { name: 'Search by player' });
     fireEvent.change(search, { target: { value: '  ADA  ' } });
     expect(screen.getByText('Ada')).toBeInTheDocument();
-    expect(screen.getByText(/1 game since September 2026/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 game since September 2026/)).toBeInTheDocument();
     fireEvent.change(search, { target: { value: 'Nobody' } });
+    expect(await screen.findByText('No completed games match your filters')).toBeInTheDocument();
     expect(screen.queryByText('Ada')).not.toBeInTheDocument();
-    expect(screen.getByText('No completed games match your filters')).toBeInTheDocument();
-    expect(screen.getByText(/0 games since September 2026/)).toBeInTheDocument();
+    expect(await screen.findByText(/0 games since September 2026/)).toBeInTheDocument();
     fireEvent.change(search, { target: { value: '' } });
-    expect(screen.getByText('Ada')).toBeInTheDocument();
+    expect(await screen.findByText('Ada')).toBeInTheDocument();
   });
 
   it('filters history by a heatmap day and clears the date', async () => {
-    render(<GamesPage />);
+    renderGamesPage();
     await screen.findByText('Ada');
     const emptyDay = screen.getAllByRole('button', { name: /: 0 games$/ })[0];
     fireEvent.click(emptyDay);
-    expect(screen.queryByText('Ada')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Ada')).not.toBeInTheDocument());
     expect(emptyDay).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: 'Clear date' }));
-    expect(screen.getByText('Ada')).toBeInTheDocument();
+    expect(await screen.findByText('Ada')).toBeInTheDocument();
+  });
+
+  it('loads tournaments with their player counts in one request', async () => {
+    rowsByTable.tournaments = [{
+      id: 't1', name: 'Friday cup', status: 'in_progress', start_score: '501', finish: 'double_out',
+      legs_to_win: 2, created_at: new Date().toISOString(), tournament_players: [{ count: 3 }],
+    }];
+    try {
+      renderGamesPage();
+      expect(await screen.findByText('Friday cup')).toBeInTheDocument();
+      expect(screen.getByText('3 players')).toBeInTheDocument();
+      expect(queriedTables).not.toContain('tournament_players');
+    } finally {
+      rowsByTable.tournaments = [];
+    }
   });
 
   it('loads and labels sessions that ended early', async () => {
-    render(<GamesPage />);
+    renderGamesPage();
 
     expect(await screen.findByText('Ended early')).toBeInTheDocument();
     expect(screen.getByText('Ada')).toBeInTheDocument();
@@ -124,8 +170,115 @@ describe('GamesPage party-game history', () => {
       });
     });
   });
+
+  it('downloads the old full history only once for all sections', async () => {
+    renderGamesPage();
+    await screen.findByText('Ada');
+    await screen.findByText(/1 game since September 2026/);
+    expect(queriedTables.filter((table) => table === 'game_sessions')).toHaveLength(1);
+  });
 });
 
+const now = Date.now();
+const iso = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
+const player = (id: string, display_name: string, play_order: number) => ({ id, display_name, avatar_url: null, play_order });
+
+function feedMatch(id: string, minutesAgo: number, overrides: Partial<FeedRow> = {}): FeedRow {
+  return {
+    kind: 'match', id, created_at: iso(minutesAgo), mode: 'x01', start_score: '501', finish: 'double_out', legs_to_win: 2,
+    winner_player_id: 'p-bea', completed_at: iso(minutesAgo - 10), ended_early: false, status: null, legs_won: 2,
+    players: [player('p-al', `Al ${id}`, 0), player('p-bea', 'Bea', 1)],
+    ...overrides,
+  };
+}
+
+describe('GamesPage with the games feed', () => {
+  afterEach(cleanup);
+
+  const live = feedMatch('live-match', 5, { winner_player_id: null, completed_at: null, legs_won: 1 });
+  const finished = Array.from({ length: 45 }, (_, index) => feedMatch(`done-${index}`, 60 + index));
+
+  beforeEach(() => {
+    rpcImpl = (name, args) => {
+      if (name === 'games_activity') return { data: [{ day: gameDateKey(new Date(now)), games: 46 }], error: null };
+      if (args.p_live) return { data: [live], error: null };
+      const search = String(args.p_search ?? '').toLowerCase();
+      const rows = finished.filter((row) => row.players.some((p) => p.display_name.toLowerCase().includes(search)));
+      return { data: rows.slice(0, Number(args.p_limit)), error: null };
+    };
+  });
+
+  it('asks the database for one page of finished games instead of the whole history', async () => {
+    renderGamesPage();
+    expect(await screen.findByText('Al done-0')).toBeInTheDocument();
+    expect(screen.getByText('Al live-match')).toBeInTheDocument();
+    expect(screen.getByText('1/3 legs')).toBeInTheDocument();
+    expect(screen.queryByText('Al done-20')).not.toBeInTheDocument();
+    expect(await screen.findByText(/46 games since September 2026/)).toBeInTheDocument();
+    expect(queriedTables).not.toContain('matches');
+    expect(queriedTables).not.toContain('game_sessions');
+    expect(rpcCalls).toContainEqual({
+      name: 'games_feed',
+      args: { p_live: false, p_search: null, p_day: null, p_time_zone: browserTimeZone(), p_limit: RECENT_PAGE_SIZE + 1 },
+    });
+  });
+
+  it('shows more games on request and stops when there are no more', async () => {
+    renderGamesPage();
+    await screen.findByText('Al done-19');
+    fireEvent.click(screen.getByRole('button', { name: 'Show more games' }));
+    expect(await screen.findByText('Al done-39')).toBeInTheDocument();
+    expect(screen.getByText('Al done-0')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show more games' }));
+    expect(await screen.findByText('Al done-44')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Show more games' })).not.toBeInTheDocument();
+  });
+
+  it('searches in the database once typing pauses, trimmed', async () => {
+    renderGamesPage();
+    await screen.findByText('Al done-0');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search by player' }), { target: { value: '  done-3  ' } });
+    expect(await screen.findByText('Al done-30')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Al done-0')).not.toBeInTheDocument());
+    const searches = rpcCalls.filter((call) => call.args.p_search != null);
+    expect(searches.map((call) => call.args.p_search)).toEqual(['done-3', 'done-3']);
+    expect(searches.map((call) => call.name).sort()).toEqual(['games_activity', 'games_feed']);
+  });
+});
+
+describe('GamesPage cache', () => {
+  afterEach(cleanup);
+
+  it('shows cached games at once while it refreshes them in the background', () => {
+    const neverAnswers = new Promise(() => {});
+    getSupabaseClientMock.mockReturnValue(neverAnswers);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const created_at = new Date().toISOString();
+    const timeZone = browserTimeZone();
+    const updatedAt = Date.now() - 60_000;
+    queryClient.setQueryData(liveGamesQuery().queryKey, [], { updatedAt });
+    queryClient.setQueryData(recentGamesQuery({ search: '', day: null, limit: RECENT_PAGE_SIZE, timeZone }).queryKey, {
+      games: [{
+        kind: 'game', created_at,
+        game: { id: 'cached-game', mode: 'cricket', status: 'ended_early', created_at, winner_player_id: null,
+          players: [{ id: 'cached-player', display_name: 'Cached player', play_order: 0 }] },
+      }],
+      hasMore: false,
+    }, { updatedAt });
+    queryClient.setQueryData(gamesActivityQuery({ search: '', timeZone }).queryKey, { [gameDateKey(new Date())]: 7 }, { updatedAt });
+    queryClient.setQueryData(tournamentsQuery().queryKey, [{ id: 't1', name: 'Cached cup', status: 'in_progress', start_score: '501',
+      finish: 'double_out', legs_to_win: 2, created_at, player_count: 4 }], { updatedAt });
+
+    render(<QueryClientProvider client={queryClient}><GamesPage /></QueryClientProvider>);
+
+    expect(screen.queryByText('Loading games...')).not.toBeInTheDocument();
+    expect(screen.getByText('Cached player')).toBeInTheDocument();
+    expect(screen.getByText('Cached cup')).toBeInTheDocument();
+    expect(screen.getByText('4 players')).toBeInTheDocument();
+    expect(screen.getByText(/7 games since September 2026/)).toBeInTheDocument();
+    expect(getSupabaseClientMock).toHaveBeenCalled();
+  });
+});
 
 describe('Game activity calendar', () => {
   afterEach(() => {
@@ -137,7 +290,7 @@ describe('Game activity calendar', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 8, 8, 12));
     const props = {
-      dates: [new Date(2026, 7, 31, 12).toISOString(), new Date(2026, 8, 1, 12).toISOString(), new Date(2026, 8, 9, 12).toISOString()],
+      activity: { '2026-08-31': 1, '2026-09-01': 1, '2026-09-09': 1 },
       selectedDate: null,
       onSelectDate: vi.fn(),
     };
@@ -164,14 +317,16 @@ describe('Game deletion confirmation', () => {
       created_at: new Date().toISOString(), ended_early: true, completed_at: new Date().toISOString(), winner_player_id: null,
       match_players: [{ play_order: 0, players: { id: 'delete-player', display_name: 'Delete player' } }],
     }];
-    getSupabaseClientMock.mockResolvedValue({ from: (table: string) => makeQuery(table) });
     const confirm = vi.fn().mockReturnValue(false);
     vi.stubGlobal('confirm', confirm);
     const prompt = vi.fn();
     vi.stubGlobal('prompt', prompt);
-    const fetch = vi.fn().mockResolvedValue({ ok: true });
+    const fetch = vi.fn().mockImplementation(async () => {
+      rowsByTable.matches = [];
+      return { ok: true };
+    });
     vi.stubGlobal('fetch', fetch);
-    render(<GamesPage />);
+    renderGamesPage();
     const remove = await screen.findByRole('button', { name: 'Delete game' });
     fireEvent.click(remove);
     expect(fetch).not.toHaveBeenCalled();
@@ -180,5 +335,24 @@ describe('Game deletion confirmation', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/matches/delete-me', { method: 'DELETE' }));
     expect(prompt).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByText('Delete player')).not.toBeInTheDocument());
+  });
+});
+
+describe('Games feed order', () => {
+  afterEach(cleanup);
+
+  it('lists the newest games first and a match before a party game started at the same moment', async () => {
+    const at = iso(30);
+    const game: FeedRow = { ...feedMatch('same-time-game', 30), kind: 'game', mode: 'cricket', status: 'completed',
+      start_score: null, finish: null, legs_to_win: null, legs_won: null, created_at: at };
+    rpcImpl = (name, args) => {
+      if (name === 'games_activity' || args.p_live) return { data: [], error: null };
+      // Deliberately out of order.
+      return { data: [feedMatch('older', 90), game, { ...feedMatch('same-time-match', 30), created_at: at }, feedMatch('newest', 10)], error: null };
+    };
+    renderGamesPage();
+    await screen.findByText('Al newest');
+    const names = screen.getAllByText(/^Al (newest|older|same-time-match|same-time-game)$/).map((node) => node.textContent);
+    expect(names).toEqual(['Al newest', 'Al same-time-match', 'Al same-time-game', 'Al older']);
   });
 });

@@ -15,7 +15,8 @@ export function BullersLeaderboard({ entries, loading, error }: {
   entries: BullerEntry[]; loading: boolean; error: boolean;
 }) {
   return <LeaderboardSection title="Top 10 Bullers" isEmpty={entries.length === 0}
-    emptyMessage={loading ? 'Loading bullers…' : error ? 'Could not load bullers. Please refresh to retry.' : 'No measured bull-off darts yet.'}
+    loading={loading} loadingLabel="Loading bullers…"
+    emptyMessage={error ? 'Could not load bullers. Please refresh to retry.' : 'No measured bull-off darts yet.'}
     emptySubMessage={!loading && !error ? 'Play a match with Bull-off enabled to get on the board.' : undefined}>
     {entries.length > 0 && <li className="flex justify-between gap-3 px-3 py-2 text-xs text-muted-foreground"><span>Closest on average wins</span><span>Avg inches ↓</span></li>}
     {entries.map((entry, index) => <li key={entry.player_id} className="flex items-center justify-between gap-3 px-3 py-3">

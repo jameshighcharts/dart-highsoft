@@ -2,76 +2,37 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getSupabaseClient } from '@/lib/supabaseClient';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { GameActivityHeatmap, gameDateKey } from '@/components/games/GameActivityHeatmap';
+import { GameActivityHeatmap } from '@/components/games/GameActivityHeatmap';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Activity, Play, Eye, Trophy, Clock, Users, Swords, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { LoadingReveal } from '@/components/LoadingReveal';
+import { Skeleton } from '@/components/ui/skeleton';
 import { GAME_MODE_INFO, gameModeName } from '@/lib/games/labels';
+import type { GameMode } from '@/lib/games/types';
 import {
-  GAME_SESSION_STATUSES,
-  isGameMode,
-  isGameSessionStatus,
-  type GameMode,
-  type GameSessionStatus,
-} from '@/lib/games/types';
+  browserTimeZone,
+  countGamesByDay,
+  gameDateKey,
+  gamesActivityQuery,
+  liveGamesQuery,
+  matchesPlayerSearch,
+  recentGamesQuery,
+  RECENT_PAGE_SIZE,
+  tournamentsQuery,
+  type GameSessionWithDetails,
+  type ListedGame,
+  type MatchWithDetails,
+  type RecentGames,
+} from '@/lib/queries/games';
 
-type MatchWithDetails = {
-  id: string;
-  mode: string;
-  start_score: string;
-  finish: string;
-  legs_to_win: number;
-  created_at: string;
-  winner_player_id: string | null;
-  completed_at: string | null;
-  ended_early: boolean;
-  players: Array<{
-    id: string;
-    display_name: string;
-    avatar_url?: string | null;
-    play_order: number;
-  }>;
-  legs: Array<{
-    id: string;
-    winner_player_id: string | null;
-  }>;
-  winner_name?: string;
-};
-
-type GameSessionWithDetails = {
-  id: string;
-  mode: GameMode;
-  status: GameSessionStatus;
-  created_at: string;
-  winner_player_id: string | null;
-  players: Array<{
-    id: string;
-    display_name: string;
-    avatar_url?: string | null;
-    play_order: number;
-  }>;
-  winner_name?: string;
-};
-
-type ListedGame =
-  | { kind: 'match'; created_at: string; match: MatchWithDetails }
-  | { kind: 'game'; created_at: string; game: GameSessionWithDetails };
-
-type TournamentSummary = {
-  id: string;
-  name: string;
-  status: string;
-  start_score: string;
-  finish: string;
-  legs_to_win: number;
-  created_at: string;
-  player_count: number;
-};
+/** Search typed into the box reaches the database once typing pauses. */
+const SEARCH_DEBOUNCE_MS = 250;
 
 function createPreviewGames(): ListedGame[] {
   const names = ['James', 'Ada', 'Ben', 'Nikita', 'Sofia', 'Oliver'];
@@ -95,234 +56,64 @@ function createPreviewGames(): ListedGame[] {
       match: { id: `preview-match-${index}`, mode: 'x01', start_score: '501', finish: 'double_out', legs_to_win: 2,
         created_at, players, winner_player_id: winner?.id ?? null, winner_name: winner?.display_name,
         completed_at: winner ? created_at : null, ended_early: false,
-        legs: winner ? [0, 1].map(leg => ({ id: `preview-leg-${index}-${leg}`, winner_player_id: winner.id })) : [],
+        legs_won: winner ? 2 : 0,
       },
     };
   }).sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
-async function loadAllRows<T>(query: (offset: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) {
-  const rows: T[] = [];
-  for (let offset = 0; ; offset += 500) {
-    const result = await query(offset);
-    if (result.error) throw new Error(result.error.message);
-    rows.push(...(result.data ?? []));
-    if (!result.data || result.data.length < 500) return rows;
-  }
-}
-
 export default function GamesPage() {
-  const [liveGames, setLiveGames] = useState<ListedGame[]>([]);
-  const [recentGames, setRecentGames] = useState<ListedGame[]>([]);
-  const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [playerSearch, setPlayerSearch] = useState('');
+  const [search, setSearch] = useState('');
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [visibleCount, setVisibleCount] = useState(20);
-  const [loadError, setLoadError] = useState(false);
-  const [preview, setPreview] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(RECENT_PAGE_SIZE);
+  const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
+  const [previewGames, setPreviewGames] = useState<ListedGame[] | null>(null);
+  const preview = previewGames !== null;
   const router = useRouter();
-  const matchesSearch = (entry: ListedGame) => {
-    const players = entry.kind === 'match' ? entry.match.players : entry.game.players;
-    return players.some(player => player.display_name.toLocaleLowerCase().includes(playerSearch.trim().toLocaleLowerCase()));
-  };
-  const searchedLive = liveGames.filter(matchesSearch);
-  const searchedRecent = recentGames.filter(matchesSearch);
+  const [timeZone] = useState(browserTimeZone);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(playerSearch.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [playerSearch]);
+
+  // The database returns the page of finished games and the per-day counts for the current
+  // filters; the few live games come in full and are filtered here as you type.
+  const liveQuery = useQuery({ ...liveGamesQuery(), enabled: !preview });
+  const recentQuery = useQuery({
+    ...recentGamesQuery({ search, day: selectedDate, limit: visibleCount, timeZone }),
+    enabled: !preview,
+    // A new search, day or "Show more" keeps the current list up until its results arrive.
+    placeholderData: keepPreviousData,
+  });
+  const activityQuery = useQuery({
+    ...gamesActivityQuery({ search, timeZone }),
+    enabled: !preview,
+    placeholderData: keepPreviousData,
+  });
+  const tournamentsResult = useQuery({ ...tournamentsQuery(), enabled: !preview });
+
   const matchesDate = (entry: ListedGame) => !selectedDate || gameDateKey(new Date(entry.created_at)) === selectedDate;
-  const filteredLive = searchedLive.filter(matchesDate);
-  const filteredRecent = searchedRecent.filter(matchesDate);
-
-  const loadGames = async () => {
-    try {
-      setLoading(true);
-      setLoadError(false);
-      const supabase = await getSupabaseClient();
-
-      const [matchesResult, sessionsResult] = await Promise.all([
-        loadAllRows(offset => supabase
-          .from('matches')
-          .select(`
-            id,
-            mode,
-            start_score,
-            finish,
-            legs_to_win,
-            created_at,
-            winner_player_id,
-            completed_at,
-            ended_early,
-            match_players!inner (
-              play_order,
-              players!inner (
-                id,
-                display_name,
-                avatar_url
-              )
-            ),
-            legs (
-              id,
-              winner_player_id
-            )
-          `)
-          .order('created_at', { ascending: false })
-          .order('id', { ascending: false })
-          .range(offset, offset + 499)),
-        loadAllRows(offset => supabase
-          .from('game_sessions')
-          .select(`
-            id,
-            mode,
-            status,
-            created_at,
-            winner_player_id,
-            game_session_players!inner (
-              play_order,
-              players!inner (
-                id,
-                display_name,
-                avatar_url
-              )
-            )
-          `)
-          .in('status', [...GAME_SESSION_STATUSES])
-          .order('created_at', { ascending: false })
-          .order('id', { ascending: false })
-          .range(offset, offset + 499)),
-      ]);
-
-      type PlayerRelation = Array<{
-        play_order: number;
-        players: { id: string; display_name: string; avatar_url?: string | null };
-      }>;
-      const mapPlayers = (relation: PlayerRelation) =>
-        relation
-          .map((mp) => ({
-            id: mp.players.id,
-            display_name: mp.players.display_name,
-            avatar_url: mp.players.avatar_url ?? null,
-            play_order: mp.play_order,
-          }))
-          .sort((a, b) => a.play_order - b.play_order);
-
-      const matches = matchesResult;
-
-      // Transform the data
-      const transformedMatches = matches.map((match) => ({
-        ...match,
-        players: mapPlayers((match as unknown as { match_players: PlayerRelation }).match_players),
-      }));
-
-      // Add winner names
-      const matchesWithWinners: MatchWithDetails[] = transformedMatches.map((match) => {
-        if (match.winner_player_id) {
-          const winner = match.players.find(p => p.id === match.winner_player_id);
-          return {
-            ...match,
-            winner_name: winner?.display_name || 'Unknown'
-          };
-        }
-        return match;
-      });
-
-      const sessions: GameSessionWithDetails[] = sessionsResult.flatMap((session) => {
-        if (!isGameMode(session.mode) || !isGameSessionStatus(session.status)) return [];
-        const players = mapPlayers(
-          (session as unknown as { game_session_players: PlayerRelation }).game_session_players
-        );
-        const winner = session.winner_player_id
-          ? players.find((p) => p.id === session.winner_player_id)
-          : undefined;
-        return [{
-          id: session.id,
-          mode: session.mode,
-          status: session.status,
-          created_at: session.created_at,
-          winner_player_id: session.winner_player_id,
-          players,
-          winner_name: session.winner_player_id ? winner?.display_name || 'Unknown' : undefined,
-        }];
-      });
-
-      const liveMatches: ListedGame[] = matchesWithWinners
-        .filter(match => !match.winner_player_id && !match.completed_at && !match.ended_early)
-        .map((match) => ({ kind: 'match', created_at: match.created_at, match }));
-
-      const recentMatches: ListedGame[] = matchesWithWinners
-        .filter(match => match.winner_player_id || match.completed_at || match.ended_early)
-        .map((match) => ({ kind: 'match', created_at: match.created_at, match }));
-
-      const liveSessions: ListedGame[] = sessions
-        .filter((game) => game.status === 'active')
-        .map((game) => ({ kind: 'game', created_at: game.created_at, game }));
-
-      const recentSessions: ListedGame[] = sessions
-        .filter((game) => game.status !== 'active')
-        .map((game) => ({ kind: 'game', created_at: game.created_at, game }));
-
-      const byNewest = (a: ListedGame, b: ListedGame) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-
-      setLiveGames([...liveMatches, ...liveSessions].sort(byNewest));
-      setRecentGames([...recentMatches, ...recentSessions].sort(byNewest));
-    } catch (error) {
-      console.error('Error loading games:', error);
-      setLoadError(true);
-      setLiveGames([]);
-      setRecentGames([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadTournaments = async () => {
-    try {
-      const supabase = await getSupabaseClient();
-      // Hide completed tournaments after 24h; keep in-progress ones indefinitely.
-      const completedCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const { data } = await supabase
-        .from('tournaments')
-        .select('id, name, status, start_score, finish, legs_to_win, created_at')
-        .or(`status.eq.in_progress,and(status.eq.completed,completed_at.gte.${completedCutoff})`)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      if (!data) return;
-
-      // Get player counts
-      const tourIds = data.map((t) => t.id);
-      const { data: playerCounts } = await supabase
-        .from('tournament_players')
-        .select('tournament_id')
-        .in('tournament_id', tourIds);
-
-      const countMap = new Map<string, number>();
-      for (const row of playerCounts ?? []) {
-        countMap.set(row.tournament_id, (countMap.get(row.tournament_id) ?? 0) + 1);
-      }
-
-      setTournaments(
-        data.map((t) => ({
-          ...t,
-          player_count: countMap.get(t.id) ?? 0,
-        }))
-      );
-    } catch {
-      setTournaments([]);
-    }
-  };
+  const isLive = (entry: ListedGame) => entry.kind === 'game' ? entry.game.status === 'active' : !entry.match.completed_at;
+  const previewSearched = previewGames?.filter((entry) => matchesPlayerSearch(entry, playerSearch)) ?? [];
+  const previewRecent = previewSearched.filter((entry) => !isLive(entry)).filter(matchesDate);
+  const liveGames = previewGames ? previewGames.filter(isLive) : liveQuery.data ?? [];
+  const recent: RecentGames = previewGames
+    ? { games: previewRecent.slice(0, visibleCount), hasMore: previewRecent.length > visibleCount }
+    : recentQuery.data ?? { games: [], hasMore: false };
+  const activity = preview ? countGamesByDay(previewSearched) : activityQuery.data ?? {};
+  const tournaments = preview ? [] : tournamentsResult.data ?? [];
+  const filteredLive = liveGames.filter((entry) => matchesPlayerSearch(entry, playerSearch)).filter(matchesDate);
+  // Cached data stays on screen while it refreshes; the loading state is only for a first visit.
+  const loading = !preview && (liveQuery.isPending || recentQuery.isPending);
+  const loadError = !preview && ((liveQuery.isError && !liveQuery.data) || (recentQuery.isError && !recentQuery.data));
 
   useEffect(() => {
     if (process.env.NODE_ENV === 'development' && new URLSearchParams(window.location.search).get('preview') === '1') {
-      const games = createPreviewGames();
-      setPreview(true);
-      setLiveGames(games.filter(entry => entry.kind === 'game' ? entry.game.status === 'active' : !entry.match.completed_at));
-      setRecentGames(games.filter(entry => entry.kind === 'game' ? entry.game.status !== 'active' : !!entry.match.completed_at));
-      setLoading(false);
-      return;
+      setPreviewGames(createPreviewGames());
     }
-    loadGames();
-    loadTournaments();
   }, []);
 
   const handleJoinLiveGame = (matchId: string) => {
@@ -346,8 +137,13 @@ export default function GamesPage() {
         throw new Error(body.error ?? 'Failed to delete game');
       }
       const keep = (entry: ListedGame) => entry.kind !== 'match' || entry.match.id !== match.id;
-      setLiveGames((games) => games.filter(keep));
-      setRecentGames((games) => games.filter(keep));
+      queryClient.setQueryData(liveGamesQuery().queryKey, (games) => games?.filter(keep));
+      queryClient.setQueriesData<RecentGames>({ queryKey: ['games', 'recent'] }, (data) => data && {
+        ...data,
+        games: data.games.filter(keep),
+      });
+      // Refill the page and recount its day; this also drops a fallback copy of the full history.
+      void queryClient.invalidateQueries({ queryKey: ['games'] });
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to delete game');
     } finally {
@@ -373,7 +169,7 @@ export default function GamesPage() {
   };
 
   const getGameDuration = (match: MatchWithDetails) => {
-    const legsPlayed = match.legs.filter((leg) => leg.winner_player_id).length;
+    const legsPlayed = match.legs_won;
     const totalLegs = match.legs_to_win * 2 - 1; // Assuming best of format
     return `${legsPlayed}/${totalLegs} legs`;
   };
@@ -381,8 +177,7 @@ export default function GamesPage() {
   const getGameProgress = (match: MatchWithDetails) => {
     if (match.winner_player_id) return 'Completed';
     
-    const legsPlayed = match.legs.filter((leg) => leg.winner_player_id).length;
-    if (legsPlayed === 0) return 'Starting';
+    if (match.legs_won === 0) return 'Starting';
     
     return 'In Progress';
   };
@@ -501,8 +296,18 @@ export default function GamesPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-lg">Loading games...</div>
+      <div className="container mx-auto p-4 space-y-6">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold">Games</h1>
+          <p className="text-muted-foreground">Live and recent dart matches</p>
+        </div>
+        <LoadingReveal label="Loading games..." className="space-y-6">
+          <Skeleton className="h-36 w-full rounded-xl" />
+          <Skeleton className="h-10 w-full max-w-sm" />
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-44 rounded-xl" />)}
+          </div>
+        </LoadingReveal>
       </div>
     );
   }
@@ -514,7 +319,7 @@ export default function GamesPage() {
         <p className="text-muted-foreground">Live and recent dart matches</p>
       </div>
 
-      {loadError && <div role="alert" className="text-destructive">Could not load games. <Button variant="outline" onClick={loadGames}>Try again</Button></div>}
+      {loadError && <div role="alert" className="text-destructive">Could not load games. <Button variant="outline" onClick={() => { void liveQuery.refetch(); void recentQuery.refetch(); }}>Try again</Button></div>}
       {selectedDate && <div className="flex items-center gap-3 text-sm">
         Games on {selectedDate}
         <Button variant="outline" size="sm" onClick={() => setSelectedDate(null)}>Clear date</Button>
@@ -648,9 +453,9 @@ export default function GamesPage() {
       </div>
 
       {!loadError && <GameActivityHeatmap
-        dates={[...searchedLive, ...searchedRecent].map(game => game.created_at)}
+        activity={activity}
         selectedDate={selectedDate}
-        onSelectDate={date => { setSelectedDate(date === selectedDate ? null : date); setVisibleCount(20); }}
+        onSelectDate={date => { setSelectedDate(date === selectedDate ? null : date); setVisibleCount(RECENT_PAGE_SIZE); }}
       />}
 
       {/* Recent Games Section */}
@@ -663,10 +468,10 @@ export default function GamesPage() {
         <div className="max-w-md space-y-2">
           <label htmlFor="player-search" className="text-sm font-medium">Search by player</label>
           <Input id="player-search" placeholder="Enter a player name…" value={playerSearch}
-            onChange={event => { setPlayerSearch(event.target.value); setVisibleCount(20); }} />
+            onChange={event => { setPlayerSearch(event.target.value); setVisibleCount(RECENT_PAGE_SIZE); }} />
         </div>
 
-        {filteredRecent.length === 0 ? (
+        {recent.games.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-muted-foreground">
               {playerSearch || selectedDate ? 'No completed games match your filters' : 'No completed games yet'}
@@ -674,7 +479,7 @@ export default function GamesPage() {
           </Card>
         ) : (
           <div className="grid gap-4">
-            {filteredRecent.slice(0, visibleCount).map((item) => {
+            {recent.games.map((item) => {
               if (item.kind === 'game') return renderRecentGameSession(item.game);
               const match = item.match;
               return (
@@ -769,7 +574,7 @@ export default function GamesPage() {
             })}
           </div>
         )}
-        {filteredRecent.length > visibleCount && <Button variant="outline" onClick={() => setVisibleCount(count => count + 20)}>Show more games</Button>}
+        {recent.hasMore && <Button variant="outline" disabled={recentQuery.isPlaceholderData} onClick={() => setVisibleCount(count => count + RECENT_PAGE_SIZE)}>Show more games</Button>}
       </div>
     </div>
   );

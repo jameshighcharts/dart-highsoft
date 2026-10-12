@@ -17,6 +17,8 @@ import {
 } from '@/components/stats';
 import { MAX_COMPARE } from '@/components/stats/ComparePlayerPicker';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { LoadingReveal } from '@/components/LoadingReveal';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type ViewMode = 'traditional' | 'elo' | 'compare';
 
@@ -24,13 +26,32 @@ function isViewMode(s: string | null): s is ViewMode {
   return s === 'traditional' || s === 'elo' || s === 'compare';
 }
 
+/** The dashboard heading with KPI cards and charts held in place while the statistics load. */
+function StatsSkeleton() {
+  return (
+    <div className="container mx-auto p-4 space-y-6">
+      <div className="space-y-2">
+        <h1 className="text-3xl font-bold">Statistics Dashboard</h1>
+        <p className="text-muted-foreground">Comprehensive dart game analytics and performance insights</p>
+      </div>
+      <LoadingReveal label="Loading statistics..." className="space-y-6">
+        <div className="flex gap-2">
+          {[0, 1, 2].map((index) => <Skeleton key={index} className="h-9 w-40" />)}
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((index) => <Skeleton key={index} className="h-28 rounded-xl" />)}
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {[0, 1].map((index) => <Skeleton key={index} className="h-80 rounded-xl" />)}
+        </div>
+      </LoadingReveal>
+    </div>
+  );
+}
+
 export default function StatsPage() {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-lg">Loading statistics...</div>
-      </div>
-    }>
+    <Suspense fallback={<StatsSkeleton />}>
       <StatsPageInner />
     </Suspense>
   );
@@ -95,13 +116,7 @@ function StatsPageInner() {
     [stats.summary]
   );
 
-  if (stats.loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-lg">Loading statistics...</div>
-      </div>
-    );
-  }
+  if (stats.loading) return <StatsSkeleton />;
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -141,8 +156,6 @@ function StatsPageInner() {
       {stats.activeView === 'compare' && (
         <ComparePlayersView
           players={stats.players}
-          legs={stats.legs}
-          matches={stats.matches}
           selectedIds={compareIds}
           onChange={setCompareIdsAndUrl}
         />

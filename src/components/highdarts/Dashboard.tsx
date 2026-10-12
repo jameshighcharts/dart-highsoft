@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
@@ -21,7 +22,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { withReportedResults } from '@/lib/highdarts/reportedResults';
-import { apiRequest } from '@/lib/apiClient';
+import { highdartsQuery } from '@/lib/queries/highdarts';
+import { meQuery } from '@/lib/queries/me';
 import {
   buildStandings,
   isCompleted,
@@ -245,61 +247,53 @@ function TodaySummary({ snapshot, fixtures }: { snapshot: Snapshot; fixtures: Fi
   );
 }
 
-export function HighdartsDashboard({
-  initial,
-  isAdmin,
-}: {
-  initial: Snapshot | null;
-  isAdmin: boolean;
-}) {
-  const [sourceSnapshot, setSnapshot] = useState(initial);
-  const snapshot = sourceSnapshot ? withReportedResults(sourceSnapshot) : null;
-  const [error, setError] = useState(
-    initial ? '' : 'Highdarts is not available yet.',
+function DashboardSkeleton() {
+  return (
+    <main aria-busy="true" className="mx-auto w-full max-w-[1600px] space-y-5 px-4 py-6 pb-24 sm:px-6 sm:py-8">
+      <header className="rounded-2xl border border-violet-300/15 bg-gradient-to-r from-violet-400/10 via-card to-card p-4 sm:p-6">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <Image src="/game-icons/bengt.png" width={64} height={64} alt="Bengt" className="size-12 shrink-0 object-contain sm:size-16" priority />
+          <div className="min-w-0">
+            <h1 className="text-xl font-black tracking-tight sm:text-3xl">Highdarts 2026</h1>
+            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">Three offices. Twelve places in the finals.</p>
+          </div>
+        </div>
+        <div className="mt-6 h-16 w-48 loading-reveal animate-pulse rounded-xl bg-white/5" />
+        <div className="mt-5 h-3 loading-reveal animate-pulse rounded-full bg-white/5" />
+      </header>
+      <p role="status" className="sr-only">Loading Highdarts…</p>
+      <div className="h-12 w-full loading-reveal animate-pulse rounded-xl bg-white/5 sm:w-[540px]" />
+      <div className="grid gap-4 lg:grid-cols-3">
+        {[0, 1, 2].map((i) => <div key={i} className={`${card} h-64 loading-reveal animate-pulse`} />)}
+      </div>
+    </main>
   );
-  const [myId, setMyId] = useState<string | null>(null);
+}
+
+export function HighdartsDashboard() {
+  const queryClient = useQueryClient();
+  // The tournament is live: poll while the tab is visible and on focus, as before.
+  const highdarts = useQuery({ ...highdartsQuery(), refetchInterval: 15_000 });
+  const me = useQuery(meQuery());
+  const sourceSnapshot = highdarts.data ?? null;
+  const snapshot = sourceSnapshot ? withReportedResults(sourceSnapshot) : null;
+  const error = !highdarts.isError ? ''
+    : sourceSnapshot ? 'Results could not refresh. Showing the last available snapshot.'
+      : 'Highdarts is not available yet.';
+  // Admin controls follow the live session only; `me` is never persisted to storage.
+  const isAdmin = me.data?.user?.isAdmin === true;
+  const myId = me.data?.player?.id ?? null;
   const [office, setOffice] = useState<Office>('bergen');
   const [search, setSearch] = useState('');
   const [fixturePage, setFixturePage] = useState(0);
+  const { refetch } = highdarts;
   useEffect(() => {
-    let cancelled = false,
-      inFlight = false;
-    async function refresh() {
-      if (inFlight || document.hidden) return;
-      inFlight = true;
-      try {
-        const data = await apiRequest<Snapshot>('/api/highdarts', {
-          method: 'GET',
-        });
-        if (!cancelled) {
-          setSnapshot(data);
-          setError('');
-        }
-      } catch {
-        if (!cancelled)
-          setError(
-            'Results could not refresh. Showing the last available snapshot.',
-          );
-      } finally {
-        inFlight = false;
-      }
-    }
-    void refresh();
-    void apiRequest<{ player: { id: string } | null }>('/api/me', {
-      method: 'GET',
-    })
-      .then((me) => {
-        if (!cancelled) setMyId(me.player?.id ?? null);
-      })
-      .catch(() => {});
-    const timer = setInterval(refresh, 15000);
-    window.addEventListener('focus', refresh);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      window.removeEventListener('focus', refresh);
+    const refresh = () => {
+      if (!document.hidden) void refetch({ cancelRefetch: false });
     };
-  }, []);
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [refetch]);
   const data = snapshot ? buildStandings(snapshot) : null;
   const activity = tournamentActivity(snapshot?.fixtures ?? []);
   const ongoing = (snapshot?.fixtures ?? []).filter((f) => f.match && !isCompleted(f) && !f.match.completed_at && !f.match.winner_player_id && !f.match.ended_early);
@@ -311,10 +305,8 @@ export function HighdartsDashboard({
     data?.playoff.filter(
       (r) => r.played && !r.tiedForFourth && !r.tiedForBye,
     ) ?? [];
-  const refreshSnapshot = async () =>
-    setSnapshot(
-      await apiRequest<Snapshot>('/api/highdarts', { method: 'GET' }),
-    );
+  const refreshSnapshot = () =>
+    queryClient.refetchQueries({ queryKey: highdartsQuery().queryKey }, { throwOnError: true });
   const yourFixtures = snapshot && myId
     ? personalFixtures(snapshot, myId).filter((f) => !isCompleted(f) && !f.match?.ended_early)
     : [];
@@ -342,6 +334,7 @@ export function HighdartsDashboard({
     page * FIXTURES_PER_PAGE,
     (page + 1) * FIXTURES_PER_PAGE,
   );
+  if (!snapshot && highdarts.isPending) return <DashboardSkeleton />;
   return (
     <TooltipProvider>
       <main className="mx-auto w-full max-w-[1600px] space-y-5 px-4 py-6 pb-24 sm:px-6 sm:py-8">

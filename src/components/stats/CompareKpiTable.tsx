@@ -15,8 +15,6 @@ interface CompareKpiTableProps {
   playerIds: string[];
   players: PlayerRow[];
   perPlayer: PerPlayerStatsQuery[];
-  legs: LegRow[];
-  matches: MatchRow[];
 }
 
 type Row = {
@@ -201,7 +199,7 @@ function PlayerRowComponent({
   );
 }
 
-export function CompareKpiTable({ playerIds, players, perPlayer, legs, matches }: CompareKpiTableProps) {
+export function CompareKpiTable({ playerIds, players, perPlayer }: CompareKpiTableProps) {
   const playerById = useMemo(() => {
     const m = new Map<string, PlayerRow>();
     for (const p of players) m.set(p.id, p);
@@ -213,9 +211,9 @@ export function CompareKpiTable({ playerIds, players, perPlayer, legs, matches }
   const rows = useMemo(() => {
     return perPlayer.map((q): Row | null => {
       if (q.status !== 'success') return null;
-      return computeRow(q.playerId, q.turns, q.throws, legs, matches);
+      return computeRow(q.playerId, q.turns, q.throws, q.legs, q.matches);
     });
-  }, [perPlayer, legs, matches]);
+  }, [perPlayer]);
 
   // Winner per column (handles ties by taking the first).
   const bestByKey = useMemo(() => {

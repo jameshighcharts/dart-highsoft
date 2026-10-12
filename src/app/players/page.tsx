@@ -1,31 +1,26 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { getSupabaseClient } from '@/lib/supabaseClient';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/apiClient';
+import { playerListQuery, type PlayerListItem } from '@/lib/queries/players';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
-
-type Player = { id: string; display_name: string; location: string | null; avatar_url?: string | null };
+import { LoadingReveal } from '@/components/LoadingReveal';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function PlayersPage() {
-  const [players, setPlayers] = useState<Player[]>([]);
+  const queryClient = useQueryClient();
+  const { data: players = [], isPending: playersPending } = useQuery(playerListQuery());
+  const setPlayers = (update: (current: PlayerListItem[]) => PlayerListItem[]) =>
+    queryClient.setQueryData(playerListQuery().queryKey, (current) => update(current ?? []));
   const [name, setName] = useState('');
   const [location, setLocation] = useState<LocationValue | ''>('');
   const [loading, setLoading] = useState(false);
   const [savingPlayerId, setSavingPlayerId] = useState<string | null>(null);
-
-  async function load() {
-    const supabase = await getSupabaseClient();
-    const { data } = await supabase.from('players').select('*').eq('is_test', false).order('display_name');
-    setPlayers(data ?? []);
-  }
-  useEffect(() => {
-    load();
-  }, []);
 
   async function addPlayer(e: React.FormEvent) {
     e.preventDefault();
@@ -35,7 +30,7 @@ export default function PlayersPage() {
     try {
       await apiRequest('/api/players', { body: { displayName: name.trim(), location } });
       setName('');
-      load();
+      void queryClient.invalidateQueries({ queryKey: playerListQuery().queryKey });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create player';
       alert(message);
@@ -78,6 +73,19 @@ export default function PlayersPage() {
         <Button disabled={loading}>Add</Button>
       </form>
       <ul className="divide-y border rounded bg-card text-card-foreground">
+        {playersPending && (
+          <LoadingReveal as="li" label="Loading players…" className="divide-y">
+            {Array.from({ length: 8 }, (_, index) => (
+              <div key={index} className="flex items-center justify-between px-3 py-2">
+                <span className="inline-flex items-center gap-2">
+                  <Skeleton className="size-8 rounded-full" />
+                  <Skeleton className="h-4 w-32" />
+                </span>
+                <Skeleton className="h-9 w-[130px]" />
+              </div>
+            ))}
+          </LoadingReveal>
+        )}
         {players.map((p) => (
           <li key={p.id} className="px-3 py-2 flex items-center justify-between">
             <span className="inline-flex items-center gap-2">

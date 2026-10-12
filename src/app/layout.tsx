@@ -4,8 +4,10 @@ import "./globals.css";
 import Link from "next/link";
 import { Home, Target, BarChart3, Plus, Radio, Trophy, Users, UserCircle } from "lucide-react";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { MatchSpectatorHotkey } from "@/components/MatchSpectatorHotkey";
 import { QueryProvider } from "@/components/QueryProvider";
+import { RouteDataPrefetcher } from "@/components/RouteDataPrefetcher";
 import { SiteChrome } from "@/components/SiteChrome";
 
 // Use system fonts as fallback when Google Fonts cannot be loaded during build
@@ -44,6 +46,7 @@ export default function RootLayout({
         className={`${fontVariables} antialiased min-h-screen h-full bg-background text-foreground`}
       >
         <QueryProvider>
+          <RouteDataPrefetcher />
           <SiteChrome
             nav={
               <>
@@ -120,6 +123,7 @@ export default function RootLayout({
           </SiteChrome>
         </QueryProvider>
         <Analytics />
+        <SpeedInsights />
         <MatchSpectatorHotkey />
       </body>
     </html>

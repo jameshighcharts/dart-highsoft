@@ -1,264 +1,29 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { getSupabaseClient } from '@/lib/supabaseClient';
-import { BullersLeaderboard, type BullerEntry } from '@/components/leaderboard/BullersLeaderboard';
-import { useLeaderboardData } from '@/hooks/useLeaderboardData';
+import { useQuery } from '@tanstack/react-query';
+import { BullersLeaderboard } from '@/components/leaderboard/BullersLeaderboard';
+import { leaderboardListsQuery } from '@/hooks/useLeaderboardData';
 import { LeaderboardSection, EloLeaderboardItem, PlayerSummaryItem, GameModeLeaderboardItem } from '@/components/leaderboard';
-import type { GameModeLeaderboardEntry } from '@/components/leaderboard';
 import { PlayerAvatarById } from '@/components/PlayerAvatarById';
+import {
+  bullersQuery,
+  gameModeLeadersQuery,
+  highestCheckoutsQuery,
+  quickestLegsQuery,
+  topRoundScoresQuery,
+} from '@/lib/queries/leaderboards';
 import { medal, formatLeaderboardDate } from '@/utils/leaderboard';
 import { GAME_MODE_INFO, GAME_MODE_ORDER } from '@/lib/games/labels';
-import type { GameMode } from '@/lib/games/types';
-
-const GAME_MODE_VIEWS: Record<GameMode, string> = {
-  cricket: 'cricket_leaderboard',
-  killer: 'killer_leaderboard',
-  shanghai: 'shanghai_leaderboard',
-  around_the_clock: 'around_the_clock_leaderboard',
-};
-
-const emptyGameModeLeaders = (): Record<GameMode, GameModeLeaderboardEntry[]> => ({
-  cricket: [],
-  killer: [],
-  shanghai: [],
-  around_the_clock: [],
-});
-
-type TopRoundScore = {
-  id: string;
-  player_id: string;
-  display_name: string;
-  total_scored: number;
-  created_at: string;
-  leg_id: string;
-  match_id: string;
-};
-
-type TopRoundScorePayload = {
-  id: string;
-  player_id: string;
-  total_scored: number;
-  created_at: string;
-  leg_id: string;
-  legs:
-    | {
-        id: string;
-        match_id: string;
-        matches: {
-          id: string;
-          ended_early: boolean;
-        };
-      }
-    | {
-        id: string;
-        match_id: string;
-        matches: {
-          id: string;
-          ended_early: boolean;
-        };
-      }[]
-    | null;
-  players:
-    | {
-        id: string;
-        display_name: string;
-      }
-    | {
-        id: string;
-        display_name: string;
-      }[]
-    | null;
-};
 
 export default function LeaderboardsPage() {
-  const { leaders, avgLeaders, eloLeaders, eloMultiLeaders, loading } = useLeaderboardData(10);
-  const [bullers, setBullers] = useState<BullerEntry[]>([]);
-  const [bullersLoading, setBullersLoading] = useState(true);
-  const [bullersError, setBullersError] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const supabase = await getSupabaseClient();
-        const { data, error } = await supabase.from('bull_off_leaderboard')
-          .select('player_id, display_name, measured_darts, misses, bull_offs, average_inches')
-          .order('average_inches', { ascending: true })
-          .order('measured_darts', { ascending: false })
-          .order('display_name', { ascending: true })
-          .order('player_id', { ascending: true })
-          .limit(10);
-        if (error) throw error;
-        if (!cancelled) setBullers((data ?? []) as BullerEntry[]);
-      } catch (error) {
-        console.error('Error loading bullers:', error);
-        if (!cancelled) setBullersError(true);
-      } finally {
-        if (!cancelled) setBullersLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-  const [topRoundScores, setTopRoundScores] = useState<TopRoundScore[]>([]);
-  const [highestCheckouts, setHighestCheckouts] = useState<{ player_id: string; display_name: string; score: number; date: string; darts_used: number }[]>([]);
-  const [quickestLegsDouble, setQuickestLegsDouble] = useState<{ player_id: string; display_name: string; dart_count: number; date: string; start_score: string }[]>([]);
-  const [quickestLegsSingle, setQuickestLegsSingle] = useState<{ player_id: string; display_name: string; dart_count: number; date: string; start_score: string }[]>([]);
-  const [topScoresLoading, setTopScoresLoading] = useState(true);
-  const [checkoutLoading, setCheckoutLoading] = useState(true);
-  const [quickestLegsLoading, setQuickestLegsLoading] = useState(true);
-  const [gameModeLeaders, setGameModeLeaders] = useState<Record<GameMode, GameModeLeaderboardEntry[]>>(emptyGameModeLeaders);
-  const [gameModeLoading, setGameModeLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const supabase = await getSupabaseClient();
-        const { data: topScoresData } = await supabase
-          .from('turns')
-          .select(`
-            id,
-            player_id,
-            total_scored,
-            created_at,
-            leg_id,
-            legs!inner (
-              id,
-              match_id,
-              matches!inner (
-                id,
-                ended_early
-              )
-            ),
-            players!inner (
-              id,
-              display_name
-            )
-          `)
-          .eq('busted', false)
-          .eq('legs.matches.ended_early', false)
-          .not('players.display_name', 'ilike', '%test%')
-          .order('total_scored', { ascending: false })
-          .limit(10);
-
-        const mapTopRoundScore = (row: TopRoundScorePayload): TopRoundScore | null => {
-          const playerRelation = Array.isArray(row.players) ? row.players[0] : row.players;
-          const legRelation = Array.isArray(row.legs) ? row.legs[0] : row.legs;
-          if (!playerRelation || !legRelation) return null;
-          return {
-            id: row.id,
-            player_id: row.player_id,
-            display_name: playerRelation.display_name,
-            total_scored: row.total_scored,
-            created_at: row.created_at,
-            leg_id: row.leg_id,
-            match_id: legRelation.match_id,
-          };
-        };
-
-        const transformedTopScores = ((topScoresData ?? []) as unknown[])
-          .map((row) => mapTopRoundScore(row as TopRoundScorePayload))
-          .filter((row): row is TopRoundScore => row !== null);
-
-        setTopRoundScores(transformedTopScores);
-      } catch (error) {
-        console.error('Error loading top round scores:', error);
-        setTopRoundScores([]);
-      } finally {
-        setTopScoresLoading(false);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setCheckoutLoading(true);
-        const supabase = await getSupabaseClient();
-        const { data: checkoutData } = await supabase
-          .from('checkout_leaderboard')
-          .select('*')
-          .order('score', { ascending: false })
-          .limit(10);
-
-        setHighestCheckouts(
-          (checkoutData as { player_id: string; display_name: string; score: number; date: string; darts_used: number }[]) ?? []
-        );
-      } catch (error) {
-        console.error('Error loading highest checkouts:', error);
-        setHighestCheckouts([]);
-      } finally {
-        setCheckoutLoading(false);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setQuickestLegsLoading(true);
-        const supabase = await getSupabaseClient();
-
-        const [{ data: doubleData }, { data: singleData }] = await Promise.all([
-          supabase
-            .from('quickest_legs_leaderboard')
-            .select('*')
-            .eq('finish_rule', 'double_out')
-            .order('dart_count', { ascending: true })
-            .limit(10),
-          supabase
-            .from('quickest_legs_leaderboard')
-            .select('*')
-            .eq('finish_rule', 'single_out')
-            .order('dart_count', { ascending: true })
-            .limit(10),
-        ]);
-
-        if (doubleData) setQuickestLegsDouble(doubleData);
-        if (singleData) setQuickestLegsSingle(singleData);
-      } catch (error) {
-        console.error('Error loading quickest legs:', error);
-      } finally {
-        setQuickestLegsLoading(false);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setGameModeLoading(true);
-        const supabase = await getSupabaseClient();
-        const results = await Promise.all(
-          GAME_MODE_ORDER.map((mode) =>
-            supabase
-              .from(GAME_MODE_VIEWS[mode])
-              .select('*')
-              .order('wins', { ascending: false })
-              .order('win_rate', { ascending: false })
-              .limit(10)
-          )
-        );
-        const next = emptyGameModeLeaders();
-        GAME_MODE_ORDER.forEach((mode, idx) => {
-          next[mode] = (results[idx].data as GameModeLeaderboardEntry[] | null) ?? [];
-        });
-        setGameModeLeaders(next);
-      } catch (error) {
-        console.error('Error loading game mode leaderboards:', error);
-        setGameModeLeaders(emptyGameModeLeaders());
-      } finally {
-        setGameModeLoading(false);
-      }
-    })();
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-lg">Loading leaderboards...</div>
-      </div>
-    );
-  }
+  const lists = useQuery(leaderboardListsQuery(10));
+  const { leaders = [], avgLeaders = [], eloLeaders = [], eloMultiLeaders = [] } = lists.data ?? {};
+  const loading = lists.isLoading;
+  const bullers = useQuery(bullersQuery());
+  const topRoundScores = useQuery(topRoundScoresQuery());
+  const highestCheckouts = useQuery(highestCheckoutsQuery());
+  const quickestLegs = useQuery(quickestLegsQuery());
+  const gameModeLeaders = useQuery(gameModeLeadersQuery());
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -270,6 +35,7 @@ export default function LeaderboardsPage() {
       <div className="grid md:grid-cols-2 gap-6">
         <LeaderboardSection
           title="Top 10 Multiplayer Elo Ratings"
+          loading={loading}
           emptyMessage="No multiplayer Elo ratings yet."
           emptySubMessage="Complete some 3+ player matches to see rankings!"
           isEmpty={eloMultiLeaders.length === 0}
@@ -281,6 +47,7 @@ export default function LeaderboardsPage() {
 
         <LeaderboardSection
           title="Top 10 Match Winners"
+          loading={loading}
           emptyMessage="No matches recorded yet."
           isEmpty={leaders.length === 0}
         >
@@ -291,6 +58,7 @@ export default function LeaderboardsPage() {
 
         <LeaderboardSection
           title="Top 10 by Average Score"
+          loading={loading}
           emptyMessage="No average scores to display yet."
           isEmpty={avgLeaders.length === 0}
         >
@@ -301,6 +69,7 @@ export default function LeaderboardsPage() {
 
         <LeaderboardSection
           title="Top 10 Elo Ratings"
+          loading={loading}
           emptyMessage="No Elo ratings yet."
           emptySubMessage="Complete some 1v1 matches to see Elo rankings!"
           isEmpty={eloLeaders.length === 0}
@@ -310,15 +79,17 @@ export default function LeaderboardsPage() {
           ))}
         </LeaderboardSection>
 
-        <BullersLeaderboard entries={bullers} loading={bullersLoading} error={bullersError} />
+        <BullersLeaderboard entries={bullers.data ?? []} loading={bullers.isPending} error={bullers.isError && !bullers.data} />
 
         {/* Top 10 Round Scores of All Time */}
         <LeaderboardSection
           title="Top 10 Round Scores of All Time"
-          emptyMessage={topScoresLoading ? 'Loading top scores...' : 'No round scores recorded yet.'}
-          isEmpty={topRoundScores.length === 0}
+          loading={topRoundScores.isPending}
+          loadingLabel="Loading top scores..."
+          emptyMessage="No round scores recorded yet."
+          isEmpty={!topRoundScores.data?.length}
         >
-          {topRoundScores.map((score, idx) => (
+          {topRoundScores.data?.map((score, idx) => (
             <li key={score.id} className="flex items-center justify-between px-3 py-2">
               <div className="flex items-center gap-2">
                 <span className="w-8 text-lg text-center">{medal(idx)}</span>
@@ -340,10 +111,12 @@ export default function LeaderboardsPage() {
         {/* Highest Checkouts */}
         <LeaderboardSection
           title="Highest Checkouts"
-          emptyMessage={checkoutLoading ? 'Loading checkouts...' : 'No checkouts recorded yet.'}
-          isEmpty={highestCheckouts.length === 0}
+          loading={highestCheckouts.isPending}
+          loadingLabel="Loading checkouts..."
+          emptyMessage="No checkouts recorded yet."
+          isEmpty={!highestCheckouts.data?.length}
         >
-          {highestCheckouts.map((score, idx) => (
+          {highestCheckouts.data?.map((score, idx) => (
             <li key={`${score.player_id}-${score.date}`} className="flex items-center justify-between px-3 py-2">
               <div className="flex items-center gap-2">
                 <span className="w-8 text-lg text-center">{medal(idx)}</span>
@@ -367,10 +140,12 @@ export default function LeaderboardsPage() {
         {/* Quickest Legs (Double Out) */}
         <LeaderboardSection
           title="Quickest Legs (Double Out)"
-          emptyMessage={quickestLegsLoading ? 'Loading quickest legs...' : 'No double-out legs recorded yet.'}
-          isEmpty={quickestLegsDouble.length === 0}
+          loading={quickestLegs.isPending}
+          loadingLabel="Loading quickest legs..."
+          emptyMessage="No double-out legs recorded yet."
+          isEmpty={!quickestLegs.data?.double.length}
         >
-          {quickestLegsDouble.map((leg, idx) => (
+          {quickestLegs.data?.double.map((leg, idx) => (
             <li key={`${leg.player_id}-${leg.date}`} className="flex items-center justify-between px-3 py-2">
               <div className="flex items-center gap-2">
                 <span className="w-8 text-lg text-center">{medal(idx)}</span>
@@ -402,10 +177,12 @@ export default function LeaderboardsPage() {
         {/* Quickest Legs (Single Out) */}
         <LeaderboardSection
           title="Quickest Legs (Single Out)"
-          emptyMessage={quickestLegsLoading ? 'Loading quickest legs...' : 'No single-out legs recorded yet.'}
-          isEmpty={quickestLegsSingle.length === 0}
+          loading={quickestLegs.isPending}
+          loadingLabel="Loading quickest legs..."
+          emptyMessage="No single-out legs recorded yet."
+          isEmpty={!quickestLegs.data?.single.length}
         >
-          {quickestLegsSingle.map((leg, idx) => (
+          {quickestLegs.data?.single.map((leg, idx) => (
             <li key={`${leg.player_id}-${leg.date}`} className="flex items-center justify-between px-3 py-2">
               <div className="flex items-center gap-2">
                 <span className="w-8 text-lg text-center">{medal(idx)}</span>
@@ -440,12 +217,14 @@ export default function LeaderboardsPage() {
         <div className="grid md:grid-cols-2 gap-6">
           {GAME_MODE_ORDER.map((mode) => {
             const info = GAME_MODE_INFO[mode];
-            const entries = gameModeLeaders[mode];
+            const entries = gameModeLeaders.data?.[mode] ?? [];
             return (
               <LeaderboardSection
                 key={mode}
                 title={`Top 10 ${info.name}`}
-                emptyMessage={gameModeLoading ? `Loading ${info.name} leaderboard...` : `No ${info.name} games yet`}
+                loading={gameModeLeaders.isPending}
+                loadingLabel={`Loading ${info.name} leaderboard...`}
+                emptyMessage={`No ${info.name} games yet`}
                 isEmpty={entries.length === 0}
               >
                 {entries.map((entry, idx) => (

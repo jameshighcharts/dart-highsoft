@@ -1,10 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { fixturesForPair, isCompleted, fixtureAvailability, fixtureLabel, fixtureFormat, type FixtureResult, type Snapshot } from "@/lib/highdarts/standings";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getSupabaseClient } from "@/lib/supabaseClient";
+import { fixturesForPair, isCompleted, fixtureAvailability, fixtureLabel, fixtureFormat, type FixtureResult } from "@/lib/highdarts/standings";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/apiClient";
+import {
+  availableBoardsQuery,
+  fetchAvailableBoards,
+  highdartsSnapshotQuery,
+  newMatchPlayersQuery,
+  type AvailableBoards,
+  type NewMatchPlayer,
+} from "@/lib/queries/newMatch";
+import { meQuery } from "@/lib/queries/me";
+import { LoadingReveal } from "@/components/LoadingReveal";
+import { Skeleton } from "@/components/ui/skeleton";
+import { playerListQuery } from "@/lib/queries/players";
 import { isTVModeEnabled, requestTVModeFullscreen } from "@/lib/tvMode";
 import { useScoliaBoardRealtime, type RealtimeChannelStatus } from "@/hooks/useScoliaBoardRealtime";
 import { isChannelLive } from "@/lib/scolia/connectionHealth";
@@ -54,7 +66,11 @@ import {
 import { SelectedPlayerLineup } from "@/components/games/SelectedPlayerLineup";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 
-type Player = { id: string; display_name: string; location: string | null; avatar_url?: string | null; gamesPlayed?: number };
+type Player = NewMatchPlayer;
+
+const NO_PLAYERS: Player[] = [];
+const NO_FIXTURES: FixtureResult[] = [];
+const NO_BOARDS: ScoliaBoardOption[] = [];
 
 type StartScore = "201" | "301" | "501";
 
@@ -87,7 +103,16 @@ function loadEnabledLocations(): LocationValue[] {
 
 export default function NewMatchPage() {
   const router = useRouter();
-  const [players, setPlayers] = useState<Player[]>([]);
+  const queryClient = useQueryClient();
+  // The roster and the creator's location come from the cache at once and refresh in the background.
+  const playersQuery = useQuery(newMatchPlayersQuery());
+  const players = playersQuery.data ?? NO_PLAYERS;
+  const playersLoaded = playersQuery.data !== undefined;
+  const me = useQuery(meQuery());
+  const creatorLocation = LOCATIONS.find((item) => item.value === me.data?.player?.location)?.value ?? null;
+  // Fixtures and boards are only ever this visit's data (see their queries), fetched in parallel.
+  const highdartsQuery = useQuery(highdartsSnapshotQuery());
+  const boardsQuery = useQuery(availableBoardsQuery());
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [newName, setNewName] = useState("");
   const [addPlayerOpen, setAddPlayerOpen] = useState(false);
@@ -100,10 +125,8 @@ export default function NewMatchPage() {
   const [closestToBull, setClosestToBull] = useState(false);
   const [fairEnding, setFairEnding] = useState(false);
   const [highdartsEnabled, setHighdartsEnabled] = useState(false);
-  const [highdartsFixtures, setHighdartsFixtures] = useState<FixtureResult[]>([]);
   const [requestedFixtureId, setRequestedFixtureId] = useState<string | null>(null);
   const [highdartsError, setHighdartsError] = useState('');
-  const [highdartsLoading, setHighdartsLoading] = useState(true);
   const [highdartsDeepLinkError, setHighdartsDeepLinkError] = useState(false);
   const [commentaryEnabled, setCommentaryEnabled] = useState(false);
   // Start on X01 for SSR and pick up the stored choice after hydration.
@@ -111,7 +134,6 @@ export default function NewMatchPage() {
   const [gameConfig, setGameConfig] = useState<Record<string, unknown>>({});
   const [setupLoaded, setSetupLoaded] = useState(false);
   const [remaking, setRemaking] = useState(false);
-  const [playersLoaded, setPlayersLoaded] = useState(false);
   useEffect(() => {
     setRemaking(new URLSearchParams(window.location.search).get("remake") === "1");
     const setup = loadStoredSetup();
@@ -134,45 +156,57 @@ export default function NewMatchPage() {
     }
     setSetupLoaded(true);
   }, []);
+  // Drop selected players who are no longer active. Only a roster fetched on this visit decides
+  // that, so a cached roster that predates a new player cannot unselect them.
+  const freshPlayers = playersQuery.isFetchedAfterMount ? playersQuery.data : undefined;
+  useEffect(() => {
+    if (!freshPlayers) return;
+    const activeIds = new Set(freshPlayers.map((player) => player.id));
+    setSelectedIds((ids) => (ids.every((id) => activeIds.has(id)) ? ids : ids.filter((id) => activeIds.has(id))));
+  }, [freshPlayers]);
   const [selectedBoardId, setSelectedBoardId] = useState(MANUAL_BOARD_VALUE);
   // Start with every location for SSR and pick up the stored filter after hydration.
   const [includeNoLocation, setIncludeNoLocation] = useState(true);
   const [enabledLocations, setEnabledLocations] = useState<LocationValue[]>(
     () => LOCATIONS.map((l) => l.value),
   );
+  const highdartsSnapshot = highdartsQuery.data;
+  const highdartsFixtures = highdartsSnapshot?.fixtures ?? NO_FIXTURES;
+  const highdartsLoading = highdartsQuery.isPending;
+  // Apply a ?highdarts= deep link once, after the stored setup and the roster are in place.
+  const highdartsDeepLinkHandled = useRef(false);
   useEffect(() => {
-    if (!setupLoaded || !playersLoaded) return;
-    let cancelled = false;
-    void apiRequest<Snapshot>('/api/highdarts', { method: 'GET' }).then(data => {
-      if (cancelled) return;
-      setHighdartsFixtures(data.fixtures);
-      const requested = new URLSearchParams(window.location.search).get('highdarts');
-      if (!requested) return;
-      const f = data.fixtures.find(f => f.id === requested);
-      if (!f || !f.player_a_id || !f.player_b_id || f.match_id || isCompleted(f)) {
-        setHighdartsError('This fixture is unavailable. Check its player links and status on the Bengt page.');
-        setHighdartsEnabled(false);
-        setHighdartsDeepLinkError(true);
-        return;
-      }
-      const unavailable = fixtureAvailability(f, data);
-      if (unavailable) {
-        setHighdartsError(unavailable.reason);
-        setHighdartsDeepLinkError(true);
-      }
-      if (f.office) {
-        setEnabledLocations([f.office]);
-        setIncludeNoLocation(false);
-      }
-      setSelectedBoardId(f.office ? boardValueForLocation(data.boards ?? [], f.office) : MANUAL_BOARD_VALUE);
-      setSelectedIds([f.player_a_id, f.player_b_id]); setGameType('x01');
-      setRequestedFixtureId(f.id); setHighdartsEnabled(true);
-    }).catch(() => { if (!cancelled) {
+    if (!setupLoaded || !playersLoaded || highdartsQuery.isPending || highdartsDeepLinkHandled.current) return;
+    highdartsDeepLinkHandled.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const data = highdartsSnapshot;
+    if (!data) {
       setHighdartsError('Highdarts fixtures could not load. Try again from the Bengt page.');
-      setHighdartsDeepLinkError(new URLSearchParams(window.location.search).has('highdarts'));
-    } }).finally(() => { if (!cancelled) setHighdartsLoading(false); });
-    return () => { cancelled = true; };
-  }, [setupLoaded, playersLoaded]);
+      setHighdartsDeepLinkError(params.has('highdarts'));
+      return;
+    }
+    const requested = params.get('highdarts');
+    if (!requested) return;
+    const f = data.fixtures.find(f => f.id === requested);
+    if (!f || !f.player_a_id || !f.player_b_id || f.match_id || isCompleted(f)) {
+      setHighdartsError('This fixture is unavailable. Check its player links and status on the Bengt page.');
+      setHighdartsEnabled(false);
+      setHighdartsDeepLinkError(true);
+      return;
+    }
+    const unavailable = fixtureAvailability(f, data);
+    if (unavailable) {
+      setHighdartsError(unavailable.reason);
+      setHighdartsDeepLinkError(true);
+    }
+    if (f.office) {
+      setEnabledLocations([f.office]);
+      setIncludeNoLocation(false);
+    }
+    setSelectedBoardId(f.office ? boardValueForLocation(data.boards ?? [], f.office) : MANUAL_BOARD_VALUE);
+    setSelectedIds([f.player_a_id, f.player_b_id]); setGameType('x01');
+    setRequestedFixtureId(f.id); setHighdartsEnabled(true);
+  }, [setupLoaded, playersLoaded, highdartsQuery.isPending, highdartsSnapshot]);
   const pairFixtures = fixturesForPair(highdartsFixtures, selectedIds);
   const availableFixtures = pairFixtures.filter(f => !f.match_id && !isCompleted(f));
   const highdartsFixture = availableFixtures.find(f => f.id === requestedFixtureId) ?? availableFixtures[0];
@@ -183,12 +217,19 @@ export default function NewMatchPage() {
   }, [highdartsLocked, highdartsFormat.startScore, highdartsFormat.finish]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [boards, setBoards] = useState<ScoliaBoardOption[]>([]);
-  const [creatorLocation, setCreatorLocation] = useState<LocationValue | null>(null);
+  const boards = boardsQuery.data?.boards ?? NO_BOARDS;
   const boardChosenByUser = useRef(false);
-  const [boardsLoading, setBoardsLoading] = useState(true);
+  const boardsLoading = boardsQuery.isPending;
   // Dev-only: the API returns simulated boards, so realtime must not override them.
-  const [boardsSimulated, setBoardsSimulated] = useState(false);
+  const boardsSimulated = boardsQuery.data?.simulated === true;
+  const boardsError = boardsQuery.error
+    ? boardsQuery.error instanceof Error ? boardsQuery.error.message : "Failed to load Scolia boards"
+    : null;
+  const boardsKey = availableBoardsQuery().queryKey;
+  const updateBoards = (update: (current: ScoliaBoardOption[]) => ScoliaBoardOption[]) =>
+    queryClient.setQueryData<AvailableBoards>(boardsKey, (current) => current && { ...current, boards: update(current.boards) });
+  // Joins a refresh already in flight instead of starting another.
+  const refreshBoards = () => void queryClient.refetchQueries({ queryKey: boardsKey }, { cancelRefetch: false });
   const [manualPrompt, setManualPrompt] = useState<ManualScoringPrompt | null>(null);
   const [tournamentManualConfirmation, setTournamentManualConfirmation] = useState<'closed' | 'warning' | 'acknowledged'>('closed');
   const boardPicker = useRef<HTMLDivElement>(null);
@@ -208,8 +249,10 @@ export default function NewMatchPage() {
     setEndGameError(null);
     try {
       await apiRequest(target, { method: "PATCH" });
-      const result = await apiRequest<{ boards: ScoliaBoardOption[] }>("/api/scolia/boards/available");
-      setBoards(result.boards);
+      // A refresh that started before the game ended would still show it running.
+      await queryClient.cancelQueries({ queryKey: boardsKey });
+      const result = await fetchAvailableBoards();
+      queryClient.setQueryData<AvailableBoards>(boardsKey, result);
       setManualPrompt(getManualScoringPrompt(result.boards));
     } catch (error) {
       setEndGameError(error instanceof Error ? error.message : "Failed to end the game");
@@ -217,73 +260,12 @@ export default function NewMatchPage() {
       setEndingGameId(null);
     }
   }
-  const [boardsError, setBoardsError] = useState<string | null>(null);
-  const boardsRequestInFlight = useRef(false);
   useEffect(() => {
     setEnabledLocations(loadEnabledLocations());
     try {
       setIncludeNoLocation(localStorage.getItem("match-include-no-location") !== "false");
     } catch { /* Keep the default when storage is unavailable. */ }
   }, []);
-
-  const loadBoards = useCallback(async (initialLoad = false) => {
-    if (boardsRequestInFlight.current) return;
-    boardsRequestInFlight.current = true;
-    try {
-      const result = await apiRequest<{ boards: ScoliaBoardOption[]; simulated?: boolean }>(
-        "/api/scolia/boards/available",
-        { method: "GET" },
-      );
-      setBoards(result.boards);
-      setBoardsSimulated(result.simulated === true);
-      setBoardsError(null);
-    } catch (error) {
-      setBoardsError(
-        error instanceof Error ? error.message : "Failed to load Scolia boards",
-      );
-    } finally {
-      boardsRequestInFlight.current = false;
-      if (initialLoad) setBoardsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadPlayers = async () => {
-      const supabase = await getSupabaseClient();
-      const { data } = await supabase
-        .from("players")
-        .select("id, display_name, location, avatar_url, match_players(count), game_session_players(count)")
-        .eq("is_active", true)
-        .order("display_name");
-      if (!cancelled && data) {
-        const activePlayers: Player[] = data.map((player) => ({
-          id: player.id,
-          display_name: player.display_name,
-          location: player.location,
-          avatar_url: player.avatar_url,
-          gamesPlayed: (player.match_players[0]?.count ?? 0)
-            + (player.game_session_players[0]?.count ?? 0),
-        }));
-        setPlayers(activePlayers);
-        const activeIds = new Set(activePlayers.map((player) => player.id));
-        setSelectedIds((ids) => ids.filter((id) => activeIds.has(id)));
-        setPlayersLoaded(true);
-      }
-    };
-    void loadPlayers();
-    void loadBoards(true);
-    void apiRequest<{ player: { location: string | null } | null }>("/api/me", { method: "GET" })
-      .then(({ player }) => {
-        if (cancelled) return;
-        const location = LOCATIONS.find((item) => item.value === player?.location);
-        setCreatorLocation(location?.value ?? null);
-      })
-      .catch(() => { /* No location is available for automatic board selection. */ });
-    return () => {
-      cancelled = true;
-    };
-  }, [loadBoards]);
 
   useEffect(() => {
     // Do not overwrite saved players before hydration and roster reconciliation.
@@ -293,20 +275,25 @@ export default function NewMatchPage() {
 
   const [boardChannel, setBoardChannel] = useState<RealtimeChannelStatus | undefined>(undefined);
   useScoliaBoardRealtime({
-    onUpsert: (status) => setBoards((current) => mergeBoardStatus(current, status)),
+    onUpsert: (status) => updateBoards((current) => mergeBoardStatus(current, status)),
     onRemove: (boardId) =>
-      setBoards((current) => current.filter((board) => board.id !== boardId)),
-    onOccupancyChange: () => void loadBoards(false),
-    onReconcile: () => void loadBoards(false),
+      updateBoards((current) => current.filter((board) => board.id !== boardId)),
+    onOccupancyChange: refreshBoards,
+    onReconcile: refreshBoards,
     onChannelStatus: setBoardChannel,
   }, !boardsSimulated);
 
   useEffect(() => {
+    const key = availableBoardsQuery().queryKey;
     const interval = window.setInterval(() => {
-      setBoards((current) => expireStaleBoards(current));
+      // Only write when a board expired: every cache write notifies all cache subscribers.
+      const current = queryClient.getQueryData<AvailableBoards>(key);
+      if (!current) return;
+      const next = expireStaleBoards(current.boards);
+      if (next !== current.boards) queryClient.setQueryData<AvailableBoards>(key, { ...current, boards: next });
     }, 1_000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [queryClient]);
 
   // Keep automatic selection tied to the creator's location until they choose a board.
   useEffect(() => {
@@ -417,7 +404,8 @@ export default function NewMatchPage() {
       const result = await apiRequest<{ player: Player }>("/api/players", {
         body: { displayName: name },
       });
-      setPlayers((prev) => [...prev, result.player]);
+      queryClient.setQueryData(newMatchPlayersQuery().queryKey, (prev) => [...(prev ?? []), result.player]);
+      void queryClient.invalidateQueries({ queryKey: playerListQuery().queryKey });
       setSelectedIds((prev) => [...prev, result.player.id]);
       setNewName("");
       setAddPlayerOpen(false);
@@ -854,7 +842,17 @@ export default function NewMatchPage() {
                 </button>
               );
             })}
-            {filteredPlayers.length === 0 && (
+            {!playersLoaded && (
+              <LoadingReveal label="Loading players…" className="col-span-full grid grid-cols-1 gap-2.5 min-[480px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+                {Array.from({ length: 8 }, (_, index) => (
+                  <div key={index} className="flex min-h-24 items-center gap-4 rounded-2xl border-2 border-white/[0.06] bg-slate-900/60 px-4 py-3">
+                    <Skeleton className="size-16 shrink-0 rounded-full" />
+                    <Skeleton className="h-7 flex-1" />
+                  </div>
+                ))}
+              </LoadingReveal>
+            )}
+            {playersLoaded && filteredPlayers.length === 0 && (
               <p className="col-span-full py-3 text-center text-sm text-muted-foreground">
                 {searchTerm
                   ? `No players match “${playerSearch.trim()}”.`

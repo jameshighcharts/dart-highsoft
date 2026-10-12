@@ -1,10 +1,13 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { apiRequest } from '@/lib/apiClient';
 import { storeSetup } from '@/components/games/NewGameOptions';
+import { newMatchPlayersQuery } from '@/lib/queries/newMatch';
 import type { ScoliaBoardOption } from '@/lib/scolia/types';
 import { fixture } from '@/test-utils/highdartsFixtures';
+import { TestQueryProvider } from '@/test-utils/renderWithProviders';
 import NewMatchPage from './page';
 
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
@@ -41,7 +44,7 @@ async function setup(boards: ScoliaBoardOption[] = []) {
     if (url === '/api/matches') return { matchId: 'created-match' };
     throw new Error(`Unexpected request: ${url}`);
   });
-  render(<NewMatchPage />);
+  render(<TestQueryProvider><NewMatchPage /></TestQueryProvider>);
   if (boards.length) {
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Board' })).toHaveTextContent('Scolia Vik'));
   } else {
@@ -134,9 +137,33 @@ it('rejects a deep link to an already accepted screenshot result', async () => {
     if (url === '/api/scolia/boards/available') return { boards: [] };
     throw new Error(`Unexpected request: ${url}`);
   });
-  render(<NewMatchPage />);
+  render(<TestQueryProvider><NewMatchPage /></TestQueryProvider>);
   expect(await screen.findByText(/This fixture is unavailable/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Start match' })).toBeDisabled();
   expect(screen.getByRole('switch', { name: 'Highdarts 2026 match' })).toBeDisabled();
   expect(starts()).toHaveLength(0);
+});
+
+it('shows the cached roster at once on a return visit and fetches each source once', async () => {
+  window.history.replaceState({}, '', '/new');
+  vi.mocked(apiRequest).mockImplementation(async (url) => {
+    if (url === '/api/me') return { player: { location: 'vik' } };
+    if (url === '/api/highdarts') return { fixtures: [], players: [], boards: [] };
+    if (url === '/api/scolia/boards/available') return { boards: [] };
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(newMatchPlayersQuery().queryKey, [
+    { id: 'Cached', display_name: 'Cached Carl', location: 'vik', avatar_url: null, gamesPlayed: 4 },
+  ]);
+  render(<QueryClientProvider client={queryClient}><NewMatchPage /></QueryClientProvider>);
+  // Rendered from the cache in the first render, before any request could have answered.
+  expect(screen.getByRole('button', { name: /Cached Carl/ })).toBeInTheDocument();
+  // The background refresh then replaces it with the current roster.
+  expect(await screen.findByRole('button', { name: /Askel/ })).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Start match' })).toBeEnabled());
+  const calls = (path: string) => vi.mocked(apiRequest).mock.calls.filter(([url]) => url === path);
+  expect(calls('/api/me')).toHaveLength(1);
+  expect(calls('/api/highdarts')).toHaveLength(1);
+  expect(calls('/api/scolia/boards/available')).toHaveLength(1);
 });

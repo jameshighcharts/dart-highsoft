@@ -1167,9 +1167,14 @@ export function computeTonCounts(playerTurns: TurnRow[]): TonCounts {
 }
 
 export function computeGamesPerDay(matches: MatchRow[]): number {
-  if (!matches.length) return 0;
-  const firstMatch = new Date(matches[0].created_at);
-  const lastMatch = new Date(matches[matches.length - 1].created_at);
+  return computeGamesPerDayFromRange(matches.length, matches[0]?.created_at ?? null, matches[matches.length - 1]?.created_at ?? null);
+}
+
+/** Matches per day between the first and the last match (matches sorted by `created_at`). */
+export function computeGamesPerDayFromRange(matchCount: number, firstMatchAt: string | null, lastMatchAt: string | null): number {
+  if (!matchCount || !firstMatchAt || !lastMatchAt) return 0;
+  const firstMatch = new Date(firstMatchAt);
+  const lastMatch = new Date(lastMatchAt);
   const daysDiff = Math.max(1, Math.ceil((lastMatch.getTime() - firstMatch.getTime()) / (1000 * 60 * 60 * 24)));
-  return Math.round((matches.length / daysDiff) * 10) / 10;
+  return Math.round((matchCount / daysDiff) * 10) / 10;
 }

@@ -1,15 +1,21 @@
 "use client";
 
 import { useQueries } from '@tanstack/react-query';
-import { fetchPlayerDetailData, type PlayerDetailData } from '@/hooks/useStatsData';
-import type { TurnRow, ThrowRow } from '@/lib/stats/types';
+import { statsPlayerQuery, useLegacyStatsGlobal, type PlayerDetailData } from '@/hooks/useStatsData';
+import type { TurnRow, ThrowRow, LegRow, MatchRow } from '@/lib/stats/types';
 
 export type PerPlayerStatsQuery = {
   playerId: string;
   status: 'loading' | 'success' | 'error';
   turns: TurnRow[];
   throws: ThrowRow[];
+  /** The legs and matches this player's stats read (scoped by the database, or the full history). */
+  legs: LegRow[];
+  matches: MatchRow[];
 };
+
+const EMPTY_LEGS: LegRow[] = [];
+const EMPTY_MATCHES: MatchRow[] = [];
 
 /**
  * Runs one React Query per player for turn/throw detail data.
@@ -20,21 +26,21 @@ export type PerPlayerStatsQuery = {
  */
 export function useMultiPlayerStats(playerIds: string[]): PerPlayerStatsQuery[] {
   const queries = useQueries({
-    queries: playerIds.map((id) => ({
-      queryKey: ['stats', 'player', id],
-      queryFn: () => fetchPlayerDetailData(id),
-      enabled: !!id,
-      staleTime: 5 * 60_000,
-    })),
+    queries: playerIds.map((id) => statsPlayerQuery(id)),
   });
+  const details = queries.map((q) => q.data as PlayerDetailData | undefined);
+  const legacy = useLegacyStatsGlobal(details.some((data) => data?.scoped === null));
 
   return queries.map((q, i): PerPlayerStatsQuery => {
-    const data = q.data as PlayerDetailData | undefined;
+    const data = details[i];
+    const usesLegacy = data?.scoped === null;
     return {
       playerId: playerIds[i],
-      status: q.isLoading ? 'loading' : q.isError ? 'error' : 'success',
+      status: q.isLoading || (usesLegacy && legacy.isLoading) ? 'loading' : q.isError || (usesLegacy && legacy.isError) ? 'error' : 'success',
       turns: data?.turns ?? [],
       throws: data?.throws ?? [],
+      legs: data?.scoped?.legs ?? (usesLegacy ? legacy.data?.legs : undefined) ?? EMPTY_LEGS,
+      matches: data?.scoped?.matches ?? (usesLegacy ? legacy.data?.matches : undefined) ?? EMPTY_MATCHES,
     };
   });
 }

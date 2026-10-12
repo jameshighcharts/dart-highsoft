@@ -2,11 +2,13 @@
 
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import Highcharts from 'highcharts';
-import { Grid, type GridOptions } from '@highcharts/grid-pro-react';
+import type { GridOptions } from '@highcharts/grid-pro-react';
 import SparklineRenderer from '@highcharts/grid-pro/es-modules/Grid/Pro/CellRendering/Renderers/SparklineRenderer';
-import '@highcharts/grid-pro/css/grid-pro.css';
+import { GridPro } from '@/components/GridPro';
+import { LeaderboardGridSkeleton } from '@/components/LeaderboardGridSkeleton';
+import '@/components/lazySparklineRenderer';
 import { useLeaderboardData } from '@/hooks/useLeaderboardData';
 import { batchEloHistory, batchMultiEloHistory } from '@/utils/eloHistory';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
@@ -131,6 +133,8 @@ function compareNullableNumbers(a: unknown, b: unknown): number {
   if (nb == null) return 1;
   return na - nb;
 }
+
+const EMPTY_HISTORY = new Map<string, number[]>();
 
 function sparklineChartOptions(this: { value: unknown }) {
   const nums = parseSparkline(this.value);
@@ -471,10 +475,9 @@ const MOCK_ELO_PLAYERS: MergedPlayer[] = MOCK_ELO_TIER_NAMES.map((name, i) => ({
  * ratings instead of the default outline frames with white ratings.
  */
 function useEloBadgeStyle(): 'outline' | 'full' {
-  const [style, setStyle] = useState<'outline' | 'full'>('outline');
-  useEffect(() => {
-    setStyle(new URLSearchParams(window.location.search).get('eloStyle') === 'full' ? 'full' : 'outline');
-  }, []);
+  // Client-only component (ssr: false), so the URL is readable on the first render.
+  const [style] = useState<'outline' | 'full'>(() =>
+    new URLSearchParams(window.location.search).get('eloStyle') === 'full' ? 'full' : 'outline');
   return style;
 }
 
@@ -487,11 +490,8 @@ const ELO_BADGE_IMAGE_CSS = [1, 2, 3, 4, 5, 6, 7, 8]
   .join('\n        ');
 
 function useMockEloRows(): boolean {
-  const [enabled, setEnabled] = useState(false);
-  useEffect(() => {
-    if (process.env.NODE_ENV !== 'development') return;
-    setEnabled(new URLSearchParams(window.location.search).get('mockElo') !== '0');
-  }, []);
+  const [enabled] = useState(() =>
+    process.env.NODE_ENV === 'development' && new URLSearchParams(window.location.search).get('mockElo') !== '0');
   return enabled;
 }
 
@@ -619,10 +619,13 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
       batchMultiEloHistory(playerIds),
     ]).then(([elo, multi]) => ({ elo, multi })),
     enabled: playerIds.length > 0,
+    // A changed player list keeps showing the old trends instead of rebuilding the grid without them.
+    placeholderData: keepPreviousData,
+    meta: { persist: true },
   });
 
-  const eloHistory = eloHistoryData?.elo ?? new Map<string, number[]>();
-  const multiEloHistory = eloHistoryData?.multi ?? new Map<string, number[]>();
+  const eloHistory = eloHistoryData?.elo ?? EMPTY_HISTORY;
+  const multiEloHistory = eloHistoryData?.multi ?? EMPTY_HISTORY;
   const hotStreakLinePoints = buildLinePoints(
     hotStreak ? buildFormTrend(hotStreak.recent) : [],
     150,
@@ -769,7 +772,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           header: { format: 'Trend' },
           cells: {
             renderer: {
-              type: 'sparkline' as const,
+              type: 'lazySparkline' as const,
               chartOptions: sparklineChartOptions,
             },
           },
@@ -798,7 +801,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           header: { format: 'Trend' },
           cells: {
             renderer: {
-              type: 'sparkline' as const,
+              type: 'lazySparkline' as const,
               chartOptions: sparklineChartOptions,
             },
           },
@@ -946,14 +949,21 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
   }, [filteredMerged, eloHistory, multiEloHistory, recentWinsByPlayer, eloViewFilter]);
 
   if (loading) {
-    return <div className="text-muted-foreground text-sm py-4">Loading leaderboard...</div>;
+    return (
+      <div className="flex flex-col gap-[14px]">
+        {headerContent}
+        <LeaderboardGridSkeleton />
+      </div>
+    );
   }
 
   return (
     <div className={`grid-leaderboard highcharts-dark${eloBadgeStyle === 'full' ? ' elo-style-full' : ''}`}>
-      <div className="leaderboard-header">
-        <div className="leaderboard-heading">{headerContent}</div>
-      </div>
+      {headerContent && (
+        <div className="leaderboard-header">
+          <div className="leaderboard-heading">{headerContent}</div>
+        </div>
+      )}
 
       <div className="leaderboard-toolbar">
         <div className="location-filter-tabs" aria-label="Filter leaderboard by Elo type">
@@ -1652,7 +1662,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           }
         }
       `}</style>
-      <Grid options={options} />
+      <GridPro options={options} />
 
       <div className="leaderboard-kpis" aria-label="Leaderboard overview">
         <div className="leaderboard-kpi">

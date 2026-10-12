@@ -35,8 +35,6 @@ interface CompareTrendChartProps {
   playerIds: string[];
   players: PlayerRow[];
   perPlayer: PerPlayerStatsQuery[];
-  legs: LegRow[];
-  matches: MatchRow[];
 }
 
 function computeMetricTrend(
@@ -78,7 +76,7 @@ function computeMetricTrend(
   }
 }
 
-export function CompareTrendChart({ playerIds, players, perPlayer, legs, matches }: CompareTrendChartProps) {
+export function CompareTrendChart({ playerIds, players, perPlayer }: CompareTrendChartProps) {
   const [metric, setMetric] = useState<MetricKey>('avgScore');
   const metricMeta = METRICS.find(m => m.key === metric)!;
 
@@ -91,7 +89,7 @@ export function CompareTrendChart({ playerIds, players, perPlayer, legs, matches
   const series = useMemo(() => {
     const perPlayerTrend = perPlayer.map((q) => {
       if (q.status !== 'success') return { categories: [] as string[], rolling: [] as number[] };
-      return computeMetricTrend(metric, q.playerId, q.turns, q.throws, legs, matches);
+      return computeMetricTrend(metric, q.playerId, q.turns, q.throws, q.legs, q.matches);
     });
 
     const aligned = alignDailyTrends(
@@ -111,7 +109,7 @@ export function CompareTrendChart({ playerIds, players, perPlayer, legs, matches
         connectNulls: true,
       };
     });
-  }, [metric, perPlayer, legs, matches, playerIds, playerById]);
+  }, [metric, perPlayer, playerIds, playerById]);
 
   return (
     <Card>

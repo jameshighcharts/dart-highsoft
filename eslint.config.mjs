@@ -5,7 +5,7 @@ const eslintConfig = [
   ...nextCoreWebVitals,
   ...nextTypeScript,
   {
-    ignores: ['coverage/**', 'e2e/**', 'test-results/**', 'playwright-report/**'],
+    ignores: ['coverage/**', 'e2e/**', 'test-results/**', 'playwright-report/**', '.claude/**'],
   },
   {
     rules: {
