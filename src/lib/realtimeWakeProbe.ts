@@ -11,7 +11,8 @@ export const WAKE_PROBE_TIMEOUT_MS = 5_000;
 /**
  * realtime-js closes the socket if its scheduled heartbeat finds any heartbeat still unanswered,
  * so a probe sent just before that tick would get no time to be answered. Inside this window the
- * imminent tick is the probe.
+ * imminent tick is the probe. realtime-js (via @supabase/phoenix) schedules each heartbeat one
+ * interval after the previous reply, including the reply to a probe.
  */
 export const PROBE_REPLY_WINDOW_MS = 2_000;
 
@@ -32,21 +33,19 @@ export function installRealtimeWakeProbe(
 ): () => void {
   let awaitingSince: number | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let probing = false;
-  let lastScheduledAt: number | null = null;
+  let lastReplyAt: number | null = null;
   realtime.onHeartbeat((status) => {
     if (status === 'sent') {
       awaitingSince ??= Date.now();
-      if (!probing) lastScheduledAt = Date.now();
-    } else awaitingSince = null;
+      return;
+    }
+    awaitingSince = null;
+    // A timeout reconnects, and the new socket's first heartbeat is timed from its open, unseen here.
+    lastReplyAt = status === 'ok' || status === 'error' ? Date.now() : null;
   });
   /** Milliseconds until the next scheduled heartbeat, or null when unknown. */
-  const untilTick = () => heartbeatIntervalMs !== null && lastScheduledAt !== null
-    ? Math.max(0, lastScheduledAt + heartbeatIntervalMs - Date.now()) : null;
-  const sendProbe = () => {
-    probing = true;
-    try { void realtime.sendHeartbeat(); } finally { probing = false; }
-  };
+  const untilTick = () => heartbeatIntervalMs !== null && lastReplyAt !== null
+    ? Math.max(0, lastReplyAt + heartbeatIntervalMs - Date.now()) : null;
   const probe = () => {
     if (target.document.hidden || timer || !realtime.isConnected()) return;
     // An earlier heartbeat is already overdue: the next send declares the timeout and reconnects.
@@ -56,7 +55,7 @@ export function installRealtimeWakeProbe(
     }
     const tickIn = untilTick();
     const tickIsProbe = tickIn !== null && tickIn < PROBE_REPLY_WINDOW_MS;
-    if (awaitingSince === null && !tickIsProbe) sendProbe();
+    if (awaitingSince === null && !tickIsProbe) void realtime.sendHeartbeat();
     timer = setTimeout(() => {
       timer = null;
       if (awaitingSince !== null && Date.now() - awaitingSince >= WAKE_PROBE_TIMEOUT_MS) void realtime.sendHeartbeat();
