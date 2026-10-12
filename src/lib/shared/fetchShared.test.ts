@@ -34,6 +34,13 @@ describe('fetchShared', () => {
     await expect(fetchShared('bullers', {}, async () => 'offline')).resolves.toBe('offline');
   });
 
+  it('fails instead of repeating a load the server tried and the database failed', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 502, headers: { 'x-shared-data-load-failed': '1' } }));
+    const fallback = vi.fn();
+    await expect(fetchShared('bullers', {}, fallback)).rejects.toThrow('Could not load bullers');
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
   it('purges the server copies without failing when it cannot', async () => {
     await expireSharedData();
     expect(purgeSharedResults).toHaveBeenCalledOnce();

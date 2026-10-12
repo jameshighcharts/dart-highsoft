@@ -30,6 +30,8 @@ describe('GET /api/shared/[name]', () => {
     expect((await get('nope')).status).toBe(404);
     vi.spyOn(console, 'error').mockImplementationOnce(() => {});
     vi.mocked(readSharedData).mockRejectedValueOnce(new Error('timeout'));
-    expect((await get('bullers')).status).toBe(502);
+    const failed = await get('bullers');
+    expect(failed.status).toBe(502);
+    expect(failed.headers.get('x-shared-data-load-failed')).toBe('1');
   });
 });
