@@ -233,7 +233,8 @@ it('replaces a reported result with the real active match on refresh without off
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   expect(screen.getAllByText('Reported result')).toHaveLength(2);
   await act(async () => window.dispatchEvent(new Event('focus')));
-  expect(screen.getAllByText('Reported result')).toHaveLength(1);
+  // The refetch on focus resolves asynchronously.
+  await waitFor(() => expect(screen.getAllByText('Reported result')).toHaveLength(1));
   expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuenow', '1');
   expect(screen.getByRole('link', { name: 'Watch live' })).toHaveAttribute('href', '/match/canonical-live');
   expect(screen.queryByRole('link', { name: /Start.*Johan/ })).not.toBeInTheDocument();
