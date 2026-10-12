@@ -75,7 +75,7 @@ function GameClientInner({ gameId }: GameClientProps) {
   const [rematchOpen, setRematchOpen] = useState(false);
   const [inputMode, setInputMode] = useState<'keypad' | 'board'>('keypad');
 
-  const { session, players, orderedPlayerIds, throws, loading, error, refetch, setThrows } = useGameData(gameId);
+  const { session, players, orderedPlayerIds, throws, loading, error, refetch, setThrows, live } = useGameData(gameId);
 
   const derived = useMemo(() => {
     if (!session || orderedPlayerIds.length === 0) return { view: null, error: null };
@@ -182,7 +182,7 @@ function GameClientInner({ gameId }: GameClientProps) {
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-4 pb-4">
       <GameHeader gameId={gameId} mode={session.mode} status={session.status} finished={state.finished}
-        roundLabel={isActive ? guide.round : `Round ${lastThrow?.round_number ?? 1}`} spectator={spectator} scoliaBoardId={session.scolia_board_id} />
+        roundLabel={isActive ? guide.round : `Round ${lastThrow?.round_number ?? 1}`} spectator={spectator} scoliaBoardId={session.scolia_board_id} live={live} />
       {error && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-200">
         Scores may be out of date. {error}<Button variant="outline" size="sm" onClick={() => void refetch()}>Retry</Button>
       </div>}

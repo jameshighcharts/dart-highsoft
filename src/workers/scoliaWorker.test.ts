@@ -62,7 +62,7 @@ describe('Scolia board-status overlap', () => {
     internals.enqueue(later);
     await vi.waitFor(() => expect(publishAcceptedThrow).toHaveBeenCalledOnce());
     expect(persisted).toHaveBeenCalledOnce();
-    expect(persisted).toHaveBeenCalledWith('persist_and_commit_scolia_throw', {
+    expect(persisted).toHaveBeenCalledWith('persist_and_commit_scolia_throw_v2', {
       p_event: expect.objectContaining({ board_id: 'board', message_id: message.id,
         event_type: 'THROW_DETECTED', payload: message.payload }),
       p_known_match_id: null, p_known_revision: null, p_plan: null, p_detected: null,

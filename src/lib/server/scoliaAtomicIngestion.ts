@@ -7,6 +7,8 @@ import type { MatchRow } from './matchGuards.ts';
 import type { TurnWithThrows, LegRecord } from '../match/types.ts';
 import type { StoredScoliaEvent, ScoliaThrowIngestionResult } from './scoliaThrowIngestion.ts';
 import type { AcceptedScoliaDart } from '../commentary/scoliaRealtimeEvent.ts';
+import { databaseError } from './databaseError.ts';
+import type { PreparedScoliaGame } from './gameScoliaIngestion.ts';
 
 export type ScoliaScoringSnapshot = {
   match: MatchRow; leg: LegRecord; playerIds: string[]; turns: TurnWithThrows[];
@@ -60,13 +62,39 @@ export function planScoliaThrow(snapshot: ScoliaScoringSnapshot, detected: Scoli
 }
 
 export type Prepared = { kind: 'legacy' } | { kind: 'ignored'; reason: string } | { kind: 'duplicate'; matchId: string; throwId: string; accepted: AcceptedScoliaDart }
-  | { kind: 'x01'; revision: string; matchId: string; snapshot?: ScoliaScoringSnapshot };
+  | { kind: 'x01'; revision: string; matchId: string; snapshot?: ScoliaScoringSnapshot }
+  | PreparedScoliaGame;
+
+/** A party-game dart the database prepared; the caller appends it through the game path. */
+export type AtomicIngestOutcome = ScoliaThrowIngestionResult | { status: 'game'; prepared: PreparedScoliaGame } | null;
+
+// The *_v2 / prepare_scolia_throw RPCs also prepare party-game darts. Until that migration
+// is applied, PostgREST answers PGRST202 and the original x01-only RPCs are used instead;
+// the new names are tried again after a while, so a migration applied later is picked up.
+const RPC_RETRY_CURRENT_MS = 5 * 60_000;
+const RPC_NAMES = {
+  current: { persist: 'persist_and_commit_scolia_throw_v2', prepare: 'prepare_scolia_throw' },
+  fallback: { persist: 'persist_and_commit_scolia_throw', prepare: 'prepare_scolia_x01_throw' },
+} as const;
 
 /** One owner per board; every cache reuse is checked by the database revision. */
 export class ScoliaAtomicIngestion {
   private cached: { matchId: string; revision: string; snapshot: ScoliaScoringSnapshot } | null = null;
   private readonly supabase: SupabaseClient;
+  private rpcNames: { persist: string; prepare: string } = RPC_NAMES.current;
+  private fallbackSince = 0;
   constructor(supabase: SupabaseClient) { this.supabase = supabase; }
+
+  private async rpc(name: 'persist' | 'prepare', args: Record<string, unknown>) {
+    if (this.rpcNames === RPC_NAMES.fallback && Date.now() - this.fallbackSince >= RPC_RETRY_CURRENT_MS) {
+      this.rpcNames = RPC_NAMES.current;
+    }
+    const response = await this.supabase.rpc(this.rpcNames[name], args);
+    if (response.error?.code !== 'PGRST202' || this.rpcNames === RPC_NAMES.fallback) return response;
+    this.rpcNames = RPC_NAMES.fallback;
+    this.fallbackSince = Date.now();
+    return this.supabase.rpc(this.rpcNames[name], args);
+  }
 
   async persistAndPrepare(event: {
     board_id: string; message_id: string; event_type: string; payload: unknown;
@@ -79,11 +107,11 @@ export class ScoliaAtomicIngestion {
     if (cached && detected) {
       try { plan = planScoliaThrow(cached.snapshot, detected); } catch { /* Refresh authoritative state below. */ }
     }
-    const { data, error } = await this.supabase.rpc('persist_and_commit_scolia_throw', {
+    const { data, error, status } = await this.rpc('persist', {
       p_event: event, p_known_match_id: cached?.matchId ?? null,
       p_known_revision: cached?.revision ?? null, p_plan: plan, p_detected: detected,
     });
-    if (error) { this.cached = null; throw new Error(error.message); }
+    if (error) { this.cached = null; throw databaseError(error, status); }
     if (data.committed && cached && plan) {
       return { ...data, result: this.acceptCommit(cached.matchId, cached.snapshot, plan, data.committed) };
     }
@@ -100,18 +128,19 @@ export class ScoliaAtomicIngestion {
     return { status: 'processed', target: { kind: 'match', id: matchId }, throwId: accepted.rows.id, accepted };
   }
 
-  async ingest(event: StoredScoliaEvent, detected: ScoliaDetectedThrow, initialPrepared?: Prepared | null): Promise<ScoliaThrowIngestionResult | null> {
+  async ingest(event: StoredScoliaEvent, detected: ScoliaDetectedThrow, initialPrepared?: Prepared | null): Promise<AtomicIngestOutcome> {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const { data, error } = attempt === 0 && initialPrepared
-        ? { data: initialPrepared, error: null }
-        : await this.supabase.rpc('prepare_scolia_x01_throw', {
+      const { data, error, status } = attempt === 0 && initialPrepared
+        ? { data: initialPrepared, error: null, status: 200 }
+        : await this.rpc('prepare', {
         p_event_id: event.id, p_known_match_id: this.cached?.matchId ?? null,
         p_known_revision: this.cached?.revision ?? null,
       });
-      if (error) throw new Error(error.message);
+      if (error) throw databaseError(error, status);
       const prepared = data as Prepared;
       if (prepared.kind === 'ignored') { this.cached = null; return { status: 'ignored', reason: prepared.reason }; }
       if (prepared.kind === 'legacy') { this.cached = null; return null; }
+      if (prepared.kind === 'game') { this.cached = null; return { status: 'game', prepared }; }
       if (prepared.kind === 'duplicate') return { status: 'processed', target: { kind: 'match', id: prepared.matchId },
         throwId: prepared.throwId, accepted: prepared.accepted };
       const snapshot = prepared.snapshot ?? (this.cached?.matchId === prepared.matchId && this.cached.revision === prepared.revision ? this.cached.snapshot : null);
@@ -124,7 +153,7 @@ export class ScoliaAtomicIngestion {
       if (commit.error) {
         this.cached = null;
         if (commit.error.code === '40001' || commit.error.code === '40P01') continue;
-        throw new Error(commit.error.message);
+        throw databaseError(commit.error, commit.status);
       }
       if (commit.data?.stale) { this.cached = null; continue; }
       return this.acceptCommit(prepared.matchId, snapshot, plan, commit.data);

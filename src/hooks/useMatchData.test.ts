@@ -92,3 +92,18 @@ it('still reports a failure from the current scorer load', async () => {
   expect(result.current.error).toBe('Current load failed');
   expect(result.current.loading).toBe(false);
 });
+it('refreshes silently in the background without a loading screen or replacing the view on failure', async () => {
+  load.mockResolvedValueOnce(snapshot([]));
+  const { result } = renderHook(() => useMatchData('m'));
+  await act(async () => { await result.current.loadAll(); });
+  let resolveRefresh!: (value: MatchLoadResult) => void;
+  load.mockReturnValueOnce(new Promise<MatchLoadResult>(resolve => { resolveRefresh = resolve; }));
+  let refreshing!: Promise<void>;
+  act(() => { refreshing = result.current.loadAll({ silent: true }); });
+  expect(result.current.loading).toBe(false);
+  await act(async () => { resolveRefresh(snapshot([])); await refreshing; });
+  load.mockRejectedValueOnce(new Error('offline'));
+  await act(async () => { await expect(result.current.loadAll({ silent: true })).rejects.toThrow('offline'); });
+  expect(result.current.error).toBeNull();
+  expect(result.current.match).toEqual(match);
+});

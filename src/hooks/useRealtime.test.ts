@@ -292,4 +292,56 @@ describe('useRealtime', () => {
     expect(result.current.connectionError).toBeNull();
   });
 
+
+  describe('live connection state', () => {
+    it('is connecting until the first subscription, then live', async () => {
+      const { result } = renderHook(() => useRealtime('match-123'));
+      expect(result.current.liveState).toBe('connecting');
+      await waitFor(() => expect(result.current.liveState).toBe('live'));
+    });
+
+    it('rides out a brief rejoin, then reports reconnecting until the channel is back', async () => {
+      vi.useFakeTimers();
+      const statuses: Array<(status: string) => void> = [];
+      subscribeMock.mockImplementation(callback => { statuses.push(callback); return mockChannel; });
+      const { result, unmount } = renderHook(() => useRealtime('match-123'));
+      await act(async () => {});
+      const wal = statuses[channelMock.mock.calls.findIndex(([name]) => name === 'dart_match_match-123')];
+      await act(async () => wal('SUBSCRIBED'));
+      expect(result.current.liveState).toBe('live');
+      await act(async () => wal('TIMED_OUT'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(result.current.liveState).toBe('live');
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(result.current.liveState).toBe('reconnecting');
+      const since = result.current.liveStateSince;
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+      await act(async () => statuses.at(-1)!('SUBSCRIBED'));
+      expect(result.current.liveState).toBe('live');
+      expect(result.current.liveStateSince).toBeGreaterThan(since);
+      unmount();
+    });
+
+    it('reports offline while the browser has no network', async () => {
+      const { result } = renderHook(() => useRealtime('match-123'));
+      await waitFor(() => expect(result.current.liveState).toBe('live'));
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+      await act(async () => {
+        result.current.disconnect();
+        window.dispatchEvent(new Event('offline'));
+      });
+      expect(result.current.liveState).toBe('offline');
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+    });
+
+    it('reports offline at once, before the channel has noticed the network is gone', async () => {
+      const { result } = renderHook(() => useRealtime('match-123'));
+      await waitFor(() => expect(result.current.liveState).toBe('live'));
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+      await act(async () => { window.dispatchEvent(new Event('offline')); });
+      expect(result.current.connectionStatus).toBe('connected');
+      expect(result.current.liveState).toBe('offline');
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+    });
+  });
 });

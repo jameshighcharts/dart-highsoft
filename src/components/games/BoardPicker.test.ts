@@ -31,9 +31,13 @@ describe("boardForLocation", () => {
   });
 
   it("keeps an offline board available in the dropdown with its status", () => {
+    // No recent heartbeat: the scoring worker itself is down.
     expect(buildBoardItems(boards, false)).toContainEqual(expect.objectContaining({
-      value: "bergen", status: "Offline", disabled: false,
+      value: "bergen", status: "Worker offline", disabled: false,
     }));
+    const recentHeartbeat = new Date().toISOString();
+    expect(buildBoardItems([{ ...board("lost", "Scolia Bergen", false), workerHeartbeatAt: recentHeartbeat }], false))
+      .toContainEqual(expect.objectContaining({ value: "lost", status: "Disconnected" }));
     expect(buildBoardItems([{ ...board("office", "Scolia Bergen", false), workerConnectionStatus: "connected", boardStatus: "Offline" }], false))
       .toContainEqual(expect.objectContaining({ value: "office", status: "Offline", disabled: false }));
   });

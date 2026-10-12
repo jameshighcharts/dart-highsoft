@@ -1,6 +1,7 @@
 "use client";
 
-import { PencilLine, Wifi } from "lucide-react";
+import { LoaderCircle, PencilLine, Wifi } from "lucide-react";
+import { hasFreshScoliaHeartbeat } from "@/lib/scolia/availability";
 import type { ScoliaBoardOption } from "@/lib/scolia/types";
 import type { LocationValue } from "@/utils/locations";
 import {
@@ -75,10 +76,12 @@ export function describeBoardStatus(board: ScoliaBoardOption): { tone: Tone; tex
   }
   switch (board.workerConnectionStatus) {
     case "disconnected":
-      return { tone: "offline", text: "Offline" };
+      // A stale heartbeat means the scoring worker itself is down, not just this board.
+      return { tone: "offline", text: hasFreshScoliaHeartbeat(board) ? "Disconnected" : "Worker offline" };
     case "connecting":
-    case "reconnecting":
       return { tone: "busy", text: "Connecting…" };
+    case "reconnecting":
+      return { tone: "busy", text: "Reconnecting…" };
     case "connected":
       if (board.selectable) return { tone: "ready", text: "Ready" };
       if (board.boardStatus?.toLowerCase() === "offline") return { tone: "offline", text: "Offline" };
@@ -166,16 +169,20 @@ export function BoardPicker({
   value,
   onChange,
   loading,
+  live = true,
 }: {
   boards: ScoliaBoardOption[];
   value: string;
   onChange: (boardId: string) => void;
   loading: boolean;
+  /** False while this page's live board-status channel is reconnecting. */
+  live?: boolean;
 }) {
   const items = buildBoardItems(boards, loading);
   const current = items.find((item) => item.value === value) ?? items[items.length - 1];
 
   return (
+    <>
     <Select value={current.value} onValueChange={onChange}>
       <SelectTrigger className="data-[size=default]:h-14 w-full rounded-xl px-4 text-base" aria-label="Board">
         <SelectValue>
@@ -214,5 +221,12 @@ export function BoardPicker({
         ))}
       </SelectContent>
     </Select>
+    {!live && (
+      <p role="status" className="flex items-center gap-1.5 text-xs text-amber-500">
+        <LoaderCircle className="size-3 animate-spin" aria-hidden />
+        Live board status paused — reconnecting…
+      </p>
+    )}
+    </>
   );
 }

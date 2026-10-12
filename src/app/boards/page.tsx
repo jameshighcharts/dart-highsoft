@@ -6,7 +6,9 @@ import Link from 'next/link';
 
 import { apiRequest } from '@/lib/apiClient';
 import { isTVModeEnabled, TV_MODE_STORAGE_KEY } from '@/lib/tvMode';
-import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
+import { useScoliaBoardRealtime, type RealtimeChannelStatus } from '@/hooks/useScoliaBoardRealtime';
+import { isChannelLive } from '@/lib/scolia/connectionHealth';
+import { ScoliaBoardHealth } from '@/components/scolia/ScoliaConnectionIndicator';
 import { hasFreshScoliaHeartbeat } from '@/lib/scolia/availability';
 import type { ScoliaBoard, ScoliaBoardPublicStatus } from '@/lib/scolia/types';
 import { gameModeName } from '@/lib/games/labels';
@@ -17,13 +19,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 
-function connectionLabel(status: ScoliaBoard['workerConnectionStatus']): string {
-  if (status === 'connected') return 'Connected';
-  if (status === 'connecting') return 'Connecting';
-  if (status === 'reconnecting') return 'Reconnecting';
-  return 'Disconnected';
-}
-
 function mergePublicStatus(board: ScoliaBoard, status: ScoliaBoardPublicStatus): ScoliaBoard {
   const heartbeatIsFresh = hasFreshScoliaHeartbeat({ workerHeartbeatAt: status.workerHeartbeatAt });
   return {
@@ -31,6 +26,7 @@ function mergePublicStatus(board: ScoliaBoard, status: ScoliaBoardPublicStatus):
     name: status.name,
     isHomeSbc: status.isHomeSbc,
     workerConnectionStatus: heartbeatIsFresh ? status.workerConnectionStatus : 'disconnected',
+    workerConnectionChangedAt: status.workerConnectionChangedAt ?? null,
     boardStatus: status.boardStatus,
     boardPhase: status.boardPhase,
     errorType: status.errorType,
@@ -80,6 +76,7 @@ export default function BoardsPage() {
     void loadBoards();
   }, [loadBoards]);
 
+  const [boardChannel, setBoardChannel] = useState<RealtimeChannelStatus | undefined>(undefined);
   useScoliaBoardRealtime({
     onUpsert: (status) => setBoards((current) => current.map((board) =>
       board.id === status.boardId ? mergePublicStatus(board, status) : board
@@ -87,6 +84,7 @@ export default function BoardsPage() {
     onRemove: (boardId) => setBoards((current) => current.filter((board) => board.id !== boardId)),
     onOccupancyChange: () => void loadBoards(false),
     onReconcile: () => void loadBoards(false),
+    onChannelStatus: setBoardChannel,
   });
 
   useEffect(() => {
@@ -226,17 +224,7 @@ export default function BoardsPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="truncate font-medium">{board.name || 'Unnamed board'}</div>
-                      <Badge variant="outline" className="border-border/40 text-muted-foreground">
-                        Scolia: {connectionLabel(board.workerConnectionStatus)}
-                      </Badge>
-                      {board.workerConnectionStatus === 'connected' && board.boardStatus ? (
-                        <Badge
-                          variant={board.boardStatus === 'Error' ? 'destructive' : board.boardStatus === 'Ready' ? 'default' : 'secondary'}
-                          className={board.boardStatus === 'Ready' ? 'bg-emerald-600 text-white' : undefined}
-                        >
-                          Board: {board.boardStatus}
-                        </Badge>
-                      ) : null}
+                      <ScoliaBoardHealth board={board} live={isChannelLive(boardChannel)} />
                     </div>
                     <div className="mt-1 truncate font-mono text-xs text-muted-foreground">{board.serialNumber}</div>
                     {board.workerConnectionStatus === 'connected' && board.boardPhase ? (

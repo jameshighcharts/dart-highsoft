@@ -14,15 +14,21 @@ export async function findActiveScoliaBoardTarget(
   return occupant && { kind: occupant.kind, id: occupant.id } as ScoliaBoardTarget;
 }
 
+export type ScoliaBoardOccupant = ScoliaBoardTarget & {
+  createdAt: string;
+  /** Only a match mid bull-off needs its full row loaded when the board reports a takeout. */
+  bullOffThrowing: boolean;
+};
+
 /** The active target plus when it started, so older board events can be kept out of it. */
 export async function findActiveScoliaBoardOccupant(
   supabase: SupabaseClient,
   boardId: string
-): Promise<(ScoliaBoardTarget & { createdAt: string }) | null> {
+): Promise<ScoliaBoardOccupant | null> {
   const [matchResult, gameResult] = await Promise.all([
     supabase
       .from('matches')
-      .select('id, created_at')
+      .select('id, created_at, bull_off_phase:bull_off->>phase')
       .eq('scolia_board_id', boardId)
       .is('winner_player_id', null)
       .is('completed_at', null)
@@ -43,17 +49,17 @@ export async function findActiveScoliaBoardOccupant(
   if (matchResult.error) throw new Error(matchResult.error.message);
   if (gameResult.error && gameResult.error.code !== '42P01') throw new Error(gameResult.error.message);
 
-  const match = matchResult.data as { id: string; created_at: string } | null;
+  const match = matchResult.data as { id: string; created_at: string; bull_off_phase: string | null } | null;
   const game = (gameResult.data ?? null) as { id: string; created_at: string } | null;
-  if (match && game) {
+  const matchOccupant = match && {
+    kind: 'match' as const, id: match.id, createdAt: match.created_at, bullOffThrowing: match.bull_off_phase === 'throwing',
+  };
+  const gameOccupant = game && { kind: 'game' as const, id: game.id, createdAt: game.created_at, bullOffThrowing: false };
+  if (matchOccupant && gameOccupant) {
     console.warn(`[scolia] board ${boardId} has both an active match and game session; using the newest`);
-    return Date.parse(game.created_at) > Date.parse(match.created_at)
-      ? { kind: 'game', id: game.id, createdAt: game.created_at }
-      : { kind: 'match', id: match.id, createdAt: match.created_at };
+    return Date.parse(gameOccupant.createdAt) > Date.parse(matchOccupant.createdAt) ? gameOccupant : matchOccupant;
   }
-  if (match) return { kind: 'match', id: match.id, createdAt: match.created_at };
-  if (game) return { kind: 'game', id: game.id, createdAt: game.created_at };
-  return null;
+  return matchOccupant ?? gameOccupant ?? null;
 }
 
 export type ScoliaBoardAvailability =

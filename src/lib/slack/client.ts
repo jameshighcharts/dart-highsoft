@@ -23,6 +23,7 @@ async function callSlackApi(method: string, body: Record<string, object | string
       'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
   });
   const result = (await response.json()) as SlackApiResponse;
   if (!response.ok || !result.ok) {
@@ -64,5 +65,6 @@ export async function respondToSlack(responseUrl: string, text: string): Promise
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify({ response_type: 'ephemeral', replace_original: false, text }),
+    signal: AbortSignal.timeout(10_000),
   });
 }

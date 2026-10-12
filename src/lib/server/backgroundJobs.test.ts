@@ -11,8 +11,13 @@ import {
 
 import { processBackgroundJob } from './backgroundJobs';
 import { runDartIQCalibration, runDartIQTraining } from './dartiqCalibration';
+import { publishScoliaHealthAlert } from './scoliaHealthAlert';
 
 vi.mock('../highdarts/slackResult', () => ({ publishHighdartsResult: vi.fn() }));
+vi.mock('./scoliaHealthAlert', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./scoliaHealthAlert')>()),
+  publishScoliaHealthAlert: vi.fn(),
+}));
 vi.mock('server-only', () => ({}));
 vi.mock('./dartiqCalibration', () => ({ runDartIQCalibration: vi.fn(), runDartIQTraining: vi.fn() }));
 vi.mock('@/lib/slack/dartPollService', () => ({
@@ -89,6 +94,20 @@ describe('processBackgroundJob', () => {
     vi.mocked(persistDartIQCompletedLeg).mockReset();
     vi.mocked(persistDartIQLiveReplay).mockReset();
     vi.mocked(persistDartIQLiveThrow).mockReset();
+  });
+
+  it('posts a board health alert once, even when the job is retried after posting', async () => {
+    vi.mocked(publishScoliaHealthAlert).mockReset();
+    const payload = { incidents: [{ boardId: 'b1', name: 'Board 1', problem: 'connection_down' }], recoveries: [] };
+    const first = createSupabase({ ...dispatchingJob, job_type: 'scolia_health_alert', payload });
+    await expect(processBackgroundJob({ supabase: first.supabase, jobId: 'job-1', appOrigin: 'https://darts.example' }))
+      .resolves.toEqual({ id: 'job-1', status: 'completed' });
+    expect(publishScoliaHealthAlert).toHaveBeenCalledOnce();
+    expect(first.updates[0]).toEqual({ payload: { ...payload, postedAt: expect.any(String) } });
+
+    const retried = createSupabase({ ...dispatchingJob, job_type: 'scolia_health_alert', payload: first.updates[0].payload as Record<string, unknown> });
+    await processBackgroundJob({ supabase: retried.supabase, jobId: 'job-1', appOrigin: 'https://darts.example' });
+    expect(publishScoliaHealthAlert).toHaveBeenCalledOnce();
   });
 
   it('dispatches calibration through the existing retryable background queue', async () => {

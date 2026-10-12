@@ -8,6 +8,8 @@ export class BoardStatusWriter {
   private desired: Status = {};
   private written: Status = {};
   private writtenAt = 0;
+  // While a write is in flight the database is heading to that value, not to `written`.
+  private inFlight: Status | null = null;
   private queue: Status[] = [];
   private running: Promise<void> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
@@ -22,7 +24,8 @@ export class BoardStatusWriter {
     this.desired = { ...this.desired, ...value };
     const tail = this.queue.at(-1);
     if (tail && sameState(tail, this.desired)) this.queue[this.queue.length - 1] = { ...this.desired };
-    else if (!tail && sameState(this.written, this.desired) && Date.now() - this.writtenAt < 5_000) return;
+    else if (!tail && !this.inFlight && sameState(this.written, this.desired) && Date.now() - this.writtenAt < 5_000) return;
+    else if (!tail && this.inFlight && sameState(this.inFlight, this.desired)) return;
     else this.queue.push({ ...this.desired });
     // During a prolonged outage only a bounded set of recent status transitions matters.
     if (this.queue.length > 64) this.queue.splice(1, this.queue.length - 64);
@@ -31,6 +34,7 @@ export class BoardStatusWriter {
   private drain() {
     if (this.running || this.retry || this.stopped || !this.queue.length) return;
     const value = this.queue.shift()!;
+    this.inFlight = value;
     this.running = this.write(value).then(() => {
       this.written = value; this.writtenAt = Date.now();
       // A heartbeat queued during this write need not cause another identical state write.
@@ -39,7 +43,7 @@ export class BoardStatusWriter {
       this.onError(error);
       this.queue.unshift(value);
       if (!this.stopped) this.retry = setTimeout(() => { this.retry = null; this.drain(); }, 1_000);
-    }).finally(() => { this.running = null; this.drain(); });
+    }).finally(() => { this.running = null; this.inFlight = null; this.drain(); });
   }
   async stop() {
     this.stopped = true;

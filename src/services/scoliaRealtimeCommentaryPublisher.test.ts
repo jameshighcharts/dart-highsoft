@@ -351,3 +351,152 @@ describe('parallel commentary preparation', () => {
     publisher.close();
   });
 });
+
+describe('Scolia commentary resilience', () => {
+  type Call = [string, ...unknown[]];
+  function recordingSupabase(rows: unknown[] = []) {
+    const calls: Call[][] = [];
+    const from = vi.fn(() => {
+      const chain: Call[] = [];
+      calls.push(chain);
+      const query: Record<string, unknown> = {};
+      for (const method of ['select', 'update', 'eq', 'lt', 'gte', 'in', 'not', 'order', 'limit']) {
+        query[method] = (...args: unknown[]) => { chain.push([method, ...args]); return query; };
+      }
+      query.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: rows, error: null }).then(resolve);
+      return query;
+    });
+    return { supabase: { from } as unknown as SupabaseClient, calls };
+  }
+
+  it('retires rows of listeners that went away and only sweeps rows of live listeners', async () => {
+    const { supabase, calls } = recordingSupabase();
+    const publisher = new ScoliaRealtimeCommentaryPublisher(supabase, 'test-key');
+    const internals = publisher as unknown as { loadActiveSessions: () => Promise<{ id: string; match_id: string; epoch: number }[]> };
+    vi.spyOn(internals, 'loadActiveSessions').mockResolvedValue([{ id: 'live', match_id: 'm', epoch: 0 }]);
+    await publisher.flushPending();
+    const [retire, sweep] = calls;
+    expect(retire).toEqual(expect.arrayContaining([
+      ['update', { status: 'failed', last_error: 'Realtime listener ended before delivery' }],
+      ['eq', 'status', 'pending'], ['not', 'session_id', 'in', '(live)'],
+    ]));
+    expect(retire.find(([method]) => method === 'lt')).toBeDefined();
+    expect(sweep).toEqual(expect.arrayContaining([['eq', 'status', 'pending'], ['in', 'session_id', ['live']]]));
+    publisher.close();
+  });
+
+  it('retires a closed listener named in a notification without sweeping when nobody is live', async () => {
+    const { supabase, calls } = recordingSupabase();
+    const publisher = new ScoliaRealtimeCommentaryPublisher(supabase, 'test-key');
+    const internals = publisher as unknown as { loadActiveSessions: () => Promise<never[]> };
+    vi.spyOn(internals, 'loadActiveSessions').mockResolvedValue([]);
+    await publisher.flushPending(['closed']);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(expect.arrayContaining([['in', 'session_id', ['closed']]]));
+    publisher.close();
+  });
+
+  it('records an unreachable listener once per row without reconnecting for each one', async () => {
+    const deliveries = [1, 2, 3].map((index) => ({ session_id: 'dead', throw_id: `dart-${index}`, status: 'pending', attempts: 0 }));
+    const { supabase } = recordingSupabase(deliveries);
+    const publisher = new ScoliaRealtimeCommentaryPublisher(supabase, 'test-key');
+    const internals = publisher as unknown as {
+      loadActiveSessions: () => Promise<{ id: string; match_id: string; epoch: number }[]>;
+      connection: () => Promise<object>; recordFailure: (delivery: unknown, error: unknown) => Promise<void>;
+      ensureDelivery: () => Promise<object>;
+    };
+    vi.spyOn(internals, 'loadActiveSessions').mockResolvedValue([{ id: 'dead', match_id: 'm', epoch: 0 }]);
+    const connect = vi.spyOn(internals, 'connection').mockRejectedValue(new Error('unreachable'));
+    const failure = vi.spyOn(internals, 'recordFailure').mockResolvedValue();
+    const ensure = vi.spyOn(internals, 'ensureDelivery');
+    await publisher.flushPending();
+    expect(connect).toHaveBeenCalledOnce();
+    expect(failure).toHaveBeenCalledTimes(3);
+    expect(ensure).not.toHaveBeenCalled();
+    publisher.close();
+  });
+
+  it('delivers to healthy listeners while another listener cannot connect', async () => {
+    const publisher = new ScoliaRealtimeCommentaryPublisher({} as SupabaseClient, 'test-key');
+    const sessions = [{ id: 'stuck', epoch: 0 }, { id: 'healthy', epoch: 0 }];
+    const internals = publisher as unknown as {
+      activeSessions: () => Promise<unknown[]>; analyzeEvent: () => Promise<unknown>;
+      ensureDelivery: (sessionId: string) => Promise<unknown>; connection: (session: { id: string }) => Promise<unknown>;
+      deliver: (session: { id: string }) => Promise<void>;
+    };
+    vi.spyOn(internals, 'activeSessions').mockResolvedValue(sessions);
+    vi.spyOn(internals, 'analyzeEvent').mockResolvedValue({});
+    vi.spyOn(internals, 'ensureDelivery').mockImplementation(async (sessionId) => ({ session_id: sessionId, status: 'pending', attempts: 0 }));
+    vi.spyOn(internals, 'connection').mockImplementation((session) => session.id === 'stuck' ? new Promise(() => {}) : Promise.resolve({}));
+    const delivered: string[] = [];
+    vi.spyOn(internals, 'deliver').mockImplementation(async (session) => { delivered.push(session.id); });
+    await publisher.publishAcceptedThrow('match', 'dart');
+    expect(delivered.sort()).toEqual(['healthy', 'stuck']);
+    publisher.close();
+  });
+
+  it('still announces a takeout to reachable listeners when one cannot connect', async () => {
+    const publisher = new ScoliaRealtimeCommentaryPublisher({} as SupabaseClient, 'test-key');
+    const socket = { readyState: 1, send: vi.fn() };
+    const connection = {
+      socket, policy: new CommentaryPolicy(), playback: new RealtimePlayback(),
+      responseQueue: new RealtimeResponseQueue<Record<string, unknown>>(), visitTiming: new CommentaryVisitTiming(),
+      pendingTakeoutHandoff: { sourceDartId: 'dart', turnId: 'turn', playerId: 'ada', playerName: 'Ada', scoreRemaining: 40 },
+    };
+    const internals = publisher as unknown as {
+      activeSessions: () => Promise<{ id: string; epoch: number; persona_id: string }[]>;
+      connection: (session: { id: string }) => Promise<typeof connection>;
+    };
+    vi.spyOn(internals, 'activeSessions').mockResolvedValue([
+      { id: 'dead', epoch: 0, persona_id: 'chad' }, { id: 'live', epoch: 0, persona_id: 'chad' },
+    ]);
+    vi.spyOn(internals, 'connection').mockImplementation(async (session) => {
+      if (session.id === 'dead') throw new Error('unreachable');
+      return connection;
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await publisher.publishTakeoutFinished('match', 'takeout')).toBe(1);
+    connection.visitTiming.reset();
+    connection.responseQueue.reset();
+    publisher.close();
+  });
+
+  it('ignores listener heartbeats but refreshes on real changes or after a long silence', () => {
+    vi.useFakeTimers();
+    const publisher = new ScoliaRealtimeCommentaryPublisher({} as SupabaseClient, 'test-key');
+    const internals = publisher as unknown as { listeners: { invalidate: (matchId?: string) => void } };
+    const invalidate = vi.spyOn(internals.listeners, 'invalidate');
+    const row = { id: 'listener', match_id: 'match', epoch: 0, status: 'active', openai_call_id: 'call' };
+    publisher.listenerChanged({ ...row, last_seen_at: 'a' });
+    publisher.listenerChanged({ ...row, last_seen_at: 'b' });
+    expect(invalidate).toHaveBeenCalledOnce();
+    publisher.listenerChanged({ ...row, last_seen_at: 'c', opening_call_claimed_at: new Date().toISOString() });
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(31_000);
+    publisher.listenerChanged({ ...row, last_seen_at: 'd', opening_call_claimed_at: null });
+    expect(invalidate).toHaveBeenCalledTimes(3);
+    publisher.close();
+    vi.useRealTimers();
+  });
+
+  it('forgets a match epoch once its last listener is gone', async () => {
+    const publisher = new ScoliaRealtimeCommentaryPublisher({} as SupabaseClient, 'test-key');
+    const internals = publisher as unknown as {
+      matchEpochs: Map<string, number>; connections: Map<string, object>;
+      loadActiveSessions: (ids?: readonly string[]) => Promise<unknown[]>;
+      supabase: unknown;
+    };
+    const socket = { close: vi.fn() };
+    internals.connections.set('listener', { session: { id: 'listener', match_id: 'match', epoch: 0 }, socket, visitTiming: new CommentaryVisitTiming() });
+    internals.matchEpochs.set('match', 2);
+    internals.matchEpochs.set('quiet-match', 1);
+    publisher.listenerChanged({ id: 'listener', match_id: 'match', epoch: 2, status: 'closed' });
+    expect(internals.matchEpochs.has('match')).toBe(false);
+    expect(socket.close).toHaveBeenCalledOnce();
+    const { supabase } = recordingSupabase([]);
+    internals.supabase = supabase;
+    await internals.loadActiveSessions();
+    expect(internals.matchEpochs.size).toBe(0);
+    publisher.close();
+  });
+});

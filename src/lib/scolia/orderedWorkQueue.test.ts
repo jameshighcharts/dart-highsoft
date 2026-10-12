@@ -126,4 +126,47 @@ describe('OrderedWorkQueue', () => {
     expect(next).toHaveBeenCalledOnce();
     queue.stop();
   });
+
+  it('keeps retrying an outage past the attempt limit, then gives up when its time runs out', async () => {
+    vi.useFakeTimers();
+    const outage = new Error('database unreachable');
+    const queue = new OrderedWorkQueue(vi.fn(), 100, 3, (error) => error === outage ? 1_000 : 0);
+    const fail = vi.fn().mockRejectedValue(outage);
+    const next = vi.fn().mockResolvedValue(undefined);
+    queue.enqueue(fail);
+    queue.enqueue(next);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fail.mock.calls.length).toBeGreaterThan(3);
+    expect(next).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(next).toHaveBeenCalledOnce();
+    queue.stop();
+  });
+
+  it('reports when queued work has drained, or gives up waiting at the deadline', async () => {
+    const queue = new OrderedWorkQueue(vi.fn());
+    let finished = false;
+    queue.enqueue(async () => { await new Promise((resolve) => setTimeout(resolve, 80)); finished = true; });
+    await queue.drained(1_000);
+    expect(finished).toBe(true);
+
+    queue.enqueue(() => new Promise(() => {}));
+    const started = Date.now();
+    await queue.drained(150);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    queue.stop();
+  });
+
+  it('delivers work that succeeds once an outage clears', async () => {
+    vi.useFakeTimers();
+    const outage = new Error('database unreachable');
+    const queue = new OrderedWorkQueue(vi.fn(), 100, 3, () => 60_000);
+    const work = vi.fn().mockRejectedValueOnce(outage).mockRejectedValueOnce(outage)
+      .mockRejectedValueOnce(outage).mockRejectedValueOnce(outage).mockResolvedValue(undefined);
+    queue.enqueue(work);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(work).toHaveBeenCalledTimes(5);
+    expect(queue.idle).toBe(true);
+    queue.stop();
+  });
 });

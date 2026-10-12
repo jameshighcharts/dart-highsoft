@@ -3,15 +3,15 @@ import type { AcceptedScoliaDart } from '../commentary/scoliaRealtimeEvent.ts';
 import { updateBullOff } from './bullOff.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { detectedThrowFromMessage, type ScoliaMessage } from '../scolia/protocol.ts';
+import { detectedThrowFromMessage, THROWN_BEFORE_TARGET, type ScoliaMessage } from '../scolia/protocol.ts';
 import { completeLeg } from './completeLeg.ts';
 import { enqueueDartIQLiveThrow } from './backgroundJobs.ts';
 import { isMatchScoringActive, loadMatch, type MatchRow } from './matchGuards.ts';
 import { resolveOrCreateTurnForPlayer } from './turnLifecycle.ts';
 import { replayTurn, type ThrowData } from '../../utils/legScoreCalculator.ts';
 import { computeFairEndingState, getNextFairEndingPlayer, type FairEndingState } from '../../utils/fairEnding.ts';
-import { findExistingGameThrow, ingestGameThrow, settleExistingGameThrow } from './gameScoliaIngestion.ts';
-import { findActiveScoliaBoardTarget, type ScoliaBoardTarget } from './scoliaBoardTarget.ts';
+import { findExistingGameThrow, ingestGameThrow, ingestPreparedGameThrow, settleExistingGameThrow } from './gameScoliaIngestion.ts';
+import { findActiveScoliaBoardOccupant, type ScoliaBoardTarget } from './scoliaBoardTarget.ts';
 
 export type StoredScoliaEvent = {
   id: number;
@@ -19,7 +19,9 @@ export type StoredScoliaEvent = {
   message_id: string;
   event_type: string;
   payload: Record<string, unknown>;
+  received_at?: string | null;
 };
+
 
 type ThrowRow = ThrowData & {
   id: string;
@@ -263,8 +265,22 @@ export async function ingestScoliaThrowEvent(
     }
 
     if (atomic) {
-      const result = await atomic.ingest(event, detected, prepared);
-      if (result) return result;
+      const outcome = await atomic.ingest(event, detected, prepared);
+      if (outcome?.status === 'game') {
+        const target: ScoliaBoardTarget = { kind: 'game', id: outcome.prepared.sessionId };
+        const game = await ingestPreparedGameThrow(supabase, event.id, outcome.prepared, detected);
+        if (game?.status === 'processed') return { status: 'processed', target, throwId: game.throwId };
+        if (game) {
+          await updateEvent(supabase, event.id, 'ignored', game.reason);
+          return game;
+        }
+        // Another dart took the slot: re-read everything through the path below.
+      } else if (outcome) {
+        if (outcome.status === 'ignored' && outcome.reason === THROWN_BEFORE_TARGET) {
+          await updateEvent(supabase, event.id, 'ignored', outcome.reason);
+        }
+        return outcome;
+      }
     }
 
     const [existingThrow, existingGameThrow, bullEventResult] = await Promise.all([
@@ -301,12 +317,17 @@ export async function ingestScoliaThrowEvent(
       }
     }
 
-    const target = await findActiveScoliaBoardTarget(supabase, event.board_id);
-    if (!target) {
+    const occupant = await findActiveScoliaBoardOccupant(supabase, event.board_id);
+    if (!occupant) {
       const reason = 'No active match or game is assigned to this board';
       await updateEvent(supabase, event.id, 'ignored', reason);
       return { status: 'ignored', reason };
     }
+    if (event.received_at && Date.parse(event.received_at) < Date.parse(occupant.createdAt)) {
+      await updateEvent(supabase, event.id, 'ignored', THROWN_BEFORE_TARGET);
+      return { status: 'ignored', reason: THROWN_BEFORE_TARGET };
+    }
+    const target: ScoliaBoardTarget = { kind: occupant.kind, id: occupant.id } as ScoliaBoardTarget;
     if (target.kind === 'game') {
       const outcome = await ingestGameThrow(supabase, target.id, event.id, event.board_id, detected);
       if (outcome.status === 'ignored') {

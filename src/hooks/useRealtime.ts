@@ -6,6 +6,16 @@ import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
+/**
+ * What a viewer should be told about live updates. 'live' means committed darts reach this view
+ * as they happen; 'reconnecting' means they are paused and will be caught up on rejoin.
+ */
+export type LiveConnectionState = 'connecting' | 'live' | 'reconnecting' | 'offline';
+
+// Channel rejoins routinely take a moment; only a lasting gap is worth showing to viewers.
+export const LIVE_RECONNECTING_GRACE_MS = 2_000;
+const BROADCAST_RETRY_MAX_MS = 30_000;
+
 export function useRealtime(matchId: string) {
   const [lastError, setLastError] = useState<{ matchId: string; message: string } | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
@@ -245,7 +255,7 @@ export function useRealtime(matchId: string) {
     };
     const scheduleRetry = () => {
       clearTimeout(retry);
-      retry = setTimeout(retryBroadcast, Math.min(60_000, 5_000 * 2 ** broadcastFailures.current++));
+      retry = setTimeout(retryBroadcast, Math.min(BROADCAST_RETRY_MAX_MS, 5_000 * 2 ** broadcastFailures.current++));
     };
     const wake = () => { if (lastStatus !== 'SUBSCRIBED') retryBroadcast(); };
     window.addEventListener('online', wake);
@@ -335,9 +345,39 @@ export function useRealtime(matchId: string) {
     };
   }, [connectionStatus, connect, disconnect, retryVersion]);
 
+  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+
+  const connectedOnce = useRef<string | null>(null);
+  if (connectionStatus === 'connected') connectedOnce.current = matchId;
+  const [live, setLive] = useState<{ matchId: string; state: LiveConnectionState; since: number }>(
+    () => ({ matchId, state: 'connecting', since: Date.now() })
+  );
+  useEffect(() => {
+    const set = (state: LiveConnectionState) => setLive(previous =>
+      previous.matchId === matchId && previous.state === state ? previous : { matchId, state, since: Date.now() });
+    // The browser knowing it is offline beats a channel status that has not noticed yet.
+    if (!online) return set('offline');
+    if (connectionStatus === 'connected') return set('live');
+    if (connectedOnce.current !== matchId) return set('connecting');
+    const timer = setTimeout(() => set('reconnecting'), LIVE_RECONNECTING_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [connectionStatus, online, matchId]);
+  const liveState = live.matchId === matchId ? live : { state: 'connecting' as const, since: live.since };
+
   return {
     connectionError: lastError?.matchId === matchId ? lastError.message : null,
     connectionStatus,
+    liveState: liveState.state,
+    liveStateSince: liveState.since,
     recoveryVersion,
     connect,
     disconnect,

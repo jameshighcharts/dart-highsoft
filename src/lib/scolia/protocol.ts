@@ -4,6 +4,9 @@ export type ScoliaMessage = {
   payload?: Record<string, unknown>;
 };
 
+/** A dart held back (e.g. by an outage) must never land in a match or game that began after it. */
+export const THROWN_BEFORE_TARGET = 'Thrown before the current match or game started';
+
 export type ScoliaBoardStatePatch = {
   board_status?: string | null;
   board_phase?: string | null;
@@ -95,9 +98,13 @@ export function detectedThrowFromMessage(message: ScoliaMessage): ScoliaDetected
   return { segment: `${modifier}${value}`, scored: value * multiplier, ...geometry };
 }
 
+// 4101 usually means our previous connection (e.g. the worker being replaced by a deploy) has not
+// been released yet, which takes seconds; only a persistent conflict deserves the long wait.
+const BOARD_HELD_DELAYS_MS = [2_000, 5_000, 10_000, 30_000];
+
 export function reconnectDelayMs(closeCode: number, attempt: number, random = Math.random): number {
   if (closeCode === 4100 || closeCode === 4102) return 5 * 60_000;
-  if (closeCode === 4101) return 30_000;
+  if (closeCode === 4101) return BOARD_HELD_DELAYS_MS[Math.min(attempt, BOARD_HELD_DELAYS_MS.length - 1)];
   const exponential = Math.min(30_000, 1_000 * 2 ** Math.min(attempt, 5));
   return exponential + Math.floor(random() * 500);
 }

@@ -4,14 +4,28 @@ type Entry = { sessions: ActiveRealtimeCommentarySession[]; expiresAt: number };
 export class RealtimeSessionCache {
   private readonly entries = new Map<string, Entry>();
   private generation = 0;
-  invalidate(matchId?: string) { this.generation++; if (matchId) this.entries.delete(matchId); else this.entries.clear(); }
+  // Per match, so a listener change in one match never makes another match's lookup retry.
+  private readonly matchGenerations = new Map<string, number>();
+  invalidate(matchId?: string) {
+    if (!matchId) { this.generation++; this.entries.clear(); return; }
+    this.entries.delete(matchId);
+    const next = (this.matchGenerations.get(matchId) ?? 0) + 1;
+    this.matchGenerations.delete(matchId);
+    this.matchGenerations.set(matchId, next);
+    if (this.matchGenerations.size > 1_000) {
+      // A forgotten counter restarts at zero; bump the global one so no in-flight lookup mistakes that for "unchanged".
+      this.matchGenerations.delete(this.matchGenerations.keys().next().value!);
+      this.generation++;
+    }
+  }
+  private version(matchId: string) { return `${this.generation}:${this.matchGenerations.get(matchId) ?? 0}`; }
   async load(matchId: string, fetch: () => Promise<ActiveRealtimeCommentarySession[]>) {
     const existing = this.entries.get(matchId);
     if (existing && existing.expiresAt > Date.now()) return existing.sessions;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const generation = this.generation;
+      const version = this.version(matchId);
       const sessions = await fetch();
-      if (generation !== this.generation) continue;
+      if (version !== this.version(matchId)) continue;
       const expiresAt = Math.min(Date.now() + 15_000, ...sessions.map(session => Math.min(
         Date.parse(session.last_seen_at ?? '') + 45_000,
         Date.parse(session.created_at ?? '') + 55 * 60_000,

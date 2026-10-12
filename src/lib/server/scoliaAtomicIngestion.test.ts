@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { planScoliaThrow, type ScoliaScoringSnapshot } from './scoliaAtomicIngestion';
+import { describe, expect, it, vi } from 'vitest';
+import { planScoliaThrow, ScoliaAtomicIngestion, type ScoliaScoringSnapshot } from './scoliaAtomicIngestion';
+import { isTransientDatabaseError } from './databaseError';
 import { replayTurn } from '@/utils/legScoreCalculator';
 import { BROADCAST_DIRECTOR_DEMO, COMMENTARY_DEMO_PLAYERS } from '@/lib/commentary/commentaryDemoScenario';
 
@@ -56,5 +57,44 @@ describe('atomic Scolia scoring plan', () => {
     for(const pid of ['a','b']) { void pid; append(s,'S20',20);append(s,'S20',20);append(s,'S20',20); }
     Object.assign(s.turns[0].throws[0],{segment:'S11',scored:11}); // a actually has 50, not 41.
     expect(append(s,'DB',50).winnerId).toBe('a');
+  });
+});
+
+describe('ScoliaAtomicIngestion RPC versions', () => {
+  const event = { board_id: 'board', message_id: 'm1', event_type: 'THROW_DETECTED',
+    payload: { sector: 'T20', bounceout: false }, occurred_at: null, received_at: '2026-10-12T12:00:00Z' };
+  const persisted = { event: { id: 1, board_id: 'board', message_id: 'm1', event_type: 'THROW_DETECTED', payload: {}, processing_status: 'pending' }, prepared: { kind: 'legacy' } };
+  const missing = { data: null, error: { message: 'Could not find the function', code: 'PGRST202' }, status: 404 };
+
+  it('uses the game-aware RPCs and falls back to the originals until the migration is applied', async () => {
+    const rpc = vi.fn(async (name: string) => name.endsWith('_v2') || name === 'prepare_scolia_throw'
+      ? missing : { data: name === 'prepare_scolia_x01_throw' ? { kind: 'legacy' } : persisted, error: null, status: 200 });
+    const atomic = new ScoliaAtomicIngestion({ rpc } as never);
+    await expect(atomic.persistAndPrepare(event)).resolves.toEqual(persisted);
+    await atomic.ingest(persisted.event as never, { segment: 'T20', scored: 60 });
+    await atomic.persistAndPrepare(event);
+    expect(rpc.mock.calls.map(([name]) => name)).toEqual([
+      'persist_and_commit_scolia_throw_v2', 'persist_and_commit_scolia_throw',
+      'prepare_scolia_x01_throw', 'persist_and_commit_scolia_throw',
+    ]);
+  });
+
+  it('returns a prepared party-game dart to the caller', async () => {
+    const game = { kind: 'game', sessionId: 'session', snapshot: { session: null, players: [], throws: [] }, takeoutSinceLastThrow: null };
+    const atomic = new ScoliaAtomicIngestion({ rpc: vi.fn() } as never);
+    await expect(atomic.ingest(persisted.event as never, { segment: 'T20', scored: 60 }, game as never))
+      .resolves.toEqual({ status: 'game', prepared: game });
+  });
+
+  it('reports an outage as transient so the worker keeps the unsaved dart', async () => {
+    const rpc = vi.fn(async () => ({ data: null, error: { message: 'upstream unavailable' }, status: 503 }));
+    const failure = await new ScoliaAtomicIngestion({ rpc } as never).persistAndPrepare(event).catch((error: unknown) => error);
+    expect(isTransientDatabaseError(failure)).toBe(true);
+  });
+
+  it('reports a rejected request as permanent', async () => {
+    const rpc = vi.fn(async () => ({ data: null, error: { message: 'Expected THROW_DETECTED event', code: 'P0001' }, status: 400 }));
+    const failure = await new ScoliaAtomicIngestion({ rpc } as never).persistAndPrepare(event).catch((error: unknown) => error);
+    expect(isTransientDatabaseError(failure)).toBe(false);
   });
 });

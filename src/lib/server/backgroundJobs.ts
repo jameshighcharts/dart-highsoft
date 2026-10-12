@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { publishHighdartsResult } from '../highdarts/slackResult';
 import { finalizeSlackDartPollById } from '@/lib/slack/dartPollService';
 import { runDartIQCalibration, runDartIQTraining } from './dartiqCalibration';
+import { parseScoliaHealthAlertPayload, publishScoliaHealthAlert } from './scoliaHealthAlert';
 import {
   persistDartIQCompletedLeg,
   persistDartIQLiveReplay,
@@ -100,6 +101,19 @@ async function runJob(
     case 'highdarts_result':
       await publishHighdartsResult(supabase, requiredPayloadId(job.payload, 'fixtureId', job.job_type), appOrigin);
       return;
+    case 'scolia_health_alert': {
+      const payload = parseScoliaHealthAlertPayload(job.payload);
+      if (!payload) throw new PermanentJobError('scolia_health_alert payload is invalid');
+      // An earlier attempt already posted; only its completion write failed.
+      if (typeof job.payload.postedAt === 'string') return;
+      await publishScoliaHealthAlert(payload);
+      // Record delivery before the job completes, so a failed completion write cannot repost it.
+      const { error } = await supabase.from('background_jobs')
+        .update({ payload: { ...job.payload, postedAt: new Date().toISOString() } })
+        .eq('id', job.id);
+      if (error) console.error(`Scolia health alert ${job.id} posted, but recording it failed:`, error.message);
+      return;
+    }
     case 'slack_dart_poll':
       await finalizeSlackDartPollById({
         supabase,
