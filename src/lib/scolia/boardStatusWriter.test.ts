@@ -19,6 +19,23 @@ describe('independent board status writes', () => {
     expect(write).toHaveBeenCalledTimes(3);
     await writer.stop();
   });
+  it('never lets an in-flight write be the last word when the state changes back', async () => {
+    vi.useFakeTimers();
+    let finish!: () => void;
+    const write = vi.fn().mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }))
+      .mockResolvedValue(undefined);
+    const writer = new BoardStatusWriter(write, vi.fn());
+    writer.update({ worker_connection_status: 'reconnecting' });
+    await vi.advanceTimersByTimeAsync(0);
+    writer.update({ worker_connection_status: 'connected' });
+    await vi.advanceTimersByTimeAsync(0);
+    writer.update({ worker_connection_status: 'reconnecting' });
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(write.mock.calls.map(([row]) => row.worker_connection_status)).toEqual(['reconnecting', 'connected', 'reconnecting']);
+    await writer.stop();
+  });
   it('retries in order without letting an older write overwrite a newer phase', async () => {
     vi.useFakeTimers();
     const write = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined);

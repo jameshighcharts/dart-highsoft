@@ -79,6 +79,13 @@ begin
   if p_with_games then
     select * into g from public.game_sessions where scolia_board_id=e.board_id and status='active'
       order by created_at desc limit 1;
+  end if;
+  -- A dart held back by an outage must never land in a match or game that began after it was
+  -- thrown (same rule as the worker's recoveryAbandonReason).
+  if e.received_at is not null and e.received_at < greatest(m.created_at, g.created_at) then
+    return jsonb_build_object('kind','ignored','reason','Thrown before the current match or game started');
+  end if;
+  if p_with_games then
     if g.id is not null and (m.id is null or g.created_at > m.created_at) then
       return jsonb_build_object('kind','game','sessionId',g.id,
         'snapshot',public.load_scolia_game_snapshot(g.id),
@@ -282,7 +289,9 @@ begin
   end if;
   select f.event_id,f.stage into eid,fixture_stage from public.matches m join public.highdarts_fixtures f on f.id=m.highdarts_fixture_id where m.id=mid;
   if eid is not null then
-    perform 1 from public.highdarts_events where id=eid for share;
+    -- FOR UPDATE, not FOR SHARE: highdarts_guard_match upgrades to FOR UPDATE on the same row when
+    -- a dart completes a match, and two shared holders upgrading would deadlock.
+    perform 1 from public.highdarts_events where id=eid for update;
     if fixture_stage in ('group','tiebreak') and exists(select 1 from public.highdarts_fixtures where event_id=eid and stage='final') then
       raise exception using errcode='55000',message='Unlock the finals draw before correcting group scoring'; end if;
   end if;
@@ -370,7 +379,9 @@ begin
   ) t;
 
   -- Walk forward from the watermark in id windows. Rows kept behind it (darts that
-  -- scored, protected takeouts, unsettled events) are never rescanned.
+  -- scored, protected takeouts) are never rescanned. Events never settled are deleted
+  -- too: the worker abandons a dart it could not score within 5 minutes, so a 30-day-old
+  -- pending or failed event can never be scored and would otherwise stay forever.
   loop
     exit when v_scanned >= p_max_events;
     select max(w.id), bool_and(w.received_at < v_cutoff) into v_to, v_all_old
@@ -380,7 +391,6 @@ begin
     delete from public.scolia_events e
     where e.id > v_from and e.id <= v_to
       and e.received_at < v_cutoff
-      and e.processing_status in ('processed', 'ignored')
       and e.id <> all(v_protected)
       and not exists(select 1 from public.throws t where t.scolia_event_id = e.id)
       and not exists(select 1 from public.game_throws g where g.scolia_event_id = e.id)

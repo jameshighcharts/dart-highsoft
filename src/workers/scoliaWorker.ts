@@ -14,6 +14,7 @@ import {
   occurredAtForMessage,
   parseScoliaMessage,
   reconnectDelayMs,
+  THROWN_BEFORE_TARGET,
   type ScoliaMessage,
 } from '../lib/scolia/protocol.ts';
 import {
@@ -43,8 +44,9 @@ type StoredBoard = AccountBoard & { id: string };
 const SCOLIA_REST_BASE_URL = 'https://game.scoliadarts.com';
 const SCOLIA_WEBSOCKET_URL = 'wss://game.scoliadarts.com/api/v1/social';
 const BOARD_SYNC_INTERVAL_MS = 30_000;
-// Readiness treats a heartbeat older than 45s as stale (SCOLIA_HEARTBEAT_MAX_AGE_MS).
-const HEARTBEAT_INTERVAL_MS = 20_000;
+// Readiness treats a heartbeat older than 45s as stale (SCOLIA_HEARTBEAT_MAX_AGE_MS); 15s
+// leaves room for a slow status write without the board falsely showing the worker offline.
+const HEARTBEAT_INTERVAL_MS = 15_000;
 // Realtime notifications wake command and commentary work immediately; these polls are the fallback.
 const COMMAND_POLL_INTERVAL_MS = 30_000;
 const COMMENTARY_RETRY_INTERVAL_MS = 30_000;
@@ -65,14 +67,15 @@ const CONNECT_STALL_MS = HANDSHAKE_TIMEOUT_MS + 10_000;
 const SUPABASE_REQUEST_TIMEOUT_MS = 30_000;
 // One event failing forever must not hold every later dart on the board hostage.
 const MESSAGE_MAX_ATTEMPTS = 15;
-// Recovered darts older than this are abandoned rather than scored into a later visit. A dart
-// that cannot be saved during an outage keeps retrying in order for the same window.
+// Recovered darts older than this are abandoned rather than scored into a later visit.
 const PENDING_THROW_MAX_AGE_MS = 5 * 60_000;
-// Last resort: a board that cannot reach Scolia for this long restarts the whole worker.
-const DISCONNECTED_RESTART_MS = 10 * 60_000;
+// A live dart blocked by a database outage keeps retrying in order until it is this old. Past
+// it the heartbeat may already be stale and the UI telling players to enter darts by hand, so
+// scoring it later could count it twice.
+const LIVE_DART_DEADLINE_MS = 20_000;
+// On shutdown, received darts get this long to be saved before the process exits.
+const SHUTDOWN_DRAIN_MS = 5_000;
 const SHUTDOWN_DEADLINE_MS = 10_000;
-// Scolia rejected our configuration; a restart cannot fix these.
-const CONFIGURATION_CLOSE_CODES = new Set([4100, 4102]);
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -123,8 +126,8 @@ export class BoardConnection {
   private lastPongAt = 0;
   private pongSeen = false;
   private livenessTimer: ReturnType<typeof setInterval> | null = null;
-  private disconnectedSince: number | null = Date.now();
-  private lastCloseCode: number | null = null;
+  // Scolia opens the socket before deciding (e.g. 4101), so only a message proves acceptance.
+  private established = false;
   private boardState: Record<string, unknown> = {};
   // Pending or failed darts may exist from before this process started.
   private recoveryNeeded = true;
@@ -146,7 +149,7 @@ export class BoardConnection {
     this.messageQueue = new OrderedWorkQueue((error) => {
       this.recoveryNeeded = true;
       console.error(`[scolia] ${this.board.name}: retrying queued event`, error);
-    }, 1_000, MESSAGE_MAX_ATTEMPTS, (error) => isTransientDatabaseError(error) ? PENDING_THROW_MAX_AGE_MS : 0);
+    }, 1_000, MESSAGE_MAX_ATTEMPTS, (error) => isTransientDatabaseError(error) ? LIVE_DART_DEADLINE_MS : 0);
     this.commentaryQueue = new OrderedWorkQueue((error) => {
       console.warn(`[commentary] ${this.board.name}: retrying delivery`, error);
     }, 2_000, 3);
@@ -158,7 +161,6 @@ export class BoardConnection {
   }
 
   get boardId() { return this.board.id; }
-  get boardName() { return this.board.name; }
 
   /** Warm the spectator broadcast for a match that just took this board. */
   prepareMatch(matchId: string) {
@@ -170,18 +172,9 @@ export class BoardConnection {
     if (target?.kind === 'match') this.prepareMatch(target.id);
   }
 
-  /** A board that has not reached Scolia for a long time, for reasons a restart might fix. */
-  needsRestart(now = Date.now()) {
-    return !this.stopped && this.disconnectedSince !== null
-      && now - this.disconnectedSince >= DISCONNECTED_RESTART_MS
-      && !CONFIGURATION_CLOSE_CODES.has(this.lastCloseCode ?? 0);
-  }
-
-  async stop() {
+  /** Stop receiving, give darts already received `drainMs` to be saved, then release everything. */
+  async stop(drainMs = 0) {
     this.stopped = true;
-    this.scoreBroadcaster.close();
-    this.messageQueue.stop();
-    this.commentaryQueue.stop();
     if (this.commandRecoveryTimer) clearTimeout(this.commandRecoveryTimer);
     if (this.livenessTimer) clearInterval(this.livenessTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -189,6 +182,11 @@ export class BoardConnection {
     const socket = this.socket;
     this.socket = null;
     if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, 'Worker stopping');
+    // Scolia never redelivers a dart, so one received but not yet saved would be lost for good.
+    await this.messageQueue.drained(drainMs);
+    this.scoreBroadcaster.close();
+    this.messageQueue.stop();
+    this.commentaryQueue.stop();
     await this.statusWriter.stop();
     await this.writeBoard({ worker_connection_status: 'disconnected', worker_heartbeat_at: new Date().toISOString() });
   }
@@ -212,25 +210,20 @@ export class BoardConnection {
     this.connectStartedAt = Date.now();
     this.pingSentAt = null;
     this.pongSeen = false;
+    this.established = false;
 
     socket.on('open', () => {
       if (this.socket !== socket || this.stopped) return;
-      this.reconnectAttempt = 0;
       this.lastMessageAt = Date.now();
       this.livenessProbeSentAt = null;
-      this.disconnectedSince = null;
-      this.recoveryNeeded = true;
-      console.info(`[scolia] ${this.board.name}: cloud connection open`);
-      void this.updateBoard({ worker_connection_status: 'connected' });
+      // Scolia greets an accepted connection with HELLO_CLIENT; this also prompts a reply. Until a
+      // message arrives the board is not connected: a refused socket (4101) opens, then closes.
       socket.send(JSON.stringify({ type: 'GET_SBC_STATUS', id: crypto.randomUUID() }));
-      this.enqueue(() => this.processPendingThrows());
-      this.enqueue(() => this.flushCommands());
-      // Off the dart queue: a warm-up must never delay scoring.
-      void this.warmBroadcast().catch((error) => console.warn(`[scolia] ${this.board.name}: broadcast warm-up failed`, error));
     });
 
     socket.on('message', (data, isBinary) => {
       if (this.socket !== socket || isBinary) return;
+      if (!this.established) this.markEstablished();
       this.lastMessageAt = Date.now();
       this.livenessProbeSentAt = null;
       const message = parseScoliaMessage(data.toString());
@@ -257,9 +250,8 @@ export class BoardConnection {
       // A socket we already abandoned (e.g. after a liveness timeout) must not start a second connection.
       if (this.socket !== socket) return;
       this.socket = null;
+      this.established = false;
       if (this.stopped) return;
-      this.disconnectedSince ??= Date.now();
-      this.lastCloseCode = code;
       const delay = reconnectDelayMs(code, this.reconnectAttempt++);
       const reason = code === 4101
         ? ' - another connection holds this board; is a second worker running with the same Scolia token?'
@@ -268,6 +260,19 @@ export class BoardConnection {
       void this.updateBoard({ worker_connection_status: 'reconnecting' });
       this.scheduleReconnect(delay);
     });
+  }
+
+  private markEstablished() {
+    this.established = true;
+    this.reconnectAttempt = 0;
+    this.recoveryNeeded = true;
+    console.info(`[scolia] ${this.board.name}: cloud connection open`);
+    void this.updateBoard({ worker_connection_status: 'connected' });
+    // Stored darts first, so they keep their place ahead of anything this socket delivers.
+    this.enqueue(() => this.processPendingThrows());
+    this.enqueue(() => this.flushCommands());
+    // Off the dart queue: a warm-up must never delay scoring.
+    void this.warmBroadcast().catch((error) => console.warn(`[scolia] ${this.board.name}: broadcast warm-up failed`, error));
   }
 
   private scheduleReconnect(delay: number) {
@@ -282,9 +287,8 @@ export class BoardConnection {
   private abandon(socket: WebSocket, reason: string) {
     console.warn(`[scolia] ${this.board.name}: ${reason}; reconnecting`);
     this.socket = null;
+    this.established = false;
     this.livenessProbeSentAt = null;
-    this.disconnectedSince ??= Date.now();
-    this.lastCloseCode = null;
     // terminate, not close: a close handshake Scolia never answers would keep the old socket
     // replying to Scolia's pings, and Scolia would refuse every new connection with 4101.
     socket.terminate();
@@ -338,7 +342,7 @@ export class BoardConnection {
   }
 
   async flushCommands() {
-    if (this.stopped || this.flushingCommands || this.socket?.readyState !== WebSocket.OPEN) return;
+    if (this.stopped || this.flushingCommands || !this.established || this.socket?.readyState !== WebSocket.OPEN) return;
     this.flushingCommands = true;
     try {
       await this.recoverStaleCommands();
@@ -482,6 +486,11 @@ export class BoardConnection {
   }
 
   private async persistMessage(message: ScoliaMessage, receivedAtMs = Date.now()) {
+    // Each dart is bounded by its own age, so a backlog behind an outage cannot stretch the window.
+    if (message.type === 'THROW_DETECTED' && Date.now() - receivedAtMs > LIVE_DART_DEADLINE_MS) {
+      console.error(`[scolia] ${this.board.name}: gave up on throw ${message.id} after ${LIVE_DART_DEADLINE_MS / 1000}s of database errors`);
+      return;
+    }
     const now = new Date().toISOString();
     let storedEvent: (StoredScoliaEvent & { processing_status: string }) | null;
     let prepared: Prepared | null = null;
@@ -655,7 +664,7 @@ export class BoardConnection {
 export function recoveryAbandonReason(receivedAt: string | null, targetCreatedAt: string | null, now = Date.now()): string | null {
   const received = receivedAt ? Date.parse(receivedAt) : Number.NaN;
   if (!Number.isFinite(received)) return null;
-  if (targetCreatedAt && received < Date.parse(targetCreatedAt)) return 'Thrown before the current match or game started';
+  if (targetCreatedAt && received < Date.parse(targetCreatedAt)) return THROWN_BEFORE_TARGET;
   if (now - received > PENDING_THROW_MAX_AGE_MS) return 'Gave up after repeated processing failures';
   return null;
 }
@@ -713,7 +722,9 @@ async function startScoliaWorker() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, (payload) => {
       if (payload.eventType === 'DELETE') return;
       const row = payload.new as Record<string, unknown>;
-      if (typeof row.scolia_board_id !== 'string' || typeof row.id !== 'string' || row.winner_player_id || row.completed_at) return;
+      // Same rule as the board occupant: a paused or abandoned match must not evict the live one's channel.
+      if (typeof row.scolia_board_id !== 'string' || typeof row.id !== 'string' || row.winner_player_id
+        || row.completed_at || row.ended_early || row.paused_at) return;
       for (const connection of connections.values()) {
         if (connection.boardId === row.scolia_board_id) connection.prepareMatch(row.id);
       }
@@ -789,12 +800,12 @@ async function startScoliaWorker() {
     }
   };
 
-  const shutdown = async (signal: string, exitCode = 0) => {
+  const shutdown = async (signal: string) => {
     if (stopping) return;
     stopping = true;
     console.info(`[scolia] stopping (${signal}); closing connections`);
     // Cleanup is best effort: a hung request must never keep a stopping worker alive.
-    setTimeout(() => process.exit(exitCode), SHUTDOWN_DEADLINE_MS).unref();
+    setTimeout(() => process.exit(0), SHUTDOWN_DEADLINE_MS).unref();
     if (syncInterval) clearInterval(syncInterval);
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     if (commandInterval) clearInterval(commandInterval);
@@ -803,13 +814,13 @@ async function startScoliaWorker() {
     try {
       await Promise.allSettled([
         notifications.stop(),
-        ...[...connections.values()].map((connection) => connection.stop()),
+        ...[...connections.values()].map((connection) => connection.stop(SHUTDOWN_DRAIN_MS)),
       ]);
       commentaryPublisher.close();
     } catch (error) {
       console.error('[scolia] shutdown cleanup failed', error);
     }
-    process.exit(exitCode);
+    process.exit(0);
   };
 
   process.on('SIGINT', () => void shutdown('SIGINT'));
@@ -824,12 +835,6 @@ async function startScoliaWorker() {
     void Promise.all([...connections.values()].map((connection) => connection.heartbeat())).catch((error) =>
       console.error('[scolia] heartbeat failed', error)
     );
-    // Last line of defence against unknown stuck states: Railway restarts the worker on exit.
-    const stuck = [...connections.values()].find((connection) => connection.needsRestart());
-    if (stuck && !stopping) {
-      console.error(`[scolia] ${stuck.boardName} has not reached Scolia in ${DISCONNECTED_RESTART_MS / 60_000} minutes; restarting the worker`);
-      void shutdown('watchdog', 1);
-    }
   }, HEARTBEAT_INTERVAL_MS);
   commandInterval = setInterval(() => {
     void Promise.all([...connections.values()].map((connection) => connection.flushCommands())).catch((error) =>

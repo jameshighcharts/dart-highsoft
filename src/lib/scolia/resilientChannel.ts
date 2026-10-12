@@ -8,6 +8,9 @@ type Status = 'SUBSCRIBED' | 'TIMED_OUT' | 'CLOSED' | 'CHANNEL_ERROR';
 const UNSUBSCRIBED_GRACE_MS = 30_000;
 const REBUILD_MIN_MS = 1_000;
 const REBUILD_MAX_MS = 30_000;
+// Shared by every instance: a remounted view must not reuse the topic of its predecessor's
+// channel, which may still be leaving and would be handed back unsubscribed.
+let builds = 0;
 
 /** A postgres-changes Realtime channel that is always either subscribed or being rebuilt. */
 export class ResilientChannel {
@@ -15,7 +18,6 @@ export class ResilientChannel {
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private graceTimer: ReturnType<typeof setTimeout> | null = null;
   private failures = 0;
-  private generation = 0;
   private stopped = false;
   private readonly supabase: SupabaseClient;
   private readonly topic: string;
@@ -38,8 +40,10 @@ export class ResilientChannel {
     if (this.stopped || this.channel) return;
     // supabase.channel() hands back an existing channel with the same topic, and a channel still
     // leaving keeps its topic for up to its leave timeout; each build gets a topic of its own.
-    const channel = this.configure(this.supabase.channel(`${this.topic}-${++this.generation}`));
+    const channel = this.configure(this.supabase.channel(`${this.topic}-${++builds}`));
     this.channel = channel;
+    // A channel that never reports any status at all is rebuilt too.
+    this.armGrace('no status');
     channel.subscribe((status) => {
       if (this.channel !== channel || this.stopped) return;
       this.onStatus(status);
@@ -48,13 +52,18 @@ export class ResilientChannel {
         this.clearGrace();
       } else if (status === 'CLOSED') {
         this.rebuild(`${this.topic} closed`);
-      } else if (!this.graceTimer) {
-        this.graceTimer = setTimeout(() => {
-          this.graceTimer = null;
-          this.rebuild(`${this.topic} not subscribed after ${UNSUBSCRIBED_GRACE_MS}ms (${status})`);
-        }, UNSUBSCRIBED_GRACE_MS);
+      } else {
+        this.armGrace(status);
       }
     });
+  }
+
+  private armGrace(status: string) {
+    if (this.graceTimer) return;
+    this.graceTimer = setTimeout(() => {
+      this.graceTimer = null;
+      this.rebuild(`${this.topic} not subscribed after ${UNSUBSCRIBED_GRACE_MS}ms (${status})`);
+    }, UNSUBSCRIBED_GRACE_MS);
   }
 
   async stop() {

@@ -43,7 +43,6 @@ type Internals = {
   recoveryNeeded: boolean;
   connect: () => void;
   heartbeat: () => Promise<void>;
-  needsRestart: (now?: number) => boolean;
   checkLiveness: (now?: number) => void;
   enqueue: (work: () => Promise<void>) => void;
   persistMessage: (message: ScoliaMessage) => Promise<void>;
@@ -252,25 +251,60 @@ describe('connection status', () => {
   });
 });
 
-describe('restart watchdog', () => {
-  it('asks for a restart when a board cannot reach Scolia for ten minutes', async () => {
+describe('connection acceptance', () => {
+  const hello = (socket: InstanceType<typeof FakeSocket>) =>
+    socket.emit('message', Buffer.from(JSON.stringify({ type: 'HELLO_CLIENT', id: 'hello', payload: {} })), false);
+
+  it('reports connected only once Scolia sends a message, not when the socket merely opens', () => {
+    const board = connect();
+    board.connect();
+    const socket = FakeSocket.instances[0];
+    socket.emit('open');
+    expect(board.updateBoard).not.toHaveBeenCalledWith({ worker_connection_status: 'connected' });
+    hello(socket);
+    expect(board.updateBoard).toHaveBeenCalledWith({ worker_connection_status: 'connected' });
+  });
+
+  it('keeps backing off when Scolia keeps refusing the board after opening the socket (4101)', async () => {
     vi.useFakeTimers();
     const board = connect();
     board.connect();
-    FakeSocket.instances[0].emit('close', 1006);
-    expect(board.needsRestart(Date.now() + 9 * 60_000)).toBe(false);
-    expect(board.needsRestart(Date.now() + 10 * 60_000)).toBe(true);
-    FakeSocket.instances[0].removeAllListeners();
+    FakeSocket.instances[0].emit('open');
+    FakeSocket.instances[0].emit('close', 4101);
     await vi.advanceTimersByTimeAsync(2_000);
-    FakeSocket.instances.at(-1)!.emit('open');
-    expect(board.needsRestart(Date.now() + 60 * 60_000)).toBe(false);
-  });
+    expect(FakeSocket.instances).toHaveLength(2);
+    FakeSocket.instances[1].emit('open');
+    FakeSocket.instances[1].emit('close', 4101);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(FakeSocket.instances).toHaveLength(3);
 
-  it('does not restart over a configuration error a restart cannot fix', () => {
+    FakeSocket.instances[2].emit('open');
+    hello(FakeSocket.instances[2]);
+    FakeSocket.instances[2].emit('close', 4101);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(FakeSocket.instances).toHaveLength(4);
+  });
+});
+
+describe('outage retries', () => {
+  it('abandons a live dart once it is too old to score safely, then moves on', async () => {
     const board = connect();
-    board.connect();
-    FakeSocket.instances[0].emit('close', 4102);
-    expect(board.needsRestart(Date.now() + 60 * 60_000)).toBe(false);
+    const dart: ScoliaMessage = { type: 'THROW_DETECTED', id: 'late', payload: {} };
+    await expect((board as unknown as { persistMessage: (m: ScoliaMessage, at: number) => Promise<void> })
+      .persistMessage(dart, Date.now() - 21_000)).resolves.toBeUndefined();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('gave up on throw late'));
+  });
+});
+
+describe('shutdown', () => {
+  it('lets a received dart finish saving before the board stops', async () => {
+    const board = connect();
+    let saved = false;
+    board.enqueue(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); saved = true; });
+    await (board as unknown as BoardConnection).stop(1_000);
+    expect(saved).toBe(true);
   });
 });
 

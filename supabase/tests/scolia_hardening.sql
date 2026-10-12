@@ -133,7 +133,7 @@ begin
 
   assert not exists(select 1 from public.scolia_events where id = noise), 'old settled noise is deleted';
   assert not exists(select 1 from public.scolia_events where id = older_takeout), 'superseded old takeouts are deleted';
-  assert exists(select 1 from public.scolia_events where id = pending_old), 'unsettled events are kept';
+  assert not exists(select 1 from public.scolia_events where id = pending_old), 'unsettled events past retention are deleted: the worker abandons them after 5 minutes';
   assert exists(select 1 from public.game_throws where scolia_event_id = referenced), 'fixture: a dart references the event';
   assert exists(select 1 from public.scolia_events where id = referenced), 'events a dart references are kept';
   assert exists(select 1 from public.scolia_events where id = latest_takeout), 'the latest takeout per board is kept';
@@ -180,6 +180,63 @@ begin
       m, 'not-a-revision', plan, '{"segment":"T20","scored":60}'::jsonb;
     assert not res ? 'committed' and res#>>'{prepared,kind}'='x01' and res#>'{prepared,snapshot}' is not null, fn||': stale plan falls back';
   end loop;
+end;
+$$;
+
+-- A dart held back past the start of a new match or game is never scored into it.
+do $$
+declare
+  a uuid:=gen_random_uuid(); b uuid:=gen_random_uuid(); board uuid:=gen_random_uuid(); game_board uuid:=gen_random_uuid();
+  m uuid; started timestamptz; g public.game_sessions; res jsonb; eid bigint; fn text;
+  reason constant text := 'Thrown before the current match or game started';
+begin
+  insert into public.players(id,display_name,is_test) values(a,'Hardening Early A',true),(b,'Hardening Early B',true);
+  insert into public.scolia_boards(id,serial_number,name) values(board,board::text,'Hardening early x01'),
+    (game_board,game_board::text,'Hardening early game');
+  select id into m from public.create_x01_match_atomic('301','double_out',1,false,array[a,b]);
+  update public.matches set scolia_board_id=board where id=m;
+  select created_at into started from public.matches where id=m;
+
+  foreach fn in array array['persist_and_commit_scolia_throw','persist_and_commit_scolia_throw_v2'] loop
+    execute format('select public.%I($1)', fn) into res using jsonb_build_object('board_id',board,'message_id',fn||'-early',
+      'event_type','THROW_DETECTED','payload','{"sector":"T20","bounceout":false}'::jsonb,'occurred_at',null,
+      'received_at',started - interval '1 minute');
+    eid := (res#>>'{event,id}')::bigint;
+    assert res#>>'{prepared,kind}'='ignored' and res#>>'{prepared,reason}'=reason, fn||': early dart is refused';
+    assert public.prepare_scolia_x01_throw(eid)->>'reason'=reason, fn||': v1 prepare applies the guard';
+    assert public.prepare_scolia_throw(eid)->>'reason'=reason, fn||': v2 prepare applies the guard';
+    assert not exists(select 1 from public.throws where scolia_event_id=eid), fn||': early dart is not scored';
+
+    execute format('select public.%I($1)', fn) into res using jsonb_build_object('board_id',board,'message_id',fn||'-on-time',
+      'event_type','THROW_DETECTED','payload','{"sector":"T20","bounceout":false}'::jsonb,'occurred_at',null,
+      'received_at',started + interval '1 second');
+    assert res#>>'{prepared,kind}'='x01' and (res#>>'{prepared,matchId}')::uuid=m, fn||': a dart after match start still scores';
+  end loop;
+  assert not exists(select 1 from public.throws t join public.turns u on u.id=t.turn_id join public.legs l on l.id=u.leg_id where l.match_id=m),
+    'nothing was scored by preparation alone';
+
+  -- Party game: the same guard on the v2 path; v1 keeps games on the legacy path.
+  select * into g from public.create_game_session_atomic('shanghai','{"rounds":7,"startNumber":1}'::jsonb,array[a,b],game_board);
+  res := public.persist_and_commit_scolia_throw_v2(jsonb_build_object('board_id',game_board,'message_id','game-early',
+    'event_type','THROW_DETECTED','payload','{"sector":"S1","bounceout":false}'::jsonb,'occurred_at',null,
+    'received_at',g.created_at - interval '1 minute'));
+  assert res#>>'{prepared,kind}'='ignored' and res#>>'{prepared,reason}'=reason, 'early dart is refused by the game';
+  assert not exists(select 1 from public.game_throws where session_id=g.id), 'early dart is not appended';
+  res := public.persist_and_commit_scolia_throw_v2(jsonb_build_object('board_id',game_board,'message_id','game-on-time',
+    'event_type','THROW_DETECTED','payload','{"sector":"S1","bounceout":false}'::jsonb,'occurred_at',null,
+    'received_at',g.created_at + interval '1 second'));
+  assert res#>>'{prepared,kind}'='game', 'a dart after game start is prepared for the game';
+  assert public.prepare_scolia_x01_throw((res#>>'{event,id}')::bigint)->>'kind'='legacy', 'v1 keeps games on the legacy path';
+end;
+$$;
+
+-- Highdarts scoring keeps the exclusive event lock (FOR SHARE could deadlock with
+-- highdarts_guard_match upgrading to FOR UPDATE when two boards finish in one event).
+do $$
+declare def text := lower(pg_get_functiondef('public.highdarts_guard_draw_scores()'::regprocedure));
+begin
+  assert def like '%from public.highdarts_events where id=eid for update%', 'guard must lock the event FOR UPDATE';
+  assert def not like '%id=eid for share%', 'guard must not take a shared lock';
 end;
 $$;
 

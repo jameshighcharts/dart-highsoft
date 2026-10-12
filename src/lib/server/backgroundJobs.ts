@@ -104,7 +104,14 @@ async function runJob(
     case 'scolia_health_alert': {
       const payload = parseScoliaHealthAlertPayload(job.payload);
       if (!payload) throw new PermanentJobError('scolia_health_alert payload is invalid');
+      // An earlier attempt already posted; only its completion write failed.
+      if (typeof job.payload.postedAt === 'string') return;
       await publishScoliaHealthAlert(payload);
+      // Record delivery before the job completes, so a failed completion write cannot repost it.
+      const { error } = await supabase.from('background_jobs')
+        .update({ payload: { ...job.payload, postedAt: new Date().toISOString() } })
+        .eq('id', job.id);
+      if (error) console.error(`Scolia health alert ${job.id} posted, but recording it failed:`, error.message);
       return;
     }
     case 'slack_dart_poll':

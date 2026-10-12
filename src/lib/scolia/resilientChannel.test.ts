@@ -42,7 +42,10 @@ describe('ResilientChannel', () => {
     channels[0].emit('CLOSED');
     expect(removeChannel).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(channels.map((c) => c.topic)).toEqual(['work-1', 'work-2']);
+    const [first, second] = channels.map((c) => c.topic);
+    expect(first).toMatch(/^work-\d+$/);
+    expect(second).toMatch(/^work-\d+$/);
+    expect(second).not.toBe(first);
     channels[1].emit('SUBSCRIBED');
     expect(statuses).toEqual(['SUBSCRIBED', 'CLOSED', 'SUBSCRIBED']);
   });
@@ -70,12 +73,29 @@ describe('ResilientChannel', () => {
     expect(channels).toHaveLength(3);
   });
 
+  it('rebuilds a channel that never reports any status', async () => {
+    const { supabase, channels } = fakeSupabase();
+    new ResilientChannel(supabase, 'work', (c) => c).start();
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(channels).toHaveLength(2);
+  });
+
+  it('gives a remounted instance a topic of its own', () => {
+    const { supabase, channels } = fakeSupabase();
+    const first = new ResilientChannel(supabase, 'game', (c) => c);
+    first.start();
+    void first.stop();
+    new ResilientChannel(supabase, 'game', (c) => c).start();
+    expect(channels[1].topic).not.toBe(channels[0].topic);
+  });
+
   it('ignores late events from a replaced channel and stops cleanly', async () => {
     const { supabase, channels, removeChannel } = fakeSupabase();
     const channel = new ResilientChannel(supabase, 'work', (c) => c);
     channel.start();
     channels[0].emit('CLOSED');
     await vi.advanceTimersByTimeAsync(1_000);
+    channels[1].emit('SUBSCRIBED');
     channels[0].emit('CLOSED');
     await vi.advanceTimersByTimeAsync(60_000);
     expect(channels).toHaveLength(2);

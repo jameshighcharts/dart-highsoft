@@ -111,6 +111,14 @@ export class OrderedWorkQueue {
 
   get idle() { return !this.running && this.pending.length === 0; }
 
+  /** Resolves once everything queued has finished, or after `timeoutMs`, whichever comes first. */
+  async drained(timeoutMs: number) {
+    const deadline = Date.now() + timeoutMs;
+    while (!this.stopped && !this.idle && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
   enqueue(work: () => Promise<void>) {
     if (this.stopped) return;
     this.pending.push(work);

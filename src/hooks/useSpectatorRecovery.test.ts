@@ -115,6 +115,18 @@ describe('spectator recovery', () => {
     expect(refresh).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps retrying a failed catch-up on a connected scoring view until it succeeds', async () => {
+    const scoring = { ...defaults, connected: true, pollWhileConnected: false };
+    const { rerender } = renderHook(props => useSpectatorRecovery(props), { initialProps: scoring });
+    request.mockRejectedValueOnce(new Error('temporary failure'));
+    await act(async () => rerender({ ...scoring, recoveryVersion: 1 }));
+    expect(refresh).not.toHaveBeenCalled();
+    await advance(20_000);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await advance(300_000);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it('polls a disconnected scoring view until it rejoins', async () => {
     renderHook(() => useSpectatorRecovery({ ...defaults, pollWhileConnected: false }));
     await advance(15_000);

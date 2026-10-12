@@ -339,14 +339,19 @@ The worker is built to recover on its own; a manual restart should never be need
 - A board held by another connection (close code 4101, usually the previous worker
   during a deploy) retries after 2s, 5s, 10s, then every 30s.
 - Darts that cannot be saved because Supabase is unreachable keep retrying in order
-  for up to 5 minutes instead of being dropped. Worker database requests time out
-  after 30s; per-dart database functions give up on lock waits after 5s.
+  for up to 20 seconds after they were thrown. Past that the heartbeat may be stale and
+  the UI telling players to enter darts by hand, so a later score could count twice.
+  Worker database requests time out after 30s; per-dart database functions give up on
+  lock waits after 5s.
 - The Realtime notification channel is rebuilt whenever it closes or stays
   unsubscribed for 30s. Command and commentary polls (every 30s) are the fallback.
-- If a board cannot reach Scolia for 10 minutes (except an invalid serial or token,
-  which a restart cannot fix), the worker exits and Railway restarts it
-  (`restartPolicyType: ALWAYS` in `railway.json`). Shutdown always completes
-  within 10 seconds.
+- A board counts as connected only once Scolia sends a message on the socket: Scolia
+  opens a socket before refusing it (e.g. 4101), so an open alone proves nothing.
+- A dart held back by an outage is never scored into a match or game that started
+  after it was thrown.
+- The worker never restarts itself. On a deploy (SIGTERM) it stops receiving, gives
+  darts already received up to 5 seconds to be saved, and exits within 10 seconds;
+  Railway restarts it after a crash (`restartPolicyType: ALWAYS` in `railway.json`).
 - The OpenAI sideband is pinged every 15s; a commentary analysis task gives up after
   20s and the analysis thread is restarted only when it stops answering.
 
@@ -378,9 +383,9 @@ worker deploy: a new worker falls back to the previous RPCs on an old database, 
 an old worker keeps its previous behaviour on the new database. Once both are
 live, party-game darts take two database round trips instead of six to nine.
 
-It also schedules an hourly `prune-scolia-history` pg_cron job that deletes settled
-Scolia events older than 30 days (keeping events referenced by a dart and each
-board's latest takeout), finished commands and commentary deliveries older than
+It also schedules an hourly `prune-scolia-history` pg_cron job that deletes Scolia
+events older than 30 days (keeping events referenced by a dart and each board's
+latest takeout), finished commands and commentary deliveries older than
 7 days, and closes commentary sessions with no heartbeat for an hour. The first
 runs work through any backlog at up to 100k events per hour.
 

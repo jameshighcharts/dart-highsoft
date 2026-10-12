@@ -364,8 +364,9 @@ export function useRealtime(matchId: string) {
   useEffect(() => {
     const set = (state: LiveConnectionState) => setLive(previous =>
       previous.matchId === matchId && previous.state === state ? previous : { matchId, state, since: Date.now() });
-    if (connectionStatus === 'connected') return set('live');
+    // The browser knowing it is offline beats a channel status that has not noticed yet.
     if (!online) return set('offline');
+    if (connectionStatus === 'connected') return set('live');
     if (connectedOnce.current !== matchId) return set('connecting');
     const timer = setTimeout(() => set('reconnecting'), LIVE_RECONNECTING_GRACE_MS);
     return () => clearTimeout(timer);

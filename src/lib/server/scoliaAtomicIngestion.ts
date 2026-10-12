@@ -69,7 +69,9 @@ export type Prepared = { kind: 'legacy' } | { kind: 'ignored'; reason: string } 
 export type AtomicIngestOutcome = ScoliaThrowIngestionResult | { status: 'game'; prepared: PreparedScoliaGame } | null;
 
 // The *_v2 / prepare_scolia_throw RPCs also prepare party-game darts. Until that migration
-// is applied, PostgREST answers PGRST202 and the original x01-only RPCs are used instead.
+// is applied, PostgREST answers PGRST202 and the original x01-only RPCs are used instead;
+// the new names are tried again after a while, so a migration applied later is picked up.
+const RPC_RETRY_CURRENT_MS = 5 * 60_000;
 const RPC_NAMES = {
   current: { persist: 'persist_and_commit_scolia_throw_v2', prepare: 'prepare_scolia_throw' },
   fallback: { persist: 'persist_and_commit_scolia_throw', prepare: 'prepare_scolia_x01_throw' },
@@ -80,12 +82,17 @@ export class ScoliaAtomicIngestion {
   private cached: { matchId: string; revision: string; snapshot: ScoliaScoringSnapshot } | null = null;
   private readonly supabase: SupabaseClient;
   private rpcNames: { persist: string; prepare: string } = RPC_NAMES.current;
+  private fallbackSince = 0;
   constructor(supabase: SupabaseClient) { this.supabase = supabase; }
 
   private async rpc(name: 'persist' | 'prepare', args: Record<string, unknown>) {
+    if (this.rpcNames === RPC_NAMES.fallback && Date.now() - this.fallbackSince >= RPC_RETRY_CURRENT_MS) {
+      this.rpcNames = RPC_NAMES.current;
+    }
     const response = await this.supabase.rpc(this.rpcNames[name], args);
     if (response.error?.code !== 'PGRST202' || this.rpcNames === RPC_NAMES.fallback) return response;
     this.rpcNames = RPC_NAMES.fallback;
+    this.fallbackSince = Date.now();
     return this.supabase.rpc(this.rpcNames[name], args);
   }
 

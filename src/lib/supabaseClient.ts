@@ -26,6 +26,6 @@ export async function getSupabaseClient(): Promise<SupabaseClient> {
     // to 50s of silently missed darts before realtime-js reconnects and the views reconcile.
     realtime: { heartbeatIntervalMs: REALTIME_HEARTBEAT_INTERVAL_MS },
   });
-  if (typeof window !== 'undefined') installRealtimeWakeProbe(cachedClient.realtime);
+  if (typeof window !== 'undefined') installRealtimeWakeProbe(cachedClient.realtime, window, REALTIME_HEARTBEAT_INTERVAL_MS);
   return cachedClient;
 }

@@ -333,5 +333,15 @@ describe('useRealtime', () => {
       expect(result.current.liveState).toBe('offline');
       Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
     });
+
+    it('reports offline at once, before the channel has noticed the network is gone', async () => {
+      const { result } = renderHook(() => useRealtime('match-123'));
+      await waitFor(() => expect(result.current.liveState).toBe('live'));
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+      await act(async () => { window.dispatchEvent(new Event('offline')); });
+      expect(result.current.connectionStatus).toBe('connected');
+      expect(result.current.liveState).toBe('offline');
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+    });
   });
 });

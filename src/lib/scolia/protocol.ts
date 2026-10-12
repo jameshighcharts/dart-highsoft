@@ -4,6 +4,9 @@ export type ScoliaMessage = {
   payload?: Record<string, unknown>;
 };
 
+/** A dart held back (e.g. by an outage) must never land in a match or game that began after it. */
+export const THROWN_BEFORE_TARGET = 'Thrown before the current match or game started';
+
 export type ScoliaBoardStatePatch = {
   board_status?: string | null;
   board_phase?: string | null;

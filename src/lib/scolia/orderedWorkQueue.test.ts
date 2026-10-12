@@ -143,6 +143,20 @@ describe('OrderedWorkQueue', () => {
     queue.stop();
   });
 
+  it('reports when queued work has drained, or gives up waiting at the deadline', async () => {
+    const queue = new OrderedWorkQueue(vi.fn());
+    let finished = false;
+    queue.enqueue(async () => { await new Promise((resolve) => setTimeout(resolve, 80)); finished = true; });
+    await queue.drained(1_000);
+    expect(finished).toBe(true);
+
+    queue.enqueue(() => new Promise(() => {}));
+    const started = Date.now();
+    await queue.drained(150);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    queue.stop();
+  });
+
   it('delivers work that succeeds once an outage clears', async () => {
     vi.useFakeTimers();
     const outage = new Error('database unreachable');
