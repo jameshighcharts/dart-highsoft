@@ -3,13 +3,15 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { processBackgroundJob, type BackgroundJobServerHooks } from '@/lib/server/backgroundJobs';
 import { DartIQTelemetryBatch } from '@/lib/server/dartiqTelemetry';
-import { SHARED_DATA_TAG } from '@/lib/shared/tag';
+import { SHARED_DATA_TAG, SHARED_RESULTS_TAG } from '@/lib/shared/tag';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
 const hooks: BackgroundJobServerHooks = {
-  // Stale: viewers keep getting the previous copy while the first request after a change
-  // recomputes it. Purged (a leg or game result): the next request waits for the new copy.
-  revalidateSharedData: ({ purge }) => revalidateTag(SHARED_DATA_TAG, purge ? { expire: 0 } : 'max'),
+  // See SHARED_DATA_TAG and SHARED_RESULTS_TAG: a change marks the copies stale, a result purges them.
+  revalidateSharedData: ({ purge }) => {
+    if (purge) revalidateTag(SHARED_RESULTS_TAG, { expire: 0 });
+    else revalidateTag(SHARED_DATA_TAG, 'max');
+  },
 };
 
 type DispatchBody = { jobIds: string[] };

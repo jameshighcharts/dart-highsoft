@@ -15,6 +15,8 @@ export type LocalCalendar = {
   dateKey(date: Date): string;
 };
 
+const DAY_MS = 86_400_000;
+
 type WallClock = { year: number; month: number; day: number; hour: number; minute: number; second: number; ms: number };
 
 export function browserTimeZone(): string {
@@ -28,6 +30,11 @@ export function isValidTimeZone(timeZone: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** The zone's canonical name (`europe/oslo` → `Europe/Oslo`); the zone must be valid. */
+export function canonicalTimeZone(timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone }).resolvedOptions().timeZone;
 }
 
 export function calendarIn(timeZone: string): LocalCalendar {
@@ -61,11 +68,17 @@ export function calendarIn(timeZone: string): LocalCalendar {
     Date.UTC(wall.year, wall.month, wall.day, wall.hour, wall.minute, wall.second, wall.ms);
   // How far the zone's wall clock is ahead of UTC at `instant`.
   const offsetAt = (instant: number) => asUtc(wallClock(instant)) - instant;
-  // The instant a wall-clock time happens in the zone; Date.UTC normalizes overflowing days.
+  // The instant a wall-clock time happens in the zone, resolved the way `Date` resolves local
+  // times: a time that happens twice (clocks going back) is the earlier instant, and a time that
+  // doesn't happen (clocks going forward) is read with the offset from before the change, which
+  // moves it forward. Date.UTC normalizes overflowing days.
   const fromWallClock = (wall: WallClock) => {
-    const guess = asUtc(wall);
-    // The offset at the guess may be on the wrong side of a DST change; the one it leads to is not.
-    return new Date(guess - offsetAt(guess - offsetAt(guess)));
+    const local = asUtc(wall);
+    const offsetBefore = offsetAt(local - DAY_MS);
+    const offsetAfter = offsetAt(local + DAY_MS);
+    const matches = [local - offsetBefore, local - offsetAfter]
+      .filter((instant) => asUtc(wallClock(instant)) === local);
+    return new Date(matches.length > 0 ? Math.min(...matches) : local - offsetBefore);
   };
 
   return {

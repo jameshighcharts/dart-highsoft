@@ -104,10 +104,8 @@ export async function getMultiEloLeaderboard(limit?: number): Promise<MultiEloLe
     .order('total_rated_matches', { ascending: false });
   if (limit) query = query.limit(limit);
   const { data, error } = await query;
-  if (error) {
-    console.error('Error fetching multiplayer Elo leaderboard:', error);
-    return [];
-  }
+  // Thrown, not returned empty: the leaderboard is cached for every viewer (see getEloLeaderboard).
+  if (error) throw error;
   return (data || []).map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
 

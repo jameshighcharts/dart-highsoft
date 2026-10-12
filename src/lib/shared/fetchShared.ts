@@ -1,5 +1,7 @@
 import { deserializeQueryCache } from '@/lib/queryCacheSerialization';
 
+import { purgeSharedResults } from './purge';
+
 export type SharedDataParams = Record<string, string | undefined>;
 
 /**
@@ -25,15 +27,15 @@ export async function fetchShared<T>(name: string, params: SharedDataParams, fal
 }
 
 /**
- * Expires the server's cached copies, so the next load computes them from the database: after a
- * game, its players see their result straight away. The database also expires them by itself
- * within seconds of any change, so a failure here only delays the update.
+ * Purges the server's shared copies, so the next load computes them from the database: after a
+ * game, its players see their result straight away. The database purges them by itself within
+ * seconds of a result, so a failure here only delays the update.
  */
 export async function expireSharedData(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
-    await fetch('/api/shared/revalidate', { method: 'POST', credentials: 'same-origin' });
+    await purgeSharedResults();
   } catch {
-    // The database-side expiry covers it.
+    // The database-side purge covers it.
   }
 }

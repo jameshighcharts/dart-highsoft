@@ -11,7 +11,7 @@ vi.mock('@/lib/tournament/advance', () => ({ advanceTournament: vi.fn() }));
 
 import { revalidateTag } from 'next/cache';
 import { completeLeg } from '@/lib/server/completeLeg';
-import { SHARED_DATA_TAG } from '@/lib/shared/tag';
+import { SHARED_RESULTS_TAG } from '@/lib/shared/tag';
 import { POST } from './route';
 
 const complete = (body: unknown) => POST(
@@ -29,7 +29,7 @@ describe('POST /api/matches/[matchId]/legs/[legId]/complete', () => {
     const response = await complete({ winnerPlayerId: 'player-1' });
     expect(response.status).toBe(200);
     expect(completeLeg).toHaveBeenCalledOnce();
-    expect(revalidateTag).toHaveBeenCalledWith(SHARED_DATA_TAG, { expire: 0 });
+    expect(revalidateTag).toHaveBeenCalledWith(SHARED_RESULTS_TAG, { expire: 0 });
   });
 
   it('leaves the cache alone when the leg is not completed', async () => {

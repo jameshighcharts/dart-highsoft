@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 
+import { refreshAfterChange } from '@/lib/queries/refreshAfterChange';
 import { expireSharedData } from '@/lib/shared/fetchShared';
 
 /**
@@ -16,9 +17,15 @@ const AFFECTED_QUERIES = [
   ['players'],
 ] as const;
 
-export function invalidateAfterGame(queryClient: QueryClient): void {
-  // The server's shared copies go first, so the refetches below don't get them back.
-  void expireSharedData().then(() => {
-    for (const queryKey of AFFECTED_QUERIES) void queryClient.invalidateQueries({ queryKey });
-  });
+/**
+ * Refreshes this browser's copies of everything a finished match or game changes. With
+ * `resultJustHappened` (the game finished while it was open, not when opening a finished one) the
+ * server's shared copies are purged first, so the refetches don't get them back from before it.
+ */
+export function invalidateAfterGame(queryClient: QueryClient, { resultJustHappened }: { resultJustHappened: boolean }): void {
+  const refresh = () => {
+    for (const queryKey of AFFECTED_QUERIES) refreshAfterChange(queryClient, queryKey);
+  };
+  if (resultJustHappened) void expireSharedData().then(refresh);
+  else refresh();
 }

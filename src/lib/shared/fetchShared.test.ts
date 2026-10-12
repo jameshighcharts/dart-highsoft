@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { serializeQueryCache } from '@/lib/queryCacheSerialization';
 import { expireSharedData, fetchShared } from './fetchShared';
+import { purgeSharedResults } from './purge';
 
 // The test setup replaces this module with its fallbacks everywhere else.
 vi.unmock('@/lib/shared/fetchShared');
+vi.mock('./purge', () => ({ purgeSharedResults: vi.fn(async () => {}) }));
 
 const fetchMock = vi.fn<typeof fetch>();
 vi.stubGlobal('fetch', fetchMock);
@@ -32,11 +34,10 @@ describe('fetchShared', () => {
     await expect(fetchShared('bullers', {}, async () => 'offline')).resolves.toBe('offline');
   });
 
-  it('expires the server copies without failing when it cannot', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+  it('purges the server copies without failing when it cannot', async () => {
     await expireSharedData();
-    expect(fetchMock).toHaveBeenCalledWith('/api/shared/revalidate', { method: 'POST', credentials: 'same-origin' });
-    fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+    expect(purgeSharedResults).toHaveBeenCalledOnce();
+    vi.mocked(purgeSharedResults).mockRejectedValueOnce(new TypeError('offline'));
     await expect(expireSharedData()).resolves.toBeUndefined();
   });
 });

@@ -27,7 +27,7 @@ vi.mock('@/lib/stats/remote', () => ({ fetchStatsGlobalData: vi.fn(async () => (
 
 import { fetchLeaderboardData } from '@/lib/queries/leaderboardData';
 import { readSharedData } from './sharedData';
-import { SHARED_DATA_TAG } from './tag';
+import { SHARED_DATA_TAG, SHARED_RESULTS_TAG } from './tag';
 
 const ID_A = '61000000-0000-0000-0000-000000000001';
 const ID_B = '61000000-0000-0000-0000-000000000002';
@@ -44,14 +44,14 @@ describe('readSharedData', () => {
   it('caches each dataset under its parameters with the shared tag and keeps Maps intact', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-12T22:30:00Z'));
-    const data = await read('leaderboard', 'tz=Europe%2FOslo');
+    const data = await read('leaderboard', 'tz=europe%2Foslo');
     vi.useRealTimers();
     expect(data).toEqual({ limit: undefined, timeZone: 'Europe/Oslo', byId: new Map([['a', 1]]) });
     expect(fetchLeaderboardData).toHaveBeenCalledWith(undefined, 'Europe/Oslo');
     // The viewer's local date (already the 13th in Oslo) is part of the key.
     expect(cacheCalls).toEqual([{
-      keyParts: ['shared-data', 'leaderboard', 'undefined', 'Europe/Oslo', '2026-08-13'],
-      options: { tags: [SHARED_DATA_TAG], revalidate: 300 },
+      keyParts: ['shared-data', 'dev', 'leaderboard', 'undefined', 'Europe/Oslo', '2026-08-13'],
+      options: { tags: [SHARED_DATA_TAG, SHARED_RESULTS_TAG], revalidate: 300 },
     }]);
   });
 
@@ -61,10 +61,10 @@ describe('readSharedData', () => {
     await expect(read('elo-history', 'ids=')).resolves.toEqual({ ids: [] });
     await expect(read('bullers')).resolves.toEqual(['bullers']);
     expect(cacheCalls.map((call) => call.keyParts)).toEqual([
-      ['shared-data', 'leaderboard-lists', '10'],
-      ['shared-data', 'elo-history', `${ID_A},${ID_B}`],
-      ['shared-data', 'elo-history', ''],
-      ['shared-data', 'bullers'],
+      ['shared-data', 'dev', 'leaderboard-lists', '10'],
+      ['shared-data', 'dev', 'elo-history', `${ID_A},${ID_B}`],
+      ['shared-data', 'dev', 'elo-history', ''],
+      ['shared-data', 'dev', 'bullers'],
     ]);
   });
 

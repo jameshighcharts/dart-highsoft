@@ -21,10 +21,16 @@ const INSTANTS = [
   '2026-11-01T05:30:00Z',
   '2026-08-12T13:10:00Z',
   '2026-12-31T23:30:00Z',
+  '2026-10-18T00:30:00Z', // a week before 02:30 happens twice in Oslo
+  '2026-10-18T01:30:00Z',
+  '2026-03-22T01:30:00Z', // a week before 02:30 doesn't happen in Oslo
+  '2026-09-05T12:00:00Z', // Santiago skips its midnight the day after
+  '2026-09-06T05:00:00Z',
+  '2026-04-04T12:00:00Z', // and repeats an hour the night after
 ];
 
 describe('calendarIn', () => {
-  for (const timeZone of ['Europe/Oslo', 'America/New_York', 'UTC', 'Asia/Kolkata']) {
+  for (const timeZone of ['Europe/Oslo', 'America/New_York', 'America/Santiago', 'UTC', 'Asia/Kolkata']) {
     it(`matches the native local-time methods in ${timeZone}`, () => {
       process.env.TZ = timeZone;
       const calendar = calendarIn(timeZone);

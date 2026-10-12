@@ -367,16 +367,20 @@ export default function MatchClient({ matchId }: { matchId: string }) {
 
   // When this match transitions from in-progress to completed in the user's session,
   // invalidate the leaderboard caches so the front page shows the new result on return.
+  // Opening a match that was already finished refreshes only this browser's copies; one that
+  // finishes while open also purges the server's shared ones.
   const lastInvalidatedWinnerRef = useRef<string | null>(null);
+  const sawMatchInProgressRef = useRef(false);
   useEffect(() => {
     if (!matchWinnerId) {
+      if (match) sawMatchInProgressRef.current = true;
       lastInvalidatedWinnerRef.current = null;
       return;
     }
     if (lastInvalidatedWinnerRef.current === matchWinnerId) return;
     lastInvalidatedWinnerRef.current = matchWinnerId;
-    invalidateAfterGame(queryClient);
-  }, [matchWinnerId, queryClient]);
+    invalidateAfterGame(queryClient, { resultJustHappened: sawMatchInProgressRef.current });
+  }, [match, matchWinnerId, queryClient]);
 
   // Fetch ELO rating changes for the completed match
   const { eloChanges, loading: eloChangesLoading } = useMatchEloChanges(matchId, matchWinnerId, players.length);

@@ -95,8 +95,14 @@ function GameClientInner({ gameId }: GameClientProps) {
   // A finished game changes leaderboards and the games list: refresh their caches for the next visit.
   const queryClient = useQueryClient();
   const finishedWinnerId = session?.winner_player_id ?? state?.winnerId ?? null;
+  // Only a game that finishes while open purges the server's shared copies (see invalidateAfterGame).
+  const sawGameInProgressRef = useRef(false);
+  const gameInProgress = Boolean(session) && !finishedWinnerId;
   useEffect(() => {
-    if (finishedWinnerId) invalidateAfterGame(queryClient);
+    if (gameInProgress) sawGameInProgressRef.current = true;
+  }, [gameInProgress]);
+  useEffect(() => {
+    if (finishedWinnerId) invalidateAfterGame(queryClient, { resultJustHappened: sawGameInProgressRef.current });
   }, [finishedWinnerId, queryClient]);
 
   const lastHitSoundKeyRef = useRef<string | null>(null);

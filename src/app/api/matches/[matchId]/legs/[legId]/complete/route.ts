@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { isMatchActive, loadMatch } from '@/lib/server/matchGuards';
 import { completeLeg } from '@/lib/server/completeLeg';
-import { SHARED_DATA_TAG } from '@/lib/shared/tag';
+import { SHARED_RESULTS_TAG } from '@/lib/shared/tag';
 import { advanceTournament } from '@/lib/tournament/advance';
 
 export async function POST(request: Request, { params }: { params: Promise<{ matchId: string; legId: string }> }) {
@@ -58,7 +58,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
 
     // The leaderboards and stats now include this leg. The database queues the same purge, but only
     // runs it within seconds; doing it here means the next page load already shows the result.
-    revalidateTag(SHARED_DATA_TAG, { expire: 0 });
+    revalidateTag(SHARED_RESULTS_TAG, { expire: 0 });
     return NextResponse.json(result);
   } catch (error) {
     console.error('POST /api/matches/[matchId]/legs/[legId]/complete error:', error);
