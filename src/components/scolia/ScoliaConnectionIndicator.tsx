@@ -107,10 +107,15 @@ export function ScoliaBoardConnection({ boardId, compact = false, className, onS
   }, []);
 
   const load = useCallback(async () => {
-    const supabase = await getSupabaseClient();
-    const { data, error } = await supabase.from('scolia_board_public_status').select('*').eq('board_id', boardId).maybeSingle();
-    if (error) return; // Keep the last known state; the channel or next reconcile will correct it.
-    apply(data ? publicStatusFromRow(data) : null);
+    try {
+      const supabase = await getSupabaseClient();
+      const { data, error } = await supabase.from('scolia_board_public_status').select('*').eq('board_id', boardId).maybeSingle();
+      if (error) return; // Keep the last known state; the channel or next reconcile will correct it.
+      apply(data ? publicStatusFromRow(data) : null);
+    } catch (error) {
+      // A status badge must never take the page down; the next reconcile tries again.
+      console.warn('Could not load Scolia board status', error);
+    }
   }, [apply, boardId]);
 
   useEffect(() => { void load(); }, [load]);

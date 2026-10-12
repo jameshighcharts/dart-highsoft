@@ -120,7 +120,7 @@ export function useScoliaBoardRealtime(handlers: Handlers, enabled = true, board
         if (status === 'SUBSCRIBED') handlersRef.current.onReconcile();
       });
       resilient.start();
-    })();
+    })().catch((error) => console.error('Could not subscribe to Scolia board status', error));
 
     return () => {
       cancelled = true;

@@ -179,7 +179,7 @@ export function useGameData(gameId: string) {
         if (status === 'SUBSCRIBED') scheduleRefetch();
       });
       channel.start();
-    })();
+    })().catch((error) => console.error('Could not subscribe to game updates', error));
 
     return () => {
       cancelled = true;

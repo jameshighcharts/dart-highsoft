@@ -24,10 +24,14 @@ export function ScoliaTakeoutRecovery({ matchId, boardId, matchCreatedAt, matchS
   const [status, setStatus] = useState<PhaseStatus>({ phase: null, changedAt: null });
   const [stuckKey, setStuckKey] = useState<string | null>(null);
   const load = useCallback(async () => {
-    const db = await getSupabaseClient();
-    // `*` keeps this working before the phase timestamp column is migrated.
-    const result = await db.from('scolia_board_public_status').select('*').eq('board_id', boardId).maybeSingle();
-    if (result.data) setStatus({ phase: result.data.board_phase, changedAt: result.data.board_phase_changed_at ?? null });
+    try {
+      const db = await getSupabaseClient();
+      // `*` keeps this working before the phase timestamp column is migrated.
+      const result = await db.from('scolia_board_public_status').select('*').eq('board_id', boardId).maybeSingle();
+      if (result.data) setStatus({ phase: result.data.board_phase, changedAt: result.data.board_phase_changed_at ?? null });
+    } catch (error) {
+      console.warn('Could not load Scolia board phase', error);
+    }
   }, [boardId]);
   useEffect(() => { void load(); }, [load]);
   useScoliaBoardRealtime({
