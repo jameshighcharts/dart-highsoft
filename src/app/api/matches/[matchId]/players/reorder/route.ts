@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { isMatchActive, loadMatch } from '@/lib/server/matchGuards';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
+async function patchHandler(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
   try {
     const { matchId } = await params;
     const body = (await request.json()) as { orderedPlayerIds?: string[] };
@@ -44,3 +45,5 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ma
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const PATCH = withSession(patchHandler);

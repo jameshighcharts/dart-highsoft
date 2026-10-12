@@ -5,6 +5,7 @@ import { findLinkedPlayer, listUnclaimedPlayers, PLAYER_COLUMNS, type MyPlayer }
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { LOCATIONS } from '@/utils/locations';
 import { parseNicknames } from '@/utils/nicknames';
+import { withSession } from '@/lib/auth/withSession';
 
 const locationValues = new Set<string>(LOCATIONS.map((location) => location.value));
 
@@ -14,7 +15,7 @@ export type MeResponse = {
   unclaimedPlayers: Pick<MyPlayer, 'id' | 'display_name' | 'avatar_url'>[];
 };
 
-export async function GET() {
+async function getHandler() {
   const guard = await requireUser();
   if (isGuardResponse(guard)) return guard;
   try {
@@ -40,7 +41,7 @@ export async function GET() {
 }
 
 /** Edit my own player: nicknames and location. Name changes go through an admin. */
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   const guard = await requireUser();
   if (isGuardResponse(guard)) return guard;
   try {
@@ -76,3 +77,6 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const GET = withSession(getHandler);
+export const PATCH = withSession(patchHandler);

@@ -7,7 +7,8 @@ import {
   loadHighdarts,
 } from '@/lib/highdarts/server';
 import { buildStandings } from '@/lib/highdarts/standings';
-export async function POST(request: Request) {
+import { withSession } from '@/lib/auth/withSession';
+async function postHandler(request: Request) {
   const guard = await requireAdmin();
   if (isGuardResponse(guard)) return guard;
   const body: unknown = await request.json().catch(() => null);
@@ -64,3 +65,5 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const POST = withSession(postHandler);

@@ -4,6 +4,7 @@ import { isMatchActive, loadMatch } from '@/lib/server/matchGuards';
 import { completeLeg } from '@/lib/server/completeLeg';
 import { computeFairEndingState } from '@/utils/fairEnding';
 import { advanceTournament } from '@/lib/tournament/advance';
+import { withSession } from '@/lib/auth/withSession';
 
 async function ensureTurnInMatch(
   supabase: ReturnType<typeof getSupabaseServerClient>,
@@ -20,7 +21,7 @@ async function ensureTurnInMatch(
   return { turn: { id: turn.id as string, leg_id: turn.leg_id as string } };
 }
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ matchId: string; turnId: string }> }) {
+async function patchHandler(request: Request, { params }: { params: Promise<{ matchId: string; turnId: string }> }) {
   try {
     const { matchId, turnId } = await params;
     let body: { totalScored?: number; busted?: boolean } | null = null;
@@ -137,7 +138,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ma
   }
 }
 
-export async function DELETE(_: Request, { params }: { params: Promise<{ matchId: string; turnId: string }> }) {
+async function deleteHandler(_: Request, { params }: { params: Promise<{ matchId: string; turnId: string }> }) {
   try {
     const { matchId, turnId } = await params;
     const supabase = getSupabaseServerClient();
@@ -156,3 +157,6 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ matchId
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const PATCH = withSession(patchHandler);
+export const DELETE = withSession(deleteHandler);

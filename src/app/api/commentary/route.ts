@@ -11,6 +11,7 @@ import {
   resolvePersona,
 } from '@/lib/commentary/personas';
 import type { CommentaryPayload, MatchRecapPayload } from '@/lib/commentary/types';
+import { withSession } from '@/lib/auth/withSession';
 
 // Lazy-load OpenAI client to avoid initialization errors during build
 let openaiClient: OpenAI | null = null;
@@ -29,7 +30,7 @@ type CommentaryRequestBody = (CommentaryPayload | MatchRecapPayload) & {
 
 type ResponsesResult = Awaited<ReturnType<OpenAI['responses']['create']>>;
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
@@ -202,3 +203,5 @@ function extractFromResponses(completion: ResponsesResult): string | undefined {
 
   return undefined;
 }
+
+export const POST = withSession(postHandler);

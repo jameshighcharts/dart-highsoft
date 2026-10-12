@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { isGuardResponse, requireAdmin } from '@/lib/auth/requireAdmin';
 import { AvatarError, clearPlayerAvatar, readAvatarUpload, setPlayerAvatar } from '@/lib/server/playerAvatar';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -13,7 +14,7 @@ function errorResponse(error: unknown, fallback: string) {
 }
 
 /** Upload (or replace) a player's profile picture. multipart/form-data with field `file`. */
-export async function POST(request: Request, { params }: { params: Promise<{ playerId: string }> }) {
+async function postHandler(request: Request, { params }: { params: Promise<{ playerId: string }> }) {
   const guard = await requireAdmin();
   if (isGuardResponse(guard)) return guard;
   const { playerId } = await params;
@@ -27,7 +28,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pla
   }
 }
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ playerId: string }> }) {
+async function deleteHandler(_request: Request, { params }: { params: Promise<{ playerId: string }> }) {
   const guard = await requireAdmin();
   if (isGuardResponse(guard)) return guard;
   const { playerId } = await params;
@@ -39,3 +40,6 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     return errorResponse(error, 'Failed to remove avatar');
   }
 }
+
+export const POST = withSession(postHandler);
+export const DELETE = withSession(deleteHandler);

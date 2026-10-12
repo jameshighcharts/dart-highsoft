@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { loadFrozenDartIQEvidence } from '@/lib/server/dartiqEvidence';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function GET(
+async function getHandler(
   _: Request,
   { params }: { params: Promise<{ matchId: string }> }
 ) {
@@ -23,3 +24,5 @@ export async function GET(
     return NextResponse.json({ error: 'Could not load DartIQ evidence' }, { status: 500 });
   }
 }
+
+export const GET = withSession(getHandler);

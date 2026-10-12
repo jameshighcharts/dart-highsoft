@@ -4,13 +4,14 @@ import { isGuardResponse, requireAdmin } from '@/lib/auth/requireAdmin';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { isSlackMemberListingConfigured, listSlackMembers } from '@/lib/slack/members';
 import { importSlackMembersAsPlayers } from '@/lib/slack/playerImport';
+import { withSession } from '@/lib/auth/withSession';
 
 /**
  * Imports every full workspace member as a player (first name, or
  * "First L" for duplicate first names) and links them for the dart poll
  * scheduler. Idempotent.
  */
-export async function POST() {
+async function postHandler() {
   const guard = await requireAdmin();
   if (isGuardResponse(guard)) return guard;
   if (!isSlackMemberListingConfigured()) {
@@ -35,3 +36,5 @@ export async function POST() {
     );
   }
 }
+
+export const POST = withSession(postHandler);

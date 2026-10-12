@@ -17,6 +17,7 @@ import {
 import { loadRealtimeCommentarySnapshot } from '@/lib/commentary/realtimeSnapshot';
 import { isMatchActive, loadMatch } from '@/lib/server/matchGuards';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
 export const runtime = 'nodejs';
 
@@ -45,7 +46,7 @@ function hasTrustedOrigin(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   if (!hasTrustedOrigin(request)) return noStoreJson({ error: 'Invalid request origin' }, 403);
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) return noStoreJson({ error: 'OpenAI API key not configured' }, 503);
@@ -213,7 +214,7 @@ async function updateSession(request: NextRequest, close: boolean) {
   return noStoreJson({ ok: true });
 }
 
-export async function PATCH(request: NextRequest) {
+async function patchHandler(request: NextRequest) {
   let body: Record<string, unknown> | null = null;
   try {
     body = await request.clone().json() as Record<string, unknown>;
@@ -389,7 +390,7 @@ export async function PATCH(request: NextRequest) {
   return updateSession(request, false);
 }
 
-export async function PUT(request: NextRequest) {
+async function putHandler(request: NextRequest) {
   if (!hasTrustedOrigin(request)) return noStoreJson({ error: 'Invalid request origin' }, 403);
   let body: RealtimeCommentaryCorrectionRequest;
   try {
@@ -455,6 +456,11 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+async function deleteHandler(request: NextRequest) {
   return updateSession(request, true);
 }
+
+export const POST = withSession(postHandler);
+export const PATCH = withSession(patchHandler);
+export const PUT = withSession(putHandler);
+export const DELETE = withSession(deleteHandler);

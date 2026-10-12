@@ -11,7 +11,7 @@ vi.mock('@/lib/auth/devBypass', () => ({
   isAuthPerformanceBypassEnabled: () => false,
 }));
 
-import proxy from './proxy';
+import proxy, { config } from './proxy';
 
 function request(path: string, session: NextAuthRequest['auth']) {
   return Object.assign(new NextRequest(`https://darts.example${path}`), { auth: session });
@@ -34,14 +34,16 @@ async function run(path: string, session: NextAuthRequest['auth']) {
 }
 
 describe('authentication proxy', () => {
-  it('exposes only the exact published sheet feed, keeping adjacent tournament APIs protected', async () => {
-    expect((await run('/api/highdarts/sheet', null))?.status).toBe(200);
-    for (const path of ['/api/highdarts', '/api/highdarts/sheet/other', '/api/highdarts/counting']) {
-      expect((await run(path, null))?.status).toBe(401);
+  it('runs for pages only: API routes check the session themselves (withSession)', () => {
+    const matcher = new RegExp(`^${config.matcher[0]}$`);
+    for (const path of ['/', '/profile', '/match/abc', '/admin/players', '/login']) expect(matcher.test(path), path).toBe(true);
+    for (const path of ['/api/me', '/api/shared/leaderboard', '/api/highdarts/sheet', '/_next/static/chunks/a.js', '/icon-192x192.png']) {
+      expect(matcher.test(path), path).toBe(false);
     }
   });
-  it('lets a Google session without a Slack link reach the app and APIs', async () => {
-    for (const path of ['/', '/profile', '/api/me']) {
+
+  it('lets a Google session without a Slack link reach the app', async () => {
+    for (const path of ['/', '/profile']) {
       const response = await run(path, googleSession);
       expect(response?.headers.get('location')).toBeNull();
       expect(response?.status).toBe(200);
@@ -59,8 +61,6 @@ describe('authentication proxy', () => {
     for (const session of [null, { ...googleSession, user: { ...googleSession.user, email: null } }, { ...googleSession, user: { ...googleSession.user, slackTeamId: null } }]) {
       const page = await run('/profile', session);
       expect(page?.headers.get('location')).toBe('https://darts.example/login?callbackUrl=%2Fprofile');
-      expect((await run('/api/me', session))?.status).toBe(401);
-      expect((await run('/api/auth/callback/google', session))?.status).toBe(200);
     }
   });
 });

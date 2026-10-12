@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 
 import { disconnectScoliaBoard, ScoliaApiError } from '@/lib/scolia/client';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function DELETE(
+async function deleteHandler(
   _request: Request,
   { params }: { params: Promise<{ serialNumber: string }> }
 ) {
@@ -24,3 +25,5 @@ export async function DELETE(
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const DELETE = withSession(deleteHandler);

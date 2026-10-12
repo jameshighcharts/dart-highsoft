@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
 // The app's authenticated proxy protects this route, as with the match read APIs.
 // Read the revision BEFORE any recovery snapshot, so concurrent changes cannot
 // be accidentally acknowledged without having been downloaded.
-export async function GET(_: Request, { params }: { params: Promise<{ matchId: string }> }) {
+async function getHandler(_: Request, { params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = await params;
   const db = getSupabaseServerClient();
   const [source, match, players] = await Promise.all([
@@ -21,3 +22,5 @@ export async function GET(_: Request, { params }: { params: Promise<{ matchId: s
     headers: { 'Cache-Control': 'no-store' },
   });
 }
+
+export const GET = withSession(getHandler);

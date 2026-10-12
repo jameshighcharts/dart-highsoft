@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { highdartsErrorStatus } from '@/lib/highdarts/server';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function PATCH(_: Request, { params }: { params: Promise<{ matchId: string }> }) {
+async function patchHandler(_: Request, { params }: { params: Promise<{ matchId: string }> }) {
   try {
     const { matchId } = await params;
     const supabase = getSupabaseServerClient();
@@ -14,3 +15,5 @@ export async function PATCH(_: Request, { params }: { params: Promise<{ matchId:
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const PATCH = withSession(patchHandler);

@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { cleanupTournament } from '@/lib/server/cleanupTournament';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function deleteHandler(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const supabase = getSupabaseServerClient();
@@ -30,3 +31,5 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const DELETE = withSession(deleteHandler);

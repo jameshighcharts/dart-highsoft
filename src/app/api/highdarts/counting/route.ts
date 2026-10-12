@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { isGuardResponse, requireUser } from "@/lib/auth/requireAdmin";
 import { highdartsErrorStatus, isUuid } from "@/lib/highdarts/server";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
+import { withSession } from '@/lib/auth/withSession';
 
-export async function PUT(request: Request) {
+async function putHandler(request: Request) {
   const guard = await requireUser();
   if (isGuardResponse(guard)) return guard;
   const body: unknown = await request.json().catch(() => null);
@@ -54,3 +55,5 @@ export async function PUT(request: Request) {
     );
   }
 }
+
+export const PUT = withSession(putHandler);

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { connectScoliaBoard, listScoliaBoards, ScoliaApiError } from '@/lib/scolia/client';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
 type ActiveMatchRow = {
   id: string;
@@ -43,7 +44,7 @@ function errorResponse(error: unknown, operation: string) {
   return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
 }
 
-export async function GET() {
+async function getHandler() {
   try {
     const supabase = getSupabaseServerClient();
     const [boards, statusResult, activeMatchesResult, activeGamesResult] = await Promise.all([
@@ -137,7 +138,7 @@ export async function GET() {
   }
 }
 
-export async function PUT(request: Request) {
+async function putHandler(request: Request) {
   try {
     let body: { serialNumber?: unknown };
     try {
@@ -160,3 +161,6 @@ export async function PUT(request: Request) {
     return errorResponse(error, 'PUT');
   }
 }
+
+export const GET = withSession(getHandler);
+export const PUT = withSession(putHandler);

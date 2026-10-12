@@ -3,10 +3,11 @@ import { NextResponse } from 'next/server';
 import { appendGameThrow, loadGameSnapshot, removeLastGameThrow } from '@/lib/server/gameThrowLifecycle';
 import { commandSourceForGameSession, enqueueCurrentRoundScoliaThrowCommand } from '@/lib/server/scoliaCommands';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
 type ThrowBody = { segment?: unknown; scored?: unknown; playerId?: unknown };
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function postHandler(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     let body: ThrowBody;
@@ -48,7 +49,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function deleteHandler(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     let throwId: string | undefined;
@@ -82,3 +83,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const POST = withSession(postHandler);
+export const DELETE = withSession(deleteHandler);

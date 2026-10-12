@@ -4,6 +4,7 @@ import { isGameMode } from '@/lib/games/types';
 import { createGameSession, shuffle } from '@/lib/server/createGameSession';
 import { loadGameSnapshot } from '@/lib/server/gameThrowLifecycle';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -14,7 +15,7 @@ type CreateGameBody = {
   scoliaBoardId?: unknown;
 };
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   try {
     let body: CreateGameBody;
     try {
@@ -61,3 +62,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const POST = withSession(postHandler);

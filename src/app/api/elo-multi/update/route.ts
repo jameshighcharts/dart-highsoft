@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   try {
     const body = (await request.json()) as { matchId?: string; playerIds?: string[]; ranks?: number[]; kFactor?: number };
     if (!body.matchId || !body.playerIds || !body.ranks || body.playerIds.length !== body.ranks.length) {
@@ -21,3 +22,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const POST = withSession(postHandler);
