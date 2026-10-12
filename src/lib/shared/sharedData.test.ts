@@ -32,8 +32,8 @@ import { SHARED_DATA_TAG, SHARED_RESULTS_TAG } from './tag';
 const ID_A = '61000000-0000-0000-0000-000000000001';
 const ID_B = '61000000-0000-0000-0000-000000000002';
 const read = async (name: string, query = '') => {
-  const body = await readSharedData(name, new URLSearchParams(query));
-  return body === null ? null : deserializeQueryCache<unknown>(body);
+  const result = await readSharedData(name, new URLSearchParams(query));
+  return result === null ? null : deserializeQueryCache<unknown>(result.body);
 };
 
 describe('readSharedData', () => {
