@@ -10,7 +10,7 @@ import { isMatchScoringActive, loadMatch, type MatchRow } from './matchGuards.ts
 import { resolveOrCreateTurnForPlayer } from './turnLifecycle.ts';
 import { replayTurn, type ThrowData } from '../../utils/legScoreCalculator.ts';
 import { computeFairEndingState, getNextFairEndingPlayer, type FairEndingState } from '../../utils/fairEnding.ts';
-import { findExistingGameThrow, ingestGameThrow, settleExistingGameThrow } from './gameScoliaIngestion.ts';
+import { findExistingGameThrow, ingestGameThrow, ingestPreparedGameThrow, settleExistingGameThrow } from './gameScoliaIngestion.ts';
 import { findActiveScoliaBoardTarget, type ScoliaBoardTarget } from './scoliaBoardTarget.ts';
 
 export type StoredScoliaEvent = {
@@ -263,8 +263,19 @@ export async function ingestScoliaThrowEvent(
     }
 
     if (atomic) {
-      const result = await atomic.ingest(event, detected, prepared);
-      if (result) return result;
+      const outcome = await atomic.ingest(event, detected, prepared);
+      if (outcome?.status === 'game') {
+        const target: ScoliaBoardTarget = { kind: 'game', id: outcome.prepared.sessionId };
+        const game = await ingestPreparedGameThrow(supabase, event.id, outcome.prepared, detected);
+        if (game?.status === 'processed') return { status: 'processed', target, throwId: game.throwId };
+        if (game) {
+          await updateEvent(supabase, event.id, 'ignored', game.reason);
+          return game;
+        }
+        // Another dart took the slot: re-read everything through the path below.
+      } else if (outcome) {
+        return outcome;
+      }
     }
 
     const [existingThrow, existingGameThrow, bullEventResult] = await Promise.all([

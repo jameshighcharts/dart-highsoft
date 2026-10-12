@@ -25,6 +25,7 @@ const { FakeSocket } = await vi.hoisted(async () => {
     sent: { type: string }[] = [];
     close = vi.fn(() => { this.readyState = FakeSocket.CLOSED; });
     terminate = vi.fn(() => { this.readyState = FakeSocket.CLOSED; });
+    ping = vi.fn();
     constructor(readonly url: URL, readonly options?: { handshakeTimeout?: number }) {
       super();
       FakeSocket.instances.push(this);
@@ -39,7 +40,10 @@ type Internals = {
   socket: InstanceType<typeof FakeSocket> | null;
   lastMessageAt: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  recoveryNeeded: boolean;
   connect: () => void;
+  heartbeat: () => Promise<void>;
+  needsRestart: (now?: number) => boolean;
   checkLiveness: (now?: number) => void;
   enqueue: (work: () => Promise<void>) => void;
   persistMessage: (message: ScoliaMessage) => Promise<void>;
@@ -77,14 +81,14 @@ describe('dead connection detection', () => {
     const board = connect();
     await board.connect();
     const first = FakeSocket.instances[0];
-    board.lastMessageAt = Date.now() - 31_000;
+    board.lastMessageAt = Date.now() - 16_000;
 
     board.checkLiveness();
     expect(first.sent).toEqual([{ type: 'GET_SBC_STATUS', id: expect.any(String) }]);
-    board.checkLiveness(Date.now() + 19_000);
-    expect(first.close).not.toHaveBeenCalled();
+    board.checkLiveness(Date.now() + 9_000);
+    expect(first.terminate).not.toHaveBeenCalled();
 
-    board.checkLiveness(Date.now() + 20_000);
+    board.checkLiveness(Date.now() + 10_000);
     // A close handshake Scolia ignores would keep the old socket alive and the board locked (4101).
     expect(first.terminate).toHaveBeenCalledOnce();
     expect(first.close).not.toHaveBeenCalled();
@@ -147,6 +151,43 @@ describe('dead connection detection', () => {
     expect(FakeSocket.instances).toHaveLength(2);
   });
 
+  it('abandons a socket whose pongs stop arriving', () => {
+    vi.useFakeTimers();
+    const board = connect();
+    board.connect();
+    const socket = FakeSocket.instances[0];
+    board.lastMessageAt = Date.now();
+    board.checkLiveness();
+    expect(socket.ping).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(100);
+    socket.emit('pong');
+
+    vi.advanceTimersByTime(9_900);
+    board.lastMessageAt = Date.now() - 1;
+    board.checkLiveness();
+    expect(socket.ping).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(4_000);
+    board.checkLiveness();
+    expect(socket.terminate).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1_000);
+    board.checkLiveness();
+    expect(socket.terminate).toHaveBeenCalledOnce();
+  });
+
+  it('does not treat missing pongs as fatal when Scolia never answers pings', () => {
+    vi.useFakeTimers();
+    const board = connect();
+    board.connect();
+    const socket = FakeSocket.instances[0];
+    board.lastMessageAt = Date.now();
+    board.checkLiveness();
+    vi.advanceTimersByTime(8_000);
+    board.lastMessageAt = Date.now();
+    board.checkLiveness();
+    expect(socket.terminate).not.toHaveBeenCalled();
+    expect(socket.ping).toHaveBeenCalledTimes(1);
+  });
+
   it('leaves a chatty socket alone', async () => {
     const board = connect();
     await board.connect();
@@ -185,6 +226,51 @@ describe('ws handshake failure contract', () => {
     const server = net.createServer((socket) => { sockets.push(socket); });
     expect(await closeCode(server, 100)).toBe(1006);
     sockets.forEach((socket) => socket.destroy());
+  });
+});
+
+describe('connection status', () => {
+  const status: ScoliaMessage = { type: 'SBC_STATUS', id: 'status', payload: { boardStatus: 'Ready', boardPhase: 'Throw' } };
+  const connectionStatuses = (board: Internals) => vi.mocked(board.updateBoard).mock.calls
+    .map(([values]) => values.worker_connection_status).filter(Boolean);
+
+  it('never reports a closed board as connected from a message processed late', async () => {
+    const board = connect();
+    board.connect();
+    FakeSocket.instances[0].emit('close', 1006);
+    await board.persistMessage(status);
+    expect(connectionStatuses(board)).toEqual(['connecting', 'reconnecting']);
+  });
+
+  it('writes repeated status replies only when the board state changes', async () => {
+    const board = connect();
+    await board.persistMessage(status);
+    await board.persistMessage(status);
+    expect(board.updateBoard).toHaveBeenCalledOnce();
+    await board.persistMessage({ ...status, payload: { boardStatus: 'Ready', boardPhase: 'Takeout' } });
+    expect(board.updateBoard).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('restart watchdog', () => {
+  it('asks for a restart when a board cannot reach Scolia for ten minutes', async () => {
+    vi.useFakeTimers();
+    const board = connect();
+    board.connect();
+    FakeSocket.instances[0].emit('close', 1006);
+    expect(board.needsRestart(Date.now() + 9 * 60_000)).toBe(false);
+    expect(board.needsRestart(Date.now() + 10 * 60_000)).toBe(true);
+    FakeSocket.instances[0].removeAllListeners();
+    await vi.advanceTimersByTimeAsync(2_000);
+    FakeSocket.instances.at(-1)!.emit('open');
+    expect(board.needsRestart(Date.now() + 60 * 60_000)).toBe(false);
+  });
+
+  it('does not restart over a configuration error a restart cannot fix', () => {
+    const board = connect();
+    board.connect();
+    FakeSocket.instances[0].emit('close', 4102);
+    expect(board.needsRestart(Date.now() + 60 * 60_000)).toBe(false);
   });
 });
 
@@ -252,7 +338,7 @@ describe('recovering stored darts', () => {
 
   it('never scores a dart into a match that started after it was thrown', async () => {
     const { supabase, marked } = pending([{ id: 1, board_id: 'board', message_id: 'old', event_type: 'THROW_DETECTED', payload: {}, received_at: secondsAgo(60) }]);
-    vi.mocked(findActiveScoliaBoardOccupant).mockResolvedValue({ kind: 'match', id: 'new-match', createdAt: secondsAgo(10) });
+    vi.mocked(findActiveScoliaBoardOccupant).mockResolvedValue({ kind: 'match', id: 'new-match', createdAt: secondsAgo(10), bullOffThrowing: false });
     const board = connect(supabase);
     await board.processPendingThrows();
     expect(ingestScoliaThrowEvent).not.toHaveBeenCalled();
@@ -262,13 +348,26 @@ describe('recovering stored darts', () => {
   it('keeps recovering later darts when one keeps failing', async () => {
     const events = [1, 2].map((id) => ({ id, board_id: 'board', message_id: `m${id}`, event_type: 'THROW_DETECTED', payload: {}, received_at: secondsAgo(5) }));
     const { supabase } = pending(events);
-    vi.mocked(findActiveScoliaBoardOccupant).mockResolvedValue({ kind: 'match', id: 'match', createdAt: secondsAgo(600) });
+    vi.mocked(findActiveScoliaBoardOccupant).mockResolvedValue({ kind: 'match', id: 'match', createdAt: secondsAgo(600), bullOffThrowing: false });
     vi.mocked(ingestScoliaThrowEvent).mockReset()
       .mockRejectedValueOnce(new Error('stubborn'))
       .mockResolvedValueOnce({ status: 'ignored', reason: 'fine' });
     const board = connect(supabase);
     await board.processPendingThrows();
     expect(ingestScoliaThrowEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops polling for stored darts once nothing is left to recover, until a failure', async () => {
+    const { supabase } = pending([]);
+    const board = connect(supabase);
+    await board.processPendingThrows();
+    expect(board.recoveryNeeded).toBe(false);
+    const enqueue = vi.spyOn(board, 'enqueue');
+    await board.heartbeat();
+    expect(enqueue).not.toHaveBeenCalled();
+
+    board.enqueue(async () => { throw new Error('scoring failed'); });
+    await vi.waitFor(() => expect(board.recoveryNeeded).toBe(true));
   });
 });
 

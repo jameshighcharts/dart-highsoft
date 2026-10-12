@@ -6,19 +6,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { apiRequest } from "@/lib/apiClient";
 import { isTVModeEnabled, requestTVModeFullscreen } from "@/lib/tvMode";
-import { useScoliaBoardRealtime } from "@/hooks/useScoliaBoardRealtime";
-import {
-  hasFreshScoliaHeartbeat,
-  isScoliaBoardReady,
-} from "@/lib/scolia/availability";
+import { useScoliaBoardRealtime, type RealtimeChannelStatus } from "@/hooks/useScoliaBoardRealtime";
+import { isChannelLive } from "@/lib/scolia/connectionHealth";
+import { expireStaleBoards, mergeBoardStatus } from "@/lib/scolia/boardOptions";
 import {
   getManualScoringPrompt,
   type ManualScoringPrompt,
 } from "@/lib/scolia/manualScoringPrompt";
-import type {
-  ScoliaBoardOption,
-  ScoliaBoardPublicStatus,
-} from "@/lib/scolia/types";
+import type { ScoliaBoardOption } from "@/lib/scolia/types";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -74,33 +69,6 @@ function formatDuration(iso: string): string {
   if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
   return `${hours} h ${minutes % 60} min`;
-}
-function optionFromStatus(
-  status: ScoliaBoardPublicStatus,
-  current?: ScoliaBoardOption,
-): ScoliaBoardOption {
-  const activeMatchId = current?.activeMatchId ?? null;
-  const activeGameSessionId = current?.activeGameSessionId ?? null;
-  const workerConnectionStatus = hasFreshScoliaHeartbeat(status)
-    ? status.workerConnectionStatus
-    : "disconnected";
-  const ready = isScoliaBoardReady({
-    workerConnectionStatus,
-    boardStatus: status.boardStatus,
-    workerHeartbeatAt: status.workerHeartbeatAt,
-  });
-  return {
-    id: status.boardId,
-    name: status.name,
-    isHomeSbc: status.isHomeSbc,
-    workerConnectionStatus,
-    boardStatus: status.boardStatus,
-    workerHeartbeatAt: status.workerHeartbeatAt,
-    activeMatchId,
-    activeGameSessionId,
-    activeGame: current?.activeGame ?? null,
-    selectable: ready && !activeMatchId && !activeGameSessionId,
-  };
 }
 
 function loadEnabledLocations(): LocationValue[] {
@@ -323,39 +291,19 @@ export default function NewMatchPage() {
     storeSetup({ gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, highdartsEnabled });
   }, [setupLoaded, playersLoaded, gameType, gameConfig, selectedIds, startScore, finish, legsToWin, fairEnding, closestToBull, highdartsEnabled]);
 
+  const [boardChannel, setBoardChannel] = useState<RealtimeChannelStatus | undefined>(undefined);
   useScoliaBoardRealtime({
-    onUpsert: (status) =>
-      setBoards((current) => {
-        const existing = current.find((board) => board.id === status.boardId);
-        const next = current.filter((board) => board.id !== status.boardId);
-        next.push(optionFromStatus(status, existing));
-        return next.sort((a, b) => a.name.localeCompare(b.name));
-      }),
+    onUpsert: (status) => setBoards((current) => mergeBoardStatus(current, status)),
     onRemove: (boardId) =>
       setBoards((current) => current.filter((board) => board.id !== boardId)),
     onOccupancyChange: () => void loadBoards(false),
     onReconcile: () => void loadBoards(false),
+    onChannelStatus: setBoardChannel,
   }, !boardsSimulated);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      setBoards((current) => {
-        let changed = false;
-        const next = current.map((board) => {
-          if (
-            board.workerConnectionStatus === "disconnected" ||
-            hasFreshScoliaHeartbeat(board)
-          )
-            return board;
-          changed = true;
-          return {
-            ...board,
-            workerConnectionStatus: "disconnected" as const,
-            selectable: false,
-          };
-        });
-        return changed ? next : current;
-      });
+      setBoards((current) => expireStaleBoards(current));
     }, 1_000);
     return () => window.clearInterval(interval);
   }, []);
@@ -633,6 +581,7 @@ export default function NewMatchPage() {
               value={selectedBoardId}
               onChange={chooseBoard}
               loading={boardsLoading}
+              live={isChannelLive(boardChannel)}
             />
             {boardsError ? (
               <p className="text-xs text-destructive">

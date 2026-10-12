@@ -82,4 +82,30 @@ describe('useScoliaBoardRealtime', () => {
       table: 'scolia_board_public_status',
     }));
   });
+
+  it('filters a single-board subscription server-side and ignores other boards', async () => {
+    const onUpsert = vi.fn();
+    const onRemove = vi.fn();
+    renderHook(() => useScoliaBoardRealtime({ onUpsert, onRemove, onReconcile: vi.fn() }, true, 'board-1'));
+
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledOnce());
+
+    const configs = onMock.mock.calls.map(([, config]) => config as { event: string; filter?: string });
+    expect(configs).toEqual([
+      expect.objectContaining({ event: 'INSERT', filter: 'board_id=eq.board-1' }),
+      expect.objectContaining({ event: 'UPDATE', filter: 'board_id=eq.board-1' }),
+      expect.objectContaining({ event: 'DELETE' }),
+    ]);
+    expect(configs[2].filter).toBeUndefined();
+
+    const update = onMock.mock.calls[1][2] as (payload: { new: unknown }) => void;
+    update({ new: { board_id: 'board-1', name: 'Bergen', worker_connection_status: 'connected' } });
+    expect(onUpsert).toHaveBeenCalledWith(expect.objectContaining({ boardId: 'board-1' }));
+
+    const remove = onMock.mock.calls[2][2] as (payload: { old: unknown }) => void;
+    remove({ old: { board_id: 'board-2' } });
+    expect(onRemove).not.toHaveBeenCalled();
+    remove({ old: { board_id: 'board-1' } });
+    expect(onRemove).toHaveBeenCalledWith('board-1');
+  });
 });

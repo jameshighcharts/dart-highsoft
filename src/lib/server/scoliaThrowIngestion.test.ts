@@ -428,3 +428,56 @@ it('records a bull-off measurement without creating a scoring turn and ignores a
   expect(supabase.opsFor('turns')).toHaveLength(0);
   expect(supabase.opsFor('throws', 'insert')).toHaveLength(0);
 });
+
+describe('ingestScoliaThrowEvent prepared party-game darts', () => {
+  function preparedGame(rows: MockRow[], takeoutSinceLastThrow: boolean | null = null) {
+    return {
+      kind: 'game' as const,
+      sessionId: SESSION_ID,
+      snapshot: {
+        session: cricketSession({ scolia_board_id: BOARD_ID }) as never,
+        players: ORDER.map((player_id, play_order) => ({ player_id, play_order, display_name: player_id })),
+        throws: rows as never,
+      },
+      takeoutSinceLastThrow,
+    };
+  }
+  const atomicReturning = (prepared: ReturnType<typeof preparedGame>) =>
+    ({ ingest: vi.fn(async () => ({ status: 'game', prepared })) }) as never;
+
+  it('scores with a single append that also settles the event', async () => {
+    const rows = scriptCricketRows(ORDER, [[PLAYER_A, 'T20'], [PLAYER_A, 'T19']]);
+    const supabase = createSupabaseMock({}, { append_scolia_game_throw_atomic: appendGameRpc([cricketSession() as never]) });
+
+    const result = await ingestScoliaThrowEvent(supabase as never, throwEvent(), atomicReturning(preparedGame(rows)));
+
+    expect(result).toEqual({ status: 'processed', target: { kind: 'game', id: SESSION_ID }, throwId: 'throw-new' });
+    expect(supabase.rpcFor('append_scolia_game_throw_atomic')[0]!.args).toEqual(expect.objectContaining({
+      p_event_id: EVENT_ID, p_player_id: PLAYER_A, p_turn_index: 0, p_dart_index: 3, p_segment: 'T20', p_impact_x_mm: 10.5,
+    }));
+    expect(supabase.ops).toHaveLength(0);
+  });
+
+  it('marks an inadmissible dart ignored', async () => {
+    const rows = scriptCricketRows(ORDER, [[PLAYER_A, 'T20'], [PLAYER_A, 'T19'], [PLAYER_A, 'T18']]).map((row, index) => ({ ...row, scolia_event_id: 400 + index }));
+    const supabase = createSupabaseMock({ scolia_events: scoliaEventsTable() });
+
+    const result = await ingestScoliaThrowEvent(supabase as never, throwEvent(), atomicReturning(preparedGame(rows, false)));
+
+    expect(result).toEqual({ status: 'ignored', reason: 'Dart detected before the previous round was taken out' });
+    expect(statusUpdate(supabase)).toEqual(expect.objectContaining({ processing_status: 'ignored' }));
+  });
+
+  it('re-reads through the existing path when another dart took the slot', async () => {
+    const rows = scriptCricketRows(ORDER, [[PLAYER_A, 'T20'], [PLAYER_A, 'T19']]);
+    const supabase = gameSupabase(rows, { rpcs: {
+      append_scolia_game_throw_atomic: () => ({ data: null, error: { message: 'stale_game_snapshot', code: '40001' } }),
+    } });
+
+    const result = await ingestScoliaThrowEvent(supabase as never, throwEvent(), atomicReturning(preparedGame(rows)));
+
+    expect(result).toEqual({ status: 'processed', target: { kind: 'game', id: SESSION_ID }, throwId: expect.any(String) });
+    expect(supabase.rpcFor('append_game_throw_atomic')).toHaveLength(1);
+    expect(statusUpdate(supabase)).toEqual(expect.objectContaining({ processing_status: 'processed' }));
+  });
+});

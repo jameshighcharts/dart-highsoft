@@ -1,10 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { incrementRealtimeMetric } from '@/lib/match/realtimeMetrics';
 
-/** Recovery checks are single-flight and never download an unchanged snapshot. */
-export function useSpectatorRecovery({ matchId, enabled, connected, recoveryVersion, refresh, hasSnapshot = true }: {
+/**
+ * Recovery checks are single-flight and never download an unchanged snapshot. Without
+ * `pollWhileConnected`, a connected view is only checked after a rejoin or wake, for views
+ * whose revision changes with every dart (where a periodic check would reload constantly).
+ */
+export function useSpectatorRecovery({ matchId, enabled, connected, recoveryVersion, refresh, hasSnapshot = true,
+  pollWhileConnected = true }: {
   matchId: string; enabled: boolean; connected: boolean; recoveryVersion: number;
-  refresh: () => Promise<void>; hasSnapshot?: boolean;
+  refresh: () => Promise<void>; hasSnapshot?: boolean; pollWhileConnected?: boolean;
 }) {
   const refreshRef = useRef(refresh);
   useEffect(() => { refreshRef.current = refresh; }, [refresh]);
@@ -20,6 +25,7 @@ export function useSpectatorRecovery({ matchId, enabled, connected, recoveryVers
     const available = () => !document.hidden && navigator.onLine;
     const schedule = () => {
       clearTimeout(timer);
+      if (connected && !pollWhileConnected) return;
       if (!disposed && available()) timer = setTimeout(() => void check(), delay);
     };
     const check = async () => {
@@ -66,5 +72,5 @@ export function useSpectatorRecovery({ matchId, enabled, connected, recoveryVers
       window.removeEventListener('online', wake);
       document.removeEventListener('visibilitychange', wake);
     };
-  }, [matchId, enabled, connected, recoveryVersion, hasSnapshot]);
+  }, [matchId, enabled, connected, recoveryVersion, hasSnapshot, pollWhileConnected]);
 }

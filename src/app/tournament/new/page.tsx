@@ -13,7 +13,9 @@ import { ArrowRight, UserPlus, Search, Scale, Trophy, Volume2 } from 'lucide-rea
 import { Switch } from '@/components/ui/switch';
 import { BoardPicker, MANUAL_BOARD_VALUE, loadStoredBoardId, storeBoardId } from '@/components/games/BoardPicker';
 import type { ScoliaBoardOption } from '@/lib/scolia/types';
-import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
+import { expireStaleBoards, mergeBoardStatus } from '@/lib/scolia/boardOptions';
+import { useScoliaBoardRealtime, type RealtimeChannelStatus } from '@/hooks/useScoliaBoardRealtime';
+import { isChannelLive } from '@/lib/scolia/connectionHealth';
 import { requestTVModeFullscreen } from '@/lib/tvMode';
 import { SelectedPlayerLineup } from '@/components/games/SelectedPlayerLineup';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
@@ -90,7 +92,19 @@ export default function NewTournamentPage() {
     }
   }, []);
   useEffect(() => { void loadBoards(); }, [loadBoards]);
-  useScoliaBoardRealtime({ onUpsert: loadBoards, onRemove: loadBoards, onOccupancyChange: loadBoards, onReconcile: loadBoards });
+  const [boardChannel, setBoardChannel] = useState<RealtimeChannelStatus | undefined>(undefined);
+  // Status rows (mostly heartbeats) merge in place; only occupancy changes need the API.
+  useScoliaBoardRealtime({
+    onUpsert: (status) => setBoards((current) => mergeBoardStatus(current, status)),
+    onRemove: (boardId) => setBoards((current) => current.filter((board) => board.id !== boardId)),
+    onOccupancyChange: loadBoards,
+    onReconcile: loadBoards,
+    onChannelStatus: setBoardChannel,
+  });
+  useEffect(() => {
+    const interval = window.setInterval(() => setBoards((current) => expireStaleBoards(current)), 1_000);
+    return () => window.clearInterval(interval);
+  }, []);
   const boardUnavailable = selectedBoardId !== MANUAL_BOARD_VALUE
     && (boardsLoading || Boolean(boardsError) || !boards.some((board) => board.id === selectedBoardId && board.selectable));
 
@@ -205,7 +219,7 @@ export default function NewTournamentPage() {
           </div>
           <div className="space-y-2">
             <div className="text-sm font-semibold">Board</div>
-            <BoardPicker boards={boards} value={selectedBoardId} loading={boardsLoading} onChange={(boardId) => { setSelectedBoardId(boardId); storeBoardId(boardId); }} />
+            <BoardPicker boards={boards} value={selectedBoardId} loading={boardsLoading} live={isChannelLive(boardChannel)} onChange={(boardId) => { setSelectedBoardId(boardId); storeBoardId(boardId); }} />
             <p className="text-xs leading-relaxed text-slate-400">The board is assigned when you open a match from the bracket. Finish that match before opening the next one.</p>
             {boardsError && <p role="alert" className="text-xs text-amber-400">{boardsError}</p>}
             {boardUnavailable && !boardsLoading && <p className="text-xs text-amber-400">Choose a ready board or Manual to continue.</p>}

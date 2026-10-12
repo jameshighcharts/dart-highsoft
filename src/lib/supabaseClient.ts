@@ -1,4 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { installRealtimeWakeProbe } from '@/lib/realtimeWakeProbe';
+
+export const REALTIME_HEARTBEAT_INTERVAL_MS = 10_000;
 
 let cachedClient: SupabaseClient | null = null;
 
@@ -19,6 +22,10 @@ export async function getSupabaseClient(): Promise<SupabaseClient> {
       storageKey: 'dart-scoreboard-auth',
       autoRefreshToken: true,
     },
+    // A dead socket is only noticed when a heartbeat goes unanswered; the 25s default means up
+    // to 50s of silently missed darts before realtime-js reconnects and the views reconcile.
+    realtime: { heartbeatIntervalMs: REALTIME_HEARTBEAT_INTERVAL_MS },
   });
+  if (typeof window !== 'undefined') installRealtimeWakeProbe(cachedClient.realtime);
   return cachedClient;
 }

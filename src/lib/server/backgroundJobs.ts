@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { publishHighdartsResult } from '../highdarts/slackResult';
 import { finalizeSlackDartPollById } from '@/lib/slack/dartPollService';
 import { runDartIQCalibration, runDartIQTraining } from './dartiqCalibration';
+import { parseScoliaHealthAlertPayload, publishScoliaHealthAlert } from './scoliaHealthAlert';
 import {
   persistDartIQCompletedLeg,
   persistDartIQLiveReplay,
@@ -100,6 +101,12 @@ async function runJob(
     case 'highdarts_result':
       await publishHighdartsResult(supabase, requiredPayloadId(job.payload, 'fixtureId', job.job_type), appOrigin);
       return;
+    case 'scolia_health_alert': {
+      const payload = parseScoliaHealthAlertPayload(job.payload);
+      if (!payload) throw new PermanentJobError('scolia_health_alert payload is invalid');
+      await publishScoliaHealthAlert(payload);
+      return;
+    }
     case 'slack_dart_poll':
       await finalizeSlackDartPollById({
         supabase,

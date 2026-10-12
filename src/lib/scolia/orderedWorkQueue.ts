@@ -87,18 +87,26 @@ export class OrderedWorkQueue {
   private stopped = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private attempts = 0;
+  private failingSince: number | null = null;
   private readonly onError: (error: unknown) => void;
   private readonly retryMs: number;
   private readonly maxAttempts: number;
+  private readonly retryFor: (error: unknown) => number;
 
+  /**
+   * `retryFor` lets an error outlast `maxAttempts`: the head keeps retrying until that many
+   * milliseconds after it first failed. An outage then delays work instead of discarding it.
+   */
   constructor(
     onError: (error: unknown) => void,
     retryMs = 1_000,
     maxAttempts = Infinity,
+    retryFor: (error: unknown) => number = () => 0,
   ) {
     this.onError = onError;
     this.retryMs = retryMs;
     this.maxAttempts = maxAttempts;
+    this.retryFor = retryFor;
   }
 
   get idle() { return !this.running && this.pending.length === 0; }
@@ -125,11 +133,15 @@ export class OrderedWorkQueue {
           await this.pending[0]();
           this.pending.shift();
           this.attempts = 0;
+          this.failingSince = null;
         } catch (error) {
           this.onError(error);
-          if (++this.attempts >= this.maxAttempts) {
+          this.failingSince ??= Date.now();
+          const outlasting = Date.now() - this.failingSince < this.retryFor(error);
+          if (++this.attempts >= this.maxAttempts && !outlasting) {
             this.pending.shift();
             this.attempts = 0;
+            this.failingSince = null;
             continue;
           }
           if (!this.stopped) {

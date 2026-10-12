@@ -31,10 +31,16 @@ export function ScoliaTakeoutRecovery({ matchId, boardId, matchCreatedAt, matchS
   }, [boardId]);
   useEffect(() => { void load(); }, [load]);
   useScoliaBoardRealtime({
-    onUpsert: next => { if (next.boardId === boardId) setStatus({ phase: next.boardPhase, changedAt: next.boardPhaseChangedAt ?? null }); },
+    onUpsert: next => {
+      if (next.boardId !== boardId) return;
+      const changedAt = next.boardPhaseChangedAt ?? null;
+      // Heartbeats arrive every few seconds; only a phase change needs a render.
+      setStatus(current => current.phase === next.boardPhase && current.changedAt === changedAt
+        ? current : { phase: next.boardPhase, changedAt });
+    },
     onRemove: id => { if (id === boardId) setStatus({ phase: null, changedAt: null }); },
     onReconcile: () => { void load(); },
-  });
+  }, true, boardId);
 
   // Each takeout gets its own clock, measured from when this screen saw it start.
   const takeoutKey = status.phase === 'Takeout' ? status.changedAt ?? 'takeout' : null;

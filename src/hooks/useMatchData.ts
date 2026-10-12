@@ -25,7 +25,7 @@ type UseMatchDataResult = {
   setTurnThrowCounts: (value: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => void;
   spectatorLoading: boolean;
   setSpectatorLoading: (value: boolean) => void;
-  loadAll: () => Promise<void>;
+  loadAll: (options?: { silent?: boolean }) => Promise<void>;
   loadAllSpectator: (throwOnError?: boolean) => Promise<void>;
   loadMatchOnly: () => Promise<MatchRecord | null>;
   loadLegsOnly: () => Promise<LegRecord[]>;
@@ -87,16 +87,22 @@ export function useMatchData(matchId: string): UseMatchDataResult {
   }, [matchId]);
 
 
-  const loadAll = useCallback(async () => {
+  /** `silent` refreshes in the background: no loading screen, and failures throw instead of replacing the view. */
+  const loadAll = useCallback(async (options: { silent?: boolean } = {}) => {
     const requestId = ++loadAllRequestIdRef.current;
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    setLoading(true);
-    setError(null);
+    if (!options.silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const { result, epoch } = await readSnapshot({ includeTurnsByLegSummary: true });
       if (epoch !== liveEpochRef.current) throw new Error('Match changed before snapshot application');
 
-      if (requestId !== loadAllRequestIdRef.current) return;
+      if (requestId !== loadAllRequestIdRef.current) {
+        if (options.silent) throw new Error('Match refresh was superseded');
+        return;
+      }
 
       setMatch(result.match);
       setPlayers(result.players);
@@ -105,6 +111,7 @@ export function useMatchData(matchId: string): UseMatchDataResult {
       setTurnThrowCounts(result.turnThrowCounts);
       setTurnsByLeg(result.turnsByLeg);
     } catch (e) {
+      if (options.silent) throw e;
       if (requestId !== loadAllRequestIdRef.current) return;
       const msg = e instanceof Error ? e.message : 'Unknown error';
       setError(msg);

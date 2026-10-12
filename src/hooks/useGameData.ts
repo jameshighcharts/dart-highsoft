@@ -1,9 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 
 import { getSupabaseClient } from '@/lib/supabaseClient';
+import { ResilientChannel } from '@/lib/scolia/resilientChannel';
 import type { GameMode, GameSessionStatus, GameThrowInput } from '@/lib/games/types';
 
 // Client-side mirrors of the server row types (src/lib/server/*), kept local so
@@ -140,10 +140,11 @@ export function useGameData(gameId: string) {
   }, [refetch]);
 
   // Realtime: any change to this session's throws or the session row triggers a debounced refetch.
+  // The channel is rebuilt if it dies, and every (re)subscribe refetches whatever was missed.
+  const [live, setLive] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    let supabase: SupabaseClient | null = null;
-    let channel: RealtimeChannel | null = null;
+    let channel: ResilientChannel | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const scheduleRefetch = () => {
@@ -153,12 +154,16 @@ export function useGameData(gameId: string) {
         if (!cancelled) void refetch();
       }, REFETCH_DEBOUNCE_MS);
     };
+    const wake = () => {
+      if (document.visibilityState === 'visible') scheduleRefetch();
+    };
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', wake);
 
     void (async () => {
-      supabase = await getSupabaseClient();
+      const supabase = await getSupabaseClient();
       if (cancelled) return;
-      channel = supabase
-        .channel(`game_${gameId}`)
+      channel = new ResilientChannel(supabase, `game_${gameId}`, (base) => base
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'game_throws', filter: `session_id=eq.${gameId}` },
@@ -168,14 +173,20 @@ export function useGameData(gameId: string) {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'game_sessions', filter: `id=eq.${gameId}` },
           scheduleRefetch
-        )
-        .subscribe();
+        ), (status) => {
+        if (cancelled) return;
+        setLive(status === 'SUBSCRIBED');
+        if (status === 'SUBSCRIBED') scheduleRefetch();
+      });
+      channel.start();
     })();
 
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
-      if (supabase && channel) void supabase.removeChannel(channel);
+      window.removeEventListener('online', wake);
+      document.removeEventListener('visibilitychange', wake);
+      void channel?.stop();
     };
   }, [gameId, refetch]);
 
@@ -184,5 +195,5 @@ export function useGameData(gameId: string) {
     [players]
   );
 
-  return { session, players, orderedPlayerIds, throws, loading, error, refetch, setThrows };
+  return { session, players, orderedPlayerIds, throws, loading, error, refetch, setThrows, live };
 }

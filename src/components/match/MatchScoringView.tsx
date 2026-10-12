@@ -1,4 +1,6 @@
 import { RealtimeConnectionError } from './RealtimeConnectionError';
+import { LiveUpdatesPill, ScoliaBoardConnection } from '@/components/scolia/ScoliaConnectionIndicator';
+import type { LiveConnectionState } from '@/hooks/useRealtime';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,6 +34,9 @@ import { Pause, Play, RotateCcw } from 'lucide-react';
 
 type Props = {
   realtimeConnectionStatus: string;
+  /** Precise state of this client's live match channel, when available. */
+  liveState?: LiveConnectionState;
+  liveStateSince?: number;
   realtimeConnectionError?: string | null;
   currentPlayer: Player | null;
   getScoreForPlayer: (playerId: string) => number;
@@ -90,6 +95,8 @@ type Props = {
 
 export function MatchScoringView({
   realtimeConnectionStatus,
+  liveState,
+  liveStateSince,
   realtimeConnectionError,
   currentPlayer,
   getScoreForPlayer,
@@ -191,28 +198,7 @@ export function MatchScoringView({
       {/* Connection status indicator */}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
         <RealtimeConnectionError message={realtimeConnectionError} connected={realtimeConnectionStatus === 'connected'} />
-        <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 dark:bg-gray-800/90 shadow-sm text-xs">
-          <div
-            className={`w-2 h-2 rounded-full ${
-              realtimeConnectionStatus === 'connected'
-                ? 'bg-green-500'
-                : realtimeConnectionStatus === 'connecting'
-                ? 'bg-yellow-500 animate-pulse'
-                : realtimeConnectionStatus === 'error'
-                ? 'bg-red-500'
-                : 'bg-gray-500'
-            }`}
-          />
-          <span className="font-medium">
-            {realtimeConnectionStatus === 'connected'
-              ? 'Live'
-              : realtimeConnectionStatus === 'connecting'
-              ? 'Connecting...'
-              : realtimeConnectionStatus === 'error'
-              ? 'Error'
-              : 'Offline'}
-          </span>
-        </div>
+        <LiveUpdatesPill state={realtimeConnectionStatus} liveState={liveState} since={liveStateSince} className="shadow-sm" />
       </div>
       <MatchRulesLine finishRule={finishRule} fairEnding={match.fair_ending} />
       {isPaused && (
@@ -338,9 +324,10 @@ export function MatchScoringView({
             })()}
           </div>
           )}
+          {match.scolia_board_id ? <ScoliaBoardConnection boardId={match.scolia_board_id} /> : null}
           {isScoliaMatch ? (
             <div className="rounded-xl border border-emerald-500/40 bg-emerald-50 px-4 py-5 text-center dark:bg-emerald-950/30 md:hidden">
-              <div className="font-semibold text-emerald-900 dark:text-emerald-100">Scolia scoring active</div>
+              <div className="font-semibold text-emerald-900 dark:text-emerald-100">Scolia scoring</div>
               <p className="mt-1 text-sm text-emerald-800/80 dark:text-emerald-200/80">
                 Throw at the physical board. Detected darts appear here automatically.
               </p>
@@ -357,7 +344,7 @@ export function MatchScoringView({
               {isScoliaMatch ? (
                 <div className="flex min-h-[460px] w-full max-w-2xl items-center justify-center rounded-2xl border border-emerald-500/40 bg-emerald-50 p-8 text-center dark:bg-emerald-950/30">
                   <div>
-                    <div className="text-xl font-semibold text-emerald-900 dark:text-emerald-100">Scolia scoring active</div>
+                    <div className="text-xl font-semibold text-emerald-900 dark:text-emerald-100">Scolia scoring</div>
                     <p className="mt-2 text-sm text-emerald-800/80 dark:text-emerald-200/80">
                       Throw at the physical board. Detected darts appear here automatically.
                     </p>

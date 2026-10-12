@@ -20,14 +20,15 @@ import { LiveScoliaBoard } from '@/components/match/LiveScoliaBoard';
 import { WorkerDartIQLive } from '@/components/match/DartIQLive';
 import { ScoliaMatchHeatmaps } from '@/components/match/ScoliaMatchHeatmaps';
 import type { MatchEloChange } from '@/hooks/useMatchEloChanges';
-import { useScoliaBoardRealtime } from '@/hooks/useScoliaBoardRealtime';
+import { LiveUpdatesPill, ScoliaBoardConnection } from '@/components/scolia/ScoliaConnectionIndicator';
+import type { LiveConnectionState } from '@/hooks/useRealtime';
+import type { ScoliaBoardPublicStatus } from '@/lib/scolia/types';
 import type {
   CommentaryPersona,
   CommentaryPersonaId,
   CommentaryTranscriptEntry,
 } from '@/lib/commentary/types';
 import type { LegRecord, MatchRecord, Player, TurnRecord, TurnWithThrows } from '@/lib/match/types';
-import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { VoiceOption } from '@/services/ttsService';
 import type { FinishRule } from '@/utils/x01';
 import type { FairEndingState } from '@/utils/fairEnding';
@@ -57,6 +58,9 @@ type Props = {
   rematchOpen?: boolean;
   celebration: CelebrationState;
   realtimeConnectionStatus: string;
+  /** Precise state of this client's live match channel, when available. */
+  liveState?: LiveConnectionState;
+  liveStateSince?: number;
   realtimeConnectionError?: string | null;
   realtimeIsConnected: boolean;
   spectatorLoading: boolean;
@@ -168,6 +172,8 @@ export function MatchSpectatorView({
   rematchOpen = false,
   celebration,
   realtimeConnectionStatus,
+  liveState,
+  liveStateSince,
   realtimeConnectionError,
   realtimeIsConnected,
   spectatorLoading,
@@ -270,30 +276,9 @@ export function MatchSpectatorView({
     turnsByLeg,
   ]);
 
-  const loadScoliaBoardPhase = useCallback(async () => {
-    if (!scoliaBoardId || isHistoryView) return;
-    const supabase = await getSupabaseClient();
-    const { data } = await supabase
-      .from('scolia_board_public_status')
-      .select('board_phase')
-      .eq('board_id', scoliaBoardId)
-      .maybeSingle();
-    if (data) setScoliaBoardPhase(data.board_phase as string | null);
-  }, [isHistoryView, scoliaBoardId]);
-
-  useEffect(() => {
-    void loadScoliaBoardPhase();
-  }, [loadScoliaBoardPhase]);
-
-  useScoliaBoardRealtime({
-    onUpsert: (status) => {
-      if (status.boardId === scoliaBoardId) setScoliaBoardPhase(status.boardPhase);
-    },
-    onRemove: (boardId) => {
-      if (boardId === scoliaBoardId) setScoliaBoardPhase(undefined);
-    },
-    onReconcile: () => void loadScoliaBoardPhase(),
-  }, Boolean(scoliaBoardId) && !isHistoryView);
+  const followBoardPhase = useCallback((status: ScoliaBoardPublicStatus | null) => {
+    setScoliaBoardPhase(status ? status.boardPhase : undefined);
+  }, []);
 
   useEffect(() => {
     setWinnerModalOpen(Boolean(matchWinnerId) && !isHistoryView);
@@ -482,29 +467,10 @@ export function MatchSpectatorView({
         {/* Connection status and refresh indicator */}
         {(!isHistoryView || realtimeConnectionError) ? <div className="fixed bottom-4 right-4 z-50 flex flex-wrap items-center justify-end gap-2 max-w-[calc(100vw-2rem)]">
           <RealtimeConnectionError message={realtimeConnectionError} connected={realtimeConnectionStatus === 'connected'} />
-          {/* Real-time connection status */}
-          <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 dark:bg-gray-800/90 shadow-sm text-xs">
-            <div
-              className={`w-2 h-2 rounded-full ${
-                realtimeConnectionStatus === 'connected'
-                  ? 'bg-green-500'
-                  : realtimeConnectionStatus === 'connecting'
-                  ? 'bg-yellow-500 animate-pulse'
-                  : realtimeConnectionStatus === 'error'
-                  ? 'bg-red-500'
-                  : 'bg-gray-500'
-              }`}
-            />
-            <span className="font-medium">
-              {realtimeConnectionStatus === 'connected'
-                ? 'Live'
-                : realtimeConnectionStatus === 'connecting'
-                ? 'Connecting...'
-                : realtimeConnectionStatus === 'error'
-                ? 'Error'
-                : 'Offline'}
-            </span>
-          </div>
+          {scoliaBoardId && !isHistoryView ? (
+            <ScoliaBoardConnection boardId={scoliaBoardId} compact className="shadow-sm" onStatusChange={followBoardPhase} />
+          ) : null}
+          <LiveUpdatesPill state={realtimeConnectionStatus} liveState={liveState} since={liveStateSince} className="shadow-sm" />
 
           {/* Loading indicator for fallback polling */}
           {spectatorLoading && !realtimeIsConnected && (

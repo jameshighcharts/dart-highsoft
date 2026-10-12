@@ -328,7 +328,68 @@ office volume, which is expected rather than a worker failure.
 Deploy between matches when possible. The new worker retries failed scoring
 events in order; commentary delivery runs on a separate queue so provider delays
 do not hold up the next dart. Persisted pending darts are recovered on reconnect
-and while the worker is idle.
+and after any failed event.
+
+### Connectivity and recovery
+
+The worker is built to recover on its own; a manual restart should never be needed.
+
+- Each board socket is pinged every 10s and probed with `GET_SBC_STATUS` after 15s
+  of silence. A dead socket is terminated and reconnected within about 15-27s.
+- A board held by another connection (close code 4101, usually the previous worker
+  during a deploy) retries after 2s, 5s, 10s, then every 30s.
+- Darts that cannot be saved because Supabase is unreachable keep retrying in order
+  for up to 5 minutes instead of being dropped. Worker database requests time out
+  after 30s; per-dart database functions give up on lock waits after 5s.
+- The Realtime notification channel is rebuilt whenever it closes or stays
+  unsubscribed for 30s. Command and commentary polls (every 30s) are the fallback.
+- If a board cannot reach Scolia for 10 minutes (except an invalid serial or token,
+  which a restart cannot fix), the worker exits and Railway restarts it
+  (`restartPolicyType: ALWAYS` in `railway.json`). Shutdown always completes
+  within 10 seconds.
+- The OpenAI sideband is pinged every 15s; a commentary analysis task gives up after
+  20s and the analysis thread is restarted only when it stops answering.
+
+Browsers notice a dead Realtime socket within 10-20s (10s heartbeat), re-check on
+tab wake/focus/online, and reconcile missed darts after resubscribing. Match,
+spectator, party-game, board-picker and boards pages show the board and live-update
+connection state explicitly.
+
+### Board health alerts
+
+Migration `20261012130000_scolia_health_alerts.sql` runs a pg_cron check every
+minute. An enabled board whose worker heartbeat is older than 2 minutes (worker
+down) or that has not been connected for 2 minutes raises one alert per incident,
+and one recovery notice after a minute of stable health. Alerts are posted to Slack
+through the existing background job dispatcher (Vault `background_jobs_app_url` and
+`background_jobs_secret`, app `BACKGROUND_JOB_SECRET`):
+
+```env
+SLACK_BOT_TOKEN=...               # existing bot; invite it to the alert channel
+SCOLIA_ALERT_SLACK_CHANNEL=C0123   # Slack channel ID; unset disables alerts
+```
+
+Without `SCOLIA_ALERT_SLACK_CHANNEL` the alert job completes as a logged no-op.
+
+### Scolia hardening migration and retention
+
+`20261012120000_scolia_hardening.sql` can be applied before or after the app and
+worker deploy: a new worker falls back to the previous RPCs on an old database, and
+an old worker keeps its previous behaviour on the new database. Once both are
+live, party-game darts take two database round trips instead of six to nine.
+
+It also schedules an hourly `prune-scolia-history` pg_cron job that deletes settled
+Scolia events older than 30 days (keeping events referenced by a dart and each
+board's latest takeout), finished commands and commentary deliveries older than
+7 days, and closes commentary sessions with no heartbeat for an hour. The first
+runs work through any backlog at up to 100k events per hour.
+
+After the new worker is deployed (it no longer subscribes to deliveries), remove
+the table from Realtime:
+
+```sql
+alter publication supabase_realtime drop table public.commentary_realtime_deliveries;
+```
 
 Apply `20260909150000_compact_scolia_selection.sql`,
 `20260909160000_atomic_scolia_scoring.sql`,

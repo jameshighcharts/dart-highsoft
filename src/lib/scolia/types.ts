@@ -4,6 +4,7 @@ export type ScoliaBoard = {
   serialNumber: string;
   isHomeSbc: boolean;
   workerConnectionStatus?: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+  workerConnectionChangedAt?: string | null;
   boardStatus?: string | null;
   boardPhase?: string | null;
   errorType?: string | null;
@@ -62,6 +63,8 @@ export type ScoliaBoardPublicStatus = {
   name: string;
   isHomeSbc: boolean;
   workerConnectionStatus: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+  /** When the worker's Scolia connection last changed state. */
+  workerConnectionChangedAt?: string | null;
   boardStatus: string | null;
   boardPhase: string | null;
   boardPhaseChangedAt?: string | null;

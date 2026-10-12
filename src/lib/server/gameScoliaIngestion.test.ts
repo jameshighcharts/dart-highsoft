@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ingestGameThrow } from './gameScoliaIngestion.ts';
+import { ingestGameThrow, ingestPreparedGameThrow, type PreparedScoliaGame } from './gameScoliaIngestion.ts';
 import { createSupabaseMock, type MockRow } from '@/test-utils/gameSupabaseMock';
 
 const SESSION_ID = '00000000-0000-4000-8000-0000000000e1';
@@ -133,5 +133,74 @@ describe('ingestGameThrow takeout boundaries', () => {
       { kind: 'gt', column: 'id', value: 12 },
       { kind: 'lt', column: 'id', value: 99 },
     ]));
+  });
+});
+
+describe('ingestPreparedGameThrow', () => {
+  function prepared(takeoutSinceLastThrow: boolean | null): PreparedScoliaGame {
+    return {
+      kind: 'game',
+      sessionId: SESSION_ID,
+      snapshot: {
+        session: {
+          id: SESSION_ID,
+          mode: 'killer',
+          config: {
+            lives: 1, killerRequirement: 'any', hitToKill: 'any', selfHitPenalty: true, assignment: 'choose',
+            assignedNumbers: { [PLAYER_A]: 1, [PLAYER_B]: 2, [PLAYER_C]: 3 },
+          },
+          status: 'active',
+          winner_player_id: null,
+          scolia_board_id: BOARD_ID,
+          created_at: '2026-09-02T10:00:00.000Z',
+          completed_at: null,
+        } as never,
+        players: [PLAYER_A, PLAYER_B, PLAYER_C].map((player_id, play_order) => ({
+          player_id, play_order, display_name: `Player ${play_order + 1}`,
+        })),
+        throws: [throwRow('throw-1', 1), throwRow('throw-2', 2)] as never,
+      },
+      takeoutSinceLastThrow,
+    };
+  }
+
+  function client(rpc: (args: Record<string, unknown>) => { data: unknown; error: { message: string; code?: string } | null }) {
+    // The fast path must not read any table: everything arrived with the persisted event.
+    return createSupabaseMock({}, { append_scolia_game_throw_atomic: rpc });
+  }
+
+  it('appends and settles the event in one call without reading tables', async () => {
+    const supabase = client((args) => ({ data: [{ ...throwRow('throw-3', 1), id: 'throw-3', player_id: args.p_player_id }], error: null }));
+    const result = await ingestPreparedGameThrow(supabase as never, 99, prepared(true), { segment: 'T20', scored: 60 });
+    expect(result).toEqual({ status: 'processed', throwId: 'throw-3' });
+    expect(supabase.rpcFor('append_scolia_game_throw_atomic')[0]!.args).toEqual(expect.objectContaining({
+      p_event_id: 99, p_player_id: PLAYER_B, p_turn_index: 1, p_dart_index: 1,
+    }));
+    expect(supabase.ops).toHaveLength(0);
+  });
+
+  it('keeps the takeout-before-next-round rule', async () => {
+    const supabase = client(() => { throw new Error('must not append'); });
+    const result = await ingestPreparedGameThrow(supabase as never, 99, prepared(false), { segment: 'T20', scored: 60 });
+    expect(result).toEqual({ status: 'ignored', reason: 'Dart detected before the previous round was taken out' });
+  });
+
+  it('admits the dart when the previous dart has no Scolia event to compare with', async () => {
+    const supabase = client(() => ({ data: [{ ...throwRow('throw-3', 1), id: 'throw-3' }], error: null }));
+    const result = await ingestPreparedGameThrow(supabase as never, 99, prepared(null), { segment: 'T20', scored: 60 });
+    expect(result).toEqual({ status: 'processed', throwId: 'throw-3' });
+  });
+
+  it('hands a taken slot back to the re-reading path', async () => {
+    const supabase = client(() => ({ data: null, error: { message: 'stale_game_snapshot', code: '40001' } }));
+    expect(await ingestPreparedGameThrow(supabase as never, 99, prepared(true), { segment: 'T20', scored: 60 })).toBeNull();
+  });
+
+  it('ignores a dart for a game that is no longer active', async () => {
+    const game = prepared(true);
+    game.snapshot.session = null;
+    const supabase = client(() => { throw new Error('must not append'); });
+    expect(await ingestPreparedGameThrow(supabase as never, 99, game, { segment: 'T20', scored: 60 }))
+      .toEqual({ status: 'ignored', reason: 'The assigned game is no longer active' });
   });
 });

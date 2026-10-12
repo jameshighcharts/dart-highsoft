@@ -98,7 +98,10 @@ describe('Scolia protocol helpers', () => {
   });
 
   it('backs off longer for duplicate and invalid credentials', () => {
-    expect(reconnectDelayMs(4101, 0, () => 0)).toBe(30_000);
+    expect(reconnectDelayMs(4101, 0, () => 0)).toBe(2_000);
+    expect(reconnectDelayMs(4101, 1, () => 0)).toBe(5_000);
+    expect(reconnectDelayMs(4101, 3, () => 0)).toBe(30_000);
+    expect(reconnectDelayMs(4101, 20, () => 0)).toBe(30_000);
     expect(reconnectDelayMs(4102, 0, () => 0)).toBe(300_000);
     expect(reconnectDelayMs(1006, 0, () => 0)).toBe(1_000);
     expect(reconnectDelayMs(1006, 10, () => 0)).toBe(30_000);

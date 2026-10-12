@@ -91,6 +91,13 @@ const ACTIVE_HEARTBEAT_WINDOW_MS = 45_000;
 const SESSION_LIFETIME_MS = 55 * 60_000;
 const MAX_DELIVERY_ATTEMPTS = 3;
 const OPENING_GRACE_MS = 15_000;
+// The provider socket can go half-open; a missing pong is the only way to notice before deliveries vanish into it.
+const SIDEBAND_PING_INTERVAL_MS = 15_000;
+const SIDEBAND_PONG_TIMEOUT_MS = 10_000;
+// Pending rows younger than this may still be on their way to a listener that only just closed.
+const ABANDONED_DELIVERY_GRACE_MS = 60_000;
+// A gap this long between listener notifications means it may have dropped out of the active set.
+const LISTENER_NOTIFICATION_GAP_MS = 30_000;
 const SESSION_COLUMNS = 'last_seen_at, created_at, id, match_id, openai_call_id, persona_id, voice, epoch, last_correction_id, last_correction_reason, opening_call_claimed_at';
 
 function realtimeEventId(prefix: string, id: string) {
@@ -112,6 +119,7 @@ export class ScoliaRealtimeCommentaryPublisher {
   private controlEventSequence = 0;
   private readonly matchWork = new Map<string, Promise<void>>();
   private readonly listenerVersions = new Map<string, string>();
+  private readonly listenerSignatures = new Map<string, { signature: string; seenAt: number }>();
   private readonly correctionTimes = new Map<string, number>();
   private readonly usedAcceptedFacts = new WeakSet<AcceptedScoliaDart>();
   private readonly listeners = new RealtimeSessionCache();
@@ -157,7 +165,9 @@ export class ScoliaRealtimeCommentaryPublisher {
       this.analyzeEvent(matchId, throwId, accepted),
       Promise.all(sessions.map(async session => {
         const delivery = await this.ensureDelivery(session.id, throwId);
-        if (delivery.status === 'pending') await this.connection(session);
+        // Connect alongside analysis without waiting: one unreachable listener must not hold up the
+        // others. deliver() awaits the same attempt and records a failure against that listener alone.
+        if (delivery.status === 'pending') void this.connection(session).catch(() => {});
         return [session.id, delivery] as const;
       })),
     ]);
@@ -168,11 +178,14 @@ export class ScoliaRealtimeCommentaryPublisher {
       this.observeEpochs(matchId, currentSessions);
       event = await this.analyzeEvent(matchId, throwId);
     }
-    await Promise.all(currentSessions.map(async (session) => {
+    const results = await Promise.allSettled(currentSessions.map(async (session) => {
       const delivery = deliveryBySession.get(session.id) ?? await this.ensureDelivery(session.id, throwId);
       if (delivery.status === 'sent' || delivery.status === 'failed') return;
       await this.deliver(session, event, delivery, isCurrent);
     }));
+    // Every listener got its turn; a storage failure still surfaces so the dart is retried.
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure) throw failure.reason;
   }
 
   /** Announces the next visit only when Scolia confirms the board is physically clear. */
@@ -184,7 +197,7 @@ export class ScoliaRealtimeCommentaryPublisher {
     if (!this.apiKey) return 0;
     const sessions = await this.activeSessions(matchId);
     this.observeEpochs(matchId, sessions);
-    const announced = await Promise.all(sessions.map(async (session) => {
+    const announced = await Promise.allSettled(sessions.map(async (session) => {
       const connection = await this.connection(session);
       const handoff = connection.pendingTakeoutHandoff;
       if (!handoff || isCurrent?.() === false) return false;
@@ -231,7 +244,13 @@ export class ScoliaRealtimeCommentaryPublisher {
       });
       return true;
     }));
-    return announced.filter(Boolean).length;
+    // A takeout is only worth announcing now, so a listener that cannot be reached is skipped, not retried.
+    for (const result of announced) {
+      if (result.status === 'rejected') {
+        console.warn('[commentary] Takeout skipped for one listener:', result.reason instanceof Error ? result.reason.message : 'unknown error');
+      }
+    }
+    return announced.filter((result) => result.status === 'fulfilled' && result.value).length;
   }
 
   private async publishIdleCall(
@@ -271,14 +290,18 @@ export class ScoliaRealtimeCommentaryPublisher {
     if (sessionIds?.length === 0) return;
     this.flushingPending = true;
     try {
-      let query = this.supabase
+      const sessions = await this.loadActiveSessions(sessionIds);
+      const activeIds = sessions.map((session) => session.id);
+      await this.failAbandonedDeliveries(sessionIds, activeIds);
+      if (activeIds.length === 0) return;
+      // Only live listeners' rows: abandoned ones must never crowd them out of the batch.
+      const { data, error } = await this.supabase
         .from('commentary_realtime_deliveries')
         .select('session_id, throw_id, status, attempts')
         .eq('status', 'pending')
+        .in('session_id', activeIds)
         .order('created_at', { ascending: true })
         .limit(50);
-      if (sessionIds) query = query.in('session_id', [...sessionIds]);
-      const [sessions, { data, error }] = await Promise.all([this.loadActiveSessions(sessionIds), query]);
       if (error) throw new Error(error.message);
       const sessionById = new Map(sessions.map((session) => [session.id, session]));
       const groups = new Map<string, { sessions: ActiveRealtimeCommentarySession[]; deliveries: DeliveryRow[] }>();
@@ -294,10 +317,16 @@ export class ScoliaRealtimeCommentaryPublisher {
       await runBoundedWork([...groups], 4, async ([matchId, group]) => {
         await this.serialize(matchId, async () => {
           this.observeEpochs(matchId, group.sessions);
-          await Promise.allSettled(group.sessions.map((session) => this.connection(session)));
+          const opened = await Promise.allSettled(group.sessions.map((session) => this.connection(session)));
+          const unreachable = new Map<string, unknown>();
+          opened.forEach((result, index) => {
+            if (result.status === 'rejected') unreachable.set(group.sessions[index].id, result.reason);
+          });
           for (const delivery of group.deliveries) {
             const session = sessionById.get(delivery.session_id)!;
             try {
+              // A listener that just failed to connect is not retried once per backlog row.
+              if (unreachable.has(session.id)) throw unreachable.get(session.id);
               const currentDelivery = await this.ensureDelivery(session.id, delivery.throw_id);
               if (currentDelivery.status !== 'pending') continue;
               const event = await this.analyzeEvent(matchId, delivery.throw_id);
@@ -314,6 +343,21 @@ export class ScoliaRealtimeCommentaryPublisher {
     }
   }
 
+  /** Rows of listeners that went away would otherwise stay pending forever. */
+  private async failAbandonedDeliveries(sessionIds: readonly string[] | undefined, activeIds: string[]) {
+    const ended = sessionIds?.filter((id) => !activeIds.includes(id));
+    if (ended?.length === 0) return;
+    let query = this.supabase
+      .from('commentary_realtime_deliveries')
+      .update({ status: 'failed', last_error: 'Realtime listener ended before delivery' })
+      .eq('status', 'pending')
+      .lt('created_at', new Date(Date.now() - ABANDONED_DELIVERY_GRACE_MS).toISOString());
+    if (ended) query = query.in('session_id', ended);
+    else if (activeIds.length > 0) query = query.not('session_id', 'in', `(${activeIds.join(',')})`);
+    const { error } = await query;
+    if (error) console.warn('[commentary] Could not retire abandoned deliveries:', error.message);
+  }
+
   close() {
     for (const connection of this.connections.values()) {
       connection.responseQueue.reset();
@@ -325,6 +369,7 @@ export class ScoliaRealtimeCommentaryPublisher {
     this.dartIQCache.clear();
     this.listeners.invalidate();
     this.listenerVersions.clear();
+    this.listenerSignatures.clear();
     this.correctionTimes.clear();
     this.analysis?.close();
     this.matchEpochs.clear();
@@ -346,9 +391,25 @@ export class ScoliaRealtimeCommentaryPublisher {
 
   listenerChanged(row: Record<string, unknown>, deleted = false) {
     const matchId = typeof row.match_id === 'string' ? row.match_id : undefined;
-    this.listeners.invalidate(matchId);
-    if (typeof row.id !== 'string') return;
+    if (typeof row.id !== 'string') {
+      this.listeners.invalidate(matchId);
+      return;
+    }
     const session = row as Partial<ActiveRealtimeCommentarySession> & { status?: string };
+    // Listener heartbeats only move last_seen_at; they leave cached listeners valid unless the
+    // listener went quiet long enough to have dropped out of the active set in between.
+    const now = Date.now();
+    const signature = deleted ? 'deleted' : JSON.stringify([
+      this.listenerVersion(session), row.match_id, row.opening_call_claimed_at ?? null,
+      row.last_correction_id ?? null, row.last_correction_reason ?? null,
+    ]);
+    const seen = this.listenerSignatures.get(row.id);
+    if (!seen || seen.signature !== signature || now - seen.seenAt > LISTENER_NOTIFICATION_GAP_MS) {
+      this.listeners.invalidate(matchId);
+    }
+    this.listenerSignatures.delete(row.id);
+    this.listenerSignatures.set(row.id, { signature, seenAt: now });
+    if (this.listenerSignatures.size > 1_000) this.listenerSignatures.delete(this.listenerSignatures.keys().next().value!);
     const previousVersion = this.listenerVersions.get(row.id);
     const nextVersion = deleted ? 'deleted' : this.listenerVersion(session);
     this.listenerVersions.set(row.id, nextVersion);
@@ -364,10 +425,16 @@ export class ScoliaRealtimeCommentaryPublisher {
     if (connection && (deleted || row.status !== 'active')) {
       this.connections.delete(row.id); connection.visitTiming.reset();
       connection.socket.close(1000, 'Realtime listener closed');
-      if (matchId && ![...this.connections.values()].some(active => active.session.match_id === matchId)) {
-        this.analysis?.invalidate(matchId); this.dartIQCache.delete(matchId);
-      }
+      if (matchId) this.releaseIdleMatch(matchId);
     }
+  }
+
+  /** Drop per-match state once no listener is connected to that match. */
+  private releaseIdleMatch(matchId: string) {
+    if ([...this.connections.values()].some(active => active.session.match_id === matchId)) return;
+    this.analysis?.invalidate(matchId);
+    this.dartIQCache.delete(matchId);
+    this.matchEpochs.delete(matchId);
   }
 
   private listenerIsCurrent(session: ActiveRealtimeCommentarySession) {
@@ -436,9 +503,14 @@ export class ScoliaRealtimeCommentaryPublisher {
       this.connections.delete(sessionId);
       connection.visitTiming.reset();
       connection.socket.close(1000, 'Realtime listener expired');
-      if (![...this.connections.values()].some(active => active.session.match_id === connection.session.match_id)) {
-        this.analysis?.invalidate(connection.session.match_id);
-        this.dartIQCache.delete(connection.session.match_id);
+      this.releaseIdleMatch(connection.session.match_id);
+    }
+    if (!sessionIds) {
+      // A full sweep sees every live listener, so epochs of matches nobody is listening to can go.
+      const liveMatches = new Set(sessions.map((session) => session.match_id));
+      for (const connection of this.connections.values()) liveMatches.add(connection.session.match_id);
+      for (const matchId of [...this.matchEpochs.keys()]) {
+        if (!liveMatches.has(matchId)) this.matchEpochs.delete(matchId);
       }
     }
     return sessions;
@@ -887,7 +959,8 @@ export class ScoliaRealtimeCommentaryPublisher {
           } catch {
             // A dead transport cannot cancel; replacing it is the recovery path.
           } finally {
-            socket.close(1011, 'Response lifecycle timed out');
+            // terminate, not close: a provider that stopped responding may never finish a close handshake.
+            socket.terminate();
           }
         },
       }),
@@ -909,13 +982,27 @@ export class ScoliaRealtimeCommentaryPublisher {
 
     const timeout = setTimeout(() => {
       rejectOpen(new Error('OpenAI Realtime sideband connection timed out'));
-      socket.close();
+      socket.terminate();
     }, 10_000);
+    let pongTimer: ReturnType<typeof setTimeout> | null = null;
+    const keepAlive = setInterval(() => {
+      if (socket.readyState !== WebSocket.OPEN || pongTimer) return;
+      pongTimer = setTimeout(() => {
+        pongTimer = null;
+        console.warn('[commentary] Realtime sideband stopped answering pings; reconnecting on next delivery');
+        socket.terminate();
+      }, SIDEBAND_PONG_TIMEOUT_MS);
+      socket.ping();
+    }, SIDEBAND_PING_INTERVAL_MS);
+    socket.on('pong', () => {
+      if (pongTimer) clearTimeout(pongTimer);
+      pongTimer = null;
+    });
     socket.once('open', () => {
       clearTimeout(timeout);
       void this.seedConnection(connection).then(resolveOpen, (error: unknown) => {
         rejectOpen(error instanceof Error ? error : new Error('Could not seed Realtime session'));
-        socket.close();
+        socket.terminate();
       });
     });
     socket.on('message', (raw) => {
@@ -1045,7 +1132,7 @@ export class ScoliaRealtimeCommentaryPublisher {
                 this.send(connection, rejection.next);
               } catch {
                 connection.responseQueue.sendFailed();
-                socket.close(1011, 'Could not send replacement response');
+                socket.terminate();
               }
             } else {
               connection.policy.responseFinished();
@@ -1063,12 +1150,15 @@ export class ScoliaRealtimeCommentaryPublisher {
         // Ignore malformed provider telemetry without breaking delivery.
       }
     });
-    socket.once('error', (error) => {
+    // on, not once: terminating a socket mid-handshake can emit a further error, and an unhandled one would crash the worker.
+    socket.on('error', (error) => {
       clearTimeout(timeout);
       rejectOpen(error);
     });
     socket.once('close', () => {
       clearTimeout(timeout);
+      clearInterval(keepAlive);
+      if (pongTimer) clearTimeout(pongTimer);
       rejectOpen(new Error('Realtime sideband closed before becoming ready'));
       connection.responseQueue.reset();
       connection.playback.reset();
@@ -1182,7 +1272,7 @@ export class ScoliaRealtimeCommentaryPublisher {
       try {
         this.cancelProviderSpeech(connection, 'stale_speech');
       } catch {
-        connection.socket.close(1011, 'Could not discard stale speech');
+        connection.socket.terminate();
       } finally {
         connection.policy.responseFinished();
       }

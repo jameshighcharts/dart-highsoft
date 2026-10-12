@@ -23,4 +23,18 @@ describe('Realtime listener cache', () => {
     await vi.advanceTimersByTimeAsync(6000);fetch.mockRejectedValue(new Error('offline'));
     await expect(cache.load('m',fetch)).rejects.toThrow('offline');
   });
+  it('keeps one match lookup stable while another match keeps changing', async () => {
+    const cache=new RealtimeSessionCache(); let release!:(rows:ActiveRealtimeCommentarySession[])=>void;
+    const fetch=vi.fn().mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+    const result=cache.load('m',fetch);
+    for (let index=0; index<5; index++) cache.invalidate('other');
+    release([session(3)]);
+    expect((await result)[0].epoch).toBe(3); expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('still discards an in-flight lookup after a full invalidation', async () => {
+    const cache=new RealtimeSessionCache(); let release!:(rows:ActiveRealtimeCommentarySession[])=>void;
+    const fetch=vi.fn().mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;})).mockResolvedValue([session(2)]);
+    const result=cache.load('m',fetch); cache.invalidate(); release([session(1)]);
+    expect((await result)[0].epoch).toBe(2); expect(fetch).toHaveBeenCalledTimes(2);
+  });
 });

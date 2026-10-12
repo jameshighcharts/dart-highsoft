@@ -338,13 +338,16 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     };
   }, [isSpectatorMode, router]);
 
+  // The scoring view also receives Scolia darts over realtime, so it needs the same catch-up
+  // after a rejoin or wake; its revision changes every dart, so it is not polled while connected.
   useSpectatorRecovery({
     matchId,
-    enabled: isSpectatorMode && !match?.winner_player_id && !match?.ended_early,
+    enabled: !match?.winner_player_id && !match?.ended_early,
     connected: realtimeIsConnected && realtimeEnabled,
     recoveryVersion: realtime.recoveryVersion ?? 0,
     hasSnapshot: Boolean(match),
-    refresh: () => loadAllSpectator(true),
+    pollWhileConnected: isSpectatorMode,
+    refresh: () => isSpectatorMode ? loadAllSpectator(true) : loadAll({ silent: true }),
   });
 
   const currentLeg = useMemo(() => selectCurrentLeg(legs ?? []), [legs]);
@@ -639,6 +642,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           onRematch={!match.tournament_match_id ? () => setRematchOpen(true) : undefined}
           celebration={celebration}
           realtimeConnectionStatus={realtime.connectionStatus}
+          liveState={realtime.liveState}
+          liveStateSince={realtime.liveStateSince}
           realtimeConnectionError={realtime.connectionError}
           realtimeIsConnected={realtime.isConnected}
           spectatorLoading={spectatorLoading}
@@ -707,6 +712,8 @@ export default function MatchClient({ matchId }: { matchId: string }) {
       <MatchScoringView
         onRemake={!match.tournament_match_id ? remakeMatch : undefined}
         realtimeConnectionStatus={realtime.connectionStatus}
+        liveState={realtime.liveState}
+        liveStateSince={realtime.liveStateSince}
           realtimeConnectionError={realtime.connectionError}
         currentPlayer={currentPlayer}
         getScoreForPlayer={getScoreForPlayer}

@@ -21,7 +21,7 @@ import {
   type StoredScoliaEvent,
   type ScoliaThrowIngestionResult,
 } from '../lib/server/scoliaThrowIngestion.ts';
-import { findActiveScoliaBoardOccupant, findActiveScoliaBoardTarget } from '../lib/server/scoliaBoardTarget.ts';
+import { findActiveScoliaBoardOccupant } from '../lib/server/scoliaBoardTarget.ts';
 import {
   staleCommandAction,
   staleCommandCutoff,
@@ -29,6 +29,8 @@ import {
 } from '../lib/scolia/commandRecovery.ts';
 import { ScoliaRealtimeCommentaryPublisher } from '../services/scoliaRealtimeCommentaryPublisher.ts';
 import { OrderedWorkQueue, WorkerNotifications } from '../lib/scolia/orderedWorkQueue.ts';
+import { ResilientChannel } from '../lib/scolia/resilientChannel.ts';
+import { databaseError, isTransientDatabaseError } from '../lib/server/databaseError.ts';
 
 type AccountBoard = {
   name: string;
@@ -41,13 +43,20 @@ type StoredBoard = AccountBoard & { id: string };
 const SCOLIA_REST_BASE_URL = 'https://game.scoliadarts.com';
 const SCOLIA_WEBSOCKET_URL = 'wss://game.scoliadarts.com/api/v1/social';
 const BOARD_SYNC_INTERVAL_MS = 30_000;
-const HEARTBEAT_INTERVAL_MS = 15_000;
-const COMMAND_POLL_INTERVAL_MS = 15_000;
-const COMMENTARY_RETRY_INTERVAL_MS = 15_000;
-// A quiet socket is probed with GET_SBC_STATUS; no reply in time means it is dead
-// even if it still looks open, so darts would silently never arrive.
-const LIVENESS_PROBE_AFTER_MS = 30_000;
-const LIVENESS_TIMEOUT_MS = 20_000;
+// Readiness treats a heartbeat older than 45s as stale (SCOLIA_HEARTBEAT_MAX_AGE_MS).
+const HEARTBEAT_INTERVAL_MS = 20_000;
+// Realtime notifications wake command and commentary work immediately; these polls are the fallback.
+const COMMAND_POLL_INTERVAL_MS = 30_000;
+const COMMENTARY_RETRY_INTERVAL_MS = 30_000;
+// Darts thrown at a dead socket are never redelivered, so every second of detection is lost play.
+const LIVENESS_TICK_MS = 2_500;
+// Transport check: a pong proves the TCP path; trusted only once Scolia has answered a ping.
+const PING_INTERVAL_MS = 10_000;
+const PONG_TIMEOUT_MS = 5_000;
+// Application check: a quiet socket is probed with GET_SBC_STATUS; no reply in time means the
+// relay behind it is dead even if the socket still looks open.
+const LIVENESS_PROBE_AFTER_MS = 15_000;
+const LIVENESS_TIMEOUT_MS = 10_000;
 // A handshake that never answers must fail rather than leave the board waiting forever.
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 // Backstop for a connection attempt that somehow outlives its own handshake timeout.
@@ -56,8 +65,14 @@ const CONNECT_STALL_MS = HANDSHAKE_TIMEOUT_MS + 10_000;
 const SUPABASE_REQUEST_TIMEOUT_MS = 30_000;
 // One event failing forever must not hold every later dart on the board hostage.
 const MESSAGE_MAX_ATTEMPTS = 15;
-// Recovered darts older than this are abandoned rather than scored into a later visit.
+// Recovered darts older than this are abandoned rather than scored into a later visit. A dart
+// that cannot be saved during an outage keeps retrying in order for the same window.
 const PENDING_THROW_MAX_AGE_MS = 5 * 60_000;
+// Last resort: a board that cannot reach Scolia for this long restarts the whole worker.
+const DISCONNECTED_RESTART_MS = 10 * 60_000;
+const SHUTDOWN_DEADLINE_MS = 10_000;
+// Scolia rejected our configuration; a restart cannot fix these.
+const CONFIGURATION_CLOSE_CODES = new Set([4100, 4102]);
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -104,6 +119,15 @@ export class BoardConnection {
   private lastMessageAt = 0;
   private livenessProbeSentAt: number | null = null;
   private connectStartedAt = 0;
+  private pingSentAt: number | null = null;
+  private lastPongAt = 0;
+  private pongSeen = false;
+  private livenessTimer: ReturnType<typeof setInterval> | null = null;
+  private disconnectedSince: number | null = Date.now();
+  private lastCloseCode: number | null = null;
+  private boardState: Record<string, unknown> = {};
+  // Pending or failed darts may exist from before this process started.
+  private recoveryNeeded = true;
 
   constructor(
     board: StoredBoard,
@@ -120,8 +144,9 @@ export class BoardConnection {
     this.statusWriter = new BoardStatusWriter(value => this.writeBoard(value),
       error => console.warn(`[scolia] ${this.board.name}: retrying board status`, error));
     this.messageQueue = new OrderedWorkQueue((error) => {
+      this.recoveryNeeded = true;
       console.error(`[scolia] ${this.board.name}: retrying queued event`, error);
-    }, 1_000, MESSAGE_MAX_ATTEMPTS);
+    }, 1_000, MESSAGE_MAX_ATTEMPTS, (error) => isTransientDatabaseError(error) ? PENDING_THROW_MAX_AGE_MS : 0);
     this.commentaryQueue = new OrderedWorkQueue((error) => {
       console.warn(`[commentary] ${this.board.name}: retrying delivery`, error);
     }, 2_000, 3);
@@ -129,9 +154,28 @@ export class BoardConnection {
 
   start() {
     this.connect();
+    this.livenessTimer = setInterval(() => this.checkLiveness(), LIVENESS_TICK_MS);
   }
 
   get boardId() { return this.board.id; }
+  get boardName() { return this.board.name; }
+
+  /** Warm the spectator broadcast for a match that just took this board. */
+  prepareMatch(matchId: string) {
+    if (!this.stopped) this.scoreBroadcaster.prepare(matchId);
+  }
+
+  private async warmBroadcast() {
+    const target = await findActiveScoliaBoardOccupant(this.supabase, this.board.id);
+    if (target?.kind === 'match') this.prepareMatch(target.id);
+  }
+
+  /** A board that has not reached Scolia for a long time, for reasons a restart might fix. */
+  needsRestart(now = Date.now()) {
+    return !this.stopped && this.disconnectedSince !== null
+      && now - this.disconnectedSince >= DISCONNECTED_RESTART_MS
+      && !CONFIGURATION_CLOSE_CODES.has(this.lastCloseCode ?? 0);
+  }
 
   async stop() {
     this.stopped = true;
@@ -139,6 +183,7 @@ export class BoardConnection {
     this.messageQueue.stop();
     this.commentaryQueue.stop();
     if (this.commandRecoveryTimer) clearTimeout(this.commandRecoveryTimer);
+    if (this.livenessTimer) clearInterval(this.livenessTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     const socket = this.socket;
@@ -165,17 +210,23 @@ export class BoardConnection {
     }
     this.socket = socket;
     this.connectStartedAt = Date.now();
+    this.pingSentAt = null;
+    this.pongSeen = false;
 
     socket.on('open', () => {
       if (this.socket !== socket || this.stopped) return;
       this.reconnectAttempt = 0;
       this.lastMessageAt = Date.now();
       this.livenessProbeSentAt = null;
+      this.disconnectedSince = null;
+      this.recoveryNeeded = true;
       console.info(`[scolia] ${this.board.name}: cloud connection open`);
       void this.updateBoard({ worker_connection_status: 'connected' });
       socket.send(JSON.stringify({ type: 'GET_SBC_STATUS', id: crypto.randomUUID() }));
       this.enqueue(() => this.processPendingThrows());
       this.enqueue(() => this.flushCommands());
+      // Off the dart queue: a warm-up must never delay scoring.
+      void this.warmBroadcast().catch((error) => console.warn(`[scolia] ${this.board.name}: broadcast warm-up failed`, error));
     });
 
     socket.on('message', (data, isBinary) => {
@@ -191,6 +242,12 @@ export class BoardConnection {
       this.enqueue(() => this.persistMessage(message, receivedAtMs));
     });
 
+    socket.on('pong', () => {
+      if (this.socket !== socket) return;
+      this.lastPongAt = Date.now();
+      this.pongSeen = true;
+    });
+
     // ws always follows a failed handshake or broken socket with 'close', which owns reconnecting.
     socket.on('error', (error) => {
       console.warn(`[scolia] ${this.board.name}: cloud connection error: ${error.message}`);
@@ -201,6 +258,8 @@ export class BoardConnection {
       if (this.socket !== socket) return;
       this.socket = null;
       if (this.stopped) return;
+      this.disconnectedSince ??= Date.now();
+      this.lastCloseCode = code;
       const delay = reconnectDelayMs(code, this.reconnectAttempt++);
       const reason = code === 4101
         ? ' - another connection holds this board; is a second worker running with the same Scolia token?'
@@ -224,6 +283,8 @@ export class BoardConnection {
     console.warn(`[scolia] ${this.board.name}: ${reason}; reconnecting`);
     this.socket = null;
     this.livenessProbeSentAt = null;
+    this.disconnectedSince ??= Date.now();
+    this.lastCloseCode = null;
     // terminate, not close: a close handshake Scolia never answers would keep the old socket
     // replying to Scolia's pings, and Scolia would refuse every new connection with 4101.
     socket.terminate();
@@ -249,6 +310,17 @@ export class BoardConnection {
       return;
     }
     if (socket.readyState !== WebSocket.OPEN) return;
+    const heardSince = (at: number) => Math.max(this.lastPongAt, this.lastMessageAt) > at;
+    if (this.pingSentAt !== null && !heardSince(this.pingSentAt)) {
+      // A server that never answers pings is still covered by the status probe below.
+      if (this.pongSeen && now - this.pingSentAt >= PONG_TIMEOUT_MS) {
+        this.abandon(socket, 'no pong from Scolia');
+        return;
+      }
+    } else if (this.pingSentAt === null || now - this.pingSentAt >= PING_INTERVAL_MS) {
+      this.pingSentAt = now;
+      socket.ping();
+    }
     if (this.livenessProbeSentAt !== null) {
       if (now - this.livenessProbeSentAt < LIVENESS_TIMEOUT_MS) return;
       this.abandon(socket, 'no reply to status probe');
@@ -261,9 +333,8 @@ export class BoardConnection {
 
   async heartbeat() {
     if (this.stopped) return;
-    this.checkLiveness();
     await this.updateBoard({ worker_heartbeat_at: new Date().toISOString() });
-    if (this.messageQueue.idle) this.enqueue(() => this.processPendingThrows());
+    if (this.recoveryNeeded && this.messageQueue.idle) this.enqueue(() => this.processPendingThrows());
   }
 
   async flushCommands() {
@@ -366,16 +437,19 @@ export class BoardConnection {
   }
 
   private async processPendingThrows() {
-    const { data, error } = await this.supabase
+    const { data, error, status } = await this.supabase
       .from('scolia_events')
       .select('id, board_id, message_id, event_type, payload, received_at')
       .eq('board_id', this.board.id)
       .eq('event_type', 'THROW_DETECTED')
       .in('processing_status', ['pending', 'failed'])
       .order('id', { ascending: true });
-    if (error) throw new Error(error.message);
+    if (error) throw databaseError(error, status);
     const events = (data ?? []) as (StoredScoliaEvent & { received_at: string | null })[];
-    if (events.length === 0) return;
+    if (events.length === 0) {
+      this.recoveryNeeded = false;
+      return;
+    }
     const target = await findActiveScoliaBoardOccupant(this.supabase, this.board.id);
     for (const event of events) {
       const abandon = recoveryAbandonReason(event.received_at, target?.createdAt ?? null);
@@ -422,16 +496,12 @@ export class BoardConnection {
       prepared = persisted.prepared;
       committed = persisted.result;
     } else if (message.type === 'SBC_STATUS') {
-      // Replies to our own status requests (including liveness probes) carry state, not history.
-      void this.updateBoard({
-        ...boardStatePatchForMessage(message),
-        worker_connection_status: 'connected',
-        worker_heartbeat_at: now,
-        last_event_at: now,
-      });
+      // Replies to our own status requests (including liveness probes) carry state, not history,
+      // and arrive every few seconds on a quiet board: only a real change is worth a write.
+      this.applyBoardState(boardStatePatchForMessage(message), {});
       return;
     } else {
-      const { data: insertedEvent, error: eventError } = await this.supabase.from('scolia_events').upsert(
+      const { data: insertedEvent, error: eventError, status: eventStatus } = await this.supabase.from('scolia_events').upsert(
         {
           board_id: this.board.id,
           message_id: message.id,
@@ -442,27 +512,25 @@ export class BoardConnection {
         },
         { onConflict: 'board_id,message_id', ignoreDuplicates: true }
       ).select('id, board_id, message_id, event_type, payload, processing_status').maybeSingle();
-      if (eventError) throw new Error(eventError.message);
+      if (eventError) throw databaseError(eventError, eventStatus);
 
       storedEvent = insertedEvent;
       if (!storedEvent) {
-        const { data, error } = await this.supabase
+        const { data, error, status } = await this.supabase
           .from('scolia_events')
           .select('id, board_id, message_id, event_type, payload, processing_status')
           .eq('board_id', this.board.id)
           .eq('message_id', message.id)
           .single();
-        if (error || !data) throw new Error(error?.message ?? 'Could not reload Scolia event');
+        if (error) throw databaseError(error, status);
+        if (!data) throw new Error('Could not reload Scolia event');
         storedEvent = data;
       }
     }
 
-    void this.updateBoard({
-      ...boardStatePatchForMessage(message),
-      worker_connection_status: 'connected',
-      worker_heartbeat_at: now,
-      last_event_at: now,
-    });
+    // Connection status belongs to the socket's open/close handlers: this message may be processed
+    // after its socket already closed, and must not report a dead board as connected.
+    this.applyBoardState(boardStatePatchForMessage(message), { worker_heartbeat_at: now, last_event_at: now });
 
     const processingStatus = storedEvent.processing_status as string;
     if (message.type === 'THROW_DETECTED' && (committed || (processingStatus !== 'processed' && processingStatus !== 'ignored'))) {
@@ -489,9 +557,10 @@ export class BoardConnection {
       && message.type === 'TAKEOUT_FINISHED'
       && message.payload?.falseTakeout !== true
     ) {
-      const target = await findActiveScoliaBoardTarget(this.supabase, this.board.id);
+      const target = await findActiveScoliaBoardOccupant(this.supabase, this.board.id);
       if (target?.kind === 'match') {
-        const bullMatch = await loadBullOffMatch(this.supabase, target.id);
+        this.scoreBroadcaster.prepare(target.id);
+        const bullMatch = target.bullOffThrowing ? await loadBullOffMatch(this.supabase, target.id) : null;
         if (bullMatch?.bull_off?.phase === 'throwing') {
           await updateBullOff(this.supabase, target.id, bullMatch.bull_off, 'takeout', Number(storedEvent.id));
           const { error: bullStatusError } = await this.supabase.from('scolia_events').update({ processing_status: 'processed', processed_at: now }).eq('id', storedEvent.id);
@@ -551,7 +620,7 @@ export class BoardConnection {
 
   /** Scolia sends no takeout event after RESET_PHASE, so settle what that event would have. */
   private async afterPhaseReset(matchId: string | null) {
-    void this.updateBoard({ board_phase: 'Throw' });
+    this.applyBoardState({ board_phase: 'Throw' }, {});
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify({ type: 'GET_SBC_STATUS', id: crypto.randomUUID() }));
     }
@@ -564,6 +633,13 @@ export class BoardConnection {
 
   private async updateBoard(values: Record<string, unknown>) {
     this.statusWriter.update(values);
+  }
+
+  /** Write board state only when it changed, or when the caller has other fields to record. */
+  private applyBoardState(patch: Record<string, unknown>, extra: Record<string, unknown>) {
+    const changed = Object.entries(patch).some(([key, value]) => this.boardState[key] !== value);
+    this.boardState = { ...this.boardState, ...patch };
+    if (changed || Object.keys(extra).length > 0) void this.updateBoard({ ...patch, ...extra });
   }
 
   private async writeBoard(values: Record<string, unknown>) {
@@ -622,7 +698,9 @@ async function startScoliaWorker() {
       ...(full || sessionIds.length ? [commentaryPublisher.flushPending(full ? undefined : sessionIds)] : []),
     ]).catch((error) => console.error('[scolia] notification reconciliation failed', error));
   });
-  const notifications = supabase.channel('scolia-worker-work')
+  // Deliveries are written only by this worker, so they are not subscribed: their retries come
+  // from the commentary poll rather than echoes of our own writes.
+  const notifications = new ResilientChannel(supabase, 'scolia-worker-work', (channel) => channel
     .on('postgres_changes', { event: '*', schema: 'public', table: 'scolia_commands' }, (payload) => {
       notificationWork.change('commands', payload);
     })
@@ -631,13 +709,19 @@ async function startScoliaWorker() {
       commentaryPublisher.listenerChanged(row, payload.eventType === 'DELETE');
       notificationWork.change('sessions', payload);
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'commentary_realtime_deliveries' }, (payload) => {
-      notificationWork.change('deliveries', payload);
-    })
-    .subscribe((status) => {
-      commentaryPublisher.invalidateListeners();
-      if (status === 'SUBSCRIBED') notificationWork.reconnect();
-    });
+    // A match taking a board joins its spectator broadcast topic before the first dart.
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, (payload) => {
+      if (payload.eventType === 'DELETE') return;
+      const row = payload.new as Record<string, unknown>;
+      if (typeof row.scolia_board_id !== 'string' || typeof row.id !== 'string' || row.winner_player_id || row.completed_at) return;
+      for (const connection of connections.values()) {
+        if (connection.boardId === row.scolia_board_id) connection.prepareMatch(row.id);
+      }
+    }), (status) => {
+    commentaryPublisher.invalidateListeners();
+    if (status === 'SUBSCRIBED') notificationWork.reconnect();
+  });
+  notifications.start();
 
   const syncBoards = async () => {
     if (stopping || syncRunning) return;
@@ -645,8 +729,18 @@ async function startScoliaWorker() {
     try {
       const accountBoards = await fetchAccountBoards(accessToken);
       const activeSerials = new Set(accountBoards.map((board) => board.serialNumber));
+      const { data: knownRows, error: knownRowsError } = await supabase
+        .from('scolia_boards')
+        .select('id, serial_number, name, is_home_sbc, enabled');
+      if (knownRowsError) throw new Error(knownRowsError.message);
+      const known = new Map((knownRows ?? []).map((row) => [row.serial_number as string, row]));
       const storedBoards = await Promise.all(
         accountBoards.map(async (board): Promise<StoredBoard> => {
+          // Every write here fans out to each open board-status subscriber, so unchanged boards are left alone.
+          const row = known.get(board.serialNumber);
+          if (row?.enabled && row.name === board.name && row.is_home_sbc === board.isHomeSbc) {
+            return { ...board, id: row.id as string };
+          }
           const { data, error } = await supabase
             .from('scolia_boards')
             .upsert(
@@ -666,12 +760,8 @@ async function startScoliaWorker() {
         })
       );
 
-      const { data: enabledRows, error: enabledRowsError } = await supabase
-        .from('scolia_boards')
-        .select('serial_number')
-        .eq('enabled', true);
-      if (enabledRowsError) throw new Error(enabledRowsError.message);
-      const missingSerials = (enabledRows ?? [])
+      const missingSerials = (knownRows ?? [])
+        .filter((row) => row.enabled)
         .map((row) => row.serial_number as string)
         .filter((serialNumber) => !activeSerials.has(serialNumber));
       if (missingSerials.length > 0) {
@@ -699,19 +789,27 @@ async function startScoliaWorker() {
     }
   };
 
-  const shutdown = async (signal: string) => {
+  const shutdown = async (signal: string, exitCode = 0) => {
     if (stopping) return;
     stopping = true;
-    console.info(`[scolia] received ${signal}; closing connections`);
+    console.info(`[scolia] stopping (${signal}); closing connections`);
+    // Cleanup is best effort: a hung request must never keep a stopping worker alive.
+    setTimeout(() => process.exit(exitCode), SHUTDOWN_DEADLINE_MS).unref();
     if (syncInterval) clearInterval(syncInterval);
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     if (commandInterval) clearInterval(commandInterval);
     if (commentaryInterval) clearInterval(commentaryInterval);
     notificationWork.stop();
-    await supabase.removeChannel(notifications);
-    await Promise.all([...connections.values()].map((connection) => connection.stop()));
-    commentaryPublisher.close();
-    process.exit(0);
+    try {
+      await Promise.allSettled([
+        notifications.stop(),
+        ...[...connections.values()].map((connection) => connection.stop()),
+      ]);
+      commentaryPublisher.close();
+    } catch (error) {
+      console.error('[scolia] shutdown cleanup failed', error);
+    }
+    process.exit(exitCode);
   };
 
   process.on('SIGINT', () => void shutdown('SIGINT'));
@@ -726,6 +824,12 @@ async function startScoliaWorker() {
     void Promise.all([...connections.values()].map((connection) => connection.heartbeat())).catch((error) =>
       console.error('[scolia] heartbeat failed', error)
     );
+    // Last line of defence against unknown stuck states: Railway restarts the worker on exit.
+    const stuck = [...connections.values()].find((connection) => connection.needsRestart());
+    if (stuck && !stopping) {
+      console.error(`[scolia] ${stuck.boardName} has not reached Scolia in ${DISCONNECTED_RESTART_MS / 60_000} minutes; restarting the worker`);
+      void shutdown('watchdog', 1);
+    }
   }, HEARTBEAT_INTERVAL_MS);
   commandInterval = setInterval(() => {
     void Promise.all([...connections.values()].map((connection) => connection.flushCommands())).catch((error) =>

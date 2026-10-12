@@ -100,4 +100,24 @@ describe('spectator recovery', () => {
     expect(request).toHaveBeenCalledTimes(3);
   });
 
+
+  it('only catches up a scoring view after a rejoin or wake, never on a timer while connected', async () => {
+    const scoring = { ...defaults, connected: true, pollWhileConnected: false };
+    const { rerender } = renderHook(props => useSpectatorRecovery(props), { initialProps: scoring });
+    await advance(300_000);
+    expect(request).not.toHaveBeenCalled();
+    await act(async () => rerender({ ...scoring, recoveryVersion: 1 }));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await advance(300_000);
+    expect(request).toHaveBeenCalledTimes(1);
+    request.mockResolvedValue({ ok: true, json: async () => ({ revision: '2' }) });
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('polls a disconnected scoring view until it rejoins', async () => {
+    renderHook(() => useSpectatorRecovery({ ...defaults, pollWhileConnected: false }));
+    await advance(15_000);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
 });

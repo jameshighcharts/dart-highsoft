@@ -4,6 +4,7 @@ import { getEngine } from '../games/registry.ts';
 import { parseSegment } from '../games/segment.ts';
 import type { GameEngine, GameEvent, GameState, GameThrowInput } from '../games/types.ts';
 import { GAME_SESSION_COLUMNS, isGameSessionActive, type GameSessionRow } from './gameGuards.ts';
+import { databaseError } from './databaseError.ts';
 
 export type GameThrowRow = {
   id: string;
@@ -132,13 +133,16 @@ export async function loadGameSnapshot(supabase: SupabaseClient, sessionId: stri
   if (playersResult.error) throw new Error(playersResult.error.message);
   if (throwsResult.error) throw new Error(throwsResult.error.message);
 
-  const session = sessionResult.data as GameSessionRow;
   const players = ((playersResult.data ?? []) as unknown as PlayerJoinRow[]).map((row) => {
     const player = Array.isArray(row.players) ? row.players[0] : row.players;
     return { player_id: row.player_id, play_order: row.play_order, display_name: player?.display_name ?? 'Unknown' };
   });
+  return buildGameSnapshot(sessionResult.data as GameSessionRow, players, (throwsResult.data ?? []) as GameThrowRow[]);
+}
+
+/** Replay already-loaded rows (players in play order) through the session's engine. */
+export function buildGameSnapshot(session: GameSessionRow, players: GameSessionPlayer[], throws: GameThrowRow[]): GameSnapshot {
   const orderedPlayerIds = players.map((player) => player.player_id);
-  const throws = (throwsResult.data ?? []) as GameThrowRow[];
   const engine = getEngine(session.mode);
   return {
     session,
@@ -159,6 +163,8 @@ export type AppendGameThrowInput = {
   impactYmm?: number | null;
   angleHorizontalDeg?: number | null;
   angleVerticalDeg?: number | null;
+  /** Also mark the Scolia event processed in the same transaction (requires scoliaEventId). */
+  settleScoliaEvent?: boolean;
 };
 
 export type AppendGameThrowResult =
@@ -202,26 +208,27 @@ export async function appendGameThrow(
   const orderedThrows = sortThrowRows(throws);
   const completion = completionFromState(nextState);
 
-  const { data, error } = await supabase
-    .rpc('append_game_throw_atomic', {
-      p_session_id: session.id,
-      p_expected_last_throw_id: orderedThrows.at(-1)?.id ?? null,
-      p_player_id: candidate.playerId,
-      p_round_number: candidate.roundNumber,
-      p_turn_index: candidate.turnIndex,
-      p_dart_index: candidate.dartIndex,
-      p_segment: candidate.segment,
-      p_scored: candidate.scored,
-      p_meta: nextState.lastEvent ?? {},
-      p_finalize: completion.kind === 'complete',
-      p_winner_player_id: completion.kind === 'complete' ? completion.winnerPlayerId : null,
-      p_scolia_event_id: input.scoliaEventId ?? null,
-      p_impact_x_mm: input.impactXmm ?? null,
-      p_impact_y_mm: input.impactYmm ?? null,
-      p_angle_horizontal_deg: input.angleHorizontalDeg ?? null,
-      p_angle_vertical_deg: input.angleVerticalDeg ?? null,
-    })
-    .single();
+  const args = {
+    p_session_id: session.id,
+    p_expected_last_throw_id: orderedThrows.at(-1)?.id ?? null,
+    p_player_id: candidate.playerId,
+    p_round_number: candidate.roundNumber,
+    p_turn_index: candidate.turnIndex,
+    p_dart_index: candidate.dartIndex,
+    p_segment: candidate.segment,
+    p_scored: candidate.scored,
+    p_meta: nextState.lastEvent ?? {},
+    p_finalize: completion.kind === 'complete',
+    p_winner_player_id: completion.kind === 'complete' ? completion.winnerPlayerId : null,
+    p_impact_x_mm: input.impactXmm ?? null,
+    p_impact_y_mm: input.impactYmm ?? null,
+    p_angle_horizontal_deg: input.angleHorizontalDeg ?? null,
+    p_angle_vertical_deg: input.angleVerticalDeg ?? null,
+  };
+  const settle = input.settleScoliaEvent === true && input.scoliaEventId !== undefined;
+  const { data, error, status } = settle
+    ? await supabase.rpc('append_scolia_game_throw_atomic', { ...args, p_event_id: input.scoliaEventId }).single()
+    : await supabase.rpc('append_game_throw_atomic', { ...args, p_scolia_event_id: input.scoliaEventId ?? null }).single();
   if (error || !data) {
     if (error && isMutationConflict(error)) {
       return { ok: false, status: 409, error: 'Another dart was recorded first. Reload and try again.', code: 'slot_taken' };
@@ -229,7 +236,8 @@ export async function appendGameThrow(
     if (error?.code === '55000' || error?.message === 'game_not_active') {
       return { ok: false, status: 409, error: 'Game is not active', code: 'not_active' };
     }
-    throw new Error(error?.message ?? 'Failed to record dart');
+    if (error) throw databaseError(error, status);
+    throw new Error('Failed to record dart');
   }
 
   return { ok: true, throw: gameThrowRowFromRpc(data), state: nextState };
