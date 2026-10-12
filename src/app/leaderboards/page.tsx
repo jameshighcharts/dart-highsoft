@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { BullersLeaderboard } from '@/components/leaderboard/BullersLeaderboard';
-import { leaderboardListsQuery } from '@/hooks/useLeaderboardData';
+import { leaderboardListsQuery } from '@/lib/queries/leaderboardData';
 import { LeaderboardSection, EloLeaderboardItem, PlayerSummaryItem, GameModeLeaderboardItem } from '@/components/leaderboard';
 import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 import {

@@ -76,13 +76,27 @@ function requiredPayloadId(payload: Record<string, unknown>, key: string, jobTyp
   return value;
 }
 
+/**
+ * What a job may need from the Next.js server it runs in. Passed in rather than imported, because
+ * the Scolia worker imports this module outside Next.js.
+ */
+export type BackgroundJobServerHooks = {
+  /** Marks the shared leaderboard and statistics data stale (see `SHARED_DATA_TAG`). */
+  revalidateSharedData?: () => void;
+};
+
 async function runJob(
   supabase: SupabaseClient,
   job: BackgroundJobRow,
   appOrigin: string,
   batch?: DartIQTelemetryBatch,
+  hooks: BackgroundJobServerHooks = {},
 ): Promise<void> {
   switch (job.job_type) {
+    case 'revalidate_shared_data':
+      if (!hooks.revalidateSharedData) throw new Error('revalidate_shared_data needs the Next.js server');
+      hooks.revalidateSharedData();
+      return;
     case 'dartiq_training': {
       const windowEnd = requiredPayloadId(job.payload, 'windowEnd', job.job_type);
       if (!Number.isFinite(Date.parse(windowEnd))) throw new PermanentJobError('Invalid training window');
@@ -256,6 +270,7 @@ export async function processBackgroundJob(options: {
   jobId: string;
   appOrigin: string;
   batch?: DartIQTelemetryBatch;
+  hooks?: BackgroundJobServerHooks;
 }): Promise<BackgroundJobResult> {
   const { data, error } = await options.supabase
     .from('background_jobs')
@@ -285,7 +300,7 @@ export async function processBackgroundJob(options: {
   if (job.status !== 'dispatching') return { id: job.id, status: 'skipped' };
 
   try {
-    await runJob(options.supabase, job, options.appOrigin, options.batch);
+    await runJob(options.supabase, job, options.appOrigin, options.batch, options.hooks);
     const { error: updateError } = await options.supabase
       .from('background_jobs')
       .update({

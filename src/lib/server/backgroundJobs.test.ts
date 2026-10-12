@@ -110,6 +110,19 @@ describe('processBackgroundJob', () => {
     expect(publishScoliaHealthAlert).toHaveBeenCalledOnce();
   });
 
+  it('expires the shared data through the hook the Next.js server passes in', async () => {
+    const revalidateSharedData = vi.fn();
+    const test = createSupabase({ ...dispatchingJob, job_type: 'revalidate_shared_data', payload: {} });
+    await expect(processBackgroundJob({
+      supabase: test.supabase, jobId: 'job-1', appOrigin: 'https://darts.example', hooks: { revalidateSharedData },
+    })).resolves.toEqual({ id: 'job-1', status: 'completed' });
+    expect(revalidateSharedData).toHaveBeenCalledOnce();
+
+    const withoutServer = createSupabase({ ...dispatchingJob, job_type: 'revalidate_shared_data', payload: {} });
+    await expect(processBackgroundJob({ supabase: withoutServer.supabase, jobId: 'job-1', appOrigin: 'https://darts.example' }))
+      .resolves.toMatchObject({ id: 'job-1', status: 'retrying' });
+  });
+
   it('dispatches calibration through the existing retryable background queue', async () => {
     const test = createSupabase({ ...dispatchingJob, job_type: 'dartiq_calibration',
       payload: { modelVersionId: '1', windowEnd: '2026-09-01T12:00:00Z' } });

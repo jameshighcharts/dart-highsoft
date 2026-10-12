@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 
-import { leaderboardQuery, qualifyingPlayerIds } from '@/hooks/useLeaderboardData';
+import { leaderboardQuery, qualifyingPlayerIds } from '@/lib/queries/leaderboardData';
 import { eloHistoryQuery } from '@/lib/queries/eloHistory';
 
 /**

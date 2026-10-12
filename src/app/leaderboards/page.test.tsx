@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
-import { leaderboardListsQuery } from '@/hooks/useLeaderboardData';
+import { leaderboardListsQuery } from '@/lib/queries/leaderboardData';
 import {
   bullersQuery,
   gameModeLeadersQuery,

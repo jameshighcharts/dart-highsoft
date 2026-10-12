@@ -1,5 +1,5 @@
 import { PlayerAvatarById } from '@/components/PlayerAvatarById';
-import { type PlayerSummaryEntry } from '@/hooks/useLeaderboardData';
+import { type PlayerSummaryEntry } from '@/lib/queries/leaderboardData';
 import { medal } from '@/utils/leaderboard';
 
 type PlayerSummaryItemProps = {

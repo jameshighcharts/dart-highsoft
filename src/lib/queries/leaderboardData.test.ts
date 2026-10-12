@@ -6,7 +6,7 @@ process.env.TZ = 'Europe/Oslo';
 const { client } = vi.hoisted(() => ({ client: { current: null as unknown } }));
 vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: async () => client.current }));
 
-import { leaderboardListsQuery, leaderboardQuery } from './useLeaderboardData';
+import { leaderboardListsQuery, leaderboardQuery } from './leaderboardData';
 
 type Row = Record<string, unknown>;
 type Match = { id: string; created_at: string; ended_early: boolean; winner_player_id: string | null };
