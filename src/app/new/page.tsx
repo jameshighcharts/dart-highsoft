@@ -384,6 +384,25 @@ export default function NewMatchPage() {
   const filteredPlayers = sortedPlayers.filter((player) =>
     selectedPlayerIds.has(player.id) || matchingPlayerIds.has(player.id),
   );
+
+  // Fade the bottom of the player grid while more players sit below it, shrinking to nothing at the end.
+  const playerGrid = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const grid = playerGrid.current;
+    if (!grid) return;
+    const update = () => {
+      const below = grid.scrollHeight - grid.clientHeight - grid.scrollTop;
+      grid.style.setProperty('--player-fade', `${Math.min(64, Math.max(0, below))}px`);
+    };
+    update();
+    grid.addEventListener('scroll', update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(grid);
+    return () => {
+      grid.removeEventListener('scroll', update);
+      observer.disconnect();
+    };
+  }, [filteredPlayers.length]);
   const searchMatchesExisting = players.some(
     (p) => p.display_name.trim().toLowerCase() === searchTerm,
   );
@@ -723,7 +742,8 @@ export default function NewMatchPage() {
           )}
 
         </div>
-        <div className="min-w-0 space-y-3 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:pb-28">
+        {/* Bottom padding = fixed start bar (88px) − main's bottom padding (24px) − the space-y gap (12px), so the list ends at the bar. */}
+        <div className="min-w-0 space-y-3 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:pb-[52px]">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
             <div className="mr-auto shrink-0 whitespace-nowrap text-2xl font-extrabold tracking-tight">
               Players
@@ -809,7 +829,7 @@ export default function NewMatchPage() {
               />
             </div>
           </div>
-          <div className="grid min-h-0 grid-cols-1 content-start gap-2.5 min-[480px]:grid-cols-2 md:grid-cols-3 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain xl:grid-cols-4">
+          <div ref={playerGrid} className="grid min-h-0 grid-cols-1 content-start gap-2.5 [mask-image:linear-gradient(to_bottom,#000_calc(100%_-_var(--player-fade,0px)),transparent)] min-[480px]:grid-cols-2 md:grid-cols-3 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain xl:grid-cols-4">
             {filteredPlayers.map((p) => {
               const loc = LOCATIONS.find((l) => l.value === p.location);
               const checked = selectedIds.includes(p.id);
