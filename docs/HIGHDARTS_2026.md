@@ -247,3 +247,17 @@ The harness creates minimal parent tables and executes the actual tournament mig
 Validation: 1,591 unit/component tests passed; lint had zero errors and 23 existing warnings; the webpack production build passed. Chrome displayed both reports, their exact rounded estimates and weighted standings, expandable legs, and three finished Jon fixtures including #1/#13, with no browser console errors. Browser data came from the disposable migration harness, not live standings. Two independent static reviews found no actionable issues. No production database changes were made during verification.
 
 ![Local Chrome verification of accepted screenshot results](highdarts-2026/accepted-reports.jpg)
+
+
+## HS Week absences, October 12
+
+Nick and Babar will not attend HS Week. Their Bergen standings, wins and averages remain intact. The app greys their rows and omits qualification badges. The next four attending players receive Bergen's places, with the second attending player's average competing for the fourth bye. Finals pairing and locked sheet bye cells use the attending-player rank.
+
+Deploy `20261012104051_highdarts_final_absences.sql` before the app. It records the two verified identities in a service-only event table and adds `absentPlayerIds` to the atomic snapshot. The database rejects absent players in qualification/finals fixtures, including requests from older app versions. Attendance changes are locked once a tie-break or finals fixture exists. Fresh databases without the two identities skip the seed; partial or unexpected identities abort.
+
+The local regression runs with `HIGHDARTS_ABSENCES_NATIVE=1 PSQL_BIN=/Applications/Postgres.app/Contents/Versions/latest/bin/psql node scripts/highdarts-absences.integration.mjs` against an empty disposable `hs_week_test` on `127.0.0.1:56585`. Every case rolls back. To reverse the decision before qualification, remove only the reviewed event absence rows in a forward migration. Keep the schema and snapshot support; reverting the app alone would restore the old badges while the database still refuses absent finalists.
+
+Production database update completed October 12 through the Supabase SQL Editor. The schema/data update and exact-name history record committed in one transaction. Stored migration SHA-256 `024f04f7f6282cd091784715e0951b1fb460d54759c85e54f0ddf03265c3c4e8` matches the source file. The service-role snapshot contains exactly the two absences; all preexisting snapshot data compares equal, including all 80 fixtures. The UI remains pending app deployment.
+
+Validation: 1,613 unit/component tests passed, lint had zero errors and 23 existing warnings, the webpack production build passed, and the disposable PostgreSQL regression passed. Chrome verified the local app against the updated production snapshot: grey #1 Babar and #2 Nick, Aleksander's bye, Kseniia's second qualifying position, and Stian/Håvard's play-off places. The projected finals exclude both absent players; no draw was locked. Browser console had no errors.
+

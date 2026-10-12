@@ -1,4 +1,4 @@
-import { fixture, finish } from '@/test-utils/highdartsFixtures';
+import { fixture, finish, groupsWithAbsentLeaders } from '@/test-utils/highdartsFixtures';
 import { describe, expect, it } from 'vitest';
 import {
   buildStandings,
@@ -171,4 +171,28 @@ it('does not automatically choose the worst result and disables qualification ti
   const data = buildStandings({ fixtures, players: [] });
   expect(data.offices[1].table.find((r) => r.player.id === 'g')).toMatchObject({ played: 6, losses: 1, excluded: 0, needsDiscard: true });
   expect(data.ties.every((tie) => !tie.ready)).toBe(true);
+});
+
+it('retains absent leaders and their results but passes qualification to attending players', () => {
+  const source = groupsWithAbsentLeaders();
+  const original = buildStandings({ ...source, absentPlayerIds: [] });
+  const result = buildStandings(source);
+  expect(result.offices[0].table.map(({ player, rank, wins, average }) => ({ player, rank, wins, average })))
+    .toEqual(original.offices[0].table.map(({ player, rank, wins, average }) => ({ player, rank, wins, average })));
+  expect(result.offices[0].table.slice(0, 2).map((r) => [r.rank, r.qualifyingRank, r.qualification]))
+    .toEqual([[1, null, null], [2, null, null]]);
+  expect(result.offices[0].table.slice(2).map((r) => r.qualifyingRank)).toEqual([1, 2, 3, 4, 5]);
+  expect(result.offices[0].table[2].qualification).toBe('bye');
+  expect(result.offices[0].table[5].qualification).toBe('playoff');
+  expect([...result.byes, ...result.playoff].some((r) => source.absentPlayerIds?.includes(r.player.id))).toBe(false);
+  expect(result.total).toBe(original.total);
+  expect(result.played).toBe(original.played);
+});
+
+it('ignores absent players when finding cutoff and fourth-bye ties', () => {
+  const fixtures = Array.from({ length: 7 }, (_, i) => finish(fixture('bergen', `p${i}`, 'opponent', i + 1), `p${i}`, 60, 20));
+  const result = buildStandings({ fixtures, players: [], absentPlayerIds: ['p0', 'p1'] });
+  expect(result.ties.find((tie) => tie.office === 'bergen')?.players.map((r) => r.player.id))
+    .toEqual(['p2', 'p3', 'p4', 'p5', 'p6']);
+  expect(result.offices[0].table.slice(0, 2).every((r) => !r.tiedForFourth && !r.tiedForBye)).toBe(true);
 });

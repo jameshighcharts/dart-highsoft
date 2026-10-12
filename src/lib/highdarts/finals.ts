@@ -130,16 +130,12 @@ export function bracketGames(
 }
 export function projectFinals(standings: Standings) {
   const eligible = standings.offices.flatMap((o) =>
-    o.table
-      .filter(
-        (r) =>
-          r.rank <= 4 &&
-          r.played > 0 &&
-          r.player.id &&
-          !r.tiedForFourth &&
-          !r.tiedForBye,
-      )
-      .map((r) => ({ player: r.player, office: o.office, rank: r.rank })),
+    o.table.flatMap((r) =>
+      r.qualifyingRank !== null && r.qualifyingRank <= 4 &&
+      r.played > 0 && r.player.id && !r.tiedForFourth && !r.tiedForBye
+        ? [{ player: r.player, office: o.office, rank: r.qualifyingRank }]
+        : [],
+    ),
   );
   const byeIds = new Set(
     standings.byes
