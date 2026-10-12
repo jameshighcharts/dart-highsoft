@@ -1,41 +1,23 @@
-import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  computeHitDistribution,
-  computeScoreDistributionChartData,
-  computeBustAnalysis,
-  computeDartsPerLeg,
-  computeScoreConsistency,
-  computePerDartStats,
-  computeTonCounts,
-} from '@/lib/stats/computations';
-import type { PlayerCoreStats, PlayerSegmentRow } from '@/lib/stats/types';
+import type { PlayerStatsBundle } from '@/lib/stats/playerBundle';
 
 const Chart = dynamic(() => import('@/components/Chart'), { ssr: false });
 
 interface PerformanceTabProps {
-  selectedPlayer: string;
-  playerSegments: PlayerSegmentRow[];
-  playerCoreStats: PlayerCoreStats;
+  performance: PlayerStatsBundle['performance'];
 }
 
-export function PerformanceTab({ selectedPlayer, playerSegments, playerCoreStats }: PerformanceTabProps) {
-  const { playerTurns, playerThrows, playerLegs } = playerCoreStats;
-
-  const hitDistribution = useMemo(() => {
-    return computeHitDistribution(selectedPlayer, playerSegments, playerThrows);
-  }, [selectedPlayer, playerSegments, playerThrows]);
-
-  const scoreDistributionData = useMemo(() => {
-    return computeScoreDistributionChartData(playerCoreStats.scoreDistribution);
-  }, [playerCoreStats.scoreDistribution]);
-
-  const bustAnalysis = useMemo(() => computeBustAnalysis(playerTurns), [playerTurns]);
-  const dartsPerLeg = useMemo(() => computeDartsPerLeg(playerTurns, playerThrows, playerLegs, selectedPlayer), [playerTurns, playerThrows, playerLegs, selectedPlayer]);
-  const consistency = useMemo(() => computeScoreConsistency(playerTurns), [playerTurns]);
-  const perDart = useMemo(() => computePerDartStats(playerThrows), [playerThrows]);
-  const tonCounts = useMemo(() => computeTonCounts(playerTurns), [playerTurns]);
+export function PerformanceTab({ performance }: PerformanceTabProps) {
+  const {
+    hitDistribution,
+    scoreDistribution: scoreDistributionData,
+    bustAnalysis,
+    dartsPerLeg,
+    consistency,
+    perDart,
+    tonCounts,
+  } = performance;
 
   return (
     <div className="space-y-6">

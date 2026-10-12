@@ -407,3 +407,16 @@
 @media (prefers-reduced-motion: reduce) {
   .site-nav-link, .site-nav-link::after, .site-nav-link svg { transition: none; }
 }
+
+/* Loading placeholders stay invisible for 150ms before fading in, so cached data and quick
+   responses replace them before anyone sees them (see LoadingReveal). */
+@keyframes loading-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.loading-reveal {
+  animation: loading-reveal 200ms ease-out 150ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-reveal { animation-duration: 1ms; }
+}

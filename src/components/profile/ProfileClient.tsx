@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { signIn } from 'next-auth/react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BarChart3, Camera, Trash2 } from 'lucide-react';
 
@@ -18,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiRequest } from '@/lib/apiClient';
+import { meQuery } from '@/lib/queries/me';
 import type { MyPlayer } from '@/lib/server/myPlayer';
 import { LOCATIONS } from '@/utils/locations';
 import { formatNicknames } from '@/utils/nicknames';
@@ -25,6 +27,7 @@ import { formatNicknames } from '@/utils/nicknames';
 const NO_LOCATION = '__none__';
 
 export function ProfileClient() {
+  const queryClient = useQueryClient();
   const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +43,7 @@ export function ProfileClient() {
     try {
       const data = await apiRequest<MeResponse>('/api/me', { method: 'GET' });
       setMe(data);
+      queryClient.setQueryData(meQuery().queryKey, data);
       setNicknames(formatNicknames(data.player?.nicknames));
       if (!data.player) setNewName((data.user.name ?? '').split(/\s+/)[0] ?? '');
     } catch (loadError) {
@@ -47,7 +51,7 @@ export function ProfileClient() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     void load();
@@ -67,6 +71,8 @@ export function ProfileClient() {
 
   function setPlayer(player: MyPlayer) {
     setMe((current) => (current ? { ...current, player, unclaimedPlayers: [] } : current));
+    // Other pages read the cached profile (New match picks boards by its location).
+    queryClient.setQueryData(meQuery().queryKey, (current) => (current ? { ...current, player, unclaimedPlayers: [] } : current));
     setNicknames(formatNicknames(player.nicknames));
   }
 

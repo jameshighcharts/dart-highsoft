@@ -1,3 +1,4 @@
+import { isMissingDatabaseObject } from '@/lib/missingDatabaseObject';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 
 type RecentEloTrendRow = {
@@ -42,7 +43,8 @@ export async function batchEloHistory(
     try {
       return await fetchRecentTrendFromRpc('get_player_recent_elo_trend', playerIds);
     } catch (error) {
-      console.error('Error fetching recent ELO trend via RPC:', error);
+      // Only a database without the function falls back to the raw ratings.
+      if (!isMissingDatabaseObject(error as { code?: string })) throw error;
     }
   }
 
@@ -53,10 +55,8 @@ export async function batchEloHistory(
     .in('player_id', playerIds)
     .order('created_at', { ascending: true });
 
-  if (error) {
-    console.error('Error fetching batch ELO history:', error);
-    return new Map();
-  }
+  // Thrown, not returned empty: the trends are cached for every viewer.
+  if (error) throw error;
 
   const map = new Map<string, number[]>();
   for (const row of data ?? []) {
@@ -88,7 +88,8 @@ export async function batchMultiEloHistory(
     try {
       return await fetchRecentTrendFromRpc('get_player_recent_elo_multi_trend', playerIds);
     } catch (error) {
-      console.error('Error fetching recent multi ELO trend via RPC:', error);
+      // Only a database without the function falls back to the raw ratings.
+      if (!isMissingDatabaseObject(error as { code?: string })) throw error;
     }
   }
 
@@ -99,10 +100,8 @@ export async function batchMultiEloHistory(
     .in('player_id', playerIds)
     .order('created_at', { ascending: true });
 
-  if (error) {
-    console.error('Error fetching batch multi ELO history:', error);
-    return new Map();
-  }
+  // Thrown, not returned empty: the trends are cached for every viewer.
+  if (error) throw error;
 
   const map = new Map<string, number[]>();
   for (const row of data ?? []) {

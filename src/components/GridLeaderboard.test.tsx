@@ -1,19 +1,27 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GridOptions } from '@highcharts/grid-pro-react';
 import { GridLeaderboard } from './GridLeaderboard';
 
+const { trends } = vi.hoisted(() => ({
+  trends: { current: { elo: new Map<string, number[]>(), multi: new Map<string, number[]>() } as unknown },
+}));
+
 vi.mock('@highcharts/grid-pro/css/grid-pro.css', () => ({}));
-vi.mock('@highcharts/grid-pro-react', () => ({
-  Grid: ({ options }: { options: GridOptions }) => (
+vi.mock('@/components/GridPro', () => ({
+  GridPro: ({ options }: { options: GridOptions }) => (
     <output data-testid="leaderboard">{JSON.stringify(options.dataTable?.columns)}</output>
   ),
 }));
 vi.mock('@highcharts/grid-pro/es-modules/Grid/Pro/CellRendering/Renderers/SparklineRenderer', () => ({
   default: { useHighcharts: vi.fn() },
 }));
-vi.mock('@tanstack/react-query', () => ({ useQuery: () => ({ data: undefined }) }));
-vi.mock('@/hooks/useLeaderboardData', () => ({
+vi.mock('@tanstack/react-query', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-query')>()),
+  useQuery: () => ({ data: trends.current }),
+}));
+vi.mock('@/hooks/useLeaderboardData', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useLeaderboardData')>()),
   useLeaderboardData: () => ({
     leaders: [0, 1, 2, 3, 4].map((count) => ({
       player_id: `player-${count}`, display_name: `Player ${count}`, wins: 0, avg_per_turn: 30,
@@ -38,10 +46,23 @@ vi.mock('@/hooks/useLeaderboardData', () => ({
 }));
 
 describe('home leaderboard qualification', () => {
+  afterEach(cleanup);
+
   it('shows players and Elo only after three completed matches, including Elo-only entries', () => {
     render(<GridLeaderboard />);
     const columns = JSON.parse(screen.getByTestId('leaderboard').textContent ?? '{}');
     expect(columns.playerId).toEqual(['player-3', 'player-4', 'player-5']);
     expect(columns.elo1v1).toEqual([1203, 1204, 1205]);
+  });
+
+  it('shows the grid before the Elo trends arrive', () => {
+    trends.current = undefined;
+    try {
+      render(<GridLeaderboard />);
+      const columns = JSON.parse(screen.getByTestId('leaderboard').textContent ?? '{}');
+      expect(columns.playerId).toEqual(['player-3', 'player-4', 'player-5']);
+    } finally {
+      trends.current = { elo: new Map(), multi: new Map() };
+    }
   });
 });

@@ -5,17 +5,15 @@ import { ComparePlayerPicker, MIN_COMPARE } from './ComparePlayerPicker';
 import { CompareKpiTable } from './CompareKpiTable';
 import { CompareTrendChart } from './CompareTrendChart';
 import { useMultiPlayerStats } from '@/hooks/useMultiPlayerStats';
-import type { LegRow, MatchRow, PlayerRow } from '@/lib/stats/types';
+import type { PlayerRow } from '@/lib/stats/types';
 
 interface ComparePlayersViewProps {
   players: PlayerRow[];
-  legs: LegRow[];
-  matches: MatchRow[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
 }
 
-export function ComparePlayersView({ players, legs, matches, selectedIds, onChange }: ComparePlayersViewProps) {
+export function ComparePlayersView({ players, selectedIds, onChange }: ComparePlayersViewProps) {
   const perPlayer = useMultiPlayerStats(selectedIds);
   const hasEnough = selectedIds.length >= MIN_COMPARE;
 
@@ -43,15 +41,11 @@ export function ComparePlayersView({ players, legs, matches, selectedIds, onChan
             playerIds={selectedIds}
             players={players}
             perPlayer={perPlayer}
-            legs={legs}
-            matches={matches}
           />
           <CompareTrendChart
             playerIds={selectedIds}
             players={players}
             perPlayer={perPlayer}
-            legs={legs}
-            matches={matches}
           />
         </>
       )}

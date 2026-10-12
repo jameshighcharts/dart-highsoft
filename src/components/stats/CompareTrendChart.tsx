@@ -4,18 +4,10 @@ import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  computePlayerCoreStats,
-  computeAvgScoreTrend,
-  computeFirstNineTrend,
-  computeDartsPerLegTrend,
-  computeCheckoutRateTrend,
-  computeBustRateTrend,
-  computeT20GroupingTrend,
-} from '@/lib/stats/computations';
 import { alignDailyTrends } from '@/lib/stats/alignTrends';
 import { getPlayerColor } from '@/lib/stats/playerColors';
-import type { LegRow, MatchRow, PlayerRow } from '@/lib/stats/types';
+import type { PlayerStatsBundle } from '@/lib/stats/playerBundle';
+import type { PlayerRow } from '@/lib/stats/types';
 import type { PerPlayerStatsQuery } from '@/hooks/useMultiPlayerStats';
 
 const Chart = dynamic(() => import('@/components/Chart'), { ssr: false });
@@ -35,50 +27,21 @@ interface CompareTrendChartProps {
   playerIds: string[];
   players: PlayerRow[];
   perPlayer: PerPlayerStatsQuery[];
-  legs: LegRow[];
-  matches: MatchRow[];
 }
 
-function computeMetricTrend(
-  metric: MetricKey,
-  playerId: string,
-  turns: PerPlayerStatsQuery['turns'],
-  throws: PerPlayerStatsQuery['throws'],
-  legs: LegRow[],
-  matches: MatchRow[]
-): { categories: string[]; rolling: number[] } {
-  const core = computePlayerCoreStats(playerId, turns, throws, legs, matches);
+/** The player's 7-day rolling series for `metric`, from their computed Trends tab. */
+function metricTrend(metric: MetricKey, { trends }: PlayerStatsBundle): { categories: string[]; rolling: number[] } {
   switch (metric) {
-    case 'avgScore': {
-      const t = computeAvgScoreTrend(core.playerTurns);
-      return { categories: t.categories, rolling: t.rolling };
-    }
-    case 'firstNine': {
-      const t = computeFirstNineTrend(core.playerTurns, core.playerThrows);
-      return { categories: t.categories, rolling: t.rolling };
-    }
-    case 'dartsPerLeg': {
-      const t = computeDartsPerLegTrend(
-        core.playerTurns, core.playerThrows, core.playerLegs, legs, matches, playerId, 'all'
-      );
-      return { categories: t.categories, rolling: t.rolling };
-    }
-    case 'checkoutRate': {
-      const t = computeCheckoutRateTrend(core.playerTurns, core.playerLegs, legs, matches, playerId);
-      return { categories: t.categories, rolling: t.rolling };
-    }
-    case 'bustRate': {
-      const t = computeBustRateTrend(core.playerTurns);
-      return { categories: t.categories, rolling: t.rolling };
-    }
-    case 't20Grouping': {
-      const t = computeT20GroupingTrend(core.playerTurns, core.playerThrows);
-      return { categories: t.categories, rolling: t.rolling };
-    }
+    case 'avgScore': return { categories: trends.avgScore.categories, rolling: trends.avgScore.rolling };
+    case 'firstNine': return { categories: trends.firstNine.categories, rolling: trends.firstNine.rolling };
+    case 'dartsPerLeg': return { categories: trends.dartsPerLeg.all.categories, rolling: trends.dartsPerLeg.all.rolling };
+    case 'checkoutRate': return { categories: trends.checkoutRate.categories, rolling: trends.checkoutRate.rolling };
+    case 'bustRate': return { categories: trends.bustRate.categories, rolling: trends.bustRate.rolling };
+    case 't20Grouping': return { categories: trends.t20Grouping.categories, rolling: trends.t20Grouping.rolling };
   }
 }
 
-export function CompareTrendChart({ playerIds, players, perPlayer, legs, matches }: CompareTrendChartProps) {
+export function CompareTrendChart({ playerIds, players, perPlayer }: CompareTrendChartProps) {
   const [metric, setMetric] = useState<MetricKey>('avgScore');
   const metricMeta = METRICS.find(m => m.key === metric)!;
 
@@ -90,8 +53,8 @@ export function CompareTrendChart({ playerIds, players, perPlayer, legs, matches
 
   const series = useMemo(() => {
     const perPlayerTrend = perPlayer.map((q) => {
-      if (q.status !== 'success') return { categories: [] as string[], rolling: [] as number[] };
-      return computeMetricTrend(metric, q.playerId, q.turns, q.throws, legs, matches);
+      if (q.status !== 'success' || !q.stats) return { categories: [] as string[], rolling: [] as number[] };
+      return metricTrend(metric, q.stats);
     });
 
     const aligned = alignDailyTrends(
@@ -111,7 +74,7 @@ export function CompareTrendChart({ playerIds, players, perPlayer, legs, matches
         connectNulls: true,
       };
     });
-  }, [metric, perPlayer, legs, matches, playerIds, playerById]);
+  }, [metric, perPlayer, playerIds, playerById]);
 
   return (
     <Card>

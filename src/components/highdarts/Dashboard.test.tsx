@@ -9,10 +9,27 @@ import {
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { createAppQueryClient } from '@/components/QueryProvider';
 import type { FixtureResult, Snapshot } from '@/lib/highdarts/standings';
+import { highdartsBoardsQuery, highdartsQuery } from '@/lib/queries/highdarts';
+import { meQuery } from '@/lib/queries/me';
 import { fixture, finish, groupsWithAbsentLeaders } from '@/test-utils/highdartsFixtures';
 import { HighdartsDashboard } from './Dashboard';
 const snapshot = { fixtures: [], players: [] };
+
+/** Renders with `cached` already in the query cache; stale unless `fresh`, so mounting refreshes it. */
+function renderDashboard(cached?: Snapshot, { fresh = false } = {}) {
+  const client = createAppQueryClient();
+  client.setDefaultOptions({ queries: { ...client.getDefaultOptions().queries, retry: false } });
+  if (cached) {
+    // As the query function stores it: live occupancy split off from the tournament snapshot.
+    const { boards, ...tournament } = cached;
+    client.setQueryData(highdartsQuery().queryKey, tournament, { updatedAt: fresh ? Date.now() : 0 });
+    if (boards) client.setQueryData(highdartsBoardsQuery().queryKey, boards);
+  }
+  return render(<QueryClientProvider client={client}><HighdartsDashboard /></QueryClientProvider>);
+}
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -23,7 +40,7 @@ it('refreshes results and the linked player with GET, preserving the required ta
     .fn()
     .mockResolvedValue({ ok: true, json: async () => snapshot });
   vi.stubGlobal('fetch', fetch);
-  render(<HighdartsDashboard initial={snapshot} isAdmin={false} />);
+  renderDashboard(snapshot);
   await waitFor(() =>
     expect(fetch).toHaveBeenCalledWith(
       '/api/highdarts',
@@ -73,7 +90,7 @@ function renderFixtures() {
     'fetch',
     vi.fn().mockResolvedValue({ ok: true, json: async () => data }),
   );
-  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  renderDashboard(data);
   return within(screen.getByRole('region', { name: 'Upcoming fixtures' }));
 }
 it('paginates one office and resets the page when switching office', async () => {
@@ -122,7 +139,7 @@ it('keeps the two reported scores visible after refresh with leg totals, estimat
   ] };
   const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => data });
   vi.stubGlobal('fetch', fetch);
-  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  renderDashboard(data);
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   expect(screen.getAllByText('Reported result')).toHaveLength(2);
   expect(within(screen.getByRole('group', { name: 'Group games played' })).getByText('2')).toBeInTheDocument();
@@ -159,7 +176,7 @@ it('shows four games played today when the two reported Sogndal games join two V
     ...vikResults,
   ] };
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => data }));
-  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  renderDashboard(data);
   expect(within(screen.getByRole('group', { name: 'Games played today' })).getByText('4')).toBeInTheDocument();
   expect(within(screen.getByRole('group', { name: 'Group games played' })).getByText('4')).toBeInTheDocument();
   expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuetext', '4 of 4 played, 4 today');
@@ -182,7 +199,7 @@ it('shows four games played today when the two reported Sogndal games join two V
 
 it('previews today on hover, toggles on click, and dismisses outside or with Escape', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => snapshot }));
-  render(<HighdartsDashboard initial={snapshot} isAdmin={false} />);
+  renderDashboard(snapshot);
   const today = screen.getByRole('button', { name: "Show today's tournament games" });
   await userEvent.hover(today);
   expect(await screen.findByRole('tooltip')).toHaveTextContent('No tournament games completed today.');
@@ -212,11 +229,12 @@ it('replaces a reported result with the real active match on refresh without off
     .mockResolvedValueOnce({ ok: true, json: async () => ({ player: { id: 'Jon Skjerdal' } }) })
     .mockResolvedValue({ ok: true, json: async () => active });
   vi.stubGlobal('fetch', fetch);
-  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  renderDashboard(data);
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   expect(screen.getAllByText('Reported result')).toHaveLength(2);
   await act(async () => window.dispatchEvent(new Event('focus')));
-  expect(screen.getAllByText('Reported result')).toHaveLength(1);
+  // The refetch on focus resolves asynchronously.
+  await waitFor(() => expect(screen.getAllByText('Reported result')).toHaveLength(1));
   expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuenow', '1');
   expect(screen.getByRole('link', { name: 'Watch live' })).toHaveAttribute('href', '/match/canonical-live');
   expect(screen.queryByRole('link', { name: /Start.*Johan/ })).not.toBeInTheDocument();
@@ -233,7 +251,7 @@ it('shows only ongoing matches in the header and removes them when finished', as
   const data: Snapshot = { players: [], fixtures: [live, paused, ended, done] };
   const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => data });
   vi.stubGlobal('fetch', fetch);
-  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  renderDashboard(data);
   const status = within(screen.getByRole('region', { name: 'Tournament match status' }));
   expect(within(screen.getByLabelText('Live games')).getByText('1')).toBeInTheDocument();
   expect(status.getByText('Bergen')).toBeInTheDocument();
@@ -261,7 +279,7 @@ it('shows tournament status for six-fixture players while retaining their counti
     ...Array.from({ length: 6 }, (_, n) => fixture('vik', 'Gjertrud', `Vik opponent ${n}`, n + 1)),
   ] };
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => data }));
-  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  renderDashboard(data);
   await userEvent.click(screen.getByRole('tab', { name: 'Tabell' }));
   const sogndal = within(screen.getByRole('table', { name: 'Sogndal standings' }));
   const vik = within(screen.getByRole('table', { name: 'Vik standings' }));
@@ -282,7 +300,7 @@ it('keeps the displaced screenshot game visible with the recorded meeting after 
   ] };
   const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => data });
   vi.stubGlobal('fetch', fetch);
-  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  renderDashboard(data);
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   await act(async () => window.dispatchEvent(new Event('focus')));
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
@@ -307,7 +325,7 @@ it('keeps the displaced screenshot game visible with the recorded meeting after 
 it('greys absent leaders without qualification badges or attendance controls', async () => {
   const data = groupsWithAbsentLeaders();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => data }));
-  render(<HighdartsDashboard initial={data} isAdmin={false} />);
+  renderDashboard(data);
   await userEvent.click(screen.getByRole('tab', { name: 'Tabell' }));
   const rows = screen.getAllByRole('row');
   for (const id of data.absentPlayerIds ?? []) {
@@ -318,4 +336,31 @@ it('greys absent leaders without qualification badges or attendance controls', a
   }
   expect(screen.queryByRole('switch', { name: /attend/i })).not.toBeInTheDocument();
   await act(async () => {});
+});
+
+it('shows a cached snapshot at once without waiting for the network', async () => {
+  const data: Snapshot = { players: [], fixtures: [finish(fixture('vik', 'Linda', 'Aksel', 28), 'Linda')] };
+  const fetch = vi.fn(() => new Promise(() => {}));
+  vi.stubGlobal('fetch', fetch);
+  renderDashboard(data, { fresh: true });
+  expect(screen.getByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuenow', '1');
+  expect(screen.queryByText('Loading Highdarts…')).not.toBeInTheDocument();
+  expect(fetch).not.toHaveBeenCalledWith('/api/highdarts', expect.anything());
+});
+
+it('shows a skeleton on a first visit, then the snapshot', async () => {
+  const data: Snapshot = { players: [], fixtures: [finish(fixture('vik', 'Linda', 'Aksel', 28), 'Linda')] };
+  let resolve: (value: unknown) => void = () => {};
+  vi.stubGlobal('fetch', vi.fn((url: string) => url === '/api/highdarts'
+    ? new Promise((r) => { resolve = r; })
+    : Promise.resolve({ ok: true, json: async () => ({ player: null, user: { isAdmin: false } }) })));
+  renderDashboard();
+  expect(screen.getByRole('status')).toHaveTextContent('Loading Highdarts…');
+  expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+  await act(async () => resolve({ ok: true, json: async () => data }));
+  expect(await screen.findByRole('progressbar', { name: 'Fixtures completed' })).toHaveAttribute('aria-valuenow', '1');
+});
+
+it('takes admin rights only from the live session, never from the persisted cache', () => {
+  expect(meQuery().meta?.persist).toBe(false);
 });

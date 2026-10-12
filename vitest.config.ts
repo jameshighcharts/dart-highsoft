@@ -10,7 +10,7 @@ export default defineConfig({
     // Test file patterns
     include: ['**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     // Exclude Playwright E2E tests
-    exclude: ['**/node_modules/**', '**/e2e/**'],
+    exclude: ['**/node_modules/**', '**/e2e/**', '.claude/**'], // .claude holds agent worktrees with their own copies
 
     // Coverage configuration
     coverage: {

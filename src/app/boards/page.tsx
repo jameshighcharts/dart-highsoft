@@ -1,10 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LoaderCircle, Plus, RefreshCw, Router, Trash2, Tv } from 'lucide-react';
 import Link from 'next/link';
 
+import { LoadingReveal } from '@/components/LoadingReveal';
+import { Skeleton } from '@/components/ui/skeleton';
 import { apiRequest } from '@/lib/apiClient';
+import { scoliaBoardsQuery } from '@/lib/queries/boards';
+import { refreshAfterChange } from '@/lib/queries/refreshAfterChange';
 import { isTVModeEnabled, TV_MODE_STORAGE_KEY } from '@/lib/tvMode';
 import { useScoliaBoardRealtime, type RealtimeChannelStatus } from '@/hooks/useScoliaBoardRealtime';
 import { isChannelLive } from '@/lib/scolia/connectionHealth';
@@ -35,13 +40,40 @@ function mergePublicStatus(board: ScoliaBoard, status: ScoliaBoardPublicStatus):
   };
 }
 
+/** Boards whose heartbeat has gone stale are shown as disconnected; unchanged boards keep their identity. */
+function markStaleHeartbeats(boards: ScoliaBoard[]): ScoliaBoard[] {
+  let changed = false;
+  const next = boards.map((board) => {
+    if (
+      board.workerConnectionStatus === 'disconnected'
+      || hasFreshScoliaHeartbeat({ workerHeartbeatAt: board.workerHeartbeatAt ?? null })
+    ) return board;
+    changed = true;
+    return { ...board, workerConnectionStatus: 'disconnected' as const };
+  });
+  return changed ? next : boards;
+}
+
 export default function BoardsPage() {
-  const [boards, setBoards] = useState<ScoliaBoard[]>([]);
+  const queryClient = useQueryClient();
+  // Applied on read too, so boards cached from an earlier visit never show a stale heartbeat as live.
+  const boardsQuery = useQuery({ ...scoliaBoardsQuery(), select: markStaleHeartbeats });
+  const boards = boardsQuery.data ?? [];
+  const setBoards = (update: (current: ScoliaBoard[]) => ScoliaBoard[]) => {
+    const current = queryClient.getQueryData(scoliaBoardsQuery().queryKey);
+    if (!current) return;
+    const next = update(current);
+    // Writing unchanged data would still notify every cache subscriber, including the persister.
+    if (next !== current) queryClient.setQueryData(scoliaBoardsQuery().queryKey, next);
+  };
   const [serialNumber, setSerialNumber] = useState('');
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [removingSerial, setRemovingSerial] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const loadError = boardsQuery.isError
+    ? (boardsQuery.error instanceof Error ? boardsQuery.error.message : 'Failed to load Scolia boards')
+    : null;
+  const error = actionError ?? loadError;
   const [tvMode, setTVMode] = useState(false);
   const [tvModeError, setTVModeError] = useState<string | null>(null);
 
@@ -59,22 +91,7 @@ export default function BoardsPage() {
     }
   }
 
-  const loadBoards = useCallback(async (showLoading = true) => {
-    if (showLoading) setLoading(true);
-    setError(null);
-    try {
-      const result = await apiRequest<{ boards: ScoliaBoard[] }>('/api/scolia/boards', { method: 'GET' });
-      setBoards(result.boards);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Failed to load Scolia boards');
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadBoards();
-  }, [loadBoards]);
+  const refreshBoards = () => refreshAfterChange(queryClient, scoliaBoardsQuery().queryKey);
 
   const [boardChannel, setBoardChannel] = useState<RealtimeChannelStatus | undefined>(undefined);
   useScoliaBoardRealtime({
@@ -82,28 +99,24 @@ export default function BoardsPage() {
       board.id === status.boardId ? mergePublicStatus(board, status) : board
     )),
     onRemove: (boardId) => setBoards((current) => current.filter((board) => board.id !== boardId)),
-    onOccupancyChange: () => void loadBoards(false),
-    onReconcile: () => void loadBoards(false),
+    onOccupancyChange: refreshBoards,
+    // After every (re)subscribe: catches changes made between the last fetch and the subscription.
+    onReconcile: refreshBoards,
     onChannelStatus: setBoardChannel,
   });
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      setBoards((current) => {
-        let changed = false;
-        const next = current.map((board) => {
-          if (
-            board.workerConnectionStatus === 'disconnected'
-            || hasFreshScoliaHeartbeat({ workerHeartbeatAt: board.workerHeartbeatAt ?? null })
-          ) return board;
-          changed = true;
-          return { ...board, workerConnectionStatus: 'disconnected' as const };
-        });
-        return changed ? next : current;
-      });
-    }, 1_000);
+    const key = scoliaBoardsQuery().queryKey;
+    const markStale = () => {
+      const current = queryClient.getQueryData(key);
+      if (!current) return;
+      const next = markStaleHeartbeats(current);
+      if (next !== current) queryClient.setQueryData(key, next);
+    };
+    markStale();
+    const interval = window.setInterval(markStale, 1_000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [queryClient]);
 
   async function connectBoard(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -111,7 +124,7 @@ export default function BoardsPage() {
     if (!serial) return;
 
     setSaving(true);
-    setError(null);
+    setActionError(null);
     try {
       const result = await apiRequest<{ board: ScoliaBoard }>('/api/scolia/boards', {
         method: 'PUT',
@@ -125,7 +138,7 @@ export default function BoardsPage() {
       });
       setSerialNumber('');
     } catch (connectError) {
-      setError(connectError instanceof Error ? connectError.message : 'Failed to connect Scolia board');
+      setActionError(connectError instanceof Error ? connectError.message : 'Failed to connect Scolia board');
     } finally {
       setSaving(false);
     }
@@ -136,14 +149,14 @@ export default function BoardsPage() {
     if (!confirmed) return;
 
     setRemovingSerial(board.serialNumber);
-    setError(null);
+    setActionError(null);
     try {
       await apiRequest<{ ok: true }>(`/api/scolia/boards/${encodeURIComponent(board.serialNumber)}`, {
         method: 'DELETE',
       });
       setBoards((current) => current.filter((item) => item.serialNumber !== board.serialNumber));
     } catch (disconnectError) {
-      setError(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect Scolia board');
+      setActionError(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect Scolia board');
     } finally {
       setRemovingSerial(null);
     }
@@ -190,8 +203,14 @@ export default function BoardsPage() {
             <h2 id="connected-boards-heading" className="text-lg font-semibold">Connected boards</h2>
             <p className="text-sm text-muted-foreground">Registration state from the Scolia REST API.</p>
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={() => void loadBoards()} disabled={loading}>
-            <RefreshCw className={loading ? 'animate-spin' : ''} />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => { setActionError(null); void boardsQuery.refetch(); }}
+            disabled={boardsQuery.isFetching}
+          >
+            <RefreshCw className={boardsQuery.isFetching ? 'animate-spin' : ''} />
             Refresh
           </Button>
         </div>
@@ -202,11 +221,21 @@ export default function BoardsPage() {
           </div>
         ) : null}
 
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 rounded-xl border py-12 text-sm text-muted-foreground">
-            <LoaderCircle className="animate-spin" />
-            Loading boards…
-          </div>
+        {boardsQuery.isPending ? (
+          <LoadingReveal label="Loading boards…" className="grid gap-3">
+            {[0, 1].map((index) => (
+              <Card key={index} className="py-4">
+                <CardContent className="flex items-center gap-4">
+                  <Skeleton className="size-10 rounded-lg" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-4 w-48" />
+                    <Skeleton className="h-3 w-32" />
+                  </div>
+                  <Skeleton className="h-8 w-24" />
+                </CardContent>
+              </Card>
+            ))}
+          </LoadingReveal>
         ) : boards.length === 0 ? (
           <div className="rounded-xl border border-dashed px-6 py-12 text-center">
             <Router className="mx-auto mb-3 size-8 text-muted-foreground" />

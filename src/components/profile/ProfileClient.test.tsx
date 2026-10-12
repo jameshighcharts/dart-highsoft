@@ -5,6 +5,7 @@ import { signIn } from 'next-auth/react';
 
 import { apiRequest } from '@/lib/apiClient';
 import { ProfileClient } from './ProfileClient';
+import { TestQueryProvider } from '@/test-utils/renderWithProviders';
 
 afterEach(cleanup);
 
@@ -22,7 +23,7 @@ beforeEach(() => vi.resetAllMocks());
 
 it('keeps the admin editor and admin API requests out of a member profile', async () => {
   vi.mocked(apiRequest).mockResolvedValueOnce({ player, user, unclaimedPlayers: [] });
-  render(<ProfileClient />);
+  render(<TestQueryProvider><ProfileClient /></TestQueryProvider>);
   await screen.findByRole('heading', { name: 'My profile' });
   expect(screen.queryByText('Player nicknames')).not.toBeInTheDocument();
   expect(apiRequest).toHaveBeenCalledTimes(1);
@@ -34,7 +35,7 @@ it('updates the own-profile nickname field when an admin edits their own player'
   vi.mocked(apiRequest)
     .mockResolvedValueOnce({ player, user: { ...user, isAdmin: true }, unclaimedPlayers: [] })
     .mockResolvedValueOnce({ players: [player] });
-  render(<ProfileClient />);
+  render(<TestQueryProvider><ProfileClient /></TestQueryProvider>);
   await screen.findByRole('option', { name: 'Ada' });
   fireEvent.change(screen.getByLabelText('Player'), { target: { value: 'ada' } });
   fireEvent.change(screen.getByLabelText('Nicknames for Ada'), { target: { value: 'The Ace' } });
@@ -46,7 +47,7 @@ it('updates the own-profile nickname field when an admin edits their own player'
 
 it('offers retry and direct Slack sign-in when identity is unresolved', async () => {
   vi.mocked(apiRequest).mockRejectedValue(new Error('No Slack identity yet'));
-  render(<ProfileClient />);
+  render(<TestQueryProvider><ProfileClient /></TestQueryProvider>);
   expect(await screen.findByRole('alert')).toHaveTextContent('No Slack identity yet');
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
   await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));

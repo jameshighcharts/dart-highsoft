@@ -3,10 +3,7 @@
 import { Portal as TooltipPortal } from '@radix-ui/react-tooltip';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-
-export function gameDateKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
+import { ACTIVITY_START_DAY, gameDateKey, type GameActivity } from '@/lib/queries/games';
 
 // Sequential scale: level 0 = no games, levels 1-6 scale relative to the busiest day.
 const colors = [
@@ -38,23 +35,20 @@ export function activityThresholds(max: number) {
   return thresholds;
 }
 
-export function GameActivityHeatmap({ dates, selectedDate, onSelectDate }: {
-  dates: string[];
+export function GameActivityHeatmap({ activity, selectedDate, onSelectDate }: {
+  /** Games per day, keyed by gameDateKey. */
+  activity: GameActivity;
   selectedDate: string | null;
   onSelectDate: (date: string) => void;
 }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const start = new Date(2026, 8, 1);
+  const [startYear, startMonth, startDay] = ACTIVITY_START_DAY.split('-').map(Number);
+  const start = new Date(startYear, startMonth - 1, startDay);
   const firstWeek = new Date(start);
   firstWeek.setDate(firstWeek.getDate() - (firstWeek.getDay() + 6) % 7);
-  const counts = new Map<string, number>();
-  for (const timestamp of dates) {
-    const date = new Date(timestamp);
-    if (date < start || date >= new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)) continue;
-    const key = gameDateKey(date);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
+  const [startKey, todayKey] = [gameDateKey(start), gameDateKey(today)];
+  const counts = new Map(Object.entries(activity).filter(([day, count]) => count > 0 && day >= startKey && day <= todayKey));
   const weeks: Date[][] = [];
   for (const day = new Date(firstWeek); day <= today;) {
     const week: Date[] = [];

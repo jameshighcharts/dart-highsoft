@@ -135,11 +135,10 @@ export async function getEloLeaderboard(limit?: number): Promise<EloLeaderboardE
   if (limit) query = query.limit(limit);
   const { data, error } = await query;
     
-  if (error) {
-    console.error('Error fetching ELO leaderboard:', error);
-    return [];
-  }
-  
+  // Thrown, not returned empty: the leaderboard is cached for every viewer, and an empty list
+  // from a timeout would replace the real one until the next change.
+  if (error) throw error;
+
   return (data || []).map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
 

@@ -2,143 +2,15 @@
 
 import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  computePlayerCoreStats,
-  computeDartsPerLegTrend,
-  computeTonCounts,
-} from '@/lib/stats/computations';
+import type { CompareRow as Row } from '@/lib/stats/playerBundle';
 import { getPlayerColor } from '@/lib/stats/playerColors';
-import type { LegRow, MatchRow, PlayerRow, TurnRow, ThrowRow } from '@/lib/stats/types';
+import type { PlayerRow } from '@/lib/stats/types';
 import type { PerPlayerStatsQuery } from '@/hooks/useMultiPlayerStats';
 
 interface CompareKpiTableProps {
   playerIds: string[];
   players: PlayerRow[];
   perPlayer: PerPlayerStatsQuery[];
-  legs: LegRow[];
-  matches: MatchRow[];
-}
-
-type Row = {
-  gamesPlayed: number;
-  gameWinRate: number;
-  legWinRate: number;
-  avgScore: number;
-  avgScore30: number;
-  first9: number;
-  first9_30: number;
-  t20Grouping: number;
-  t20Grouping30: number;
-  checkoutRate: number;
-  bustRate: number;
-  dartsPerLeg: number;
-  count180: number;
-  highestCheckout: number;
-};
-
-const T20_GROUP_SEGMENTS = new Set([
-  '20', 'S20', 'D20', 'T20',
-  '1',  'S1',  'D1',  'T1',
-  '5',  'S5',  'D5',  'T5',
-]);
-
-function computeT20GroupingAllTime(turns: TurnRow[], throws: ThrowRow[]): number {
-  const turnsByLeg = new Map<string, TurnRow[]>();
-  for (const t of turns) {
-    let arr = turnsByLeg.get(t.leg_id);
-    if (!arr) { arr = []; turnsByLeg.set(t.leg_id, arr); }
-    arr.push(t);
-  }
-
-  const firstNineTurnIds = new Set<string>();
-  for (const legTurns of turnsByLeg.values()) {
-    const sorted = [...legTurns].sort((a, b) => a.turn_number - b.turn_number).slice(0, 3);
-    for (const t of sorted) firstNineTurnIds.add(t.id);
-  }
-
-  let hits = 0, total = 0;
-  for (const th of throws) {
-    if (!firstNineTurnIds.has(th.turn_id)) continue;
-    if (!th.segment) continue;
-    total++;
-    if (T20_GROUP_SEGMENTS.has(th.segment)) hits++;
-  }
-  return total > 0 ? Math.round((hits / total) * 1000) / 10 : 0;
-}
-
-function computeFirst9(turns: TurnRow[], throws: ThrowRow[]): number {
-  const throwsByTurn = new Map<string, number>();
-  for (const th of throws) throwsByTurn.set(th.turn_id, (throwsByTurn.get(th.turn_id) ?? 0) + 1);
-
-  const turnsByLeg = new Map<string, TurnRow[]>();
-  for (const t of turns) {
-    let arr = turnsByLeg.get(t.leg_id);
-    if (!arr) { arr = []; turnsByLeg.set(t.leg_id, arr); }
-    arr.push(t);
-  }
-
-  let totalF9 = 0, countF9 = 0;
-  for (const legTurns of turnsByLeg.values()) {
-    const sorted = [...legTurns].sort((a, b) => a.turn_number - b.turn_number).slice(0, 3);
-    let pts = 0, darts = 0;
-    for (const t of sorted) {
-      darts += throwsByTurn.get(t.id) ?? 3;
-      pts += t.busted ? 0 : t.total_scored;
-    }
-    if (darts > 0) {
-      totalF9 += (pts / darts) * 3;
-      countF9++;
-    }
-  }
-  return countF9 > 0 ? Math.round((totalF9 / countF9) * 100) / 100 : 0;
-}
-
-function computeRow(
-  playerId: string,
-  turns: TurnRow[],
-  throws: ThrowRow[],
-  legs: LegRow[],
-  matches: MatchRow[]
-): Row {
-  const core = computePlayerCoreStats(playerId, turns, throws, legs, matches);
-  const dplTrend = computeDartsPerLegTrend(
-    core.playerTurns, core.playerThrows, core.playerLegs, legs, matches, playerId, 'all'
-  );
-  const tons = computeTonCounts(core.playerTurns);
-  const bustRate = core.playerTurns.length > 0
-    ? Math.round((core.playerTurns.filter(t => t.busted).length / core.playerTurns.length) * 1000) / 10
-    : 0;
-  const first9 = computeFirst9(core.playerTurns, core.playerThrows);
-  const t20Grouping = computeT20GroupingAllTime(core.playerTurns, core.playerThrows);
-
-  // Last-30-days slice
-  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  const recentTurns = core.playerTurns.filter(t => new Date(t.created_at).getTime() >= cutoff);
-  const recentTurnIds = new Set(recentTurns.map(t => t.id));
-  const recentThrows = core.playerThrows.filter(th => recentTurnIds.has(th.turn_id));
-  const validRecent = recentTurns.filter(t => !t.busted);
-  const avgScore30 = validRecent.length > 0
-    ? Math.round((validRecent.reduce((s, t) => s + t.total_scored, 0) / validRecent.length) * 100) / 100
-    : 0;
-  const first9_30 = computeFirst9(recentTurns, recentThrows);
-  const t20Grouping30 = computeT20GroupingAllTime(recentTurns, recentThrows);
-
-  return {
-    gamesPlayed: core.gamesPlayed,
-    gameWinRate: core.gameWinRate,
-    legWinRate: core.legWinRate,
-    avgScore: core.avgScore,
-    avgScore30,
-    first9,
-    first9_30,
-    t20Grouping,
-    t20Grouping30,
-    checkoutRate: core.checkoutRate,
-    bustRate,
-    dartsPerLeg: dplTrend.allTimeAvg,
-    count180: tons.ton180,
-    highestCheckout: core.highestCheckout,
-  };
 }
 
 const COLUMNS: Array<{ key: keyof Row; label: string; suffix?: string; decimals?: number; higherIsBetter: boolean }> = [
@@ -201,21 +73,17 @@ function PlayerRowComponent({
   );
 }
 
-export function CompareKpiTable({ playerIds, players, perPlayer, legs, matches }: CompareKpiTableProps) {
+export function CompareKpiTable({ playerIds, players, perPlayer }: CompareKpiTableProps) {
   const playerById = useMemo(() => {
     const m = new Map<string, PlayerRow>();
     for (const p of players) m.set(p.id, p);
     return m;
   }, [players]);
 
-  // Compute row per player. Each call is memoised via JSON-stable deps on the
-  // per-player query tuple so unchanged players don't recompute on picker edits.
+  // Each player's row is computed with the rest of their statistics (see `PlayerStatsBundle`).
   const rows = useMemo(() => {
-    return perPlayer.map((q): Row | null => {
-      if (q.status !== 'success') return null;
-      return computeRow(q.playerId, q.turns, q.throws, legs, matches);
-    });
-  }, [perPlayer, legs, matches]);
+    return perPlayer.map((q): Row | null => (q.status === 'success' ? q.stats?.compare ?? null : null));
+  }, [perPlayer]);
 
   // Winner per column (handles ties by taking the first).
   const bestByKey = useMemo(() => {

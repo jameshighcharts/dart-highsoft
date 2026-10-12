@@ -1,8 +1,18 @@
+import { revalidateTag } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 
-import { processBackgroundJob } from '@/lib/server/backgroundJobs';
+import { processBackgroundJob, type BackgroundJobServerHooks } from '@/lib/server/backgroundJobs';
 import { DartIQTelemetryBatch } from '@/lib/server/dartiqTelemetry';
+import { SHARED_DATA_TAG, SHARED_RESULTS_TAG } from '@/lib/shared/tag';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+
+const hooks: BackgroundJobServerHooks = {
+  // See SHARED_DATA_TAG and SHARED_RESULTS_TAG: a change marks the copies stale, a result purges them.
+  revalidateSharedData: ({ purge }) => {
+    if (purge) revalidateTag(SHARED_RESULTS_TAG, { expire: 0 });
+    else revalidateTag(SHARED_DATA_TAG, 'max');
+  },
+};
 
 type DispatchBody = { jobIds: string[] };
 
@@ -34,7 +44,7 @@ export async function POST(request: NextRequest) {
   const batch = new DartIQTelemetryBatch();
   for (const jobId of body.jobIds) {
     try {
-      results.push(await processBackgroundJob({ supabase, jobId, appOrigin, batch }));
+      results.push(await processBackgroundJob({ supabase, jobId, appOrigin, batch, hooks }));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown dispatch failure';
       console.error(`Could not process background job ${jobId}:`, error);

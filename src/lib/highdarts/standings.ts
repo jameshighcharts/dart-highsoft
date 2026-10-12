@@ -48,7 +48,14 @@ export type FixtureResult = Fixture & {
     legs: { winner_player_id: string | null; turns: ResultTurn[] }[];
   } | null;
 };
-export type Snapshot = { fixtures: FixtureResult[]; players: Player[]; boards?: ScoliaBoardOption[]; absentPlayerIds?: string[] };
+export type Snapshot = {
+  fixtures: FixtureResult[];
+  players: Player[];
+  boards?: ScoliaBoardOption[];
+  /** True while board occupancy has not been fetched yet (e.g. a snapshot restored from storage). */
+  boardsPending?: boolean;
+  absentPlayerIds?: string[];
+};
 
 export function fixtureAvailability(fixture: Fixture, snapshot: Snapshot) {
   const active = snapshot.fixtures.find((f) => f.id !== fixture.id && f.match_id && !f.match?.completed_at && !f.match?.ended_early && (
@@ -56,6 +63,8 @@ export function fixtureAvailability(fixture: Fixture, snapshot: Snapshot) {
     [f.player_a_id, f.player_b_id].some((id) => id !== null && [fixture.player_a_id, fixture.player_b_id].includes(id))
   ));
   if (active) return { reason: 'A tournament match is already in progress.', href: `/match/${active.match_id}` };
+  // Occupancy is only ever live data: while it is being fetched, don't offer a start.
+  if (fixture.office && snapshot.boardsPending) return { reason: 'Checking the board…', href: '/boards' };
   const boards = fixture.office ? (snapshot.boards ?? []).filter((b) => b.name.toLowerCase().includes(fixture.office ?? '')) : [];
   const busy = boards.find((b) => b.activeMatchId || b.activeGameSessionId);
   if (busy) return { reason: `${officeName(fixture.office)} board is in use.`, href: busy.activeMatchId ? `/match/${busy.activeMatchId}` : `/game/${busy.activeGameSessionId}` };
