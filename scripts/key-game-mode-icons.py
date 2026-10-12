@@ -4,7 +4,7 @@ Key AI-generated game-mode icons (JPEGs with a *painted* checkerboard instead
 of an alpha channel) onto real transparency.
 
 Default: process every scripts/assets/game-mode-icons/<name>.jpg and write
-public/game-icons/<name>.png, a 512x512 square with the icon centred on a
+src/assets/game-icons/<name>.png, a 512x512 square with the icon centred on a
 transparent canvas (the picker and home tiles downscale from there).
 
     python3 scripts/key-game-mode-icons.py               # all sources
@@ -52,7 +52,7 @@ from scipy import ndimage
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT / "scripts" / "assets" / "game-mode-icons"
-OUT_DIR = ROOT / "public" / "game-icons"
+OUT_DIR = ROOT / "src" / "assets" / "game-icons"
 
 # Output names follow the GameType keys used by the app (see NewGameOptions).
 ICON_LABELS: dict[str, str] = {

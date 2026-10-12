@@ -9,6 +9,8 @@ import { MatchSpectatorHotkey } from "@/components/MatchSpectatorHotkey";
 import { QueryProvider } from "@/components/QueryProvider";
 import { RouteDataPrefetcher } from "@/components/RouteDataPrefetcher";
 import { SiteChrome } from "@/components/SiteChrome";
+// Imported (also in public/ for the web manifest) so it is served under a content-hashed URL.
+import appIcon from "../../public/icon-192x192.png";
 
 // Use system fonts as fallback when Google Fonts cannot be loaded during build
 const fontVariables = 'font-sans';
@@ -52,7 +54,7 @@ export default function RootLayout({
               <>
           <nav className="relative hidden lg:flex items-center justify-between px-6 py-3 border-b border-transparent bg-card after:pointer-events-none after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-gradient-to-r after:from-cyan-300/60 after:via-blue-400/70 after:to-violet-400/60 after:shadow-[0_1px_10px_rgba(79,163,245,0.15)]">
             <Link href="/" className="flex items-center gap-3 text-lg font-bold tracking-tight">
-              <Image src="/icon-192x192.png" alt="" width={40} height={40} className="size-10 object-contain" priority />
+              <Image src={appIcon} alt="" width={40} height={40} className="size-10 object-contain" priority />
               Highsoft Dart Scoreboard
             </Link>
             <div className="flex items-center gap-4 text-sm">

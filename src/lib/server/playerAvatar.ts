@@ -62,7 +62,8 @@ export async function setPlayerAvatar(
   if (!player.data) throw new AvatarError('Player not found', 404);
 
   const path = `players/${playerId}.${EXTENSIONS[contentType]}`;
-  const upload = await supabase.storage.from(AVATAR_BUCKET).upload(path, bytes, { contentType, upsert: true, cacheControl: '3600' });
+  // Cached for a year: every upload gets a new URL (the ?v= below), so a cached copy is never stale.
+  const upload = await supabase.storage.from(AVATAR_BUCKET).upload(path, bytes, { contentType, upsert: true, cacheControl: '31536000' });
   if (upload.error) throw new Error(upload.error.message);
 
   const previousPath = avatarStoragePathFromUrl(player.data.avatar_url as string | null);
