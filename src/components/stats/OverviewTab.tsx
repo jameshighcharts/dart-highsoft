@@ -1,9 +1,9 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import type { PlayerCoreStats } from '@/lib/stats/types';
+import type { PlayerCoreSummary } from '@/lib/stats/playerBundle';
 
 interface OverviewTabProps {
-  playerCoreStats: PlayerCoreStats;
+  playerCoreStats: PlayerCoreSummary;
 }
 
 export function OverviewTab({ playerCoreStats }: OverviewTabProps) {

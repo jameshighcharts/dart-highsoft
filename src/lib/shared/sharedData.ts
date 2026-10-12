@@ -11,6 +11,7 @@ import {
   loadTopRoundScores,
 } from '@/lib/queries/leaderboards';
 import { serializeQueryCache } from '@/lib/queryCacheSerialization';
+import { loadPlayerStatsBundle } from '@/lib/stats/playerBundle';
 import { fetchStatsGlobalData } from '@/lib/stats/remote';
 
 import { SHARED_DATA_TAG } from './tag';
@@ -67,6 +68,11 @@ const RESOLVERS: Record<string, Resolver> = {
   'quickest-legs': unparameterized('quickest-legs', loadQuickestLegs),
   'game-modes': unparameterized('game-modes', loadGameModeLeaders),
   'stats-global': unparameterized('stats-global', fetchStatsGlobalData),
+  'stats-player': (params) => {
+    const playerId = params.get('player');
+    if (!playerId || !UUID.test(playerId) || [...params.keys()].length !== 1) return null;
+    return { key: ['stats-player', playerId], load: () => loadPlayerStatsBundle(playerId) };
+  },
 };
 
 /**

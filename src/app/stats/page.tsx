@@ -247,7 +247,7 @@ function StatsPageInner() {
           </Card>
 
           {/* Player-Specific Content */}
-          {stats.selectedPlayer && stats.playerCoreStats && (
+          {stats.selectedPlayer && stats.playerStats && (
             <Tabs defaultValue="overview" className="space-y-6">
               {stats.playerLoading && (
                 <div className="absolute inset-0 bg-background/50 z-50 flex items-center justify-center">
@@ -262,33 +262,19 @@ function StatsPageInner() {
               </TabsList>
 
               <TabsContent value="overview" className="space-y-6">
-                <OverviewTab playerCoreStats={stats.playerCoreStats} />
+                <OverviewTab playerCoreStats={stats.playerStats.core} />
               </TabsContent>
 
               <TabsContent value="performance" className="space-y-6">
-                <PerformanceTab
-                  selectedPlayer={stats.selectedPlayer}
-                  playerSegments={stats.playerSegments}
-                  playerCoreStats={stats.playerCoreStats}
-                />
+                <PerformanceTab performance={stats.playerStats.performance} />
               </TabsContent>
 
               <TabsContent value="accuracy" className="space-y-6">
-                <TargetAnalysisTab
-                  playerCoreStats={stats.playerCoreStats}
-                  selectedPlayer={stats.selectedPlayer}
-                  playerSegments={stats.playerSegments}
-                  playerAdjacency={stats.playerAdjacency}
-                />
+                <TargetAnalysisTab playerCoreStats={stats.playerStats.core} target={stats.playerStats.target} />
               </TabsContent>
 
               <TabsContent value="trends" className="space-y-6">
-                <TrendsTab
-                  playerCoreStats={stats.playerCoreStats}
-                  legs={stats.legs}
-                  matches={stats.matches}
-                  selectedPlayer={stats.selectedPlayer}
-                />
+                <TrendsTab trends={stats.playerStats.trends} />
               </TabsContent>
             </Tabs>
           )}

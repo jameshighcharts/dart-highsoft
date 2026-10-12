@@ -1,24 +1,16 @@
-import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { computeTrebleDoubleByNumber } from '@/lib/stats/computations';
-import type { PlayerCoreStats, PlayerSegmentRow, PlayerAdjacencyRow } from '@/lib/stats/types';
+import type { PlayerCoreSummary, PlayerStatsBundle } from '@/lib/stats/playerBundle';
 
 const Chart = dynamic(() => import('@/components/Chart'), { ssr: false });
 
 interface TargetAnalysisTabProps {
-  playerCoreStats: PlayerCoreStats;
-  selectedPlayer: string;
-  playerSegments: PlayerSegmentRow[];
-  playerAdjacency: PlayerAdjacencyRow[];
+  playerCoreStats: PlayerCoreSummary;
+  target: PlayerStatsBundle['target'];
 }
 
-export function TargetAnalysisTab({ playerCoreStats, selectedPlayer, playerSegments, playerAdjacency }: TargetAnalysisTabProps) {
-  const trebleDoubleByNumber = useMemo(() => {
-    return computeTrebleDoubleByNumber(selectedPlayer, playerSegments, playerCoreStats.playerThrows);
-  }, [selectedPlayer, playerSegments, playerCoreStats.playerThrows]);
-
-  const adjacencyData = playerAdjacency.find(pa => pa.player_id === selectedPlayer);
+export function TargetAnalysisTab({ playerCoreStats, target }: TargetAnalysisTabProps) {
+  const { trebleDoubleByNumber, adjacency: adjacencyData } = target;
 
   return (
     <div className="space-y-6">

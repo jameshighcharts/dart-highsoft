@@ -89,8 +89,8 @@ describe('useStatsData', () => {
     expect(result.current.gamesPerDay).toBe(1);
 
     act(() => result.current.setSelectedPlayer(ada));
-    await waitFor(() => expect(result.current.playerCoreStats?.totalTurns).toBe(1));
-    expect(result.current.playerCoreStats).toMatchObject({ legsWon: 1, matchesWon: 1, gamesPlayed: 1, legsPlayed: 1, totalThrows: 1 });
+    await waitFor(() => expect(result.current.playerStats?.core.totalTurns).toBe(1));
+    expect(result.current.playerStats?.core).toMatchObject({ legsWon: 1, matchesWon: 1, gamesPlayed: 1, legsPlayed: 1, totalThrows: 1 });
     expect(db.calls).not.toContain('from:legs');
     expect(db.calls).not.toContain('from:matches');
     expect(db.calls).not.toContain('from:throws');
@@ -108,8 +108,8 @@ describe('useStatsData', () => {
     expect(result.current.gamesPerDay).toBe(1);
 
     act(() => result.current.setSelectedPlayer(ada));
-    await waitFor(() => expect(result.current.playerCoreStats?.totalTurns).toBe(1));
-    expect(result.current.playerCoreStats).toMatchObject({ legsWon: 1, matchesWon: 1, gamesPlayed: 1, legsPlayed: 1, totalThrows: 1 });
+    await waitFor(() => expect(result.current.playerStats?.core.totalTurns).toBe(1));
+    expect(result.current.playerStats?.core).toMatchObject({ legsWon: 1, matchesWon: 1, gamesPlayed: 1, legsPlayed: 1, totalThrows: 1 });
     expect(db.calls).toContain('from:throws');
   });
 

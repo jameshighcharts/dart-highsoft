@@ -2,29 +2,14 @@ import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  computeAvgScoreTrend,
-  computeFirstNineTrend,
-  computeAccuracy20Trend,
-  computeT20GroupingTrend,
-  computeCheckoutRateTrend,
-  computeBustRateTrend,
-  computeTonRateOverTime,
-  computePeriodComparison,
-  computeDartsPerLegTrend,
-  computeTrendLine,
-  computeYBounds,
-} from '@/lib/stats/computations';
-import type { PlayerCoreStats, LegRow, MatchRow } from '@/lib/stats/types';
+import { computeTrendLine, computeYBounds } from '@/lib/stats/computations';
 import type { TrendLine } from '@/lib/stats/computations';
+import type { DartsPerLegFinish, PlayerStatsBundle } from '@/lib/stats/playerBundle';
 
 const Chart = dynamic(() => import('@/components/Chart'), { ssr: false });
 
 interface TrendsTabProps {
-  playerCoreStats: PlayerCoreStats;
-  legs: LegRow[];
-  matches: MatchRow[];
-  selectedPlayer: string;
+  trends: PlayerStatsBundle['trends'];
 }
 
 function DeltaIndicator({ value, suffix = '', inverted = false }: { value: number; suffix?: string; inverted?: boolean }) {
@@ -85,29 +70,19 @@ function makeAvgPlotLine(value: number, label: string): any {
   };
 }
 
-export function TrendsTab({ playerCoreStats, legs, matches, selectedPlayer }: TrendsTabProps) {
-  const { playerTurns, playerThrows, playerLegs } = playerCoreStats;
-  const [ppdFinishFilter, setPpdFinishFilter] = useState<'all' | 'single_out' | 'double_out'>('all');
-
-  const comparison = useMemo(
-    () => computePeriodComparison(playerTurns, playerThrows, playerLegs, legs, matches, selectedPlayer),
-    [playerTurns, playerThrows, playerLegs, legs, matches, selectedPlayer]
-  );
-
-  const avgScoreTrend = useMemo(() => computeAvgScoreTrend(playerTurns), [playerTurns]);
-  const firstNineTrend = useMemo(() => computeFirstNineTrend(playerTurns, playerThrows), [playerTurns, playerThrows]);
-  const accuracy20Trend = useMemo(() => computeAccuracy20Trend(playerTurns, playerThrows), [playerTurns, playerThrows]);
-  const t20GroupingTrend = useMemo(() => computeT20GroupingTrend(playerTurns, playerThrows), [playerTurns, playerThrows]);
-  const checkoutTrend = useMemo(
-    () => computeCheckoutRateTrend(playerTurns, playerLegs, legs, matches, selectedPlayer),
-    [playerTurns, playerLegs, legs, matches, selectedPlayer]
-  );
-  const bustTrend = useMemo(() => computeBustRateTrend(playerTurns), [playerTurns]);
-  const tonRateData = useMemo(() => computeTonRateOverTime(playerTurns), [playerTurns]);
-  const dplTrend = useMemo(
-    () => computeDartsPerLegTrend(playerTurns, playerThrows, playerLegs, legs, matches, selectedPlayer, ppdFinishFilter),
-    [playerTurns, playerThrows, playerLegs, legs, matches, selectedPlayer, ppdFinishFilter]
-  );
+export function TrendsTab({ trends }: TrendsTabProps) {
+  const [ppdFinishFilter, setPpdFinishFilter] = useState<DartsPerLegFinish>('all');
+  const {
+    comparison,
+    avgScore: avgScoreTrend,
+    firstNine: firstNineTrend,
+    accuracy20: accuracy20Trend,
+    t20Grouping: t20GroupingTrend,
+    checkoutRate: checkoutTrend,
+    bustRate: bustTrend,
+    tonRate: tonRateData,
+  } = trends;
+  const dplTrend = trends.dartsPerLeg[ppdFinishFilter];
 
   // Trendlines
   const avgScoreTrendLine = useMemo(() => computeTrendLine(avgScoreTrend.rolling), [avgScoreTrend.rolling]);
