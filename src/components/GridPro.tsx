@@ -82,10 +82,12 @@ export function GridPro({ options, placeholder }: { options: GridOptions; placeh
     queueUpdate(pendingWork, renderedOptions, grid, options);
   }, [options]);
 
+  // Until it is built, the grid is laid out at full width but hidden and out of the flow, so the
+  // placeholder keeps its place and swapping one for the other doesn't move anything else.
   return (
-    <>
+    <div className="relative">
       {!built && placeholder}
-      <div ref={containerRef} />
-    </>
+      <div ref={containerRef} className={built ? undefined : 'invisible absolute inset-x-0 top-0'} />
+    </div>
   );
 }
