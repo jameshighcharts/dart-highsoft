@@ -1,3 +1,5 @@
+import { groupsWithAbsentLeaders } from '@/test-utils/highdartsFixtures';
+import { projectFinals } from './finals';
 import { describe, expect, it } from 'vitest';
 import { buildSheetExport } from './sheetExport';
 import { buildStandings, type Snapshot } from './standings';
@@ -61,4 +63,20 @@ describe('published tournament sheet export', () => {
     expect(output.standings[2].rows.find((r) => r[1] === 'Jon Skjerdal')?.[3]).toBe(2);
   });
 
+});
+
+it('exports replacement office byes while preserving absent leaders in the standings', () => {
+  const source = groupsWithAbsentLeaders();
+  const standings = buildStandings(source);
+  const draw = projectFinals(standings);
+  const finals = draw.games.map((game) => ({
+    ...fixture('bergen', game.a?.player.id ?? '', game.b?.player.id ?? '', game.position),
+    id: game.key, stage: game.stage, office: null,
+    player_a_id: game.a?.player.id ?? null, player_b_id: game.b?.player.id ?? null,
+  }));
+  const exported = buildSheetExport({ ...source, fixtures: [...source.fixtures, ...finals] });
+  expect(exported.standings[0].rows.slice(0, 2).map((r) => r[1])).toEqual(standings.offices[0].table.slice(0, 2).map((r) => r.player.display_name));
+  expect(exported.byes[1]).toBe(standings.offices[0].table[2].player.display_name);
+  expect(exported.byes).not.toContain('absent-nick');
+  expect(exported.byes).not.toContain('absent-babar');
 });

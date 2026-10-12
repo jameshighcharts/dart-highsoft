@@ -104,6 +104,7 @@ const stageTint = {
   'Out': { row: 'bg-slate-300/[0.02] hover:bg-slate-300/[0.06] focus-within:bg-slate-300/[0.06]', badge: 'border-slate-300/15 bg-slate-300/5 text-slate-300' },
 };
 function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
+  if (row.qualifyingRank === null) return null;
   const status = rankStatus(row, complete);
   const color = stageTint[status].badge;
   const explanation = !row.played
@@ -112,7 +113,7 @@ function RankBadge({ row, complete }: { row: Standing; complete: boolean }) {
       ? 'Fourth place is tied on wins and average. A tie-break decides who advances.'
       : row.tiedForBye
         ? 'Second-place averages are tied. A tie-break decides the fourth bye.'
-        : row.rank === 2 && row.played
+        : row.qualifyingRank === 2 && row.played
           ? 'The second-place player with the best average across all three offices earns the fourth bye.'
           : status === 'Bye'
             ? 'Office winners advance directly to the quarterfinal.'
@@ -750,7 +751,8 @@ export function HighdartsDashboard({
                         {o.table.map((row) => (
                           <tr
                             key={row.key}
-                            className={`border-t border-white/5 transition-colors motion-reduce:transition-none ${row.player.id === myId ? 'bg-cyan-300/5 hover:bg-cyan-300/10 focus-within:bg-cyan-300/10' : stageTint[rankStatus(row, o.played === o.total)].row}`}
+                            title={row.qualifyingRank === null ? 'Not attending HS Week' : undefined}
+                            className={`border-t border-white/5 transition-colors motion-reduce:transition-none ${row.qualifyingRank === null ? 'opacity-50 grayscale' : row.player.id === myId ? 'bg-cyan-300/5 hover:bg-cyan-300/10 focus-within:bg-cyan-300/10' : stageTint[rankStatus(row, o.played === o.total)].row}`}
                           >
                             <td className="py-3 pl-3 text-slate-500">
                               {row.rank}

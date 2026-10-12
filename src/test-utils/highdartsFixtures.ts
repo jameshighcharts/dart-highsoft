@@ -106,3 +106,18 @@ export function completedGroupsWithAcceptedReport(): Snapshot {
   };
   return snapshot;
 }
+
+export function groupsWithAbsentLeaders(): Snapshot {
+  const snapshot = completedGroups();
+  const absentPlayerIds = ['absent-nick', 'absent-babar'];
+  const opponents = [...new Set(snapshot.fixtures.filter((f) => f.office === 'bergen')
+    .flatMap((f) => [f.player_a_id, f.player_b_id]).filter((id): id is string => id !== null))];
+  let no = 100;
+  for (const [index, id] of absentPlayerIds.entries()) {
+    for (const opponent of [...opponents, ...absentPlayerIds.slice(index + 1)]) {
+      snapshot.fixtures.push({ ...finish(fixture('bergen', id, opponent, no++), id, 120, 30),
+        counts_for_a: !(index === 0 && opponent === opponents[0]), counts_for_b: index !== 0 });
+    }
+  }
+  return { ...snapshot, absentPlayerIds };
+}
