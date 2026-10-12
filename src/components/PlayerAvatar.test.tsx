@@ -17,7 +17,7 @@ describe('PlayerAvatar', () => {
     const { container, rerender } = render(<PlayerAvatar player={{ id: 'p1', display_name: 'James Haugen', avatar_url: 'https://x/y.png' }} />);
     expect(container.querySelector('img')?.getAttribute('src')).toBe('https://x/y.png');
     rerender(<PlayerAvatar player={{ id: 'p1', display_name: 'James Haugen' }} />);
-    expect(container.querySelector('img')?.getAttribute('src')).toMatch(/^\/avatars\/default\/goblin-\d{2}\.png$/);
+    expect(container.querySelector('img')?.getAttribute('src')).toMatch(/\/default-avatars\/goblin-\d{2}\.webp$/);
     expect(container.textContent).toBe('');
   });
 

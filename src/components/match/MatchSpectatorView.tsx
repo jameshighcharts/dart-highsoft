@@ -36,6 +36,8 @@ import { getSpectatorCheckout } from '@/utils/spectatorCheckout';
 import type { DartIQLiveEvidence, DartIQLiveInput } from '@/lib/dartiq/liveWorker';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
+import nikitaSpecial from '@/assets/nikita-special.png';
+import { imageUrl } from '@/lib/imageAssets';
 
 const ScoreProgressChart = dynamic(
   () => import('@/components/ScoreProgressChart').then((module) => module.ScoreProgressChart),
@@ -424,7 +426,7 @@ export function MatchSpectatorView({
                 <div className="flex justify-center">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src="/nikita-special.png"
+                    src={imageUrl(nikitaSpecial)}
                     alt="Nikita special"
                     className="h-32 w-auto object-contain -rotate-6"
                   />
