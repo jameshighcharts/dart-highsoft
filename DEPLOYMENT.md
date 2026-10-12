@@ -274,7 +274,7 @@ SUPABASE_SERVICE_ROLE_KEY=...
 
 ### Railway
 
-The worker remains one Node 22 process started by `npm run scolia:worker`.
+The worker remains one Node 24 process started by `npm run scolia:worker`.
 The script imports `scripts/workerLoader.mjs` to resolve the shared DartIQ/commentary
 TypeScript imports (`@/` aliases and extensionless paths) outside Next.js. The
 Dockerfile includes this loader; no extra Railway service or build dependency is

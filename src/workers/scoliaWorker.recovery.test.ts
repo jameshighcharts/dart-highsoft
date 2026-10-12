@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import http from 'node:http';
+import net from 'node:net';
 import { BoardConnection, recoveryAbandonReason } from './scoliaWorker';
 import { ingestScoliaThrowEvent } from '../lib/server/scoliaThrowIngestion';
 import { findActiveScoliaBoardOccupant } from '../lib/server/scoliaBoardTarget';
@@ -14,20 +16,30 @@ vi.mock('../lib/server/scoliaBoardTarget', () => ({ findActiveScoliaBoardTarget:
 vi.mock('../lib/server/bullOff', () => ({ updateBullOff: vi.fn() }));
 vi.mock('../lib/server/matchGuards', () => ({ loadMatch: vi.fn() }));
 
-class FakeSocket extends EventTarget {
-  static CONNECTING = 0; static OPEN = 1; static CLOSING = 2; static CLOSED = 3;
-  static instances: FakeSocket[] = [];
-  readyState = FakeSocket.OPEN;
-  sent: { type: string }[] = [];
-  close = vi.fn(() => { this.readyState = FakeSocket.CLOSED; });
-  constructor(readonly url: URL) { super(); FakeSocket.instances.push(this); }
-  send(data: string) { this.sent.push(JSON.parse(data)); }
-}
+const { FakeSocket } = await vi.hoisted(async () => {
+  const { EventEmitter } = await import('node:events');
+  class FakeSocket extends EventEmitter {
+    static CONNECTING = 0; static OPEN = 1; static CLOSING = 2; static CLOSED = 3;
+    static instances: FakeSocket[] = [];
+    readyState = FakeSocket.OPEN;
+    sent: { type: string }[] = [];
+    close = vi.fn(() => { this.readyState = FakeSocket.CLOSED; });
+    terminate = vi.fn(() => { this.readyState = FakeSocket.CLOSED; });
+    constructor(readonly url: URL, readonly options?: { handshakeTimeout?: number }) {
+      super();
+      FakeSocket.instances.push(this);
+    }
+    send(data: string) { this.sent.push(JSON.parse(data)); }
+  }
+  return { FakeSocket };
+});
+vi.mock('ws', () => ({ WebSocket: FakeSocket }));
 
 type Internals = {
-  socket: FakeSocket | null;
+  socket: InstanceType<typeof FakeSocket> | null;
   lastMessageAt: number;
-  connect: () => Promise<void>;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  connect: () => void;
   checkLiveness: (now?: number) => void;
   enqueue: (work: () => Promise<void>) => void;
   persistMessage: (message: ScoliaMessage) => Promise<void>;
@@ -39,7 +51,6 @@ type Internals = {
 const connections: BoardConnection[] = [];
 beforeEach(() => {
   FakeSocket.instances = [];
-  vi.stubGlobal('WebSocket', FakeSocket);
   vi.spyOn(console, 'info').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -47,7 +58,6 @@ beforeEach(() => {
 afterEach(async () => {
   for (const connection of connections.splice(0)) await connection.stop();
   vi.useRealTimers();
-  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -75,13 +85,65 @@ describe('dead connection detection', () => {
     expect(first.close).not.toHaveBeenCalled();
 
     board.checkLiveness(Date.now() + 20_000);
-    expect(first.close).toHaveBeenCalledWith(4000, 'Liveness timeout');
-    await vi.advanceTimersByTimeAsync(0);
+    // A close handshake Scolia ignores would keep the old socket alive and the board locked (4101).
+    expect(first.terminate).toHaveBeenCalledOnce();
+    expect(first.close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_500);
     expect(FakeSocket.instances).toHaveLength(2);
 
     // The abandoned socket's late close event must not open a competing connection.
-    first.dispatchEvent(new Event('close'));
+    first.emit('close', 1006);
     await vi.advanceTimersByTimeAsync(60_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+  });
+
+  it('bounds the opening handshake', () => {
+    const board = connect();
+    board.connect();
+    expect(FakeSocket.instances[0].options).toEqual({ handshakeTimeout: 15_000 });
+  });
+
+  it('retries after a failed handshake', async () => {
+    vi.useFakeTimers();
+    const board = connect();
+    board.connect();
+    const first = FakeSocket.instances[0];
+    first.readyState = FakeSocket.CONNECTING;
+    first.emit('error', new Error('Unexpected server response: 503'));
+    first.emit('close', 1006);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(FakeSocket.instances).toHaveLength(2);
+  });
+
+  it('abandons a connection attempt that never finishes', async () => {
+    vi.useFakeTimers();
+    const board = connect();
+    board.connect();
+    const first = FakeSocket.instances[0];
+    first.readyState = FakeSocket.CONNECTING;
+    board.checkLiveness(Date.now() + 20_000);
+    expect(first.terminate).not.toHaveBeenCalled();
+    board.checkLiveness(Date.now() + 25_000);
+    expect(first.terminate).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(FakeSocket.instances).toHaveLength(2);
+  });
+
+  it('reconnects a board that has no socket and no reconnect pending', () => {
+    const board = connect();
+    board.checkLiveness();
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
+  it('does not open a second socket while a reconnect is already scheduled', async () => {
+    vi.useFakeTimers();
+    const board = connect();
+    board.connect();
+    FakeSocket.instances[0].emit('close', 1006);
+    expect(board.reconnectTimer).not.toBeNull();
+    board.checkLiveness();
+    expect(FakeSocket.instances).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_500);
     expect(FakeSocket.instances).toHaveLength(2);
   });
 
@@ -91,6 +153,38 @@ describe('dead connection detection', () => {
     board.lastMessageAt = Date.now();
     board.checkLiveness();
     expect(FakeSocket.instances[0].sent).toEqual([]);
+  });
+});
+
+// The reconnect loop relies on ws always following a failed handshake with 'close'.
+// Node 22's built-in WebSocket did not, which left boards stuck until the worker restarted.
+describe('ws handshake failure contract', () => {
+  async function closeCode(server: http.Server | net.Server, handshakeTimeout?: number) {
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as net.AddressInfo;
+    const { WebSocket } = await vi.importActual<typeof import('ws')>('ws');
+    try {
+      return await new Promise<number>((resolve) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${port}`, { handshakeTimeout });
+        socket.on('error', () => {});
+        socket.on('close', resolve);
+      });
+    } finally {
+      server.close();
+      if ('closeAllConnections' in server) server.closeAllConnections();
+    }
+  }
+
+  it('closes after the server refuses the upgrade', async () => {
+    const server = http.createServer((_request, response) => response.writeHead(503).end());
+    expect(await closeCode(server)).toBe(1006);
+  });
+
+  it('closes when the server never answers the handshake', async () => {
+    const sockets: net.Socket[] = [];
+    const server = net.createServer((socket) => { sockets.push(socket); });
+    expect(await closeCode(server, 100)).toBe(1006);
+    sockets.forEach((socket) => socket.destroy());
   });
 });
 
