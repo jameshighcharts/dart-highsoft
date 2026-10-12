@@ -7,6 +7,9 @@ import { isAuthDevBypassEnabled, isAuthPerformanceBypassEnabled } from '@/lib/au
 // game, `/signin` the gate for `/admin` (admin role is checked on the page and
 // in every /api/admin handler). Server-to-server endpoints authenticate on
 // their own (Slack request signatures, background-job bearer secret).
+// /api/shared/* skips the proxy (see `matcher`) and checks the same session
+// itself: the proxy is a separate step in front of every request, and those
+// reads are otherwise a few milliseconds from the cache.
 const PUBLIC_PAGES = new Set(['/login', '/signin']);
 const PUBLIC_API_PREFIXES = ['/api/auth/', '/api/slack/', '/api/background-jobs'];
 
@@ -46,6 +49,6 @@ export default auth((request) => {
 export const config = {
   // Everything except Next internals and static files (must be a static string).
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|manifest.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|xml|webmanifest|woff2?)$).*)',
+    '/((?!_next/static|_next/image|api/shared/|favicon.ico|manifest.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|xml|webmanifest|woff2?)$).*)',
   ],
 };
