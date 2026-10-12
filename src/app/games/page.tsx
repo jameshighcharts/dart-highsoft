@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { GameActivityHeatmap } from '@/components/games/GameActivityHeatmap';
 import { Input } from '@/components/ui/input';
@@ -29,6 +29,7 @@ import {
   type ListedGame,
   type MatchWithDetails,
   type RecentGames,
+  trimRecentGamesToFirstPage,
 } from '@/lib/queries/games';
 
 /** Search typed into the box reaches the database once typing pauses. */
@@ -67,6 +68,7 @@ export default function GamesPage() {
   const [playerSearch, setPlayerSearch] = useState('');
   const [search, setSearch] = useState('');
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // Only the local preview pages through its dummy list with a count; real pages load by cursor.
   const [visibleCount, setVisibleCount] = useState(RECENT_PAGE_SIZE);
   const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
   const [previewGames, setPreviewGames] = useState<ListedGame[] | null>(null);
@@ -82,10 +84,10 @@ export default function GamesPage() {
   // The database returns the page of finished games and the per-day counts for the current
   // filters; the few live games come in full and are filtered here as you type.
   const liveQuery = useQuery({ ...liveGamesQuery(), enabled: !preview });
-  const recentQuery = useQuery({
-    ...recentGamesQuery({ search, day: selectedDate, limit: visibleCount, timeZone }),
+  const recentQuery = useInfiniteQuery({
+    ...recentGamesQuery({ search, day: selectedDate, timeZone }),
     enabled: !preview,
-    // A new search, day or "Show more" keeps the current list up until its results arrive.
+    // A new search or day keeps the current list up until its results arrive.
     placeholderData: keepPreviousData,
   });
   const activityQuery = useQuery({
@@ -100,15 +102,21 @@ export default function GamesPage() {
   const previewSearched = previewGames?.filter((entry) => matchesPlayerSearch(entry, playerSearch)) ?? [];
   const previewRecent = previewSearched.filter((entry) => !isLive(entry)).filter(matchesDate);
   const liveGames = previewGames ? previewGames.filter(isLive) : liveQuery.data ?? [];
-  const recent: RecentGames = previewGames
+  const recent = previewGames
     ? { games: previewRecent.slice(0, visibleCount), hasMore: previewRecent.length > visibleCount }
-    : recentQuery.data ?? { games: [], hasMore: false };
+    : { games: recentQuery.data?.pages.flatMap((page) => page.games) ?? [], hasMore: recentQuery.hasNextPage };
   const activity = preview ? countGamesByDay(previewSearched) : activityQuery.data ?? {};
   const tournaments = preview ? [] : tournamentsResult.data ?? [];
   const filteredLive = liveGames.filter((entry) => matchesPlayerSearch(entry, playerSearch)).filter(matchesDate);
   // Cached data stays on screen while it refreshes; the loading state is only for a first visit.
   const loading = !preview && (liveQuery.isPending || recentQuery.isPending);
   const loadError = !preview && ((liveQuery.isError && !liveQuery.data) || (recentQuery.isError && !recentQuery.data));
+
+  // Leaving the page keeps only the first page of each cached list: the next visit then refetches
+  // (and storage keeps) one page instead of every page loaded with "Show more".
+  useEffect(() => () => {
+    queryClient.setQueriesData<RecentGames>({ queryKey: ['games', 'recent'] }, trimRecentGamesToFirstPage);
+  }, [queryClient]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === 'development' && new URLSearchParams(window.location.search).get('preview') === '1') {
@@ -140,7 +148,7 @@ export default function GamesPage() {
       queryClient.setQueryData(liveGamesQuery().queryKey, (games) => games?.filter(keep));
       queryClient.setQueriesData<RecentGames>({ queryKey: ['games', 'recent'] }, (data) => data && {
         ...data,
-        games: data.games.filter(keep),
+        pages: data.pages.map((page) => ({ ...page, games: page.games.filter(keep) })),
       });
       // Refill the page and recount its day; this also drops a fallback copy of the full history.
       void queryClient.invalidateQueries({ queryKey: ['games'] });
@@ -574,7 +582,15 @@ export default function GamesPage() {
             })}
           </div>
         )}
-        {recent.hasMore && <Button variant="outline" disabled={recentQuery.isPlaceholderData} onClick={() => setVisibleCount(count => count + RECENT_PAGE_SIZE)}>Show more games</Button>}
+        {recent.hasMore && (
+          <Button
+            variant="outline"
+            disabled={!preview && (recentQuery.isPlaceholderData || recentQuery.isFetchingNextPage)}
+            onClick={() => preview ? setVisibleCount(count => count + RECENT_PAGE_SIZE) : void recentQuery.fetchNextPage()}
+          >
+            Show more games
+          </Button>
+        )}
       </div>
     </div>
   );

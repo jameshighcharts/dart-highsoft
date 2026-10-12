@@ -1,10 +1,15 @@
-import type { FetchQueryOptions, QueryClient } from '@tanstack/react-query';
+import type { FetchInfiniteQueryOptions, FetchQueryOptions, QueryClient } from '@tanstack/react-query';
 
 type RoutePrefetch = (queryClient: QueryClient) => Promise<unknown>;
-type AnyQuery = FetchQueryOptions<any, any, any, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type AnyQuery = FetchQueryOptions<any, any, any, any> | FetchInfiniteQueryOptions<any, any, any, any, any>;
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
+/** Prefetches each query, or the first page of a paged (infinite) one; fresh data is skipped. */
 const prefetchAll = (queryClient: QueryClient, queries: AnyQuery[]) =>
-  Promise.all(queries.map((query) => queryClient.prefetchQuery(query)));
+  Promise.all(queries.map((query) => ('getNextPageParam' in query
+    ? queryClient.prefetchInfiniteQuery(query)
+    : queryClient.prefetchQuery(query as FetchQueryOptions))));
 
 /**
  * What each page loads on arrival, started when a link to it is hovered, focused or touched. The

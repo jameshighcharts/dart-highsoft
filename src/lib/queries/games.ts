@@ -1,4 +1,4 @@
-import { queryOptions } from '@tanstack/react-query';
+import { infiniteQueryOptions, queryOptions, type InfiniteData } from '@tanstack/react-query';
 
 import {
   GAME_SESSION_STATUSES,
@@ -57,7 +57,12 @@ export type TournamentSummary = {
   player_count: number;
 };
 
-export type RecentGames = { games: ListedGame[]; hasMore: boolean };
+/** The last game of a page: the next page starts right after it. */
+export type FeedCursor = { created_at: string; kind: 'match' | 'game'; id: string };
+
+/** One page of finished games and where the next page starts (null when there is none). */
+export type RecentGamesPage = { games: ListedGame[]; nextCursor: FeedCursor | null };
+export type RecentGames = InfiniteData<RecentGamesPage, FeedCursor | null>;
 
 /** Games per calendar day ("YYYY-MM-DD" in the viewer's time zone). */
 export type GameActivity = Record<string, number>;
@@ -82,6 +87,9 @@ export type FeedRow = {
   legs_won: number | null;
   players: GamePlayer[];
 };
+
+/** Search- and day-specific results and the old full download are only worth keeping briefly. */
+const SHORT_GC_TIME_MS = 10 * 60 * 1000;
 
 /** "YYYY-MM-DD" of the date in the viewer's time zone. */
 export function gameDateKey(date: Date) {
@@ -164,7 +172,7 @@ export function countGamesByDay(games: ListedGame[]): GameActivity {
 const MISSING_FUNCTION_CODES = new Set(['PGRST202', '42883']);
 
 /** Rows from a feed function, or null when that function is not deployed yet. */
-async function callFeed<T>(name: 'games_feed' | 'games_activity', args: Record<string, unknown>): Promise<T[] | null> {
+async function callFeed<T>(name: 'games_feed' | 'games_live' | 'games_activity', args: Record<string, unknown>): Promise<T[] | null> {
   const supabase = await getSupabaseClient();
   const { data, error } = await supabase.rpc(name, args);
   if (error) {
@@ -305,46 +313,80 @@ const legacyGamesQuery = () => queryOptions({
   queryFn: loadLegacyGames,
   // Shared by the live, recent and activity queries while they fall back, so it downloads once.
   staleTime: 30_000,
+  gcTime: SHORT_GC_TIME_MS,
   meta: { persist: false },
 });
 
 export const liveGamesQuery = () => queryOptions({
   queryKey: ['games', 'live'],
   queryFn: async ({ client }): Promise<ListedGame[]> => {
-    const rows = await callFeed<FeedRow>('games_feed', { p_live: true });
+    const rows = await callFeed<FeedRow>('games_live', {});
     if (rows) return toListedGames(inFeedOrder(rows));
     return (await client.fetchQuery(legacyGamesQuery())).liveGames;
   },
-  meta: { persist: true },
+  // Not persisted: after a reload a finished game must not show as live until the refetch lands.
+  meta: { persist: false },
 });
 
 export type RecentGamesFilters = {
   /** Already trimmed; '' for no search. */
   search: string;
   day: string | null;
-  limit: number;
   timeZone: string;
 };
 
-export const recentGamesQuery = (filters: RecentGamesFilters) => queryOptions({
-  queryKey: ['games', 'recent', filters],
-  queryFn: async ({ client }): Promise<RecentGames> => {
-    const { search, day, limit, timeZone } = filters;
-    // One extra row tells whether there is more to show.
-    const rows = await callFeed<FeedRow>('games_feed', {
-      p_live: false, p_search: search || null, p_day: day, p_time_zone: timeZone, p_limit: limit + 1,
-    });
-    const games = rows
-      ? toListedGames(inFeedOrder(rows))
-      : (await client.fetchQuery(legacyGamesQuery())).recentGames
-        .filter((entry) => matchesPlayerSearch(entry, search))
-        .filter((entry) => !day || gameDateKey(new Date(entry.created_at)) === day)
-        .slice(0, limit + 1);
-    return { games: games.slice(0, limit), hasMore: games.length > limit };
-  },
-  // Only the unfiltered first page is restored on the next visit.
-  meta: { persist: !filters.search && !filters.day && filters.limit === RECENT_PAGE_SIZE },
+const cursorOf = (entry: ListedGame): FeedCursor => ({
+  created_at: entry.created_at,
+  kind: entry.kind,
+  id: entry.kind === 'match' ? entry.match.id : entry.game.id,
 });
+
+/**
+ * Finished games, RECENT_PAGE_SIZE at a time ("Show more" loads the next page). Pages are keyset
+ * paginated on (created_at, kind, id), so each page is one small indexed read however deep it is.
+ */
+export const recentGamesQuery = (filters: RecentGamesFilters) => infiniteQueryOptions({
+  queryKey: ['games', 'recent', filters],
+  initialPageParam: null as FeedCursor | null,
+  queryFn: async ({ client, pageParam }): Promise<RecentGamesPage> => {
+    const { search, day, timeZone } = filters;
+    // One extra row tells whether there is a next page.
+    const rows = await callFeed<FeedRow>('games_feed', {
+      p_search: search || null,
+      p_day: day,
+      p_time_zone: timeZone,
+      p_limit: RECENT_PAGE_SIZE + 1,
+      p_before_created_at: pageParam?.created_at ?? null,
+      p_before_kind: pageParam?.kind ?? null,
+      p_before_id: pageParam?.id ?? null,
+    });
+    let games: ListedGame[];
+    if (rows) {
+      games = toListedGames(inFeedOrder(rows));
+    } else {
+      const matching = (await client.fetchQuery(legacyGamesQuery())).recentGames
+        .filter((entry) => matchesPlayerSearch(entry, search))
+        .filter((entry) => !day || gameDateKey(new Date(entry.created_at)) === day);
+      const start = pageParam
+        ? matching.findIndex((entry) => entry.kind === pageParam.kind && cursorOf(entry).id === pageParam.id) + 1
+        : 0;
+      games = matching.slice(start, start + RECENT_PAGE_SIZE + 1);
+    }
+    const page = games.slice(0, RECENT_PAGE_SIZE);
+    return { games: page, nextCursor: games.length > RECENT_PAGE_SIZE ? cursorOf(page[page.length - 1]) : null };
+  },
+  getNextPageParam: (lastPage) => lastPage.nextCursor,
+  // Only the unfiltered list is restored on the next visit (the page trims it to its first page
+  // when you leave); search and day results are dropped soon after they are no longer shown.
+  ...(filters.search || filters.day ? { gcTime: SHORT_GC_TIME_MS } : {}),
+  meta: { persist: !filters.search && !filters.day },
+});
+
+/** Keeps only the first page of every cached finished-games list, so a revisit refetches one page. */
+export function trimRecentGamesToFirstPage(data: RecentGames | undefined): RecentGames | undefined {
+  if (!data || data.pages.length <= 1) return data;
+  return { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) };
+}
 
 export type GameActivityFilters = { search: string; timeZone: string };
 
@@ -358,6 +400,7 @@ export const gamesActivityQuery = (filters: GameActivityFilters) => queryOptions
     const { liveGames, recentGames } = await client.fetchQuery(legacyGamesQuery());
     return countGamesByDay([...liveGames, ...recentGames].filter((entry) => matchesPlayerSearch(entry, filters.search)));
   },
+  ...(filters.search ? { gcTime: SHORT_GC_TIME_MS } : {}),
   meta: { persist: !filters.search },
 });
 
@@ -380,11 +423,9 @@ async function loadTournaments(): Promise<TournamentSummary[]> {
 
 export const tournamentsQuery = () => queryOptions({
   queryKey: ['games', 'tournaments'],
-  // Tournaments are a side panel: a failure leaves it empty instead of failing the page.
-  queryFn: () => loadTournaments().catch((error): TournamentSummary[] => {
-    console.error('Error loading tournaments:', error);
-    return [];
-  }),
+  // Errors are thrown, not turned into an empty list, so a failure is never cached or persisted.
+  // The page shows the panel only when there are tournaments, so a failed load just hides it.
+  queryFn: loadTournaments,
   meta: { persist: true },
 });
 
@@ -393,7 +434,7 @@ export const gamesPageQueries = () => {
   const timeZone = browserTimeZone();
   return [
     liveGamesQuery(),
-    recentGamesQuery({ search: '', day: null, limit: RECENT_PAGE_SIZE, timeZone }),
+    recentGamesQuery({ search: '', day: null, timeZone }),
     gamesActivityQuery({ search: '', timeZone }),
     tournamentsQuery(),
   ];

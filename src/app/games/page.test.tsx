@@ -12,6 +12,7 @@ import {
   RECENT_PAGE_SIZE,
   tournamentsQuery,
   type FeedRow,
+  type RecentGames,
 } from '@/lib/queries/games';
 import { TestQueryProvider } from '@/test-utils/renderWithProviders';
 import GamesPage from './page';
@@ -201,10 +202,12 @@ describe('GamesPage with the games feed', () => {
   beforeEach(() => {
     rpcImpl = (name, args) => {
       if (name === 'games_activity') return { data: [{ day: gameDateKey(new Date(now)), games: 46 }], error: null };
-      if (args.p_live) return { data: [live], error: null };
+      if (name === 'games_live') return { data: [live], error: null };
       const search = String(args.p_search ?? '').toLowerCase();
       const rows = finished.filter((row) => row.players.some((p) => p.display_name.toLowerCase().includes(search)));
-      return { data: rows.slice(0, Number(args.p_limit)), error: null };
+      // Keyset: the page starts right after the cursor row.
+      const start = args.p_before_id ? rows.findIndex((row) => row.id === args.p_before_id) + 1 : 0;
+      return { data: rows.slice(start, start + Number(args.p_limit)), error: null };
     };
   });
 
@@ -219,8 +222,12 @@ describe('GamesPage with the games feed', () => {
     expect(queriedTables).not.toContain('game_sessions');
     expect(rpcCalls).toContainEqual({
       name: 'games_feed',
-      args: { p_live: false, p_search: null, p_day: null, p_time_zone: browserTimeZone(), p_limit: RECENT_PAGE_SIZE + 1 },
+      args: {
+        p_search: null, p_day: null, p_time_zone: browserTimeZone(), p_limit: RECENT_PAGE_SIZE + 1,
+        p_before_created_at: null, p_before_kind: null, p_before_id: null,
+      },
     });
+    expect(rpcCalls).toContainEqual({ name: 'games_live', args: {} });
   });
 
   it('shows more games on request and stops when there are no more', async () => {
@@ -232,6 +239,24 @@ describe('GamesPage with the games feed', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show more games' }));
     expect(await screen.findByText('Al done-44')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Show more games' })).not.toBeInTheDocument();
+    // Each "Show more" asks for the next page after the last row shown, never the whole list again.
+    const pages = rpcCalls.filter((call) => call.name === 'games_feed');
+    expect(pages.map((call) => [call.args.p_before_id, call.args.p_limit])).toEqual([
+      [null, RECENT_PAGE_SIZE + 1], ['done-19', RECENT_PAGE_SIZE + 1], ['done-39', RECENT_PAGE_SIZE + 1],
+    ]);
+    expect(pages[1].args).toMatchObject({ p_before_kind: 'match', p_before_created_at: finished[19].created_at });
+  });
+
+  it('keeps only the first page cached after leaving, so a revisit refetches one page', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={queryClient}><GamesPage /></QueryClientProvider>);
+    await screen.findByText('Al done-19');
+    fireEvent.click(screen.getByRole('button', { name: 'Show more games' }));
+    await screen.findByText('Al done-39');
+    view.unmount();
+    const cached = queryClient.getQueryData<RecentGames>(recentGamesQuery({ search: '', day: null, timeZone: browserTimeZone() }).queryKey);
+    expect(cached?.pages).toHaveLength(1);
+    expect(cached?.pages[0].games).toHaveLength(RECENT_PAGE_SIZE);
   });
 
   it('searches in the database once typing pauses, trimmed', async () => {
@@ -257,13 +282,16 @@ describe('GamesPage cache', () => {
     const timeZone = browserTimeZone();
     const updatedAt = Date.now() - 60_000;
     queryClient.setQueryData(liveGamesQuery().queryKey, [], { updatedAt });
-    queryClient.setQueryData(recentGamesQuery({ search: '', day: null, limit: RECENT_PAGE_SIZE, timeZone }).queryKey, {
-      games: [{
-        kind: 'game', created_at,
-        game: { id: 'cached-game', mode: 'cricket', status: 'ended_early', created_at, winner_player_id: null,
-          players: [{ id: 'cached-player', display_name: 'Cached player', play_order: 0 }] },
+    queryClient.setQueryData(recentGamesQuery({ search: '', day: null, timeZone }).queryKey, {
+      pages: [{
+        games: [{
+          kind: 'game', created_at,
+          game: { id: 'cached-game', mode: 'cricket', status: 'ended_early', created_at, winner_player_id: null,
+            players: [{ id: 'cached-player', display_name: 'Cached player', play_order: 0 }] },
+        }],
+        nextCursor: null,
       }],
-      hasMore: false,
+      pageParams: [null],
     }, { updatedAt });
     queryClient.setQueryData(gamesActivityQuery({ search: '', timeZone }).queryKey, { [gameDateKey(new Date())]: 7 }, { updatedAt });
     queryClient.setQueryData(tournamentsQuery().queryKey, [{ id: 't1', name: 'Cached cup', status: 'in_progress', start_score: '501',
@@ -277,6 +305,23 @@ describe('GamesPage cache', () => {
     expect(screen.getByText('4 players')).toBeInTheDocument();
     expect(screen.getByText(/7 games since September 2026/)).toBeInTheDocument();
     expect(getSupabaseClientMock).toHaveBeenCalled();
+  });
+
+  it('never restores live games from storage, and persists only the unfiltered lists', () => {
+    const timeZone = browserTimeZone();
+    expect(liveGamesQuery().meta?.persist).toBe(false);
+    expect(recentGamesQuery({ search: '', day: null, timeZone }).meta?.persist).toBe(true);
+    expect(recentGamesQuery({ search: 'ada', day: null, timeZone }).meta?.persist).toBe(false);
+    expect(recentGamesQuery({ search: '', day: '2026-10-01', timeZone }).meta?.persist).toBe(false);
+  });
+
+  it('does not cache a failed tournaments load as an empty list', async () => {
+    getSupabaseClientMock.mockResolvedValue({
+      from: () => ({ select: () => ({ or: () => ({ order: () => ({ limit: async () => ({ data: null, error: { code: '57014', message: 'timeout' } }) }) }) }) }),
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await expect(queryClient.fetchQuery(tournamentsQuery())).rejects.toMatchObject({ code: '57014' });
+    expect(queryClient.getQueryData(tournamentsQuery().queryKey)).toBeUndefined();
   });
 });
 
@@ -345,8 +390,8 @@ describe('Games feed order', () => {
     const at = iso(30);
     const game: FeedRow = { ...feedMatch('same-time-game', 30), kind: 'game', mode: 'cricket', status: 'completed',
       start_score: null, finish: null, legs_to_win: null, legs_won: null, created_at: at };
-    rpcImpl = (name, args) => {
-      if (name === 'games_activity' || args.p_live) return { data: [], error: null };
+    rpcImpl = (name) => {
+      if (name === 'games_activity' || name === 'games_live') return { data: [], error: null };
       // Deliberately out of order.
       return { data: [feedMatch('older', 90), game, { ...feedMatch('same-time-match', 30), created_at: at }, feedMatch('newest', 10)], error: null };
     };
