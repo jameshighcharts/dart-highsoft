@@ -7,6 +7,9 @@
 --                                    player's segment and adjacency summaries
 -- Every query keeps the old filters: matches ended early are excluded, tiebreak turns are not.
 
+-- Legs, turns and throws carry a NOT NULL match_id (turns and throws through triggers, 0029), and
+-- ended_early is NOT NULL, so "rows of matches not ended early" is "all rows minus those of the few
+-- matches ended early": two index lookups instead of joining every turn and throw to its match.
 create or replace function public.stats_overview()
 returns json
 language sql
@@ -14,33 +17,31 @@ stable
 security invoker
 set search_path = public, pg_temp
 as $$
+  with played as (
+    select
+      count(*) as total_matches,
+      count(*) filter (where m.winner_player_id is not null) as completed_matches,
+      min(m.created_at) as first_match_at,
+      max(m.created_at) as last_match_at
+    from public.matches m
+    where m.ended_early = false
+  ),
+  ended as (
+    select m.id from public.matches m where m.ended_early = true
+  )
   select json_build_object(
-    'total_matches', (select count(*) from public.matches m where m.ended_early = false),
-    'completed_matches', (
-      select count(*) from public.matches m
-      where m.ended_early = false and m.winner_player_id is not null
-    ),
-    'first_match_at', (select min(m.created_at) from public.matches m where m.ended_early = false),
-    'last_match_at', (select max(m.created_at) from public.matches m where m.ended_early = false),
-    'total_legs', (
-      select count(*) from public.legs l
-      join public.matches m on m.id = l.match_id
-      where m.ended_early = false
-    ),
-    'total_turns', (
-      select count(*) from public.turns t
-      join public.legs l on l.id = t.leg_id
-      join public.matches m on m.id = l.match_id
-      where m.ended_early = false
-    ),
-    'total_throws', (
-      select count(*) from public.throws th
-      join public.turns t on t.id = th.turn_id
-      join public.legs l on l.id = t.leg_id
-      join public.matches m on m.id = l.match_id
-      where m.ended_early = false
-    )
-  );
+    'total_matches', played.total_matches,
+    'completed_matches', played.completed_matches,
+    'first_match_at', played.first_match_at,
+    'last_match_at', played.last_match_at,
+    'total_legs', (select count(*) from public.legs)
+      - (select count(*) from public.legs l where l.match_id in (select id from ended)),
+    'total_turns', (select count(*) from public.turns)
+      - (select count(*) from public.turns t where t.match_id in (select id from ended)),
+    'total_throws', (select count(*) from public.throws)
+      - (select count(*) from public.throws th where th.match_id in (select id from ended))
+  )
+  from played;
 $$;
 
 -- Turns are [id, leg_id, total_scored, busted, turn_number, created_at, darts] with darts as

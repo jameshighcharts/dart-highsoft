@@ -1,6 +1,6 @@
 begin;
 
-select plan(18);
+select plan(23);
 
 -- Games are dated in 2099 so they are the newest rows whatever else the database holds.
 insert into public.players (id, display_name, is_test) values
@@ -59,13 +59,13 @@ $$;
 set local role anon;
 
 select is(
-  pg_temp.feed_order(array(select f.id from public.games_feed(true, null, null, 'Europe/Oslo') f)),
+  pg_temp.feed_order(array(select f.id from public.games_live() f)),
   array['63000000-0000-0000-0000-000000000001', '62000000-0000-0000-0000-000000000001']::uuid[],
   'live games are unfinished matches and active party games, newest first; games without players are left out'
 );
 
 select is(
-  array(select f.id from public.games_feed(false, null, null, 'Europe/Oslo', 5) f),
+  array(select f.id from public.games_feed(null, null, 'Europe/Oslo', 5) f),
   array['62000000-0000-0000-0000-000000000002', '63000000-0000-0000-0000-000000000002',
         '62000000-0000-0000-0000-000000000003', '62000000-0000-0000-0000-000000000004',
         '63000000-0000-0000-0000-000000000003']::uuid[],
@@ -73,63 +73,99 @@ select is(
 );
 
 select is(
-  array(select f.id from public.games_feed(false, null, null, 'Europe/Oslo', 2) f),
+  array(select f.id from public.games_feed(null, null, 'Europe/Oslo', 2) f),
   array['62000000-0000-0000-0000-000000000002', '63000000-0000-0000-0000-000000000002']::uuid[],
   'a page holds at most p_limit games'
 );
 
 select is(
-  pg_temp.feed_order(array(select f.id from public.games_feed(true, 'åse', null, 'Europe/Oslo') f)),
-  array['63000000-0000-0000-0000-000000000001', '62000000-0000-0000-0000-000000000001']::uuid[],
+  pg_temp.feed_order(array(select f.id from public.games_feed('bob', null, 'Europe/Oslo', 50) f)),
+  array['62000000-0000-0000-0000-000000000002', '63000000-0000-0000-0000-000000000002',
+        '62000000-0000-0000-0000-000000000004']::uuid[],
   'search matches any player''s name'
 );
 
 select is(
-  pg_temp.feed_order(array(select f.id from public.games_feed(true, '  ÅSE ', null, 'Europe/Oslo') f)),
-  array['63000000-0000-0000-0000-000000000001', '62000000-0000-0000-0000-000000000001']::uuid[],
+  pg_temp.feed_order(array(select f.id from public.games_feed('  BOB F ', null, 'Europe/Oslo', 50) f)),
+  pg_temp.feed_order(array(select f.id from public.games_feed('bob', null, 'Europe/Oslo', 50) f)),
   'search ignores case and surrounding whitespace'
 );
 
+-- Keyset pages: the last row of a page is the cursor for the next. m2 and s2 start at the same
+-- instant (the match sorts first), so cursors on either side of that tie are covered.
 select is(
-  (select count(*)::int from public.games_feed(false, 'åse', null, 'Europe/Oslo', 50) f where f.id in (select id from feed_ids)),
+  array(select f.id from public.games_feed(null, null, 'Europe/Oslo', 2,
+    '2099-10-10 09:00+02', 'match', '62000000-0000-0000-0000-000000000002') f),
+  array['63000000-0000-0000-0000-000000000002', '62000000-0000-0000-0000-000000000003']::uuid[],
+  'after a match cursor come party games of the same instant, then older games'
+);
+
+select is(
+  pg_temp.feed_order(array(select f.id from public.games_feed(null, null, 'Europe/Oslo', 5,
+    '2099-10-10 09:00+02', 'game', '63000000-0000-0000-0000-000000000002') f)),
+  array['62000000-0000-0000-0000-000000000003', '62000000-0000-0000-0000-000000000004',
+        '63000000-0000-0000-0000-000000000003']::uuid[],
+  'after a party game cursor come strictly older games'
+);
+
+select is(
+  (with first_page as (select * from public.games_feed(null, null, 'Europe/Oslo', 3)),
+        cursor as (select * from first_page order by created_at, (kind = 'match'), id limit 1)
+   select pg_temp.feed_order(array(select id from first_page)
+     || array(select f.id from cursor, public.games_feed(null, null, 'Europe/Oslo', 3, cursor.created_at, cursor.kind, cursor.id) f))),
+  array['62000000-0000-0000-0000-000000000002', '63000000-0000-0000-0000-000000000002',
+        '62000000-0000-0000-0000-000000000003', '62000000-0000-0000-0000-000000000004',
+        '63000000-0000-0000-0000-000000000003']::uuid[],
+  'walking the pages returns every finished game once, in order'
+);
+
+select is(
+  array(select f.id from public.games_feed(null, '2099-10-10', 'Europe/Oslo', 5,
+    '2099-10-10 09:00+02', 'game', '63000000-0000-0000-0000-000000000002') f),
+  array['62000000-0000-0000-0000-000000000003']::uuid[],
+  'cursors combine with the day filter'
+);
+
+select is(
+  (select count(*)::int from public.games_feed('åse', null, 'Europe/Oslo', 50) f where f.id in (select id from feed_ids)),
   0,
   'search leaves out games without a matching player'
 );
 
 select is(
-  pg_temp.feed_order(array(select f.id from public.games_feed(false, 'carl f', null, 'Europe/Oslo', 50) f)),
+  pg_temp.feed_order(array(select f.id from public.games_feed('carl f', null, 'Europe/Oslo', 50) f)),
   array['62000000-0000-0000-0000-000000000002', '63000000-0000-0000-0000-000000000002',
         '62000000-0000-0000-0000-000000000003', '63000000-0000-0000-0000-000000000003']::uuid[],
   'search is a substring match across the whole name'
 );
 
 select is(
-  array(select f.id from public.games_feed(false, '   ', null, 'Europe/Oslo', 5) f),
-  array(select f.id from public.games_feed(false, null, null, 'Europe/Oslo', 5) f),
+  array(select f.id from public.games_feed('   ', null, 'Europe/Oslo', 5) f),
+  array(select f.id from public.games_feed(null, null, 'Europe/Oslo', 5) f),
   'a blank search matches every game'
 );
 
 select is(
-  array(select f.id from public.games_feed(false, null, '2099-10-10', 'Europe/Oslo', 50) f),
+  array(select f.id from public.games_feed(null, '2099-10-10', 'Europe/Oslo', 50) f),
   array['62000000-0000-0000-0000-000000000002', '63000000-0000-0000-0000-000000000002',
         '62000000-0000-0000-0000-000000000003']::uuid[],
   'the day filter uses the viewer''s calendar day'
 );
 
 select is(
-  array(select f.id from public.games_feed(false, null, '2099-10-10', 'UTC', 50) f),
+  array(select f.id from public.games_feed(null, '2099-10-10', 'UTC', 50) f),
   array['62000000-0000-0000-0000-000000000002', '63000000-0000-0000-0000-000000000002']::uuid[],
   'a game just after midnight in Oslo belongs to the previous day in UTC'
 );
 
 select is(
-  (select f.legs_won from public.games_feed(false, null, null, 'Europe/Oslo', 1) f),
+  (select f.legs_won from public.games_feed(null, null, 'Europe/Oslo', 1) f),
   2,
   'legs won counts legs with a winner'
 );
 
 select is(
-  (select f.players from public.games_feed(false, null, null, 'Europe/Oslo', 1) f),
+  (select f.players from public.games_feed(null, null, 'Europe/Oslo', 1) f),
   '[{"id": "61000000-0000-0000-0000-000000000003", "avatar_url": null, "play_order": 0, "display_name": "Carl Feed"},
     {"id": "61000000-0000-0000-0000-000000000002", "avatar_url": null, "play_order": 1, "display_name": "Bob Feed"}]'::jsonb,
   'players come in play order'
@@ -137,7 +173,7 @@ select is(
 
 select is(
   (select row(f.kind, f.mode, f.start_score, f.finish, f.legs_to_win, f.winner_player_id, f.ended_early, f.status)::text
-   from public.games_feed(false, null, null, 'Europe/Oslo', 2) f where f.kind = 'game'),
+   from public.games_feed(null, null, 'Europe/Oslo', 2) f where f.kind = 'game'),
   row('game', 'killer', null::text, null::text, null::int, '61000000-0000-0000-0000-000000000002'::uuid, false, 'completed')::text,
   'party games carry their mode and status'
 );
@@ -164,14 +200,21 @@ reset role;
 
 select is(
   (select count(*)::int from pg_proc
-   where proname in ('games_feed', 'games_activity', 'games_feed_match_rows', 'games_feed_session_rows', 'games_feed_needle')
+   where proname in ('games_feed', 'games_live', 'games_activity', 'games_feed_match_rows', 'games_feed_session_rows',
+                     'games_feed_needle', 'games_feed_players', 'games_feed_legs_won')
      and pronamespace = 'public'::regnamespace and prosecdef),
   0,
   'feed functions run as the caller, so row level security applies'
 );
 
 select ok(
-  has_function_privilege('anon', 'public.games_feed(boolean, text, date, text, int)', 'execute')
+  exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'matches_live_created_at_id_idx'),
+  'live matches have their own partial index'
+);
+
+select ok(
+  has_function_privilege('anon', 'public.games_feed(text, date, text, int, timestamptz, text, uuid)', 'execute')
+  and has_function_privilege('anon', 'public.games_live()', 'execute')
   and has_function_privilege('authenticated', 'public.games_activity(date, text, text)', 'execute'),
   'the browser roles can call the feed'
 );

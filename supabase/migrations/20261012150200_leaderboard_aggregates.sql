@@ -89,11 +89,11 @@ create index if not exists idx_turns_top_scores
   on public.turns (total_scored desc)
   where busted = false;
 
--- A player's turns in a leg, newest first: the winner's final turn (checkouts) is one index probe,
--- and the quickest-legs dart counts read turn ids without visiting the table.
+-- A player's turns in a leg, newest first: the winner's final turn (checkouts) is one index probe.
+-- No INCLUDE columns: covering id and total_scored made no measurable read difference, and every
+-- turn update on the live scoring path would have to rewrite them.
 create index if not exists idx_turns_leg_player_turn
   on public.turns (leg_id, player_id, turn_number desc)
-  include (id, total_scored)
   where tiebreak_round is null;
 
 -- Same rows and columns as before. The winner's final non-tiebreak turn is now looked up once per
