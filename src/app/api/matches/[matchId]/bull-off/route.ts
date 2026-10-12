@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { isMatchScoringActive, loadMatch } from '@/lib/server/matchGuards';
 import { updateBullOff } from '@/lib/server/bullOff';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function POST(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
+async function postHandler(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = await params;
   const supabase = getSupabaseServerClient();
   const match = await loadMatch(supabase, matchId);
@@ -23,3 +24,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not save bull-off' }, { status: 409 });
   }
 }
+
+export const POST = withSession(postHandler);

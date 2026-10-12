@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { highdartsErrorStatus, isUuid } from '@/lib/highdarts/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
-export async function PATCH(
+import { withSession } from '@/lib/auth/withSession';
+async function patchHandler(
   request: Request,
   { params }: { params: Promise<{ matchId: string }> },
 ) {
@@ -30,3 +31,5 @@ export async function PATCH(
     );
   return NextResponse.json({ ok: true });
 }
+
+export const PATCH = withSession(patchHandler);

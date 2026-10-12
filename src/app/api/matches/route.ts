@@ -3,6 +3,7 @@ import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { createMatchForPlayers } from '@/lib/server/createMatch';
 import { assertScoliaBoardAvailable } from '@/lib/server/scoliaBoardTarget';
 import { NextRequest, NextResponse } from 'next/server';
+import { withSession } from '@/lib/auth/withSession';
 
 type CreateMatchRequest = {
   type: 201 | 301 | 501;
@@ -19,7 +20,7 @@ type CreateMatchResponse = {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     const body = (await request.json()) as
       | CreateMatchRequest
@@ -175,3 +176,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withSession(postHandler);

@@ -2,8 +2,9 @@ import { getAuthenticatedSession } from '@/auth';
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { loadMatch } from '@/lib/server/matchGuards';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function DELETE(_: Request, { params }: { params: Promise<{ matchId: string }> }) {
+async function deleteHandler(_: Request, { params }: { params: Promise<{ matchId: string }> }) {
   try {
     const session = await getAuthenticatedSession();
     if (!session?.user.email || !session.user.slackTeamId) {
@@ -37,3 +38,5 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ matchId
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const DELETE = withSession(deleteHandler);

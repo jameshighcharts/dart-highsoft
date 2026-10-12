@@ -4,6 +4,7 @@ import { isGuardResponse, requireUser } from '@/lib/auth/requireAdmin';
 import { PLAYER_COLUMNS } from '@/lib/server/myPlayer';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { claimSlackPlayerAtomic, SlackPlayerLinkError } from '@/lib/slack/playerLinks';
+import { withSession } from '@/lib/auth/withSession';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -12,7 +13,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * player, or { displayName } to create a new one. Fails if I am already linked;
  * an admin can re-link in /admin.
  */
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const guard = await requireUser();
   if (isGuardResponse(guard)) return guard;
   try {
@@ -66,3 +67,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const POST = withSession(postHandler);

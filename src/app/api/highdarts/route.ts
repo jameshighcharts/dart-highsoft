@@ -2,8 +2,9 @@ import { GET as getAvailableBoards } from '@/app/api/scolia/boards/available/rou
 import { NextResponse } from 'next/server';
 import { loadHighdarts } from '@/lib/highdarts/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 export const dynamic = 'force-dynamic';
-export async function GET() {
+async function getHandler() {
   try {
     const [snapshot, response] = await Promise.all([loadHighdarts(getSupabaseServerClient()), getAvailableBoards()]);
     if (!response.ok) throw new Error('Board availability could not load');
@@ -19,3 +20,5 @@ export async function GET() {
     );
   }
 }
+
+export const GET = withSession(getHandler);

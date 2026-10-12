@@ -5,8 +5,9 @@ import { isMatchActive, loadMatch } from '@/lib/server/matchGuards';
 import { completeLeg } from '@/lib/server/completeLeg';
 import { SHARED_RESULTS_TAG } from '@/lib/shared/tag';
 import { advanceTournament } from '@/lib/tournament/advance';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function POST(request: Request, { params }: { params: Promise<{ matchId: string; legId: string }> }) {
+async function postHandler(request: Request, { params }: { params: Promise<{ matchId: string; legId: string }> }) {
   try {
     const { matchId, legId } = await params;
     const body = (await request.json()) as { winnerPlayerId?: string };
@@ -65,3 +66,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const POST = withSession(postHandler);

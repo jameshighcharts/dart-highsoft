@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function postHandler(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const body = (await request.json()) as { segment?: string; scored?: number; dartIndex?: number };
@@ -75,3 +76,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const POST = withSession(postHandler);

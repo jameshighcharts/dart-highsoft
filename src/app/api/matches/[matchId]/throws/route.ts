@@ -8,6 +8,7 @@ import {
   enqueueDartIQLiveReplay,
   enqueueDartIQLiveThrow,
 } from '@/lib/server/backgroundJobs';
+import { withSession } from '@/lib/auth/withSession';
 
 async function ensureTurnInMatch(
   supabase: ReturnType<typeof getSupabaseServerClient>,
@@ -65,7 +66,7 @@ async function loadThrowsForTurn(
   return { throws: ((data ?? []) as ThrowSequenceRow[]), error: null };
 }
 
-export async function POST(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
+async function postHandler(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
   try {
     const { matchId } = await params;
     let body:
@@ -202,7 +203,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
+async function deleteHandler(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
   try {
     const { matchId } = await params;
     let body: { turnId?: string; dartIndex?: number } | null = null;
@@ -260,3 +261,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ m
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const POST = withSession(postHandler);
+export const DELETE = withSession(deleteHandler);

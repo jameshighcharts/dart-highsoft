@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import type { CommentaryPersonaId, CommentaryExcitementLevel } from '@/lib/commentary/types';
 import { resolvePersona } from '@/lib/commentary/personas';
+import { withSession } from '@/lib/auth/withSession';
 
 // Lazy-load OpenAI client to avoid initialization errors during build
 let openaiClient: OpenAI | null = null;
@@ -30,7 +31,7 @@ interface TTSRequest {
   excitement?: CommentaryExcitementLevel;
 }
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     // Check if API key is configured
     if (!process.env.OPENAI_API_KEY) {
@@ -155,3 +156,5 @@ function buildSpeechInput(
   const instructions = buildInstructions(personaId, excitement, speed);
   return `${instructions}\n\n${text}`;
 }
+
+export const POST = withSession(postHandler);

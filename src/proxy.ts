@@ -5,19 +5,12 @@ import { isAuthDevBypassEnabled, isAuthPerformanceBypassEnabled } from '@/lib/au
 
 // The whole app sits behind Slack or Google sign-in. `/login` is the gate for the
 // game, `/signin` the gate for `/admin` (admin role is checked on the page and
-// in every /api/admin handler). Server-to-server endpoints authenticate on
-// their own (Slack request signatures, background-job bearer secret).
-// /api/shared/* skips the proxy (see `matcher`) and checks the same session
-// itself: the proxy is a separate step in front of every request, and those
-// reads are otherwise a few milliseconds from the cache.
+// in every /api/admin handler).
+//
+// The proxy guards pages only. API routes check the session themselves
+// (`withSession`, src/lib/auth/withSession.ts): on Vercel the proxy is a separate
+// step in front of every request, which cost each API call about 65 ms.
 const PUBLIC_PAGES = new Set(['/login', '/signin']);
-const PUBLIC_API_PREFIXES = ['/api/auth/', '/api/slack/', '/api/background-jobs'];
-
-function isPublic(pathname: string): boolean {
-  if (pathname === '/api/highdarts/sheet') return true;
-  if (PUBLIC_PAGES.has(pathname)) return true;
-  return PUBLIC_API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(prefix));
-}
 
 export default auth((request) => {
   const { nextUrl } = request;
@@ -28,17 +21,13 @@ export default auth((request) => {
     || isAuthDevBypassEnabled()
     || isAuthPerformanceBypassEnabled(request);
 
-  if (isPublic(pathname)) {
+  if (PUBLIC_PAGES.has(pathname)) {
     if (isAuthenticated && pathname === '/login') return NextResponse.redirect(new URL('/', nextUrl));
     if (isAuthenticated && pathname === '/signin') return NextResponse.redirect(new URL('/admin', nextUrl));
     return NextResponse.next();
   }
 
   if (isAuthenticated) return NextResponse.next();
-
-  if (pathname.startsWith('/api/')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
 
   const isAdminArea = pathname === '/admin' || pathname.startsWith('/admin/');
   const gate = new URL(isAdminArea ? '/signin' : '/login', nextUrl);
@@ -47,8 +36,8 @@ export default auth((request) => {
 });
 
 export const config = {
-  // Everything except Next internals and static files (must be a static string).
+  // Pages: everything except API routes, Next internals and static files (must be a static string).
   matcher: [
-    '/((?!_next/static|_next/image|api/shared/|favicon.ico|manifest.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|xml|webmanifest|woff2?)$).*)',
+    '/((?!api/|_next/static|_next/image|favicon.ico|manifest.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|xml|webmanifest|woff2?)$).*)',
   ],
 };

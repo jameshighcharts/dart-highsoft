@@ -4,8 +4,9 @@ import { readRematchPlayers } from '@/lib/server/rematchPlayers';
 import { createGameSession, shuffle } from '@/lib/server/createGameSession';
 import { loadGameSession } from '@/lib/server/gameGuards';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function postHandler(request: Request, { params }: { params: Promise<{ id: string }> }) {
   let selectedPlayerIds: string[] | null;
   try {
     selectedPlayerIds = await readRematchPlayers(request);
@@ -50,3 +51,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const POST = withSession(postHandler);

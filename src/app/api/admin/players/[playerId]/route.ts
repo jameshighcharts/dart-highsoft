@@ -4,12 +4,13 @@ import { isGuardResponse, requireAdmin } from '@/lib/auth/requireAdmin';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { LOCATIONS } from '@/utils/locations';
 import { parseNicknames } from '@/utils/nicknames';
+import { withSession } from '@/lib/auth/withSession';
 
 const locationValues = new Set<string>(LOCATIONS.map((location) => location.value));
 
 type PatchBody = { displayName?: unknown; location?: unknown; isActive?: unknown; nicknames?: unknown };
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ playerId: string }> }) {
+async function patchHandler(request: Request, { params }: { params: Promise<{ playerId: string }> }) {
   const guard = await requireAdmin();
   if (isGuardResponse(guard)) return guard;
 
@@ -65,3 +66,5 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ pl
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const PATCH = withSession(patchHandler);

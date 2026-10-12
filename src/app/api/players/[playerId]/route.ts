@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { LOCATIONS } from '@/utils/locations';
+import { withSession } from '@/lib/auth/withSession';
 
 const locationValues = new Set<string>(LOCATIONS.map((location) => location.value));
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ playerId: string }> }) {
+async function patchHandler(request: Request, { params }: { params: Promise<{ playerId: string }> }) {
   try {
     const { playerId } = await params;
     let body: { location?: string | null };
@@ -36,3 +37,5 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ pl
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const PATCH = withSession(patchHandler);

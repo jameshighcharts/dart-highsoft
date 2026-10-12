@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { LOCATIONS } from '@/utils/locations';
+import { withSession } from '@/lib/auth/withSession';
 
 const locationValues = new Set<string>(LOCATIONS.map((location) => location.value));
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   try {
     const body = (await request.json()) as { displayName?: string; location?: string };
     const displayName = body.displayName?.trim();
@@ -32,3 +33,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const POST = withSession(postHandler);

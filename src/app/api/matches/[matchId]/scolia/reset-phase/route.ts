@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { checkScoliaPhaseReset } from '@/lib/server/scoliaPhaseReset';
 import { isUuid } from '@/lib/commentary/realtimeTypes';
+import { withSession } from '@/lib/auth/withSession';
 
 type Context = { params: Promise<{ matchId: string }> };
 
-export async function POST(request: NextRequest, { params }: Context) {
+async function postHandler(request: NextRequest, { params }: Context) {
   if (request.headers.get('origin') && request.headers.get('origin') !== request.nextUrl.origin) {
     return NextResponse.json({ error: 'Invalid origin' }, { status: 403 });
   }
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest, { params }: Context) {
   }
 }
 
-export async function GET(request: NextRequest, { params }: Context) {
+async function getHandler(request: NextRequest, { params }: Context) {
   const { matchId } = await params;
   const commandId = request.nextUrl.searchParams.get('commandId');
   if (!isUuid(matchId) || !commandId || !isUuid(commandId)) return NextResponse.json({ error: 'Invalid reset request' }, { status: 400 });
@@ -43,3 +44,6 @@ export async function GET(request: NextRequest, { params }: Context) {
   return NextResponse.json({ status: result.data.status, error: result.data.last_error, phase: board?.board_phase },
     { headers: { 'Cache-Control': 'no-store' } });
 }
+
+export const POST = withSession(postHandler);
+export const GET = withSession(getHandler);

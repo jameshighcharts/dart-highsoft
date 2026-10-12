@@ -6,6 +6,7 @@ import { fisherYatesShuffle } from '@/lib/tournament/shuffle';
 import { assertScoliaBoardAvailable } from '@/lib/server/scoliaBoardTarget';
 import { isUuid } from '@/lib/commentary/realtimeTypes';
 import { cleanupTournament } from '@/lib/server/cleanupTournament';
+import { withSession } from '@/lib/auth/withSession';
 
 type CreateTournamentRequest = {
   name: string;
@@ -18,7 +19,7 @@ type CreateTournamentRequest = {
   commentaryEnabled?: boolean;
 };
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const supabase = getSupabaseServerClient();
   let tournamentId: string | null = null;
 
@@ -254,3 +255,5 @@ async function createMatchForTournament(
     throw new Error(linkErr?.message ?? 'Failed to link seeded match to tournament slot');
   }
 }
+
+export const POST = withSession(postHandler);

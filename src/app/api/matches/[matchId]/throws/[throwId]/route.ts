@@ -4,6 +4,7 @@ import { isMatchActive, loadMatch } from '@/lib/server/matchGuards';
 import { recomputeLegTurns } from '@/lib/server/recomputeLegTurns';
 import { commandSourceForMatch, enqueueCurrentRoundScoliaThrowCommand } from '@/lib/server/scoliaCommands';
 import { enqueueDartIQLiveReplay } from '@/lib/server/backgroundJobs';
+import { withSession } from '@/lib/auth/withSession';
 
 async function getLegIdForTurn(
   supabase: ReturnType<typeof getSupabaseServerClient>,
@@ -35,7 +36,7 @@ async function ensureThrowInMatch(
   };
 }
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ matchId: string; throwId: string }> }) {
+async function patchHandler(request: Request, { params }: { params: Promise<{ matchId: string; throwId: string }> }) {
   try {
     const { matchId, throwId } = await params;
     const body = (await request.json()) as { segment?: string; scored?: number };
@@ -71,7 +72,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ma
   }
 }
 
-export async function DELETE(_: Request, { params }: { params: Promise<{ matchId: string; throwId: string }> }) {
+async function deleteHandler(_: Request, { params }: { params: Promise<{ matchId: string; throwId: string }> }) {
   try {
     const { matchId, throwId } = await params;
     const supabase = getSupabaseServerClient();
@@ -102,3 +103,6 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ matchId
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const PATCH = withSession(patchHandler);
+export const DELETE = withSession(deleteHandler);

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function PATCH(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function patchHandler(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const supabase = getSupabaseServerClient();
@@ -16,3 +17,5 @@ export async function PATCH(_: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const PATCH = withSession(patchHandler);

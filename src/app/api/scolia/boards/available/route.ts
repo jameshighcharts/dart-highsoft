@@ -4,6 +4,7 @@ import { hasFreshScoliaHeartbeat, isScoliaBoardReady } from '@/lib/scolia/availa
 import type { ScoliaBoardOccupant } from '@/lib/scolia/types';
 import { summarizeActiveGameSessions, summarizeActiveMatches } from '@/lib/server/scoliaActiveGameSummary';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
 type BoardRow = {
   id: string;
@@ -57,7 +58,7 @@ function simulateBoards(rows: BoardRow[]) {
   });
 }
 
-export async function GET() {
+async function getHandler() {
   try {
     const supabase = getSupabaseServerClient();
     const [boardsResult, activeMatchesResult, activeGamesResult] = await Promise.all([
@@ -158,3 +159,5 @@ export async function GET() {
     return NextResponse.json({ error: 'Failed to load Scolia boards' }, { status: 500 });
   }
 }
+
+export const GET = withSession(getHandler);

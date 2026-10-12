@@ -3,12 +3,13 @@ import { NextResponse } from 'next/server';
 import { isGuardResponse, requireAdmin } from '@/lib/auth/requireAdmin';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { setSlackPlayerLinkAtomic, SlackPlayerLinkError } from '@/lib/slack/playerLinks';
+import { withSession } from '@/lib/auth/withSession';
 
 const SLACK_USER_ID_PATTERN = /^[UW][A-Z0-9]{2,20}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Link a player to a Slack user. Replaces any existing link on either side. */
-export async function PUT(request: Request, { params }: { params: Promise<{ playerId: string }> }) {
+async function putHandler(request: Request, { params }: { params: Promise<{ playerId: string }> }) {
   const guard = await requireAdmin();
   if (isGuardResponse(guard)) return guard;
 
@@ -45,7 +46,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ play
   }
 }
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ playerId: string }> }) {
+async function deleteHandler(_request: Request, { params }: { params: Promise<{ playerId: string }> }) {
   const guard = await requireAdmin();
   if (isGuardResponse(guard)) return guard;
 
@@ -63,3 +64,6 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const PUT = withSession(putHandler);
+export const DELETE = withSession(deleteHandler);

@@ -3,8 +3,9 @@ import { readRematchPlayers } from '@/lib/server/rematchPlayers';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { createMatchForPlayers } from '@/lib/server/createMatch';
 import { isScoliaBoardReady } from '@/lib/scolia/availability';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function POST(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
+async function postHandler(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
   let selectedPlayerIds: string[] | null;
   try {
     selectedPlayerIds = await readRematchPlayers(request);
@@ -97,3 +98,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ mat
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const POST = withSession(postHandler);

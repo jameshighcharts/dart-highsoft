@@ -8,6 +8,7 @@ import {
 } from '@/lib/highdarts/server';
 import { buildStandings } from '@/lib/highdarts/standings';
 import { validateDraw, type DrawSelection } from '@/lib/highdarts/finals';
+import { withSession } from '@/lib/auth/withSession';
 function parseDraw(body: unknown): DrawSelection | null {
   if (
     !body ||
@@ -34,7 +35,7 @@ function parseDraw(body: unknown): DrawSelection | null {
   }
   return { byes: body.byes, playoffs };
 }
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const guard = await requireAdmin();
   if (isGuardResponse(guard)) return guard;
   const selection = parseDraw(await request.json().catch(() => null));
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
     );
   }
 }
-export async function DELETE() {
+async function deleteHandler() {
   const guard = await requireAdmin();
   if (isGuardResponse(guard)) return guard;
   const { error } = await getSupabaseServerClient().rpc(
@@ -86,3 +87,6 @@ export async function DELETE() {
     );
   return NextResponse.json({ ok: true });
 }
+
+export const POST = withSession(postHandler);
+export const DELETE = withSession(deleteHandler);

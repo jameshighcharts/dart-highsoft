@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import { assertScoliaBoardAvailable } from '@/lib/server/scoliaBoardTarget';
 import { isUuid } from '@/lib/commentary/realtimeTypes';
+import { withSession } from '@/lib/auth/withSession';
 
 /** Attach the tournament board only to the bracket match being opened. */
-export async function POST(_: Request, { params }: { params: Promise<{ id: string; matchId: string }> }) {
+async function postHandler(_: Request, { params }: { params: Promise<{ id: string; matchId: string }> }) {
   const { id, matchId } = await params;
   if (!isUuid(id) || !isUuid(matchId)) return NextResponse.json({ error: 'Invalid tournament or match' }, { status: 400 });
   try {
@@ -46,3 +47,5 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     return NextResponse.json({ error: 'Failed to open tournament match' }, { status: 500 });
   }
 }
+
+export const POST = withSession(postHandler);

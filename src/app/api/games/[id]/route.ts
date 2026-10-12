@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 
 import { loadGameSnapshot } from '@/lib/server/gameThrowLifecycle';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { withSession } from '@/lib/auth/withSession';
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function getHandler(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const supabase = getSupabaseServerClient();
@@ -20,3 +21,5 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const GET = withSession(getHandler);
