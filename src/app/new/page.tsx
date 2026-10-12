@@ -385,14 +385,15 @@ export default function NewMatchPage() {
     selectedPlayerIds.has(player.id) || matchingPlayerIds.has(player.id),
   );
 
-  // Fade the bottom of the player grid while more players sit below it, shrinking to nothing at the end.
+  // Fade the edges of the player grid while more players sit beyond them, shrinking to nothing at either end.
   const playerGrid = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const grid = playerGrid.current;
     if (!grid) return;
     const update = () => {
-      const below = grid.scrollHeight - grid.clientHeight - grid.scrollTop;
-      grid.style.setProperty('--player-fade', `${Math.min(64, Math.max(0, below))}px`);
+      const fade = (distance: number) => `${Math.min(64, Math.max(0, distance))}px`;
+      grid.style.setProperty('--player-fade-top', fade(grid.scrollTop));
+      grid.style.setProperty('--player-fade-bottom', fade(grid.scrollHeight - grid.clientHeight - grid.scrollTop));
     };
     update();
     grid.addEventListener('scroll', update, { passive: true });
@@ -829,7 +830,7 @@ export default function NewMatchPage() {
               />
             </div>
           </div>
-          <div ref={playerGrid} className="grid min-h-0 grid-cols-1 content-start gap-2.5 [mask-image:linear-gradient(to_bottom,#000_calc(100%_-_var(--player-fade,0px)),transparent)] min-[480px]:grid-cols-2 md:grid-cols-3 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain xl:grid-cols-4">
+          <div ref={playerGrid} className="grid min-h-0 grid-cols-1 content-start gap-2.5 [mask-image:linear-gradient(to_bottom,transparent,#000_var(--player-fade-top,0px),#000_calc(100%_-_var(--player-fade-bottom,0px)),transparent)] min-[480px]:grid-cols-2 md:grid-cols-3 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain xl:grid-cols-4">
             {filteredPlayers.map((p) => {
               const loc = LOCATIONS.find((l) => l.value === p.location);
               const checked = selectedIds.includes(p.id);
@@ -878,7 +879,7 @@ export default function NewMatchPage() {
 
           {tournamentSetupError && <p role="status" className="text-sm text-amber-200">{tournamentSetupError} <Link href="/bengt" className="underline">Back to Bengt</Link></p>}
 
-          <div className="fixed inset-x-7 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 rounded-t-2xl bg-background/95 px-1 pt-3 pb-3 shadow-[0_-12px_32px_rgba(3,7,18,0.8)] backdrop-blur-xl md:inset-x-12 lg:right-14 lg:bottom-0 lg:left-[376px] xl:left-[408px]">
+          <div className="fixed inset-x-7 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 rounded-t-2xl bg-background/95 px-1 pt-3 pb-3 shadow-[0_-12px_32px_rgba(3,7,18,0.8)] backdrop-blur-xl md:inset-x-12 lg:shadow-none lg:right-14 lg:bottom-0 lg:left-[376px] xl:left-[408px]">
             <div className="start-action-bar grid grid-cols-2 items-center gap-3">
             <SelectedPlayerLineup players={selectedPlayers} onRemove={toggle} />
             <Button
