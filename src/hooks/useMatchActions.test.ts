@@ -59,6 +59,7 @@ describe('useMatchActions', () => {
         turn_number: 1,
         total_scored: 20,
         busted: false,
+        tiebreak_round: null,
         throws: [
           {
             id: 'throw-1',
@@ -71,7 +72,7 @@ describe('useMatchActions', () => {
       },
     ];
 
-    const throwResult: SegmentResult = { kind: 'Single', label: 'S5', scored: 5 };
+    const throwResult: SegmentResult = { kind: 'Single', value: 5, label: 'S5', scored: 5 };
 
     const { result } = renderHook(() => {
       const [localTurn, setLocalTurn] = useState<{
@@ -178,6 +179,7 @@ describe('useMatchActions', () => {
         turn_number: 1,
         total_scored: 20,
         busted: false,
+        tiebreak_round: null,
         throws: [
           {
             id: 'throw-1',
@@ -198,7 +200,7 @@ describe('useMatchActions', () => {
       return Promise.resolve({ ok: true });
     });
 
-    const throwResult: SegmentResult = { kind: 'Single', label: 'S5', scored: 5 };
+    const throwResult: SegmentResult = { kind: 'Single', value: 5, label: 'S5', scored: 5 };
 
     const { result } = renderHook(() => {
       const [localTurn, setLocalTurn] = useState<{
@@ -298,7 +300,7 @@ describe('useMatchActions', () => {
       return Promise.resolve({ ok: true });
     });
 
-    const throwResult: SegmentResult = { kind: 'Triple', label: 'T20', scored: 60 };
+    const throwResult: SegmentResult = { kind: 'Triple', value: 20, label: 'T20', scored: 60 };
 
     const { result } = renderHook(() => {
       const [localTurn, setLocalTurn] = useState<{
@@ -409,6 +411,7 @@ describe('useMatchActions', () => {
         turn_number: 1,
         total_scored: 20,
         busted: false,
+        tiebreak_round: null,
         throws: [
           {
             id: 'throw-1',
@@ -430,7 +433,7 @@ describe('useMatchActions', () => {
       return Promise.resolve({ ok: true });
     });
 
-    const throwResult: SegmentResult = { kind: 'Single', label: 'S5', scored: 5 };
+    const throwResult: SegmentResult = { kind: 'Single', value: 5, label: 'S5', scored: 5 };
 
     const { result } = renderHook(() => {
       const [localTurn, setLocalTurn] = useState<{
@@ -526,7 +529,7 @@ describe('useMatchActions', () => {
       return Promise.resolve({ ok: true });
     });
 
-    const throwResult: SegmentResult = { kind: 'Single', label: 'S20', scored: 20 };
+    const throwResult: SegmentResult = { kind: 'Single', value: 20, label: 'S20', scored: 20 };
 
     const { result } = renderHook(() => {
       const [localTurn, setLocalTurn] = useState<{
@@ -625,7 +628,7 @@ describe('useMatchActions', () => {
       return Promise.resolve({ ok: true });
     });
 
-    const throwResult: SegmentResult = { kind: 'Single', label: 'S20', scored: 20 };
+    const throwResult: SegmentResult = { kind: 'Single', value: 20, label: 'S20', scored: 20 };
 
     const { result } = renderHook(() => {
       const [localTurn, setLocalTurn] = useState<{
@@ -793,6 +796,7 @@ describe('useMatchActions', () => {
     await act(async () => {
       actionPromise = result.current.actions.handleBoardClick(0, 0, {
         kind: 'Single',
+        value: 20,
         label: 'S20',
         scored: 20,
       });

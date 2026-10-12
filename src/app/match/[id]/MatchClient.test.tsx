@@ -26,6 +26,7 @@ import {
   TestQueryProvider,
   type MockDb,
 } from '@/test-utils';
+import type { useRealtime } from '@/hooks/useRealtime';
 
 type MatchClientComponent = typeof import('./MatchClient').default;
 let MatchClient: MatchClientComponent;
@@ -51,7 +52,10 @@ const setSearchParams = (value: string) => {
 const mockRouter = createMockRouter();
 
 // Mock realtime
-const mockRealtime = createMockRealtime();
+// Tests move the connection through every status the real hook can report.
+const mockRealtime: Omit<ReturnType<typeof createMockRealtime>, 'connectionStatus'> & {
+  connectionStatus: ReturnType<typeof useRealtime>['connectionStatus'];
+} = createMockRealtime();
 
 // Setup mocks
 vi.mock('@/lib/supabaseClient', () => ({
@@ -368,7 +372,7 @@ describe('MatchClient', () => {
 
     it('undoes the latest persisted dart from the spectator toolbar', async () => {
       setSearchParams('spectator=true');
-      mockDb.turns = [{ id: 'turn-1', leg_id: 'leg-1', player_id: 'player-1', turn_number: 1, total_scored: 40, busted: false }];
+      mockDb.turns = [{ id: 'turn-1', leg_id: 'leg-1', player_id: 'player-1', turn_number: 1, total_scored: 40, busted: false, tiebreak_round: null }];
       mockDb.throws = [
         { id: 'throw-1', turn_id: 'turn-1', dart_index: 1, segment: 'S20', scored: 20, match_id: 'match-1' },
         { id: 'throw-2', turn_id: 'turn-1', dart_index: 2, segment: 'S20', scored: 20, match_id: 'match-1' },
@@ -450,6 +454,7 @@ describe('MatchClient', () => {
           turn_number: 1,
           total_scored: 60,
           busted: false,
+          tiebreak_round: null,
         },
       ];
       mockDb.throws = [
@@ -460,7 +465,7 @@ describe('MatchClient', () => {
 
       // Make sure we don't rely on realtime updates to derive throw counts.
       mockRealtime.isConnected = false;
-      mockRealtime.connectionStatus = 'offline';
+      mockRealtime.connectionStatus = 'disconnected';
 
       const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
 
@@ -487,6 +492,7 @@ describe('MatchClient', () => {
           turn_number: 1,
           total_scored: 60,
           busted: false,
+          tiebreak_round: null,
         },
       ];
       mockDb.throws = [
@@ -497,7 +503,7 @@ describe('MatchClient', () => {
 
       // Make sure we don't rely on realtime updates to derive throw counts.
       mockRealtime.isConnected = false;
-      mockRealtime.connectionStatus = 'offline';
+      mockRealtime.connectionStatus = 'disconnected';
 
       const user = userEvent.setup();
       const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);

@@ -11,6 +11,7 @@ const baseState = (): SpectatorReducerState => ({
       turn_number: 1,
       total_scored: 0,
       busted: false,
+      tiebreak_round: null,
       throws: [],
     },
   ],
@@ -163,6 +164,7 @@ describe('spectatorRealtimeReducer', () => {
             turn_number: 1,
             total_scored: 0,
             busted: false,
+            tiebreak_round: null,
             throws: [
               { id: 'throw-1', turn_id: 'turn-1', dart_index: 1, segment: 'S10', scored: 10 },
               { id: 'throw-2', turn_id: 'turn-1', dart_index: 2, segment: 'S20', scored: 20 },
@@ -197,6 +199,7 @@ describe('spectatorRealtimeReducer', () => {
             turn_number: 1,
             total_scored: 0,
             busted: false,
+            tiebreak_round: null,
             throws: [
               { id: 'throw-1', turn_id: 'turn-1', dart_index: 1, segment: 'S10', scored: 10 },
               { id: 'throw-2', turn_id: 'turn-1', dart_index: 2, segment: 'S20', scored: 20 },

@@ -133,19 +133,6 @@ export default function GamesPage() {
   const filteredLive = searchedLive.filter(matchesDate);
   const filteredRecent = searchedRecent.filter(matchesDate);
 
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development' && new URLSearchParams(window.location.search).get('preview') === '1') {
-      const games = createPreviewGames();
-      setPreview(true);
-      setLiveGames(games.filter(entry => entry.kind === 'game' ? entry.game.status === 'active' : !entry.match.completed_at));
-      setRecentGames(games.filter(entry => entry.kind === 'game' ? entry.game.status !== 'active' : !!entry.match.completed_at));
-      setLoading(false);
-      return;
-    }
-    loadGames();
-    loadTournaments();
-  }, []);
-
   const loadGames = async () => {
     try {
       setLoading(true);
@@ -324,6 +311,19 @@ export default function GamesPage() {
       setTournaments([]);
     }
   };
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development' && new URLSearchParams(window.location.search).get('preview') === '1') {
+      const games = createPreviewGames();
+      setPreview(true);
+      setLiveGames(games.filter(entry => entry.kind === 'game' ? entry.game.status === 'active' : !entry.match.completed_at));
+      setRecentGames(games.filter(entry => entry.kind === 'game' ? entry.game.status !== 'active' : !!entry.match.completed_at));
+      setLoading(false);
+      return;
+    }
+    loadGames();
+    loadTournaments();
+  }, []);
 
   const handleJoinLiveGame = (matchId: string) => {
     router.push(`/match/${matchId}?spectator=true`);

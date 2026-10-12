@@ -200,7 +200,7 @@ export function useMatchData(matchId: string): UseMatchDataResult {
         .eq('match_id', matchId)
         .order('leg_number');
       if (legsError) throw legsError;
-      const nextLegs = ((data ?? []) as LegRecord[]) ?? [];
+      const nextLegs = (data ?? []) as LegRecord[];
       setLegs(nextLegs);
       return nextLegs;
     } catch (e) {

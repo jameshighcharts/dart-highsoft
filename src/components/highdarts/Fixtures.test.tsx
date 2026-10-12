@@ -5,7 +5,9 @@ import {
   render as renderWithoutTooltip,
   screen,
   within,
+  type RenderOptions,
 } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { fixture, finish } from "@/test-utils/highdartsFixtures";
 import { withReportedResults } from "@/lib/highdarts/reportedResults";
@@ -17,7 +19,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-const render: typeof renderWithoutTooltip = (ui, options) =>
+const render = (ui: ReactElement, options?: Omit<RenderOptions, "wrapper">) =>
   renderWithoutTooltip(ui, { wrapper: TooltipProvider, ...options });
 
 const players = [

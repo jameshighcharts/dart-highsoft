@@ -24,10 +24,12 @@ function createMockSupabase(data: {
   tournamentPlayers?: TournamentPlayerRow[];
   insertErrors?: Partial<Record<string, string>>;
 }) {
-  const updates: { table: string; filters: JsonMap; data: unknown }[] = [];
+  const updates: { table: string; filters: JsonMap; data: JsonMap }[] = [];
   const inserts: { table: string; data: unknown }[] = [];
 
   function makeBuilder(table: string, mode: 'select' | 'update' | 'insert', payload?: unknown) {
+    // update() is always called with a column map.
+    const updatePayload = payload as JsonMap;
     const filters: JsonMap = {};
     let orFilter: string | null = null;
 
@@ -120,7 +122,7 @@ function createMockSupabase(data: {
               }
               // Apply the update
               Object.assign(tm, payload);
-              updates.push({ table, filters: { ...filters }, data: payload });
+              updates.push({ table, filters: { ...filters }, data: updatePayload });
               return { data: { ...tm }, matched: true };
             }
             return { data: null, matched: false };
@@ -148,7 +150,7 @@ function createMockSupabase(data: {
         }
         if (mode === 'update') {
           const id = filters['id'];
-          updates.push({ table, filters: { ...filters }, data: payload });
+          updates.push({ table, filters: { ...filters }, data: updatePayload });
           if (table === 'tournament_matches' && typeof id === 'string' && data.tournamentMatches[id]) {
             Object.assign(data.tournamentMatches[id], payload as object);
           }
@@ -166,7 +168,7 @@ function createMockSupabase(data: {
       }
 
       if (mode === 'update') {
-        updates.push({ table, filters: { ...filters }, data: payload });
+        updates.push({ table, filters: { ...filters }, data: updatePayload });
         if (table === 'tournament_matches') {
           const id = filters['id'];
           if (typeof id === 'string' && data.tournamentMatches[id]) {
@@ -190,10 +192,10 @@ function createMockSupabase(data: {
   }
 
   const deletes: { table: string; filters: JsonMap }[] = [];
-  const rpcs: { fn: string; params: unknown }[] = [];
+  const rpcs: { fn: string; params: JsonMap }[] = [];
 
   const mockClient = {
-    rpc: async (fn: string, params: unknown) => {
+    rpc: async (fn: string, params: JsonMap) => {
       rpcs.push({ fn, params });
       return { error: null };
     },

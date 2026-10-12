@@ -134,6 +134,12 @@ export default function NewMatchPage() {
     }
     setSetupLoaded(true);
   }, []);
+  const [selectedBoardId, setSelectedBoardId] = useState(MANUAL_BOARD_VALUE);
+  // Start with every location for SSR and pick up the stored filter after hydration.
+  const [includeNoLocation, setIncludeNoLocation] = useState(true);
+  const [enabledLocations, setEnabledLocations] = useState<LocationValue[]>(
+    () => LOCATIONS.map((l) => l.value),
+  );
   useEffect(() => {
     if (!setupLoaded || !playersLoaded) return;
     let cancelled = false;
@@ -178,7 +184,6 @@ export default function NewMatchPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [boards, setBoards] = useState<ScoliaBoardOption[]>([]);
-  const [selectedBoardId, setSelectedBoardId] = useState(MANUAL_BOARD_VALUE);
   const [creatorLocation, setCreatorLocation] = useState<LocationValue | null>(null);
   const boardChosenByUser = useRef(false);
   const [boardsLoading, setBoardsLoading] = useState(true);
@@ -214,11 +219,6 @@ export default function NewMatchPage() {
   }
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const boardsRequestInFlight = useRef(false);
-  // Start with every location for SSR and pick up the stored filter after hydration.
-  const [includeNoLocation, setIncludeNoLocation] = useState(true);
-  const [enabledLocations, setEnabledLocations] = useState<LocationValue[]>(
-    () => LOCATIONS.map((l) => l.value),
-  );
   useEffect(() => {
     setEnabledLocations(loadEnabledLocations());
     try {
