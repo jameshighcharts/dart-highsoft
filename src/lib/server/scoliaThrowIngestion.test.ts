@@ -128,7 +128,7 @@ function gameSupabase(
 ) {
   const tables = { bull_off_events: [], ...gameTables(rows, options.session), ...options.tables };
   const gameSessions = tables.game_sessions as MockRow[];
-  return createSupabaseMock({ bull_off_events: [], ...tables }, {
+  return createSupabaseMock(tables, {
     append_game_throw_atomic: appendGameRpc(gameSessions),
     finalize_game_session_atomic: finalizeGameRpc(gameSessions),
     ...options.rpcs,
@@ -412,7 +412,7 @@ describe('ingestScoliaThrowEvent dispatch', () => {
 
 it('records a bull-off measurement without creating a scoring turn and ignores a duplicate event', async () => {
   const { createBullOff } = await import('../match/bullOff');
-  const match = { ...activeMatchRow(), bull_off: createBullOff(ORDER) };
+  const match = { ...activeMatchRow(), id: 'match-1', bull_off: createBullOff(ORDER) };
   const events: MockRow[] = [];
   const supabase = createSupabaseMock({
     bull_off_events: events, throws: [], game_throws: [], matches: [match], game_sessions: [], scolia_events: scoliaEventsTable(),

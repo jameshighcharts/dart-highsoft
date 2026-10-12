@@ -33,10 +33,10 @@ afterEach(cleanup);
 it('records canonical darts from the keypad and permits undo', async () => {
   mocks.data.throws = [dart('S20',1)];
   const user = userEvent.setup(); render(<GameClient gameId="game" />);
-  await user.click(screen.getByRole('button',{name:'Double',exact:true}));
-  await user.click(screen.getByRole('button',{name:'20',exact:true}));
+  await user.click(screen.getByRole('button',{name:'Double'}));
+  await user.click(screen.getByRole('button',{name:'20'}));
   expect(mocks.throwDart).toHaveBeenCalledWith('D20',40);
-  await user.click(screen.getByRole('button',{name:'Undo',exact:true}));
+  await user.click(screen.getByRole('button',{name:'Undo'}));
   expect(mocks.undo).toHaveBeenCalledOnce();
 });
 
@@ -62,7 +62,7 @@ it('spectators can exit but cannot score, undo, end, or rematch', () => {
 
 it('disables keyboard scoring while saving and hides manual input for Scolia', () => {
   mocks.busy = true; const {unmount} = render(<GameClient gameId="game" />);
-  expect(screen.getByRole('button',{name:'20',exact:true})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'20'})).toBeDisabled();
   unmount(); mocks.data.session.scolia_board_id='board'; render(<GameClient gameId="game" />);
   expect(screen.queryByRole('group',{name:'Dart scoring'})).not.toBeInTheDocument();
   expect(screen.getByText('Automatic scoring from the Scolia board')).toBeInTheDocument();

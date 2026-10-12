@@ -2,6 +2,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMockLeg, createMockMatch } from '@/test-utils/factories';
 import type { MatchLoadResult } from '@/lib/match/loadMatchData';
+import type { ThrowRecord, TurnWithThrows } from '@/lib/match/types';
 import { LiveScoringVersions } from '@/lib/match/liveScoringBroadcast';
 import { useMatchData } from './useMatchData';
 const { load } = vi.hoisted(() => ({ load: vi.fn() }));
@@ -10,10 +11,11 @@ vi.mock('@/lib/match/loadMatchData', () => ({ loadMatchData: load }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 const match = createMockMatch({ id: 'm' });
 const leg = createMockLeg({ id: 'l', match_id: 'm' });
-const dart = { id: 'd', turn_id: 't', dart_index: 1, segment: 'S20', scored: 20, live_revision: '10' };
-const turn = { id: 't', leg_id: 'l', player_id: 'p', turn_number: 1, total_scored: 20, busted: false, tiebreak_round: null, throws: [dart] };
-const snapshot = (throws: typeof dart[]): MatchLoadResult => ({ match, legs: [leg], players: [],
-  turns: [{ ...turn, throws }], turnsByLeg: { l: [{ ...turn, throws }] }, turnThrowCounts: { t: throws.length } } as MatchLoadResult);
+const dart: ThrowRecord = { id: 'd', turn_id: 't', dart_index: 1, segment: 'S20', scored: 20, live_revision: '10' };
+const turn: TurnWithThrows = { id: 't', leg_id: 'l', player_id: 'p', turn_number: 1, total_scored: 20, busted: false, tiebreak_round: null, throws: [dart] };
+const withThrows = (throws: ThrowRecord[]): TurnWithThrows => ({ ...turn, throws });
+const snapshot = (throws: ThrowRecord[]): MatchLoadResult => ({ match, legs: [leg], players: [],
+  turns: [withThrows(throws)], turnsByLeg: { l: [withThrows(throws)] }, turnThrowCounts: { t: throws.length } });
 const deferred = () => {
   let resolve!: (value: MatchLoadResult) => void;
   const promise = new Promise<MatchLoadResult>(done => { resolve = done; });

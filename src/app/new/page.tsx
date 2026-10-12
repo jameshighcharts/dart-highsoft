@@ -134,6 +134,12 @@ export default function NewMatchPage() {
     }
     setSetupLoaded(true);
   }, []);
+  const [selectedBoardId, setSelectedBoardId] = useState(MANUAL_BOARD_VALUE);
+  // Start with every location for SSR and pick up the stored filter after hydration.
+  const [includeNoLocation, setIncludeNoLocation] = useState(true);
+  const [enabledLocations, setEnabledLocations] = useState<LocationValue[]>(
+    () => LOCATIONS.map((l) => l.value),
+  );
   useEffect(() => {
     if (!setupLoaded || !playersLoaded) return;
     let cancelled = false;
@@ -178,7 +184,6 @@ export default function NewMatchPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [boards, setBoards] = useState<ScoliaBoardOption[]>([]);
-  const [selectedBoardId, setSelectedBoardId] = useState(MANUAL_BOARD_VALUE);
   const [creatorLocation, setCreatorLocation] = useState<LocationValue | null>(null);
   const boardChosenByUser = useRef(false);
   const [boardsLoading, setBoardsLoading] = useState(true);
@@ -214,11 +219,6 @@ export default function NewMatchPage() {
   }
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const boardsRequestInFlight = useRef(false);
-  // Start with every location for SSR and pick up the stored filter after hydration.
-  const [includeNoLocation, setIncludeNoLocation] = useState(true);
-  const [enabledLocations, setEnabledLocations] = useState<LocationValue[]>(
-    () => LOCATIONS.map((l) => l.value),
-  );
   useEffect(() => {
     setEnabledLocations(loadEnabledLocations());
     try {
@@ -384,6 +384,26 @@ export default function NewMatchPage() {
   const filteredPlayers = sortedPlayers.filter((player) =>
     selectedPlayerIds.has(player.id) || matchingPlayerIds.has(player.id),
   );
+
+  // Fade the edges of the player grid while more players sit beyond them, shrinking to nothing at either end.
+  const playerGrid = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const grid = playerGrid.current;
+    if (!grid) return;
+    const update = () => {
+      const fade = (distance: number) => `${Math.min(64, Math.max(0, distance))}px`;
+      grid.style.setProperty('--player-fade-top', fade(grid.scrollTop));
+      grid.style.setProperty('--player-fade-bottom', fade(grid.scrollHeight - grid.clientHeight - grid.scrollTop));
+    };
+    update();
+    grid.addEventListener('scroll', update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(grid);
+    return () => {
+      grid.removeEventListener('scroll', update);
+      observer.disconnect();
+    };
+  }, [filteredPlayers.length]);
   const searchMatchesExisting = players.some(
     (p) => p.display_name.trim().toLowerCase() === searchTerm,
   );
@@ -723,7 +743,8 @@ export default function NewMatchPage() {
           )}
 
         </div>
-        <div className="min-w-0 space-y-3 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:pb-28">
+        {/* Bottom padding = fixed start bar (88px) − main's bottom padding (24px) − the space-y gap (12px), so the list ends at the bar. */}
+        <div className="min-w-0 space-y-3 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:pb-[52px]">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
             <div className="mr-auto shrink-0 whitespace-nowrap text-2xl font-extrabold tracking-tight">
               Players
@@ -809,7 +830,7 @@ export default function NewMatchPage() {
               />
             </div>
           </div>
-          <div className="grid min-h-0 grid-cols-1 content-start gap-2.5 min-[480px]:grid-cols-2 md:grid-cols-3 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain xl:grid-cols-4">
+          <div ref={playerGrid} className="grid min-h-0 grid-cols-1 content-start gap-2.5 [mask-image:linear-gradient(to_bottom,transparent,#000_var(--player-fade-top,0px),#000_calc(100%_-_var(--player-fade-bottom,0px)),transparent)] min-[480px]:grid-cols-2 md:grid-cols-3 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain xl:grid-cols-4">
             {filteredPlayers.map((p) => {
               const loc = LOCATIONS.find((l) => l.value === p.location);
               const checked = selectedIds.includes(p.id);
@@ -858,7 +879,7 @@ export default function NewMatchPage() {
 
           {tournamentSetupError && <p role="status" className="text-sm text-amber-200">{tournamentSetupError} <Link href="/bengt" className="underline">Back to Bengt</Link></p>}
 
-          <div className="fixed inset-x-7 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 rounded-t-2xl bg-background/95 px-1 pt-3 pb-3 shadow-[0_-12px_32px_rgba(3,7,18,0.8)] backdrop-blur-xl md:inset-x-12 lg:right-14 lg:bottom-0 lg:left-[376px] xl:left-[408px]">
+          <div className="fixed inset-x-7 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 rounded-t-2xl bg-background/95 px-1 pt-3 pb-3 shadow-[0_-12px_32px_rgba(3,7,18,0.8)] backdrop-blur-xl md:inset-x-12 lg:shadow-none lg:right-14 lg:bottom-0 lg:left-[376px] xl:left-[408px]">
             <div className="start-action-bar grid grid-cols-2 items-center gap-3">
             <SelectedPlayerLineup players={selectedPlayers} onRemove={toggle} />
             <Button

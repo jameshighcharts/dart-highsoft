@@ -43,7 +43,7 @@ export async function loadMatchData(
 
   const match = (m ?? null) as MatchRecord | null;
   const players = (((mp as MatchPlayersRow[] | null) ?? []).map((r) => r.players) ?? []) as Player[];
-  const legs = ((lgs ?? []) as LegRecord[]) ?? [];
+  const legs = (lgs ?? []) as LegRecord[];
 
   const currentLeg = legs.find((l) => !l.winner_player_id) || legs[legs.length - 1] || null;
   const legIds = includeTurnsByLegSummary || includeTurnsByLegThrows ? legs.map((l) => l.id) : [];

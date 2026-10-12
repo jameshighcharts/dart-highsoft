@@ -105,6 +105,8 @@ export function SpectatorLiveMatchCard({
         { transform: `translateY(-2px) scale(${checkout ? 1.12 : 1.06})`, opacity: 1, offset: 0.4 },
         { transform: 'translateY(0) scale(1)', opacity: 1, offset: 1 },
       ], { duration: checkout ? 720 : 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+      // Cancelling (a newer score, unmount) rejects `finished`; that is expected, not an error.
+      animation.finished?.catch(() => {});
       scoreAnimations.current.set(playerId, animation);
     }
   });

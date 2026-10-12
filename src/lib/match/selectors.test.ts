@@ -17,6 +17,7 @@ describe('selectPlayerStats', () => {
         turn_number: 1,
         total_scored: 0,
         busted: false,
+        tiebreak_round: null,
         throws: [
           { id: 'thr-1', turn_id: 't1', dart_index: 1, segment: 'S20', scored: 20 },
           { id: 'thr-2', turn_id: 't1', dart_index: 2, segment: 'S20', scored: 20 },
@@ -47,6 +48,7 @@ describe('selectPlayerStats', () => {
         turn_number: 1,
         total_scored: 26,
         busted: false,
+        tiebreak_round: null,
         throws: [
           { id: 'thr-0-1', turn_id: 't0', dart_index: 1, segment: 'Miss', scored: 0 },
           { id: 'thr-0-2', turn_id: 't0', dart_index: 2, segment: 'Miss', scored: 0 },

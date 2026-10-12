@@ -20,7 +20,7 @@ afterEach(cleanup);
 async function edit() {
   const user = userEvent.setup();
   render(<RematchPanel players={players.slice(0, 2)} gameLabel="301" minPlayers={2} maxPlayers={4} open onOpenChange={mocks.open} onStart={mocks.start} />);
-  await user.click(screen.getByRole('button', { name: 'Edit players', exact: true }));
+  await user.click(screen.getByRole('button', { name: 'Edit players' }));
   await screen.findByRole('checkbox', { name: 'Alex' });
   return user;
 }
@@ -28,7 +28,7 @@ async function edit() {
 describe('rematch player picker', () => {
   it('filters by location without dropping selected players', async () => {
     const user = await edit();
-    await user.click(screen.getByRole('button', { name: 'Vik', exact: true }));
+    await user.click(screen.getByRole('button', { name: 'Vik' }));
     expect(screen.queryByRole('checkbox', { name: 'Jamie' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove Jamie' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Sam' })).toBeInTheDocument();
@@ -43,7 +43,7 @@ describe('rematch player picker', () => {
     expect(screen.queryByRole('checkbox', { name: 'Morgan' })).not.toBeInTheDocument();
     await user.type(screen.getByRole('searchbox', { name: 'Search players' }), 'Morgan');
     expect(screen.getByText('No players match your search in these locations.')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Sogndal', exact: true }));
+    await user.click(screen.getByRole('button', { name: 'Sogndal' }));
     await user.click(screen.getByRole('checkbox', { name: 'Morgan' }));
     expect(screen.getByRole('button', { name: 'Remove Morgan' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Clear player search' }));

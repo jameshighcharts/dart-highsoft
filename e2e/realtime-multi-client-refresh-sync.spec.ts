@@ -144,7 +144,7 @@ test.describe('realtime multi-client refresh sync', () => {
 
     let playerOneScore = 301;
     let playerTwoScore = 301;
-    let currentPlayerName = PLAYER_NAMES.ONE;
+    let currentPlayerName: string = PLAYER_NAMES.ONE;
     let dartsInTurn = 0;
 
     await expectAllClientsInSync({

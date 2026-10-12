@@ -56,7 +56,8 @@ async function chooseManual() {
 
 it('blocks Bengt manual starts even with no online boards until the warning is acknowledged', async () => {
   await setup();
-  expect(screen.getByRole('combobox', { name: 'Board' })).toHaveTextContent('Scolia Vik');
+  // The fixture's board choice lands with the Highdarts response, independently of the board list.
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Board' })).toHaveTextContent('Scolia Vik'));
   await chooseManual();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Start match' })).toBeEnabled());
   expect(screen.getByRole('alert')).toHaveTextContent('No board connected');

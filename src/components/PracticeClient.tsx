@@ -60,6 +60,21 @@ export default function PracticeClient({ player }: Props) {
 
   const ongoingTurnRef = useRef<PracticeTurn | null>(null);
 
+  const getThrowCount = async (turnId: string): Promise<number> => {
+    const supabase = await getSupabaseClient();
+    const { count } = await supabase
+      .from('practice_throws')
+      .select('*', { count: 'exact', head: true })
+      .eq('turn_id', turnId);
+    return count || 0;
+  };
+
+  const getPlayerMatchAverage = async (): Promise<number | null> => {
+    // This would need to be implemented to get the player's average from regular matches
+    // For now, return null or implement based on your existing match data
+    return null;
+  };
+
   const loadSessionData = useCallback(async () => {
     if (!session) return;
     
@@ -97,15 +112,6 @@ export default function PracticeClient({ player }: Props) {
     }
   }, [session]);
 
-  const getThrowCount = async (turnId: string): Promise<number> => {
-    const supabase = await getSupabaseClient();
-    const { count } = await supabase
-      .from('practice_throws')
-      .select('*', { count: 'exact', head: true })
-      .eq('turn_id', turnId);
-    return count || 0;
-  };
-
   const loadPlayerData = useCallback(async (playerId: string) => {
     const [history, overall, matchStats] = await Promise.all([
       getPlayerPracticeHistory(playerId, 10),
@@ -117,12 +123,6 @@ export default function PracticeClient({ player }: Props) {
     setOverallStats(overall);
     setMatchAverage(matchStats);
   }, []);
-
-  const getPlayerMatchAverage = async (): Promise<number | null> => {
-    // This would need to be implemented to get the player's average from regular matches
-    // For now, return null or implement based on your existing match data
-    return null;
-  };
 
   const startPractice = useCallback(async () => {
     try {
@@ -340,7 +340,6 @@ export default function PracticeClient({ player }: Props) {
       </div>
     );
   }
-
 
   return (
     <div className="container mx-auto p-3 lg:p-6">

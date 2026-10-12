@@ -3,7 +3,16 @@ import { selectCommentaryRivalry } from './commentaryNarrative';
 import { describe, expect, it } from 'vitest';
 
 import type { DartIQDartEvent } from '@/lib/dartiq/replay';
+import type { DartIQPlayerProjection } from '@/lib/dartiq/projection';
 import { buildCommentaryNarrativeMemory } from './commentaryNarrative';
+
+/** The narrative reads only scores and per-player projection figures, so the rest is left out. */
+function replayState(state: {
+  scores: Record<string, number>;
+  projections: Array<Pick<DartIQPlayerProjection, 'id'> & Partial<DartIQPlayerProjection>>;
+}): DartIQDartEvent['before'] {
+  return state as unknown as DartIQDartEvent['before'];
+}
 
 function dartIQEvent(overrides: Partial<DartIQDartEvent> = {}): DartIQDartEvent {
   return {
@@ -23,17 +32,17 @@ function dartIQEvent(overrides: Partial<DartIQDartEvent> = {}): DartIQDartEvent 
       createdBogey: false, avoidedBogey: false,
     },
     fairEndingBefore: null, fairEndingAfter: null,
-    before: {
+    before: replayState({
       scores: { a: 40 },
       projections: [{ id: 'a', matchWinProbability: 0.5 }],
-    } as DartIQDartEvent['before'],
-    after: {
+    }),
+    after: replayState({
       scores: { a: 35 },
       projections: [{
         id: 'a', threeDartAverage: 62, baselineThreeDartAverage: 50,
         dartsThrown: 9,
       }],
-    } as DartIQDartEvent['after'],
+    }),
     matchWinProbabilityAdded: { a: -0.1 }, legWinProbabilityAdded: { a: -0.2 },
     ...overrides,
   };
@@ -67,10 +76,10 @@ describe('buildCommentaryNarrativeMemory', () => {
       turnId: `turn-${sequence}`,
       sequence,
       turnScoreAfter: 20,
-      before: {
+      before: replayState({
         scores: { a: 200 },
         projections: [{ id: 'a', matchWinProbability: 0.5 }],
-      } as DartIQDartEvent['before'],
+      }),
     }));
     const memory = buildCommentaryNarrativeMemory({ events, finishRule: 'double_out' });
     expect(memory.players[0].tendencies).toContain('recurring low-scoring visits');

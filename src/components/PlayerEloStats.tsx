@@ -27,10 +27,6 @@ export function PlayerEloStats({ player, showHistory = true }: Props) {
   const [history, setHistory] = useState<EloRating[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadStats();
-  }, [player.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const loadStats = async () => {
     try {
       const [statsData, historyData] = await Promise.all([
@@ -46,6 +42,10 @@ export function PlayerEloStats({ player, showHistory = true }: Props) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadStats();
+  }, [player.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (

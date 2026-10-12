@@ -46,6 +46,7 @@ beforeEach(() => {
       slackTeamId: "TTEAM",
       slackUserId: "UVIEWER",
       isAdmin: false,
+      provider: "slack",
     },
     expires: "future",
   });

@@ -25,10 +25,6 @@ export function EloLeaderboard({ limit = 20, showRecentChanges = false }: Props)
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'leaderboard' | 'recent'>('leaderboard');
 
-  useEffect(() => {
-    loadData();
-  }, [limit]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const loadData = async () => {
     try {
       const [leaderboardData, recentData] = await Promise.all([
@@ -44,6 +40,10 @@ export function EloLeaderboard({ limit = 20, showRecentChanges = false }: Props)
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadData();
+  }, [limit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (
