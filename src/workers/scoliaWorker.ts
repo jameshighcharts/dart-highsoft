@@ -7,6 +7,7 @@ import { updateBullOff } from '../lib/server/bullOff.ts';
 import { loadMatch as loadBullOffMatch } from '../lib/server/matchGuards.ts';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { pathToFileURL } from 'node:url';
+import { WebSocket } from 'ws';
 
 import {
   boardStatePatchForMessage,
@@ -47,6 +48,12 @@ const COMMENTARY_RETRY_INTERVAL_MS = 15_000;
 // even if it still looks open, so darts would silently never arrive.
 const LIVENESS_PROBE_AFTER_MS = 30_000;
 const LIVENESS_TIMEOUT_MS = 20_000;
+// A handshake that never answers must fail rather than leave the board waiting forever.
+const HANDSHAKE_TIMEOUT_MS = 15_000;
+// Backstop for a connection attempt that somehow outlives its own handshake timeout.
+const CONNECT_STALL_MS = HANDSHAKE_TIMEOUT_MS + 10_000;
+// A hung database request must not stall a board's queue or the board sync indefinitely.
+const SUPABASE_REQUEST_TIMEOUT_MS = 30_000;
 // One event failing forever must not hold every later dart on the board hostage.
 const MESSAGE_MAX_ATTEMPTS = 15;
 // Recovered darts older than this are abandoned rather than scored into a later visit.
@@ -96,6 +103,7 @@ export class BoardConnection {
   private latestAcceptedThrowId: string | null = null;
   private lastMessageAt = 0;
   private livenessProbeSentAt: number | null = null;
+  private connectStartedAt = 0;
 
   constructor(
     board: StoredBoard,
@@ -120,7 +128,7 @@ export class BoardConnection {
   }
 
   start() {
-    void this.connect();
+    this.connect();
   }
 
   get boardId() { return this.board.id; }
@@ -140,17 +148,25 @@ export class BoardConnection {
     await this.writeBoard({ worker_connection_status: 'disconnected', worker_heartbeat_at: new Date().toISOString() });
   }
 
-  private async connect() {
+  private connect() {
     if (this.stopped) return;
-    await this.updateBoard({ worker_connection_status: this.reconnectAttempt ? 'reconnecting' : 'connecting' });
+    void this.updateBoard({ worker_connection_status: this.reconnectAttempt ? 'reconnecting' : 'connecting' });
 
     const url = new URL(SCOLIA_WEBSOCKET_URL);
     url.searchParams.set('serialNumber', this.board.serialNumber);
     url.searchParams.set('accessToken', this.accessToken);
-    const socket = new WebSocket(url);
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket(url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS });
+    } catch (error) {
+      console.warn(`[scolia] ${this.board.name}: could not start cloud connection`, error);
+      this.scheduleReconnect(reconnectDelayMs(1006, this.reconnectAttempt++));
+      return;
+    }
     this.socket = socket;
+    this.connectStartedAt = Date.now();
 
-    socket.addEventListener('open', () => {
+    socket.on('open', () => {
       if (this.socket !== socket || this.stopped) return;
       this.reconnectAttempt = 0;
       this.lastMessageAt = Date.now();
@@ -162,11 +178,11 @@ export class BoardConnection {
       this.enqueue(() => this.flushCommands());
     });
 
-    socket.addEventListener('message', (event) => {
-      if (this.socket !== socket || typeof event.data !== 'string') return;
+    socket.on('message', (data, isBinary) => {
+      if (this.socket !== socket || isBinary) return;
       this.lastMessageAt = Date.now();
       this.livenessProbeSentAt = null;
-      const message = parseScoliaMessage(event.data);
+      const message = parseScoliaMessage(data.toString());
       if (!message) {
         console.warn(`[scolia] ${this.board.name}: ignored invalid message`);
         return;
@@ -175,20 +191,21 @@ export class BoardConnection {
       this.enqueue(() => this.persistMessage(message, receivedAtMs));
     });
 
-    socket.addEventListener('error', () => {
-      console.warn(`[scolia] ${this.board.name}: cloud connection error`);
+    // ws always follows a failed handshake or broken socket with 'close', which owns reconnecting.
+    socket.on('error', (error) => {
+      console.warn(`[scolia] ${this.board.name}: cloud connection error: ${error.message}`);
     });
 
-    socket.addEventListener('close', (event) => {
+    socket.on('close', (code) => {
       // A socket we already abandoned (e.g. after a liveness timeout) must not start a second connection.
       if (this.socket !== socket) return;
       this.socket = null;
       if (this.stopped) return;
-      const delay = reconnectDelayMs(event.code, this.reconnectAttempt++);
-      const reason = event.code === 4101
+      const delay = reconnectDelayMs(code, this.reconnectAttempt++);
+      const reason = code === 4101
         ? ' - another connection holds this board; is a second worker running with the same Scolia token?'
         : '';
-      console.warn(`[scolia] ${this.board.name}: closed (${event.code}); retrying in ${delay}ms${reason}`);
+      console.warn(`[scolia] ${this.board.name}: closed (${code}); retrying in ${delay}ms${reason}`);
       void this.updateBoard({ worker_connection_status: 'reconnecting' });
       this.scheduleReconnect(delay);
     });
@@ -198,22 +215,43 @@ export class BoardConnection {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.connect();
+      this.connect();
     }, delay);
   }
 
-  /** Detect a half-open socket: it never closes, so darts would stop with no error at all. */
+  /** Drop a socket that stopped making progress and start over. */
+  private abandon(socket: WebSocket, reason: string) {
+    console.warn(`[scolia] ${this.board.name}: ${reason}; reconnecting`);
+    this.socket = null;
+    this.livenessProbeSentAt = null;
+    // terminate, not close: a close handshake Scolia never answers would keep the old socket
+    // replying to Scolia's pings, and Scolia would refuse every new connection with 4101.
+    socket.terminate();
+    void this.updateBoard({ worker_connection_status: 'reconnecting' });
+    this.scheduleReconnect(reconnectDelayMs(1006, this.reconnectAttempt++));
+  }
+
+  /**
+   * Make sure the board is always either connected or on its way there. A half-open socket
+   * never closes, so darts would silently stop; a lost reconnect would leave the board idle.
+   */
   private checkLiveness(now = Date.now()) {
+    if (this.stopped) return;
     const socket = this.socket;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!socket) {
+      if (this.reconnectTimer) return;
+      console.warn(`[scolia] ${this.board.name}: no connection and no reconnect pending; reconnecting`);
+      this.connect();
+      return;
+    }
+    if (socket.readyState === WebSocket.CONNECTING) {
+      if (now - this.connectStartedAt >= CONNECT_STALL_MS) this.abandon(socket, 'connection attempt stalled');
+      return;
+    }
+    if (socket.readyState !== WebSocket.OPEN) return;
     if (this.livenessProbeSentAt !== null) {
       if (now - this.livenessProbeSentAt < LIVENESS_TIMEOUT_MS) return;
-      console.warn(`[scolia] ${this.board.name}: no reply to status probe; reconnecting`);
-      this.socket = null;
-      this.livenessProbeSentAt = null;
-      socket.close(4000, 'Liveness timeout');
-      void this.updateBoard({ worker_connection_status: 'reconnecting' });
-      this.scheduleReconnect(0);
+      this.abandon(socket, 'no reply to status probe');
       return;
     }
     if (now - this.lastMessageAt < LIVENESS_PROBE_AFTER_MS) return;
@@ -546,12 +584,20 @@ export function recoveryAbandonReason(receivedAt: string | null, targetCreatedAt
   return null;
 }
 
+function fetchWithTimeout(input: Parameters<typeof fetch>[0], init?: RequestInit) {
+  const timeout = AbortSignal.timeout(SUPABASE_REQUEST_TIMEOUT_MS);
+  return fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout });
+}
+
 async function startScoliaWorker() {
   const accessToken = requiredEnvironment('SCOLIA_ACCESS_TOKEN');
   const supabaseUrl = requiredEnvironment('NEXT_PUBLIC_SUPABASE_URL');
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || process.env.SUPABASE_SECRET_KEY?.trim();
   if (!serviceRoleKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY is required');
-  const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+    global: { fetch: fetchWithTimeout },
+  });
   const commentaryPublisher = new ScoliaRealtimeCommentaryPublisher(
     supabase,
     process.env.OPENAI_API_KEY?.trim() || null,
@@ -671,7 +717,8 @@ async function startScoliaWorker() {
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
-  await syncBoards();
+  // Scolia being unreachable at boot must not crash the worker; the interval keeps retrying.
+  await syncBoards().catch((error) => console.error('[scolia] initial board sync failed; retrying', error));
   syncInterval = setInterval(() => {
     void syncBoards().catch((error) => console.error('[scolia] board sync failed', error));
   }, BOARD_SYNC_INTERVAL_MS);
