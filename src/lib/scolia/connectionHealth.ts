@@ -1,4 +1,4 @@
-import { hasFreshScoliaHeartbeat } from './availability';
+import { hasFreshScoliaHeartbeat, isScoliaTakeoutStuck } from './availability';
 
 /** A viewer's own Realtime channel state: undefined until the first status arrives. */
 export function isChannelLive(status: string | undefined) {
@@ -9,7 +9,7 @@ export type ScoliaConnectionTone = 'ready' | 'degraded' | 'down';
 
 export type ScoliaConnectionHealth = {
   tone: ScoliaConnectionTone;
-  /** Short headline, e.g. "Board ready" or "Scolia worker offline". */
+  /** Short headline, e.g. "Ready for darts" or "Scolia worker offline". */
   label: string;
   /** Secondary detail, e.g. the board phase or what to expect. */
   detail: string | null;
@@ -23,6 +23,7 @@ type BoardState = {
   workerHeartbeatAt?: string | null;
   boardStatus?: string | null;
   boardPhase?: string | null;
+  boardPhaseChangedAt?: string | null;
   errorType?: string | null;
 };
 
@@ -68,12 +69,18 @@ export function describeScoliaConnection(
     }
     return { tone: 'degraded', label: `Board ${boardStatus.toLowerCase()}`, detail: 'Not detecting darts yet', since: null };
   }
-  return {
-    tone: 'ready',
-    label: 'Board ready',
-    detail: board.boardPhase === 'Takeout' ? 'Removing darts' : board.boardPhase === 'Throw' ? 'Detecting darts' : null,
-    since: null,
-  };
+  // The phase is the headline: only the Throw phase scores darts, and compact badges hide the detail.
+  if (board.boardPhase === 'Takeout') {
+    const phase = { boardPhase: 'Takeout', boardPhaseChangedAt: board.boardPhaseChangedAt ?? null };
+    // Without a timestamp a takeout cannot be proven stuck; never cry wolf on a normal one.
+    return phase.boardPhaseChangedAt && isScoliaTakeoutStuck(phase, now)
+      ? { tone: 'down', label: 'Stuck in takeout', detail: 'Darts won’t register — clear the board or reset its phase', since: phase.boardPhaseChangedAt }
+      : { tone: 'degraded', label: 'Removing darts', detail: 'Wait for the board before throwing', since: phase.boardPhaseChangedAt };
+  }
+  if (board.boardPhase === 'Throw') {
+    return { tone: 'ready', label: 'Ready for darts', detail: 'Detecting throws', since: null };
+  }
+  return { tone: 'ready', label: 'Board ready', detail: null, since: null };
 }
 
 /** "45s", "3m", "1h 5m" */

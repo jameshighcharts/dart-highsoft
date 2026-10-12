@@ -9,9 +9,16 @@ const ready = {
 };
 
 describe('describeScoliaConnection', () => {
-  it('reports a ready board and its phase', () => {
-    expect(describeScoliaConnection(ready, { now })).toMatchObject({ tone: 'ready', label: 'Board ready', detail: 'Detecting darts' });
-    expect(describeScoliaConnection({ ...ready, boardPhase: 'Takeout' }, { now }).detail).toBe('Removing darts');
+  it('headlines the phase: only the Throw phase is ready for darts', () => {
+    expect(describeScoliaConnection(ready, { now })).toMatchObject({ tone: 'ready', label: 'Ready for darts' });
+    expect(describeScoliaConnection({ ...ready, boardPhase: 'Takeout', boardPhaseChangedAt: ago(3) }, { now }))
+      .toMatchObject({ tone: 'degraded', label: 'Removing darts', since: ago(3) });
+    expect(describeScoliaConnection({ ...ready, boardPhase: null }, { now })).toMatchObject({ tone: 'ready', label: 'Board ready' });
+  });
+
+  it('flags a takeout that never finishes, since the board is blind to darts', () => {
+    expect(describeScoliaConnection({ ...ready, boardPhase: 'Takeout', boardPhaseChangedAt: ago(15) }, { now }))
+      .toMatchObject({ tone: 'down', label: 'Stuck in takeout', since: ago(15) });
   });
 
   it('puts the viewer’s own connection first, since everything else may be stale', () => {

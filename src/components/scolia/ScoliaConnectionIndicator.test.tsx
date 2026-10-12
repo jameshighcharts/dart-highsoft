@@ -43,14 +43,14 @@ afterEach(() => {
 describe('ScoliaBoardConnection', () => {
   it('subscribes to its one board and shows it ready', async () => {
     render(<ScoliaBoardConnection boardId="b1" />);
-    expect(await screen.findByText('Board ready')).toBeTruthy();
+    expect(await screen.findByText('Ready for darts')).toBeTruthy();
     expect(hookBoardId).toBe('b1');
   });
 
   it('turns into a worker outage once heartbeats stop, without any new event', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<ScoliaBoardConnection boardId="b1" />);
-    await screen.findByText('Board ready');
+    await screen.findByText('Ready for darts');
     await act(async () => { vi.advanceTimersByTime(60_000); });
     expect(screen.getByText(/Scolia worker offline/)).toBeTruthy();
   });
@@ -58,16 +58,16 @@ describe('ScoliaBoardConnection', () => {
   it('shows when this viewer’s own live updates are paused, and refetches on resubscribe', async () => {
     const onStatusChange = vi.fn();
     render(<ScoliaBoardConnection boardId="b1" onStatusChange={onStatusChange} />);
-    await screen.findByText('Board ready');
+    await screen.findByText('Ready for darts');
     act(() => handlers!.onChannelStatus?.('CHANNEL_ERROR'));
     expect(screen.getByText('Live updates paused')).toBeTruthy();
 
-    row.mockImplementation(() => ({ ...fresh(), board_phase: 'Takeout' }));
+    row.mockImplementation(() => ({ ...fresh(), board_phase: 'Takeout', board_phase_changed_at: new Date().toISOString() }));
     act(() => {
       handlers!.onChannelStatus?.('SUBSCRIBED');
       handlers!.onReconcile();
     });
-    await waitFor(() => expect(screen.getByText('Board ready')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Removing darts/)).toBeTruthy());
     await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(expect.objectContaining({ boardPhase: 'Takeout' })));
   });
 });
