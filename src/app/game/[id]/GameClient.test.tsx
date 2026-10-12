@@ -3,6 +3,7 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { GamePlayerData, GameSessionData, GameThrowData } from '@/hooks/useGameData';
 import GameClient from './GameClient';
+import { TestQueryProvider } from '@/test-utils/renderWithProviders';
 
 const mocks = vi.hoisted(() => ({
   query: '', data: {} as { session: GameSessionData; players: GamePlayerData[]; throws: GameThrowData[]; orderedPlayerIds: string[] },
@@ -32,7 +33,7 @@ afterEach(cleanup);
 
 it('records canonical darts from the keypad and permits undo', async () => {
   mocks.data.throws = [dart('S20',1)];
-  const user = userEvent.setup(); render(<GameClient gameId="game" />);
+  const user = userEvent.setup(); render(<TestQueryProvider><GameClient gameId="game" /></TestQueryProvider>);
   await user.click(screen.getByRole('button',{name:'Double'}));
   await user.click(screen.getByRole('button',{name:'20'}));
   expect(mocks.throwDart).toHaveBeenCalledWith('D20',40);
@@ -42,7 +43,7 @@ it('records canonical darts from the keypad and permits undo', async () => {
 
 it('keeps the completed three-dart visit visible after the next player takes over', () => {
   mocks.data.throws = [dart('S20',1),dart('S19',2),dart('S18',3)];
-  render(<GameClient gameId="game" />);
+  render(<TestQueryProvider><GameClient gameId="game" /></TestQueryProvider>);
   expect(within(screen.getByRole('region',{name:'Current turn'})).getByRole('heading',{name:'Jamie'})).toBeInTheDocument();
   const previous = screen.getByLabelText('Last completed turn');
   expect(within(previous).getByText('S18')).toBeInTheDocument();
@@ -51,7 +52,7 @@ it('keeps the completed three-dart visit visible after the next player takes ove
 });
 
 it('spectators can exit but cannot score, undo, end, or rematch', () => {
-  mocks.query = 'spectator=true'; render(<GameClient gameId="game" />);
+  mocks.query = 'spectator=true'; render(<TestQueryProvider><GameClient gameId="game" /></TestQueryProvider>);
   expect(screen.getByRole('link',{name:'Exit spectator view'})).toHaveAttribute('href','/game/game');
   expect(screen.queryByRole('group',{name:'Dart scoring'})).not.toBeInTheDocument();
   expect(screen.queryByRole('button',{name:'Undo'})).not.toBeInTheDocument();
@@ -61,9 +62,9 @@ it('spectators can exit but cannot score, undo, end, or rematch', () => {
 });
 
 it('disables keyboard scoring while saving and hides manual input for Scolia', () => {
-  mocks.busy = true; const {unmount} = render(<GameClient gameId="game" />);
+  mocks.busy = true; const {unmount} = render(<TestQueryProvider><GameClient gameId="game" /></TestQueryProvider>);
   expect(screen.getByRole('button',{name:'20'})).toBeDisabled();
-  unmount(); mocks.data.session.scolia_board_id='board'; render(<GameClient gameId="game" />);
+  unmount(); mocks.data.session.scolia_board_id='board'; render(<TestQueryProvider><GameClient gameId="game" /></TestQueryProvider>);
   expect(screen.queryByRole('group',{name:'Dart scoring'})).not.toBeInTheDocument();
   expect(screen.getByText('Automatic scoring from the Scolia board')).toBeInTheDocument();
 });
@@ -73,7 +74,7 @@ describe.each(['cricket','killer','shanghai','around_the_clock'] as const)('%s',
     mocks.data.session.mode=mode;
     mocks.data.session.config=mode==='killer'?{assignedNumbers:{p1:12,p2:9}}:{};
     mocks.data.session.status='ended_early';
-    render(<GameClient gameId="game" />);
+    render(<TestQueryProvider><GameClient gameId="game" /></TestQueryProvider>);
     expect(screen.getByText('No winner')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Compass TV' })).toBeInTheDocument();
     expect(screen.queryByRole('region',{name:'Current turn'})).not.toBeInTheDocument();
@@ -84,7 +85,7 @@ describe.each(['cricket','killer','shanghai','around_the_clock'] as const)('%s',
 it('shows a rematch after Shanghai while keeping finished scores read-only', () => {
   mocks.query='spectator=true';mocks.data.session.mode='shanghai';mocks.data.session.config={rounds:7,startNumber:1};
   mocks.data.throws=[dart('S1',1),dart('D1',2),dart('T1',3)];
-  render(<GameClient gameId="game" />);
+  render(<TestQueryProvider><GameClient gameId="game" /></TestQueryProvider>);
   expect(screen.getByText('Winner')).toBeInTheDocument();
   expect(screen.queryByRole('region',{name:'Current turn'})).not.toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Rematch'})).toBeInTheDocument();

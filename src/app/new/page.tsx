@@ -14,6 +14,7 @@ import {
   type NewMatchPlayer,
 } from "@/lib/queries/newMatch";
 import { meQuery } from "@/lib/queries/me";
+import { refreshAfterChange } from "@/lib/queries/refreshAfterChange";
 import { LoadingReveal } from "@/components/LoadingReveal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { playerListQuery } from "@/lib/queries/players";
@@ -228,8 +229,8 @@ export default function NewMatchPage() {
   const boardsKey = availableBoardsQuery().queryKey;
   const updateBoards = (update: (current: ScoliaBoardOption[]) => ScoliaBoardOption[]) =>
     queryClient.setQueryData<AvailableBoards>(boardsKey, (current) => current && { ...current, boards: update(current.boards) });
-  // Joins a refresh already in flight instead of starting another.
-  const refreshBoards = () => void queryClient.refetchQueries({ queryKey: boardsKey }, { cancelRefetch: false });
+  // An occupancy change during a fetch that already read the boards still gets a fresh read.
+  const refreshBoards = () => refreshAfterChange(queryClient, boardsKey);
   const [manualPrompt, setManualPrompt] = useState<ManualScoringPrompt | null>(null);
   const [tournamentManualConfirmation, setTournamentManualConfirmation] = useState<'closed' | 'warning' | 'acknowledged'>('closed');
   const boardPicker = useRef<HTMLDivElement>(null);

@@ -16,8 +16,12 @@ vi.mock('@/components/GridPro', () => ({
 vi.mock('@highcharts/grid-pro/es-modules/Grid/Pro/CellRendering/Renderers/SparklineRenderer', () => ({
   default: { useHighcharts: vi.fn() },
 }));
-vi.mock('@tanstack/react-query', () => ({ useQuery: () => ({ data: trends.current }), keepPreviousData: undefined }));
-vi.mock('@/hooks/useLeaderboardData', () => ({
+vi.mock('@tanstack/react-query', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-query')>()),
+  useQuery: () => ({ data: trends.current }),
+}));
+vi.mock('@/hooks/useLeaderboardData', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useLeaderboardData')>()),
   useLeaderboardData: () => ({
     leaders: [0, 1, 2, 3, 4].map((count) => ({
       player_id: `player-${count}`, display_name: `Player ${count}`, wins: 0, avg_per_turn: 30,

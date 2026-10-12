@@ -12,7 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createAppQueryClient } from '@/components/QueryProvider';
 import type { FixtureResult, Snapshot } from '@/lib/highdarts/standings';
-import { highdartsQuery } from '@/lib/queries/highdarts';
+import { highdartsBoardsQuery, highdartsQuery } from '@/lib/queries/highdarts';
 import { meQuery } from '@/lib/queries/me';
 import { fixture, finish, groupsWithAbsentLeaders } from '@/test-utils/highdartsFixtures';
 import { HighdartsDashboard } from './Dashboard';
@@ -22,7 +22,12 @@ const snapshot = { fixtures: [], players: [] };
 function renderDashboard(cached?: Snapshot, { fresh = false } = {}) {
   const client = createAppQueryClient();
   client.setDefaultOptions({ queries: { ...client.getDefaultOptions().queries, retry: false } });
-  if (cached) client.setQueryData(highdartsQuery().queryKey, cached, { updatedAt: fresh ? Date.now() : 0 });
+  if (cached) {
+    // As the query function stores it: live occupancy split off from the tournament snapshot.
+    const { boards, ...tournament } = cached;
+    client.setQueryData(highdartsQuery().queryKey, tournament, { updatedAt: fresh ? Date.now() : 0 });
+    if (boards) client.setQueryData(highdartsBoardsQuery().queryKey, boards);
+  }
   return render(<QueryClientProvider client={client}><HighdartsDashboard /></QueryClientProvider>);
 }
 afterEach(() => {

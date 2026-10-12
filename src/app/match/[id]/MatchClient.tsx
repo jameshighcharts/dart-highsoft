@@ -41,6 +41,7 @@ import {
   canReorderPlayers as canReorderPlayersSelector,
 } from '@/lib/match/selectors';
 import { computeFairEndingState, type FairEndingState } from '@/utils/fairEnding';
+import { invalidateAfterGame } from '@/lib/queries/invalidateAfterGame';
 
 type SpectatorViewComponent = ComponentType<ComponentProps<typeof import('@/components/match/MatchSpectatorView')['MatchSpectatorView']>>;
 
@@ -374,8 +375,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
     }
     if (lastInvalidatedWinnerRef.current === matchWinnerId) return;
     lastInvalidatedWinnerRef.current = matchWinnerId;
-    queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
-    queryClient.invalidateQueries({ queryKey: ['eloHistory'] });
+    invalidateAfterGame(queryClient);
   }, [matchWinnerId, queryClient]);
 
   // Fetch ELO rating changes for the completed match

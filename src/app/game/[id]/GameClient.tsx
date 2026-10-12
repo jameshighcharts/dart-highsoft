@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AlertCircle, Radio } from 'lucide-react';
@@ -21,6 +22,7 @@ import { GameResults } from '@/components/games/GameResults';
 import { KillerBoard } from '@/components/games/KillerBoard';
 import { ShanghaiBoard } from '@/components/games/ShanghaiBoard';
 import { useGameActions } from '@/hooks/useGameActions';
+import { invalidateAfterGame } from '@/lib/queries/invalidateAfterGame';
 import { rowToThrowInput, useGameData } from '@/hooks/useGameData';
 import type { GamePlayerData } from '@/hooks/useGameData';
 import { playHitSound } from '@/utils/sound';
@@ -89,6 +91,13 @@ function GameClientInner({ gameId }: GameClientProps) {
   const state = view?.state ?? null;
 
   const { throwDart, skipPlayer, undo, endEarly, rematch, busy, message } = useGameActions({ gameId, state, setThrows, refetch });
+
+  // A finished game changes leaderboards and the games list: refresh their caches for the next visit.
+  const queryClient = useQueryClient();
+  const finishedWinnerId = session?.winner_player_id ?? state?.winnerId ?? null;
+  useEffect(() => {
+    if (finishedWinnerId) invalidateAfterGame(queryClient);
+  }, [finishedWinnerId, queryClient]);
 
   const lastHitSoundKeyRef = useRef<string | null>(null);
   useEffect(() => {

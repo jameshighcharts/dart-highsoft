@@ -35,6 +35,7 @@ it('updates only when the options change', async () => {
   rerender(<GridPro options={optionsA} />);
   expect(instance.update).not.toHaveBeenCalled();
   rerender(<GridPro options={optionsB} />);
+  await settle();
   expect(instance.update).toHaveBeenCalledWith(optionsB, true);
 });
 
@@ -59,5 +60,25 @@ it('never builds a grid after unmounting, and destroys one that finishes buildin
   await settle();
   late.unmount();
   await act(async () => { finish(instance); });
+  expect(instance.destroy).toHaveBeenCalledTimes(1);
+});
+
+it('shows the placeholder until the grid is built', async () => {
+  const view = render(<GridPro options={optionsA} placeholder={<p>Reserved</p>} />);
+  expect(view.getByText('Reserved')).toBeInTheDocument();
+  await settle();
+  expect(view.queryByText('Reserved')).not.toBeInTheDocument();
+});
+
+it('waits for a running update before destroying the grid', async () => {
+  let finishUpdate: () => void = () => {};
+  instance.update.mockImplementationOnce(() => new Promise<void>((resolve) => { finishUpdate = resolve; }));
+  const view = render(<GridPro options={optionsA} />);
+  await settle();
+  view.rerender(<GridPro options={optionsB} />);
+  view.unmount();
+  await settle();
+  expect(instance.destroy).not.toHaveBeenCalled();
+  await act(async () => { finishUpdate(); });
   expect(instance.destroy).toHaveBeenCalledTimes(1);
 });

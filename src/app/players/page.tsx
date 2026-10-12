@@ -41,6 +41,8 @@ export default function PlayersPage() {
 
   async function updatePlayerLocation(playerId: string, nextLocation: LocationValue) {
     const previousLocation = players.find((player) => player.id === playerId)?.location ?? null;
+    // A background refresh that read the list before this edit must not land on top of it.
+    await queryClient.cancelQueries({ queryKey: playerListQuery().queryKey });
     setPlayers((current) => current.map((player) => (player.id === playerId ? { ...player, location: nextLocation } : player)));
     setSavingPlayerId(playerId);
     try {
@@ -54,6 +56,8 @@ export default function PlayersPage() {
       alert(message);
     } finally {
       setSavingPlayerId(null);
+      // Rosters elsewhere (New match) show locations too.
+      void queryClient.invalidateQueries({ queryKey: ['players'] });
     }
   }
 

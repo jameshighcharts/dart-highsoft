@@ -144,6 +144,12 @@ it('blocks busy offices but allows manual setup when the board is offline', () =
   expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming, { ...elsewhere, player_a_id: 'a' }] })?.href).toBe('/match/live');
 });
 
+it('never offers a start while board occupancy is still being fetched', () => {
+  const upcoming = fixture('bergen', 'a', 'b');
+  expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming], boardsPending: true })).toEqual({ reason: 'Checking the board…', href: '/boards' });
+  expect(fixtureAvailability(upcoming, { players: [], fixtures: [upcoming], boards: [], boardsPending: false })).toBeNull();
+});
+
 it('excludes only the chosen player side from wins, losses, legs and dart-weighted average', () => {
   const fixtures = Array.from({ length: 6 }, (_, i) => finish(fixture('vik', 'g', `opponent-${i}`, i + 1), 'g', 60, 30));
   fixtures[5] = { ...finish(fixture('vik', 'last', 'g', 6), 'last', 90, 180), counts_for_b: false };

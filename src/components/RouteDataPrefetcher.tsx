@@ -3,7 +3,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
-import { routeQueries } from '@/lib/queries/routeQueries';
+import { routePrefetch } from '@/lib/queries/routePrefetch';
 
 /**
  * Starts loading a page's data as soon as a link to it is hovered, focused or touched, so the data
@@ -20,15 +20,15 @@ export function RouteDataPrefetcher() {
     const prefetch = (event: Event) => {
       const link = (event.target as Element | null)?.closest?.('a[href]');
       if (!(link instanceof HTMLAnchorElement) || link.origin !== window.location.origin) return;
-      const load = routeQueries(link.pathname);
-      if (!load) return;
+      // The page already on screen keeps its own data fresh.
+      if (link.pathname === window.location.pathname) return;
+      const prefetchRoute = routePrefetch(link.pathname);
+      if (!prefetchRoute) return;
       const now = Date.now();
       if (now - (lastPrefetchAt.get(link.pathname) ?? 0) < PREFETCH_COOLDOWN_MS) return;
       lastPrefetchAt.set(link.pathname, now);
       // prefetchQuery also skips data that is still fresh.
-      void load()
-        .then((queries) => Promise.all(queries.map((query) => queryClient.prefetchQuery(query))))
-        .catch(() => {});
+      void prefetchRoute(queryClient).catch(() => {});
     };
     document.addEventListener('pointerover', prefetch, { passive: true });
     document.addEventListener('focusin', prefetch);

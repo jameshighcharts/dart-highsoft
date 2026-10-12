@@ -307,19 +307,26 @@ function buildWeeklyEloClimberFromTotals(
 }
 
 // Each loader reads the database-side aggregate, and falls back to the raw rows it replaced while
-// the migration that adds the aggregate is not deployed yet. Other errors yield empty data, as before.
+// the migration that adds the aggregate is not deployed yet. Any other error fails the query, so a
+// refresh that hits a timeout keeps the last good data instead of caching (and persisting) zeros.
+
+function throwIfError<T extends { error: unknown }>(result: T): T {
+  if (result.error) throw result.error;
+  return result;
+}
 
 async function fetchPlayerGameStats(supabase: SupabaseClient): Promise<Map<string, PlayerGameStats>> {
   const records = await supabase
     .from('player_match_records')
     .select('player_id, games_played, wins');
   if (!isMissingDatabaseObject(records.error)) {
+    throwIfError(records);
     return buildGameStatsFromRecords((records.data as unknown as PlayerMatchRecordRow[] | null) ?? []);
   }
-  const { data } = await supabase
+  const { data } = throwIfError(await supabase
     .from('match_players')
     .select('player_id, matches!inner(ended_early, winner_player_id)')
-    .eq('matches.ended_early', false);
+    .eq('matches.ended_early', false));
   return buildGameStatsByPlayer((data as unknown as MatchParticipationRow[]) ?? []);
 }
 
@@ -330,15 +337,16 @@ async function fetchMatchActivity(supabase: SupabaseClient, now: Date): Promise<
     p_ends: windows.map((window) => window.end.toISOString()),
   });
   if (!isMissingDatabaseObject(counts.error)) {
+    throwIfError(counts);
     const data = counts.data as number[] | null;
     return data?.length === windows.length ? matchActivityFromWindowCounts(data) : buildMatchActivity([], now);
   }
   const sixtyDaysAgo = addDays(startOfLocalDay(now), -59);
-  const { data } = await supabase
+  const { data } = throwIfError(await supabase
     .from('matches')
     .select('created_at')
     .eq('ended_early', false)
-    .gte('created_at', sixtyDaysAgo.toISOString());
+    .gte('created_at', sixtyDaysAgo.toISOString()));
   return buildMatchActivity((data as unknown as MatchCreatedRow[]) ?? [], now);
 }
 
@@ -349,13 +357,14 @@ async function fetchWeeklyEloClimber(
 ): Promise<(playerNames: Map<string, string>) => WeeklyEloClimber | null> {
   const climbs = await supabase.rpc('get_multi_elo_climbs', { p_since: since.toISOString() });
   if (!isMissingDatabaseObject(climbs.error)) {
+    throwIfError(climbs);
     const rows = (climbs.data as MultiEloClimbRow[] | null) ?? [];
     return (playerNames) => buildWeeklyEloClimberFromTotals(rows, playerNames);
   }
-  const { data } = await supabase
+  const { data } = throwIfError(await supabase
     .from('elo_ratings_multi')
     .select('created_at, player_id, rating_before, rating_after, rating_change')
-    .gte('created_at', since.toISOString());
+    .gte('created_at', since.toISOString()));
   const rows = (data as unknown as WeeklyEloChangeRow[]) ?? [];
   return (playerNames) => buildWeeklyEloClimber(rows, playerNames);
 }
@@ -375,7 +384,8 @@ async function fetchLeaderboardLists(
     supabase
       .from('player_summary')
       .select('*')
-      .order('wins', { ascending: false }),
+      .order('wins', { ascending: false })
+      .then(throwIfError),
     getEloLeaderboard(limit),
     getMultiEloLeaderboard(limit),
   ]);
@@ -419,6 +429,23 @@ type LeaderboardData = LeaderboardLists & {
   weeklyEloClimber: WeeklyEloClimber | null;
 };
 
+/** Players need this many decided matches to appear on the home leaderboard. */
+export const LEADERBOARD_MIN_GAMES = 3;
+
+/**
+ * The players the home leaderboard shows (anyone ranked in a list with enough decided matches),
+ * sorted: the key of their Elo trend query, shared by the grid and the home prefetch.
+ */
+export function qualifyingPlayerIds(
+  data: Pick<LeaderboardData, 'leaders' | 'eloLeaders' | 'eloMultiLeaders' | 'playerGameStats'>,
+): string[] {
+  const ids = new Set<string>();
+  for (const { player_id: id } of [...data.leaders, ...data.eloLeaders, ...data.eloMultiLeaders]) {
+    if ((data.playerGameStats.get(id)?.games_played ?? 0) >= LEADERBOARD_MIN_GAMES) ids.add(id);
+  }
+  return [...ids].sort();
+}
+
 async function fetchLeaderboardData(limit?: number): Promise<LeaderboardData> {
   const supabase = await getSupabaseClient();
   const now = new Date();
@@ -441,10 +468,12 @@ async function fetchLeaderboardData(limit?: number): Promise<LeaderboardData> {
     fetchLeaderboardLists(supabase, limit),
     supabase
       .from('players')
-      .select('id, location, avatar_url, created_at, is_active'),
+      .select('id, location, avatar_url, created_at, is_active')
+      .then(throwIfError),
     supabase
       .from('player_recent_form')
-      .select('player_id, last_10_results'),
+      .select('player_id, last_10_results')
+      .then(throwIfError),
     fetchPlayerGameStats(supabase),
     fetchMatchActivity(supabase, now),
     fetchWeeklyEloClimber(supabase, sevenDaysAgo),

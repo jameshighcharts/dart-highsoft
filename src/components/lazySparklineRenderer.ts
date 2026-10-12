@@ -16,6 +16,16 @@ const DEFAULT_CHART_HEIGHT = 40;
 /** Every lazy sparkline on the page shares one queue, so they draw a few per frame in total. */
 const chartQueue = createFrameQueue();
 
+let highchartsLoaded: Promise<void> | undefined;
+
+/** Highcharts only draws the sparklines, so it loads after the grid instead of before it. */
+function loadHighcharts(): Promise<void> {
+  highchartsLoaded ??= import('highcharts').then(({ default: Highcharts }) => {
+    if (!SparklineContent.H) SparklineContent.H = Highcharts as unknown as typeof SparklineContent.H;
+  });
+  return highchartsLoaded;
+}
+
 export interface LazySparklineRendererOptions extends CellRendererOptions {
   type: 'lazySparkline';
   chartOptions?: SparklineRendererOptions['chartOptions'];
@@ -48,12 +58,25 @@ class LazySparklineContent extends CellContentPro {
     cell.htmlElement.classList.add(Globals.getClassName('noPadding'));
     cell.htmlElement.appendChild(slot);
     this.slot = slot;
-    this.cancelDraw = chartQueue.add(() => {
+    const draw = () => {
       this.cancelDraw = undefined;
       // A detached cell has no width to size a chart by; it is redrawn when it is updated.
       if (!slot.isConnected) return;
       this.chart = new SparklineContent(cell, this.renderer as unknown as SparklineRenderer, slot);
+    };
+    if (SparklineContent.H) {
+      this.cancelDraw = chartQueue.add(draw);
+      return;
+    }
+    let cancelled = false;
+    let cancelQueued: (() => void) | undefined;
+    void loadHighcharts().then(() => {
+      if (!cancelled) cancelQueued = chartQueue.add(draw);
     });
+    this.cancelDraw = () => {
+      cancelled = true;
+      cancelQueued?.();
+    };
   }
 
   update(): void {

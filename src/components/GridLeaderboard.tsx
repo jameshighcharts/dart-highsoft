@@ -3,19 +3,17 @@
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import Highcharts from 'highcharts';
+import type Highcharts from 'highcharts';
 import type { GridOptions } from '@highcharts/grid-pro-react';
-import SparklineRenderer from '@highcharts/grid-pro/es-modules/Grid/Pro/CellRendering/Renderers/SparklineRenderer';
 import { GridPro } from '@/components/GridPro';
-import { LeaderboardGridSkeleton } from '@/components/LeaderboardGridSkeleton';
+import { LeaderboardGridSkeleton, LeaderboardTableSkeleton } from '@/components/LeaderboardGridSkeleton';
 import '@/components/lazySparklineRenderer';
-import { useLeaderboardData } from '@/hooks/useLeaderboardData';
-import { batchEloHistory, batchMultiEloHistory } from '@/utils/eloHistory';
+import { LEADERBOARD_MIN_GAMES, qualifyingPlayerIds, useLeaderboardData } from '@/hooks/useLeaderboardData';
+import { eloHistoryQuery } from '@/lib/queries/eloHistory';
 import { LOCATIONS, type LocationValue } from '@/utils/locations';
 import { renderPlayerCellHtml } from '@/lib/avatars';
 import { PlayerAvatarById } from '@/components/PlayerAvatarById';
 
-SparklineRenderer['useHighcharts'](Highcharts);
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 // Same pair as the Last 10 chips: emissive mint for a rising trend,
@@ -566,7 +564,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
       for (const mock of MOCK_ELO_PLAYERS) map.set(mock.player_id, { ...mock });
     }
 
-    return Array.from(map.values()).filter((player) => (player.games_played ?? 0) >= 3);
+    return Array.from(map.values()).filter((player) => (player.games_played ?? 0) >= LEADERBOARD_MIN_GAMES);
   }, [leaders, eloLeaders, eloMultiLeaders, playerGameStats, playerLocations, playerAvatarUrls, mockEloRows]);
 
   const filteredMerged = useMemo(() => {
@@ -606,22 +604,17 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
     return best;
   }, [merged, recentWinsByPlayer]);
 
-  // Stable player ID list for query key (avoids refetch on every render)
+  // The same sorted list the home prefetch uses, so the trend query is usually already loaded.
   const playerIds = useMemo(
-    () => merged.map((p) => p.player_id).filter((id) => !id.startsWith(MOCK_PLAYER_ID_PREFIX)).sort(),
-    [merged]
+    () => qualifyingPlayerIds({ leaders, eloLeaders, eloMultiLeaders, playerGameStats }),
+    [leaders, eloLeaders, eloMultiLeaders, playerGameStats]
   );
 
   const { data: eloHistoryData } = useQuery({
-    queryKey: ['eloHistory', playerIds],
-    queryFn: () => Promise.all([
-      batchEloHistory(playerIds),
-      batchMultiEloHistory(playerIds),
-    ]).then(([elo, multi]) => ({ elo, multi })),
+    ...eloHistoryQuery(playerIds),
     enabled: playerIds.length > 0,
     // A changed player list keeps showing the old trends instead of rebuilding the grid without them.
     placeholderData: keepPreviousData,
-    meta: { persist: true },
   });
 
   const eloHistory = eloHistoryData?.elo ?? EMPTY_HISTORY;
@@ -1662,7 +1655,7 @@ export function GridLeaderboard({ headerContent }: { headerContent?: React.React
           }
         }
       `}</style>
-      <GridPro options={options} />
+      <GridPro options={options} placeholder={<LeaderboardTableSkeleton />} />
 
       <div className="leaderboard-kpis" aria-label="Leaderboard overview">
         <div className="leaderboard-kpi">

@@ -5,13 +5,19 @@ import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persist
 import { PersistQueryClientProvider, removeOldestQuery } from '@tanstack/react-query-persist-client';
 import { useState } from 'react';
 
+import { persistOnlyChanges } from '@/lib/persistOnlyChanges';
 import { deserializeQueryCache, serializeQueryCache } from '@/lib/queryCacheSerialization';
 import { shouldRetryQuery } from '@/lib/queryRetry';
+import { shareStructurally } from '@/lib/shareStructurally';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Bump when the shape of persisted data changes without a new build id (e.g. in development). */
+const PERSIST_SCHEMA_VERSION = 1;
+
 /** Data shapes change between deploys; a new build starts from an empty cache. */
-const CACHE_BUSTER = process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ?? 'dev';
+const CACHE_BUSTER = `${PERSIST_SCHEMA_VERSION}:${process.env.NEXT_PUBLIC_BUILD_ID ?? 'dev'}`;
+
 
 /** localStorage, or nothing when it is unavailable (server render, private mode, blocked storage). */
 function browserStorage(): Storage | undefined {
@@ -26,13 +32,15 @@ export function createAppQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        // Show cached data at once and refetch it in the background on the next mount. The short
-        // window only keeps a hover prefetch from being refetched again by the click that follows.
-        staleTime: 5 * 1000,
+        // Show cached data at once and refetch it in the background on a later visit. Within this
+        // window a revisit or a hover costs nothing; live data sets its own shorter staleTime, and
+        // writes (a finished match) invalidate what they change.
+        staleTime: 30 * 1000,
         // Keep data for as long as it may be restored from storage.
         gcTime: DAY_MS,
         refetchOnWindowFocus: false,
         retry: shouldRetryQuery,
+        structuralSharing: shareStructurally,
       },
     },
   });
@@ -40,14 +48,14 @@ export function createAppQueryClient() {
 
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(createAppQueryClient);
-  const [persister] = useState(() => createSyncStoragePersister({
+  const [persister] = useState(() => persistOnlyChanges(createSyncStoragePersister({
     storage: browserStorage(),
     key: 'dart-scoreboard-query-cache',
     serialize: serializeQueryCache,
     deserialize: deserializeQueryCache,
     // A full quota drops the oldest query and tries again instead of persisting nothing.
     retry: removeOldestQuery,
-  }));
+  })));
 
   return (
     <PersistQueryClientProvider

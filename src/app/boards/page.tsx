@@ -9,6 +9,7 @@ import { LoadingReveal } from '@/components/LoadingReveal';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiRequest } from '@/lib/apiClient';
 import { scoliaBoardsQuery } from '@/lib/queries/boards';
+import { refreshAfterChange } from '@/lib/queries/refreshAfterChange';
 import { isTVModeEnabled, TV_MODE_STORAGE_KEY } from '@/lib/tvMode';
 import { useScoliaBoardRealtime, type RealtimeChannelStatus } from '@/hooks/useScoliaBoardRealtime';
 import { isChannelLive } from '@/lib/scolia/connectionHealth';
@@ -90,14 +91,7 @@ export default function BoardsPage() {
     }
   }
 
-  // Re-read the boards in the background after a change. A fetch already in flight may have read
-  // them before the change, so let it land and read once more; overlapping changes share that read.
-  const refreshBoards = () => {
-    const queryKey = scoliaBoardsQuery().queryKey;
-    const refetch = () => queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false });
-    if (queryClient.isFetching({ queryKey }) > 0) void refetch().then(refetch);
-    else void refetch();
-  };
+  const refreshBoards = () => refreshAfterChange(queryClient, scoliaBoardsQuery().queryKey);
 
   const [boardChannel, setBoardChannel] = useState<RealtimeChannelStatus | undefined>(undefined);
   useScoliaBoardRealtime({

@@ -1,6 +1,7 @@
 "use client";
 
 import { useQueries } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { statsPlayerQuery, useLegacyStatsGlobal, type PlayerDetailData } from '@/hooks/useStatsData';
 import type { TurnRow, ThrowRow, LegRow, MatchRow } from '@/lib/stats/types';
 
@@ -24,23 +25,35 @@ const EMPTY_MATCHES: MatchRow[] = [];
  * so cache is shared — switching between Compare and Performance views for a
  * player already loaded is free.
  */
+type QueryState = { data: PlayerDetailData | undefined; isLoading: boolean; isError: boolean };
+
+/** useQueries keeps this combined result stable while no query changes (the function is stable too). */
+const combineQueries = (results: QueryState[]): QueryState[] =>
+  results.map(({ data, isLoading, isError }) => ({ data, isLoading, isError }));
+
+const EMPTY_TURNS: TurnRow[] = [];
+const EMPTY_THROWS: ThrowRow[] = [];
+
 export function useMultiPlayerStats(playerIds: string[]): PerPlayerStatsQuery[] {
   const queries = useQueries({
     queries: playerIds.map((id) => statsPlayerQuery(id)),
+    combine: combineQueries,
   });
-  const details = queries.map((q) => q.data as PlayerDetailData | undefined);
-  const legacy = useLegacyStatsGlobal(details.some((data) => data?.scoped === null));
+  const legacy = useLegacyStatsGlobal(queries.some((q) => q.data?.scoped === null));
+  const playerKey = playerIds.join(',');
 
-  return queries.map((q, i): PerPlayerStatsQuery => {
-    const data = details[i];
+  // Memoised so the Compare view's per-player computations (which scan every turn and dart) only
+  // re-run when a player's data actually changes, not on every render.
+  return useMemo(() => queries.map((q, i): PerPlayerStatsQuery => {
+    const data = q.data;
     const usesLegacy = data?.scoped === null;
     return {
-      playerId: playerIds[i],
+      playerId: playerKey.split(',')[i],
       status: q.isLoading || (usesLegacy && legacy.isLoading) ? 'loading' : q.isError || (usesLegacy && legacy.isError) ? 'error' : 'success',
-      turns: data?.turns ?? [],
-      throws: data?.throws ?? [],
+      turns: data?.turns ?? EMPTY_TURNS,
+      throws: data?.throws ?? EMPTY_THROWS,
       legs: data?.scoped?.legs ?? (usesLegacy ? legacy.data?.legs : undefined) ?? EMPTY_LEGS,
       matches: data?.scoped?.matches ?? (usesLegacy ? legacy.data?.matches : undefined) ?? EMPTY_MATCHES,
     };
-  });
+  }), [queries, playerKey, legacy.data, legacy.isLoading, legacy.isError]);
 }

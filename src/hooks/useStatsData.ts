@@ -34,12 +34,15 @@ export const statsPlayerQuery = (playerId: string) => queryOptions({
   queryFn: () => fetchPlayerDetailData(playerId),
   enabled: !!playerId,
   staleTime: 5 * 60_000,
+  // Thousands of decoded turns and darts per player: don't keep players nobody is viewing for a day.
+  gcTime: 10 * 60_000,
 });
 
 /** The full history, only fetched while the stats functions are not deployed yet. Never persisted. */
 const legacyStatsGlobalQuery = () => queryOptions({
   queryKey: ['stats', 'legacy-global'],
   queryFn: fetchLegacyStatsGlobal,
+  gcTime: 10 * 60_000,
 });
 
 /** The full history while the database has no stats functions yet; nothing otherwise. */
@@ -134,7 +137,8 @@ export function useStatsData() {
     selectedPlayer,
     setSelectedPlayer: handleSelectPlayer,
     loading: globalQuery.isLoading || (needsLegacy && legacyQuery.isLoading),
-    playerLoading: (playerQuery.isFetching || (needsLegacy && legacyQuery.isFetching)) && !!selectedPlayer,
+    // Only while there is nothing to show: a background refresh of cached data does not block the page.
+    playerLoading: (playerQuery.isPending || (needsLegacy && legacyQuery.isPending)) && !!selectedPlayer,
     activeView,
     setActiveView,
     warningDismissed,

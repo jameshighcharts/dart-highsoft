@@ -1,14 +1,13 @@
 import { act, cleanup, render } from '@testing-library/react';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Link from 'next/link';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-import { createTestQueryClient } from '@/test-utils/renderWithProviders';
 
 const { fetchPlayers } = vi.hoisted(() => ({ fetchPlayers: vi.fn(async () => [{ id: 'p1' }]) }));
-vi.mock('@/lib/queries/routeQueries', () => ({
-  routeQueries: (pathname: string) => pathname === '/players'
-    ? async () => [{ queryKey: ['players', 'list'], queryFn: fetchPlayers, staleTime: 0 }]
+vi.mock('@/lib/queries/routePrefetch', () => ({
+  routePrefetch: (pathname: string) => pathname === '/players'
+    ? (queryClient: QueryClient) => queryClient.prefetchQuery({ queryKey: ['players', 'list'], queryFn: fetchPlayers, staleTime: 0 })
     : undefined,
 }));
 
@@ -20,7 +19,8 @@ beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers({ toFake: ['Date'] }); }
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 function setup() {
-  const client = createTestQueryClient();
+  // Prefetched data has no subscriber yet, so it must outlive the test client's usual gcTime of 0.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
     <QueryClientProvider client={client}>
       <RouteDataPrefetcher />
@@ -59,4 +59,16 @@ it('ignores links without page data and links to other sites', async () => {
   hover('Elsewhere');
   await flush();
   expect(fetchPlayers).not.toHaveBeenCalled();
+});
+
+it('does not prefetch the page that is already on screen', async () => {
+  window.history.replaceState({}, '', '/players');
+  try {
+    const { hover } = setup();
+    hover('Players');
+    await flush();
+    expect(fetchPlayers).not.toHaveBeenCalled();
+  } finally {
+    window.history.replaceState({}, '', '/');
+  }
 });

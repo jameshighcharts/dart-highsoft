@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -22,7 +22,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { withReportedResults } from '@/lib/highdarts/reportedResults';
-import { highdartsQuery } from '@/lib/queries/highdarts';
+import { highdartsBoardsQuery, highdartsQuery } from '@/lib/queries/highdarts';
 import { meQuery } from '@/lib/queries/me';
 import {
   buildStandings,
@@ -275,13 +275,19 @@ export function HighdartsDashboard() {
   // The tournament is live: poll while the tab is visible and on focus, as before.
   const highdarts = useQuery({ ...highdartsQuery(), refetchInterval: 15_000 });
   const me = useQuery(meQuery());
+  const liveBoards = useQuery(highdartsBoardsQuery());
   const sourceSnapshot = highdarts.data ?? null;
-  const snapshot = sourceSnapshot ? withReportedResults(sourceSnapshot) : null;
+  // Occupancy comes only from this session's fetches; until then fixtures show "Checking the board…".
+  const snapshot = useMemo(
+    () => (sourceSnapshot ? withReportedResults({ ...sourceSnapshot, boards: liveBoards.data, boardsPending: liveBoards.data === undefined }) : null),
+    [sourceSnapshot, liveBoards.data],
+  );
   const error = !highdarts.isError ? ''
     : sourceSnapshot ? 'Results could not refresh. Showing the last available snapshot.'
       : 'Highdarts is not available yet.';
-  // Admin controls follow the live session only; `me` is never persisted to storage.
-  const isAdmin = me.data?.user?.isAdmin === true;
+  // Admin controls follow the live session only: `me` is never persisted, and data left over from
+  // before a failed refresh (an expired or changed session) does not count.
+  const isAdmin = me.status === 'success' && me.data.user?.isAdmin === true;
   const myId = me.data?.player?.id ?? null;
   const [office, setOffice] = useState<Office>('bergen');
   const [search, setSearch] = useState('');

@@ -39,10 +39,11 @@ function query(rows: Row[]) {
       return builder;
     },
     limit: (n: number) => { limit = n; return builder; },
-    then: (resolve: (result: { data: Row[]; error: null }) => void) => {
+    // Like a real query builder: a thenable that resolves to the result and supports chaining.
+    then: <T>(resolve: (result: { data: Row[]; error: null }) => T, reject?: (error: unknown) => T) => {
       const result = rows.filter((row) => filters.every((filter) => filter(row)));
       if (sort) result.sort(sort);
-      resolve({ data: result.slice(0, limit), error: null });
+      return Promise.resolve({ data: result.slice(0, limit), error: null }).then(resolve, reject);
     },
   };
   return builder;
@@ -224,5 +225,13 @@ describe('leaderboard data from database aggregates', () => {
     });
     expect(lists.leaders).toHaveLength(10);
     expect(supabase.calls.slice(0, 3).sort()).toEqual(['player_elo_stats', 'player_elo_stats_multi', 'player_summary']);
+  });
+
+  it('fails instead of caching zeros when an aggregate times out', async () => {
+    vi.setSystemTime(new Date('2026-08-12T15:10:00+02:00'));
+    const supabase = fakeSupabase(history(new Date()), { deployed: true });
+    const timeout = { code: '57014', message: 'canceling statement due to statement timeout' };
+    client.current = { ...supabase, rpc: () => Promise.resolve({ data: null, error: timeout }) };
+    await expect(leaderboardQuery().queryFn!({} as never)).rejects.toBe(timeout);
   });
 });

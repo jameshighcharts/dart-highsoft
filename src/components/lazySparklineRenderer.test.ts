@@ -3,12 +3,16 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const { charts } = vi.hoisted(() => ({ charts: [] as Array<{ parent: HTMLElement; destroy: ReturnType<typeof vi.fn> }> }));
 vi.mock('@highcharts/grid-pro/es-modules/Grid/Pro/CellRendering/ContentTypes/SparklineContent', () => ({
   default: class {
+    static H: unknown = { loaded: 'up front' };
     destroy = vi.fn();
     update = vi.fn();
     constructor(_cell: unknown, _renderer: unknown, parent: HTMLElement) { charts.push({ parent, destroy: this.destroy }); }
   },
 }));
 
+vi.mock('highcharts', () => ({ default: { loaded: 'lazily' } }));
+
+import SparklineContent from '@highcharts/grid-pro/es-modules/Grid/Pro/CellRendering/ContentTypes/SparklineContent';
 import { LazySparklineRenderer } from './lazySparklineRenderer';
 
 const nextFrame = () => vi.advanceTimersByTimeAsync(20);
@@ -56,4 +60,16 @@ it('destroys a drawn chart with its cell and skips cells without a value', async
   expect(charts).toHaveLength(1);
   content.destroy();
   expect(charts[0].destroy).toHaveBeenCalledTimes(1);
+});
+
+it('loads Highcharts on first use and still never draws for a cell destroyed while it loads', async () => {
+  SparklineContent.H = undefined;
+  const kept = renderer().render(cellWith('1,2,3'));
+  const dropped = renderer().render(cellWith('4,5,6'));
+  dropped.destroy();
+  await nextFrame();
+  await nextFrame();
+  expect(SparklineContent.H).toEqual({ loaded: 'lazily' });
+  expect(charts).toHaveLength(1);
+  kept.destroy();
 });
