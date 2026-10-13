@@ -6,6 +6,10 @@ const avatarPattern = supabaseUrl?.protocol === 'https:'
   ? [{ protocol: 'https' as const, hostname: supabaseUrl.hostname, pathname: '/storage/v1/object/public/avatars/**' }]
   : [];
 
+// Signed-in browsers get a Supabase token from /api/supabase-token (src/lib/server/supabaseToken);
+// without a signing key there is none to preload.
+const supabaseTokens = Boolean(process.env.SUPABASE_JWT_SIGNING_KEY?.trim());
+
 const nextConfig: NextConfig = {
   images: {
     remotePatterns: avatarPattern,
@@ -31,9 +35,15 @@ const nextConfig: NextConfig = {
       value: paths.map((path) => `<${path}>; rel=preload; as=fetch; crossorigin=anonymous`).join(', '),
     }];
     const documentOnly = [{ type: 'header' as const, key: 'rsc' }];
+    // Every page's Supabase queries wait for the token.
+    const token = supabaseTokens ? ['/api/supabase-token'] : [];
+    // A later rule's Link replaces an earlier one's for the same page, so each page's rule lists all.
     return [
-      { source: '/bengt', missing: documentOnly, headers: preload('/api/highdarts') },
-      { source: '/new', missing: documentOnly, headers: preload('/api/highdarts', '/api/scolia/boards/available') },
+      ...(token.length > 0
+        ? [{ source: '/((?!api/|_next/|.*\\.).*)', missing: documentOnly, headers: preload(...token) }]
+        : []),
+      { source: '/bengt', missing: documentOnly, headers: preload(...token, '/api/highdarts') },
+      { source: '/new', missing: documentOnly, headers: preload(...token, '/api/highdarts', '/api/scolia/boards/available') },
     ];
   },
 };
