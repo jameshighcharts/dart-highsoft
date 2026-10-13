@@ -1,11 +1,13 @@
 -- The browser now reaches Supabase only as `authenticated`, with a short-lived token from
 -- /api/supabase-token, and pages are static shells anyone can load. The anon key in their
--- JavaScript must therefore open nothing: this takes every privilege and policy in public (and the
--- realtime broadcast policy) away from `anon` and from PUBLIC, leaving `authenticated` (and
--- `service_role`) with what they had. Storage's public avatar policy stays: avatars are public.
+-- JavaScript must therefore open nothing: public.revoke_anon_access() takes every privilege and
+-- policy in public (and the realtime policies) away from `anon` and from PUBLIC, leaving
+-- `authenticated` (and `service_role`) with what they had. Storage's public avatar policy stays:
+-- avatars are public.
 --
--- It runs 15 minutes after this migration, from a scheduled job: migrations deploy alongside the
--- frontend, and until the new frontend is live, browsers still use the anon key.
+-- This only defines it. It runs from a later migration, once production is verified to use tokens
+-- (Supabase requests carry the member's token and succeed, Realtime joins): revoking earlier, or
+-- while a deploy or the signing key is broken, would cut every browser off.
 
 create or replace function public.revoke_anon_access()
 returns void
@@ -18,8 +20,21 @@ begin
   -- Nothing anon could do may be lost to authenticated (20261013140000_authenticated_has_anon_access).
   perform public.grant_authenticated_anon_access();
 
-  revoke all on all tables in schema public from anon;
-  revoke all on all sequences in schema public from anon;
+  -- PUBLIC too: a grant to every role (from the dashboard, say) reaches anon as well. What
+  -- authenticated reaches only through PUBLIC is granted to it directly first.
+  for item in
+    select format('%I.%I', n.nspname, c.relname) as relation, privilege
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) as privilege
+    where n.nspname = 'public'
+      and c.relkind in ('r', 'p', 'v', 'm', 'f')
+      and has_table_privilege('authenticated', c.oid, privilege)
+  loop
+    execute format('grant %s on %s to authenticated', item.privilege, item.relation);
+  end loop;
+  revoke all on all tables in schema public from anon, public;
+  revoke all on all sequences in schema public from anon, public;
 
   -- Functions are executable by PUBLIC (every role) by default.
   for item in
@@ -29,8 +44,9 @@ begin
     where n.nspname = 'public'
       and has_function_privilege('anon', p.oid, 'EXECUTE')
   loop
-    execute format('grant execute on function %s to authenticated, service_role', item.routine);
-    execute format('revoke execute on function %s from public, anon', item.routine);
+    -- `routine` covers procedures as well as functions.
+    execute format('grant execute on routine %s to authenticated, service_role', item.routine);
+    execute format('revoke execute on routine %s from public, anon', item.routine);
   end loop;
 
   -- A policy for anon, or for every role (`public`), becomes one for authenticated. The service
@@ -61,28 +77,3 @@ end;
 $$;
 
 revoke execute on function public.revoke_anon_access() from public, anon, authenticated;
-
-create or replace function public.revoke_anon_access_when_due(due timestamptz)
-returns void
-language plpgsql
-set search_path = public
-as $$
-begin
-  if clock_timestamp() < due then
-    return;
-  end if;
-  perform public.revoke_anon_access();
-  perform cron.unschedule('revoke-anon-access');
-end;
-$$;
-
-revoke execute on function public.revoke_anon_access_when_due(timestamptz) from public, anon, authenticated;
-
-select cron.unschedule('revoke-anon-access')
-where exists (select 1 from cron.job where jobname = 'revoke-anon-access');
-
-select cron.schedule(
-  'revoke-anon-access',
-  '* * * * *',
-  format('select public.revoke_anon_access_when_due(%L::timestamptz)', now() + interval '15 minutes')
-);

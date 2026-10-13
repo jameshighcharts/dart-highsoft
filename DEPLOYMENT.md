@@ -22,7 +22,26 @@ Required environment variables:
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_JWT_SIGNING_KEY=
 ```
+
+`SUPABASE_JWT_SIGNING_KEY` lets the app give each signed-in member's browser a
+short-lived Supabase token (`/api/supabase-token`). Pages are public shells, so
+the anon key in their JavaScript has no database access of its own. To set it up:
+
+1. Generate a key: `supabase gen signing-key --algorithm ES256`. It prints a
+   private JWK with a `kid`. Keep it out of the repository.
+2. In the Supabase dashboard, open JWT Keys, create a standby key by importing
+   that JWK, and rotate to it. Supabase then trusts tokens signed with it; the
+   previous key keeps working until you revoke it.
+3. Set the same JWK, as one line of JSON, as `SUPABASE_JWT_SIGNING_KEY` in
+   Vercel for Production and Preview. It is as sensitive as the service-role key.
+4. In Authentication, disable sign-ups and every provider. Sign-in is NextAuth's,
+   and a Supabase Auth user would get the same `authenticated` role as a member.
+
+Without the key, `/api/supabase-token` answers 503 and browsers fall back to
+the anon key. That works only until `public.revoke_anon_access()` has run (see
+`supabase/migrations/20261013150000_prepare_anon_revoke.sql`).
 
 Optional environment variables for AI commentary / TTS:
 
@@ -62,6 +81,7 @@ Notes:
 
 - `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` come from your Supabase project.
 - `SUPABASE_SERVICE_ROLE_KEY` is also from Supabase, but it is secret. Do not expose it in client code.
+- `SUPABASE_JWT_SIGNING_KEY` is secret too: whoever has it can act as any member in the database.
 - The app will still run without `OPENAI_API_KEY`, but the commentary and TTS routes will not work.
 
 ## Before You Start
@@ -176,6 +196,7 @@ SUPABASE_SERVICE_ROLE_KEY=service_role key
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_JWT_SIGNING_KEY=... # see "What This App Needs"
 OPENAI_API_KEY=... # optional for scoring; required for direct Scolia Realtime commentary
 ```
 

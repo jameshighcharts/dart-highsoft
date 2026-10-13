@@ -3,8 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({ pathname: '/stats', signedOut: true }));
 vi.mock('next/navigation', () => ({ usePathname: () => state.pathname }));
-vi.mock('@/lib/supabaseAccessToken', () => ({ isSignedOut: vi.fn(async () => state.signedOut) }));
+vi.mock('@/lib/supabaseAccessToken', () => ({
+  isSignedOut: vi.fn(async () => state.signedOut),
+  forgetSupabaseAccessToken: vi.fn(),
+  SIGNED_OUT_EVENT: 'supabase-signed-out',
+}));
 
+import { forgetSupabaseAccessToken } from '@/lib/supabaseAccessToken';
 import { SignInGate } from './SignInGate';
 
 const replace = vi.fn();
@@ -42,5 +47,21 @@ describe('SignInGate', () => {
     render(<SignInGate />);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('sends a tab to sign in when its session ends while it stays on one page', async () => {
+    state.pathname = '/stats';
+    state.signedOut = false;
+    render(<SignInGate />);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(replace).not.toHaveBeenCalled();
+    window.dispatchEvent(new Event('supabase-signed-out'));
+    expect(replace).toHaveBeenCalledWith('https://darts.example/login?callbackUrl=%2Fstats%3Fplayer%3Da');
+  });
+
+  it('drops the database token on the sign-in pages, where signing out lands', () => {
+    state.pathname = '/signin';
+    render(<SignInGate />);
+    expect(forgetSupabaseAccessToken).toHaveBeenCalled();
   });
 });

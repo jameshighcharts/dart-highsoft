@@ -43,6 +43,8 @@ import {
 import { computeFairEndingState, type FairEndingState } from '@/utils/fairEnding';
 import { invalidateAfterGame } from '@/lib/queries/invalidateAfterGame';
 
+const MATCH_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 type SpectatorViewComponent = ComponentType<ComponentProps<typeof import('@/components/match/MatchSpectatorView')['MatchSpectatorView']>>;
 
 const MatchSpectatorView = dynamic(
@@ -328,8 +330,9 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   useEffect(() => {
     if (!isSpectatorMode) return;
     const handleRematch = (event: Event) => {
-      const payload = (event as CustomEvent).detail as { newMatchId?: string } | undefined;
-      if (payload?.newMatchId) {
+      const payload = (event as CustomEvent).detail as { newMatchId?: unknown } | undefined;
+      // Only ever a match id: the message comes from another browser.
+      if (typeof payload?.newMatchId === 'string' && MATCH_ID.test(payload.newMatchId)) {
         router.push(`/match/${payload.newMatchId}?spectator=true`);
       }
     };

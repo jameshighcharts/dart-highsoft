@@ -48,7 +48,7 @@ begin
       and has_function_privilege('anon', p.oid, 'EXECUTE')
       and not has_function_privilege('authenticated', p.oid, 'EXECUTE')
   loop
-    execute format('grant execute on function %s to authenticated', item.routine);
+    execute format('grant execute on routine %s to authenticated', item.routine);
   end loop;
 
   -- Policies for `public` apply to every role already.

@@ -1,13 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { auth, isAuthConfigured } from '@/auth';
+import { renewSessionCookie } from '@/lib/auth/renewSessionCookie';
 import { withSession } from '@/lib/auth/withSession';
 import { signSupabaseToken } from '@/lib/server/supabaseToken';
 
 const NO_STORE = { 'Cache-Control': 'private, no-store' };
-
-// NextAuth's request/response form: reads the session and appends its renewed cookie to the response.
-const renewSession = auth as unknown as (request: NextRequest, response: NextResponse) => Promise<unknown>;
 
 /**
  * A token for the signed-in member's browser to use Supabase with (see src/lib/server/supabaseToken).
@@ -29,7 +27,7 @@ async function getHandler(request: NextRequest) {
   }
   if (isAuthConfigured) {
     try {
-      await renewSession(request, response);
+      await renewSessionCookie(auth, request, response);
     } catch (error) {
       console.error('Could not renew the sign-in cookie:', error);
     }

@@ -12,20 +12,35 @@ const STORAGE_KEY = 'supabase-access-token';
 /** Renewed this long before it expires (matches SUPABASE_TOKEN_RENEW_BEFORE_MS on the server). */
 const RENEW_BEFORE_MS = 5 * 60_000;
 
-/** How long to wait before asking again after no token could be had. */
+/** How long to wait before asking again while tokens aren't configured (503) or after signing out. */
 const RETRY_AFTER_MS = 5 * 60_000;
+
+/** After a network or server error: 2s, 4s, 8s… up to a minute. */
+const ERROR_RETRY_MS = 2_000;
+const MAX_ERROR_RETRY_MS = 60_000;
 
 type Token = { token: string; expiresAt: number };
 
 let current: Token | null = null;
 let pending: Promise<Token | null> | null = null;
 let retryAt = 0;
+let consecutiveErrors = 0;
 /** The token route's answer to this page's last request: 401 means the visitor isn't signed in. */
 let lastStatus: number | null = null;
+
+/** Dispatched on window when the token route says the session is gone (SignInGate listens). */
+export const SIGNED_OUT_EVENT = 'supabase-signed-out';
 
 function isToken(value: unknown): value is Token {
   return typeof value === 'object' && value !== null
     && typeof (value as Token).token === 'string' && typeof (value as Token).expiresAt === 'number';
+}
+
+/** The route's answer, with the expiry moved onto this browser's clock (it may be off). */
+function receivedToken(body: unknown): Token | null {
+  if (!isToken(body)) return null;
+  const expiresIn = (body as { expiresIn?: unknown }).expiresIn;
+  return typeof expiresIn === 'number' ? { token: body.token, expiresAt: Date.now() + expiresIn * 1000 } : body;
 }
 
 function readStored(): Token | null {
@@ -50,12 +65,10 @@ async function requestToken(): Promise<Token | null> {
   try {
     const response = await fetch('/api/supabase-token', { credentials: 'same-origin' });
     lastStatus = response.status;
-    if (response.ok) {
-      const body: unknown = await response.json();
-      if (isToken(body)) return body;
-    }
+    if (response.ok) return receivedToken(await response.json());
   } catch {
     // Offline or unreachable: treated like no token.
+    lastStatus = null;
   }
   return null;
 }
@@ -77,15 +90,38 @@ export async function browserSupabaseAccessToken(): Promise<string | null> {
   const fresh = await pending;
   if (fresh) {
     current = fresh;
+    consecutiveErrors = 0;
     store(fresh);
     return fresh.token;
   }
-  retryAt = Date.now() + RETRY_AFTER_MS;
-  if (!unexpired(current, Date.now())) {
-    current = null;
-    store(null);
-  }
-  return unexpired(current, Date.now());
+  const failedAt = Date.now();
+  // Signed out: the token must not outlive the session, so it goes at once.
+  if (lastStatus === 401 || !unexpired(current, failedAt)) forgetSupabaseAccessToken();
+  if (lastStatus === 401) window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+  // Not configured, or signed out: nothing will change soon. Anything else (offline, a server
+  // error) is retried within seconds, and never later than the token we still have expires.
+  const wait = lastStatus === 503 || lastStatus === 401
+    ? RETRY_AFTER_MS
+    : Math.min(ERROR_RETRY_MS * 2 ** consecutiveErrors++, MAX_ERROR_RETRY_MS);
+  retryAt = Math.min(failedAt + wait, current?.expiresAt ?? Infinity);
+  return unexpired(current, failedAt);
+}
+
+// Back online, or back to the tab (a laptop waking): ask again at once rather than after a wait.
+if (typeof window !== 'undefined') {
+  const retryNow = () => {
+    retryAt = 0;
+  };
+  window.addEventListener('online', retryNow);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') retryNow();
+  });
+}
+
+/** Drops this tab's token (on signing out, and on the sign-in pages). */
+export function forgetSupabaseAccessToken() {
+  current = null;
+  store(null);
 }
 
 /**
@@ -99,9 +135,9 @@ export async function isSignedOut(): Promise<boolean> {
 
 /** Test hook: forget the token and any wait. */
 export function resetSupabaseAccessTokenForTests() {
-  current = null;
+  forgetSupabaseAccessToken();
   pending = null;
   retryAt = 0;
+  consecutiveErrors = 0;
   lastStatus = null;
-  store(null);
 }

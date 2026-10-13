@@ -1,22 +1,18 @@
 begin;
 
-select plan(16);
+select plan(15);
 
-select ok(
-  (select command like '%revoke_anon_access_when_due(%' from cron.job where jobname = 'revoke-anon-access'),
-  'the revoke is scheduled'
-);
 select ok(
   not has_function_privilege('anon', 'public.revoke_anon_access()', 'execute')
-    and not has_function_privilege('authenticated', 'public.revoke_anon_access()', 'execute')
-    and not has_function_privilege('authenticated', 'public.revoke_anon_access_when_due(timestamptz)', 'execute'),
-  'clients cannot call the revoke functions'
+    and not has_function_privilege('authenticated', 'public.revoke_anon_access()', 'execute'),
+  'clients cannot call the revoke function'
 );
+select ok(has_table_privilege('anon', 'public.players', 'SELECT'), 'defining it revokes nothing yet');
 
--- Before it is due, nothing changes.
-select public.revoke_anon_access_when_due(now() + interval '1 hour');
-select ok(has_table_privilege('anon', 'public.players', 'SELECT'), 'nothing is revoked before it is due');
-select ok(exists (select 1 from cron.job where jobname = 'revoke-anon-access'), 'and the job stays scheduled');
+-- A table granted to every role, as the dashboard could do.
+create table public.public_grant_probe (id int);
+revoke all on public.public_grant_probe from anon, authenticated;
+grant select on public.public_grant_probe to public;
 
 -- What authenticated could do before, to compare after.
 create temp table authenticated_before as
@@ -25,7 +21,7 @@ from pg_class c join pg_namespace n on n.oid = c.relnamespace
 cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE']) as privilege
 where n.nspname = 'public' and c.relkind in ('r', 'v', 'm') and has_table_privilege('authenticated', c.oid, privilege);
 
-select public.revoke_anon_access_when_due(now() - interval '1 second');
+select public.revoke_anon_access();
 
 select is(
   (select count(*)::int from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -69,7 +65,8 @@ select is(
   array['authenticated']::name[],
   'live match broadcasts are for signed-in members only'
 );
-select ok(not exists (select 1 from cron.job where jobname = 'revoke-anon-access'), 'the job unschedules itself once done');
+select ok(not has_table_privilege('anon', 'public.public_grant_probe', 'SELECT'), 'a grant to every role no longer reaches anon');
+select ok(has_table_privilege('authenticated', 'public.public_grant_probe', 'SELECT'), 'but authenticated keeps it');
 
 -- Objects created afterwards don't grant anon.
 create table public.after_revoke_probe (id int);

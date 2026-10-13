@@ -58,6 +58,9 @@ export function useRealtime(matchId: string) {
       const newChannel = supabase
         .channel(`dart_match_${matchId}`, {
           config: {
+            // Private: only signed-in members may join, receive or send (realtime.messages policies,
+            // 20261013145000_private_match_channels); a public channel is open to the anon key.
+            private: true,
             presence: {
               key: `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             },

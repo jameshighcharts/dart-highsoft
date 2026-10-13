@@ -5,12 +5,9 @@ import { redirect } from 'next/navigation';
 import { AuthError } from 'next-auth';
 
 import { isAuthConfigured, isGoogleAuthConfigured, isSlackAuthConfigured, signIn } from '@/auth';
+import { firstValue, resolveRedirectTarget, type SearchParamValue } from '@/lib/auth/redirectTarget';
 
-export type SearchParamValue = string | string[] | undefined;
-
-export function firstValue(value: SearchParamValue) {
-  return Array.isArray(value) ? value[0] : value;
-}
+export { firstValue, resolveRedirectTarget, type SearchParamValue };
 
 export function getAuthErrorMessage(errorType?: string) {
   switch (errorType) {
@@ -41,13 +38,6 @@ export function getAuthErrorMessage(errorType?: string) {
     default:
       return 'Authentication failed. Try again.';
   }
-}
-
-/** Only same-origin paths are accepted; anything else falls back to `fallback`. */
-export function resolveRedirectTarget(value: SearchParamValue, fallback: string) {
-  const resolved = firstValue(value);
-  if (!resolved || !resolved.startsWith('/') || resolved.startsWith('//')) return fallback;
-  return resolved;
 }
 
 function GoogleGlyph() {

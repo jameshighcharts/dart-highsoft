@@ -27,6 +27,10 @@ export default defineConfig({
 
     // Global test timeout
     testTimeout: 10000,
+
+    // NextAuth's ESM build imports `next/server` without an extension, which Node's resolver
+    // rejects; processing it with Vite resolves it (tests that use the real NextAuth).
+    server: { deps: { inline: ['next-auth'] } },
   },
 
   resolve: {

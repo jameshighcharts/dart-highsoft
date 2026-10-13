@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/server/supabaseToken', () => ({ signSupabaseToken: vi.fn() }));
-vi.mock('@/auth', () => ({
-  isAuthConfigured: true,
-  // NextAuth appends the renewed session cookie to the response it is given.
-  auth: vi.fn(async (_request: unknown, response: Response) => {
-    response.headers.append('set-cookie', 'authjs.session-token=renewed; Path=/; HttpOnly');
+vi.mock('@/auth', () => ({ isAuthConfigured: true, auth: vi.fn() }));
+// renewSessionCookie has its own test against the real NextAuth.
+vi.mock('@/lib/auth/renewSessionCookie', () => ({
+  renewSessionCookie: vi.fn(async (_auth: unknown, _request: unknown, response: Response) => {
+    response.headers.append('set-cookie', '__Secure-authjs.session-token=renewed; Path=/; HttpOnly');
   }),
 }));
 
@@ -21,10 +21,10 @@ afterEach(() => {
 
 describe('GET /api/supabase-token', () => {
   it('returns a fresh token that nothing may cache', async () => {
-    vi.mocked(signSupabaseToken).mockResolvedValue({ token: 'jwt', expiresAt: 123 });
+    vi.mocked(signSupabaseToken).mockResolvedValue({ token: 'jwt', expiresAt: 123, expiresIn: 3600 });
     const response = await GET(request());
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ token: 'jwt', expiresAt: 123 });
+    expect(await response.json()).toEqual({ token: 'jwt', expiresAt: 123, expiresIn: 3600 });
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(response.headers.get('set-cookie')).toContain('authjs.session-token=renewed');
   });

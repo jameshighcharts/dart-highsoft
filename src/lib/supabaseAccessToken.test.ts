@@ -63,13 +63,24 @@ describe('browserSupabaseAccessToken', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps using a token that is due for renewal but not expired when renewing fails', async () => {
-    fetchMock.mockResolvedValueOnce(tokenResponse('a')).mockRejectedValueOnce(new TypeError('offline'));
+  it('keeps a token that is due for renewal when renewing fails, and asks again before it expires', async () => {
+    fetchMock.mockResolvedValueOnce(tokenResponse('a'))
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockResolvedValueOnce(tokenResponse('b', NOW + 120 * MINUTE));
     await browserSupabaseAccessToken();
     vi.setSystemTime(NOW + 57 * MINUTE);
     expect(await browserSupabaseAccessToken()).toBe('a');
-    vi.setSystemTime(NOW + 61 * MINUTE);
+    // The usual wait would end at minute 62, after the token expires at 60.
+    vi.setSystemTime(NOW + 60 * MINUTE);
+    expect(await browserSupabaseAccessToken()).toBe('b');
+  });
+
+  it('drops the token as soon as the session is gone', async () => {
+    fetchMock.mockResolvedValueOnce(tokenResponse('a')).mockResolvedValueOnce(new Response('{}', { status: 401 }));
+    await browserSupabaseAccessToken();
+    vi.setSystemTime(NOW + 57 * MINUTE);
     expect(await browserSupabaseAccessToken()).toBeNull();
+    expect(sessionStorage.getItem('supabase-access-token')).toBeNull();
   });
 
   it('tells a signed-out visitor apart from a server without tokens, with the same request', async () => {

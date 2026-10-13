@@ -40,7 +40,8 @@ const nextConfig: NextConfig = {
     // A later rule's Link replaces an earlier one's for the same page, so each page's rule lists all.
     return [
       ...(token.length > 0
-        ? [{ source: '/((?!api/|_next/|.*\\.).*)', missing: documentOnly, headers: preload(...token) }]
+        // Not the sign-in pages, which never ask for a token.
+        ? [{ source: '/((?!api/|_next/|login$|signin$|.*\\.).*)', missing: documentOnly, headers: preload(...token) }]
         : []),
       { source: '/bengt', missing: documentOnly, headers: preload(...token, '/api/highdarts') },
       { source: '/new', missing: documentOnly, headers: preload(...token, '/api/highdarts', '/api/scolia/boards/available') },

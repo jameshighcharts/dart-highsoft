@@ -19,6 +19,8 @@ export type SupabaseToken = {
   token: string;
   /** Milliseconds since 1970. */
   expiresAt: number;
+  /** Seconds from now: browsers time the token by their own clock, which may be off. */
+  expiresIn: number;
 };
 
 type SigningKey = { key: CryptoKey | Uint8Array; alg: 'ES256' | 'HS256'; kid?: string };
@@ -67,7 +69,7 @@ export async function signSupabaseToken(now = Date.now()): Promise<SupabaseToken
     .setIssuedAt(issuedAt)
     .setExpirationTime(expiresAt)
     .sign(key.key);
-  return { token, expiresAt: expiresAt * 1000 };
+  return { token, expiresAt: expiresAt * 1000, expiresIn: SUPABASE_TOKEN_LIFETIME_SECONDS };
 }
 
 let serverToken: SupabaseToken | null = null;
