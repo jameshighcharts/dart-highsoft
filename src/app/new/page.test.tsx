@@ -36,10 +36,10 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-async function setup(boards: ScoliaBoardOption[] = []) {
+async function setup(boards: ScoliaBoardOption[] = [], selectedFixture = drawn) {
   vi.mocked(apiRequest).mockImplementation(async (url) => {
     if (url === '/api/me') return { player: { location: 'vik' } };
-    if (url === '/api/highdarts') return { fixtures: [drawn], players: [], boards };
+    if (url === '/api/highdarts') return { fixtures: [selectedFixture], players: [], boards };
     if (url === '/api/scolia/boards/available') return { boards };
     if (url === '/api/matches') return { matchId: 'created-match' };
     throw new Error(`Unexpected request: ${url}`);
@@ -166,4 +166,37 @@ it('shows the cached roster at once on a return visit and fetches each source on
   expect(calls('/api/me')).toHaveLength(1);
   expect(calls('/api/highdarts')).toHaveLength(1);
   expect(calls('/api/scolia/boards/available')).toHaveLength(1);
+});
+
+it.each(['playoff', 'quarterfinal', 'semifinal', 'final'] as const)(
+  'submits chosen finish and legs for a %s fixture', async (stage) => {
+    await setup([readyBoard], { ...drawn, stage });
+    const finish = screen.getByRole('combobox', { name: 'Finish rule' });
+    expect(finish).toBeEnabled();
+    expect(finish).toHaveTextContent(stage === 'playoff' ? 'Single out' : 'Double out');
+    expect(screen.getByRole('switch', { name: 'Fair ending' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Remove one leg' }));
+    expect(screen.getByRole('button', { name: 'Remove one leg' })).toBeDisabled();
+    await userEvent.click(finish);
+    await userEvent.click(screen.getByRole('option', { name: stage === 'playoff' ? 'Double out' : 'Single out' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Start match' }));
+    expect(starts()[0][1]?.body).toMatchObject({
+      highdartsFixtureId: drawn.id, startScore: stage === 'final' ? 501 : 301,
+      finishRule: stage === 'playoff' ? 'double_out' : 'single_out', legsToWin: 1, fairEnding: false,
+    });
+  },
+);
+
+it.each(['group', 'tiebreak'] as const)('keeps %s settings locked', async (stage) => {
+  await setup([readyBoard], { ...drawn, stage });
+  expect(screen.getByRole('combobox', { name: 'Finish rule' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Remove one leg' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add one leg' })).toBeDisabled();
+});
+
+it('allows a longer sluttspill match', async () => {
+  await setup([readyBoard], { ...drawn, stage: 'quarterfinal' });
+  await userEvent.click(screen.getByRole('button', { name: 'Add one leg' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Start match' }));
+  expect(starts()[0][1]?.body).toMatchObject({ legsToWin: 3, finishRule: 'double_out' });
 });

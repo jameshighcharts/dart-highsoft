@@ -481,10 +481,12 @@ export function fixtureFormat(stage: Stage) {
         ? 'double_out'
         : 'single_out',
     legsToWin: 2,
+    customizable: stage === 'playoff' || stage === 'quarterfinal' || stage === 'semifinal' || stage === 'final',
   } satisfies {
     startScore: '301' | '501';
     finish: 'single_out' | 'double_out';
     legsToWin: number;
+    customizable: boolean;
   };
 }
 export function tournamentActivity(

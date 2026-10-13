@@ -213,9 +213,10 @@ export default function NewMatchPage() {
   const highdartsFixture = availableFixtures.find(f => f.id === requestedFixtureId) ?? availableFixtures[0];
   const highdartsLocked = gameType === 'x01' && highdartsEnabled && Boolean(highdartsFixture);
   const highdartsFormat = fixtureFormat(highdartsFixture?.stage ?? 'group');
+  const highdartsRulesLocked = highdartsLocked && !highdartsFormat.customizable;
   useEffect(() => {
     if (highdartsLocked) { setStartScore(highdartsFormat.startScore); setFinish(highdartsFormat.finish); setLegsToWin(2); setFairEnding(false); }
-  }, [highdartsLocked, highdartsFormat.startScore, highdartsFormat.finish]);
+  }, [highdartsLocked, highdartsFormat.startScore, highdartsFormat.finish, highdartsFixture?.id]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const boards = boardsQuery.data?.boards ?? NO_BOARDS;
@@ -539,8 +540,8 @@ export default function NewMatchPage() {
         body: {
           ...(highdartsLocked && highdartsFixture ? { highdartsFixtureId: highdartsFixture.id } : {}),
           startScore: parseInt(highdartsLocked ? highdartsFormat.startScore : startScore, 10),
-          finishRule: highdartsLocked ? highdartsFormat.finish : finish,
-          legsToWin: highdartsLocked ? 2 : legsToWin,
+          finishRule: highdartsRulesLocked ? highdartsFormat.finish : finish,
+          legsToWin: highdartsRulesLocked ? 2 : legsToWin,
           closestToBull,
           fairEnding: legsToWin === 1 ? fairEnding : false,
           playerIds: selectedIds,
@@ -631,11 +632,11 @@ export default function NewMatchPage() {
                 <div>
                   <div className="font-medium mb-1">Finish rule</div>
                   <Select
-                    disabled={highdartsLocked}
+                    disabled={highdartsRulesLocked}
                     value={finish}
                     onValueChange={(v) => setFinish(v as FinishRule)}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger aria-label="Finish rule" className="w-full">
                       <SelectValue placeholder="Finish rule" />
                     </SelectTrigger>
                     <SelectContent>
@@ -654,14 +655,14 @@ export default function NewMatchPage() {
                     size="sm"
                     className="h-9 w-9 shrink-0 border-white/10 bg-white/5 p-0 text-lg hover:bg-white/10"
                     aria-label="Remove one leg"
-                    disabled={highdartsLocked || legsToWin === 1}
+                    disabled={highdartsRulesLocked || legsToWin === 1}
                     onClick={() => setLegsToWin((value) => value - 1)}
                   >
                     −
                   </Button>
                   <div className="min-w-8 text-center" aria-live="polite">
-                    <span className="text-base font-bold tabular-nums">{highdartsLocked ? 2 : legsToWin}</span>
-                    <span className="sr-only">{legsToWin === 1 && !highdartsLocked ? " leg" : " legs"}</span>
+                    <span className="text-base font-bold tabular-nums">{legsToWin}</span>
+                    <span className="sr-only">{legsToWin === 1 ? " leg" : " legs"}</span>
                   </div>
                   <Button
                     type="button"
@@ -669,7 +670,7 @@ export default function NewMatchPage() {
                     size="sm"
                     className="h-9 w-9 shrink-0 border-white/10 bg-white/5 p-0 text-lg hover:bg-white/10"
                     aria-label="Add one leg"
-                    disabled={highdartsLocked}
+                    disabled={highdartsRulesLocked}
                     onClick={() => {
                       setLegsToWin((value) => value + 1);
                       setFairEnding(false);
@@ -686,7 +687,7 @@ export default function NewMatchPage() {
                     <p id="highdarts-description" className="mt-1 text-xs text-muted-foreground">{highdartsError || (highdartsLoading ? 'Loading tournament fixtures…' : selectedIds.length !== 2 ? 'Select exactly two players.' : highdartsFixture ? `Fixture ${fixtureLabel(highdartsFixture)} · ${highdartsFixture.player_a_name} vs ${highdartsFixture.player_b_name}` : pairFixtures.length ? 'These fixtures have already been started or completed.' : "These two aren't drawn against each other in Highdarts 2026")}</p>
                     {highdartsError && <Link href="/bengt" className="text-xs text-cyan-300 underline">Back to Bengt</Link>}
                     {!highdartsFixture && pairFixtures.map(f => <Link key={f.id} href={f.match_id ? `/match/${f.match_id}` : "/bengt"} className="mr-2 text-xs text-cyan-300 underline">View {fixtureLabel(f)}</Link>)}
-                    {highdartsLocked && <p className="mt-1 text-xs text-violet-200">Locked by Highdarts 2026 rules · {highdartsFormat.startScore} / {highdartsFormat.finish.replace("_", " ")} / first to 2</p>}
+                    {highdartsLocked && <p className="mt-1 text-xs text-violet-200">{highdartsRulesLocked ? "Locked by Highdarts 2026 rules" : "Choose the finish rule and legs to win"} · {highdartsFormat.startScore} / {finish.replace("_", " ")} / first to {legsToWin}</p>}
                     {highdartsLocked && availableFixtures.length > 1 && <select aria-label="Highdarts fixture" value={highdartsFixture?.id} onChange={e=>setRequestedFixtureId(e.target.value)} className="mt-2 w-full rounded border bg-background p-1 text-xs">{availableFixtures.map(f=><option key={f.id} value={f.id}>{fixtureLabel(f)}</option>)}</select>}
                   </div>
                   <Switch id="highdarts-toggle" aria-describedby="highdarts-description" checked={highdartsLocked} aria-label="Highdarts 2026 match" disabled={!highdartsFixture || selectedIds.length !== 2} onCheckedChange={setHighdartsEnabled} />

@@ -148,9 +148,9 @@ export function HighdartsMatchTag({
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            This round uses {format.startScore},{' '}
-            {format.finish.replace('_', ' ')}, first to two legs, with fair
-            ending off.
+            {format.customizable
+              ? `This round uses ${format.startScore}, with fair ending off. Your chosen finish rule and legs to win are kept.`
+              : `This round uses ${format.startScore}, ${format.finish.replace('_', ' ')}, first to two legs, with fair ending off.`}
           </p>
           {available.length > 1 && (
             <label className="text-sm">

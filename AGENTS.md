@@ -652,3 +652,7 @@ Every attempt, including misses and tie rethrows, is also stored with player/mat
 - `supabase/migrations/20261012104051_highdarts_final_absences.sql`: Service-only event absences for the reviewed Nick/Babar identities, included in the atomic snapshot; changes stop once qualification starts. No global player deactivation.
 - `src/lib/highdarts/standings.ts`: Keeps full leaderboard ranks/results while assigning qualifying ranks, cutoff ties and byes only to attending players. Finals pairing and locked sheet bye export use qualifying ranks. Dashboard absent rows are grey without stage badges or controls. Regression coverage includes absent leaders and legal replacement draws.
 - `scripts/highdarts-absences.integration.mjs`: Rollback-only local PostgreSQL checks on port 56585, database `hs_week_test`, for the attendance migration, preserved history, role permissions and qualification guards.
+
+- `supabase/migrations/20261013120000_highdarts_finals_match_options.sql`: Allows per-match finish and legs-to-win choices for sluttspill, preserving group/tie-break rules, stage start scores and fair-ending restrictions. Deploy before the updated new-match form. `supabase/tests/highdarts_finals_match_options.sql` verifies creation, tagging, and guards. `fixtureFormat` marks configurable rounds and supplies defaults.
+
+- `docs/highdarts-2026/playoff-options.png`: Chrome preview of a quarterfinal configured for single out and one leg to win.
