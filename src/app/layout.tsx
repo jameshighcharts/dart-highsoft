@@ -7,6 +7,7 @@ import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { MatchSpectatorHotkey } from "@/components/MatchSpectatorHotkey";
 import { QueryProvider } from "@/components/QueryProvider";
+import { SignInGate } from "@/components/SignInGate";
 import { RouteDataPrefetcher } from "@/components/RouteDataPrefetcher";
 import { SiteChrome } from "@/components/SiteChrome";
 // Imported (also in public/ for the web manifest) so it is served under a content-hashed URL.
@@ -127,6 +128,7 @@ export default function RootLayout({
         <Analytics />
         <SpeedInsights />
         <MatchSpectatorHotkey />
+        <SignInGate />
       </body>
     </html>
   );

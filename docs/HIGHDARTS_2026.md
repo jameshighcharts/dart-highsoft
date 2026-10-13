@@ -162,7 +162,7 @@ The sync owns Kampoppsett C:H and J:K on rows 3–32, 34–46 and 48–80; Tabel
 
 Run `installHighdartsSync` once in the bound script to refresh and create one five-minute trigger owned by the installing Google account. Repeated installation does not duplicate the trigger. `@OnlyCurrentDoc` limits spreadsheet authorization to this workbook. A Highdarts menu also provides manual refresh. The script verifies all 76 office/fixture-number pairs, table sizes and the entire response before editing any cells. A fetch failure or invalid response leaves existing values intact. An execution error is visible in Apps Script Executions. The published iframe may lag the editable sheet by several minutes. The Bengt Sheet tab requests a fresh iframe URL when opened, every minute while visible, when returning to the browser tab, and through its Refresh sheet button. Closing the Sheet tab stops its timer; refreshing the iframe does not run the Apps Script sync or bypass Google publication delays.
 
-Validate with `npm run test:run -- src/lib/highdarts/sheetExport.test.ts scripts/highdarts-sheet/Code.test.mjs src/proxy.test.ts`; the Apps Script tests execute the actual `.gs` source in Node. After installation, run a manual refresh and compare the API projection to all owned sheet ranges, then confirm a scheduled execution succeeds.
+Validate with `npm run test:run -- src/lib/highdarts/sheetExport.test.ts scripts/highdarts-sheet/Code.test.mjs src/app/api/apiRoutes.test.ts`; the Apps Script tests execute the actual `.gs` source in Node. After installation, run a manual refresh and compare the API projection to all owned sheet ranges, then confirm a scheduled execution succeeds.
 
 ## Manual tournament scoring
 

@@ -59,7 +59,19 @@ CLI output includes the local URL, anon/service keys, and connection strings.
    NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:55421
    NEXT_PUBLIC_SUPABASE_ANON_KEY=... # from supabase status --env
    SUPABASE_SERVICE_ROLE_KEY=...     # optional, only needed for server-side admin tasks
+   SUPABASE_JWT_SIGNING_KEY=...      # see below
    ```
+
+   The browser reaches Supabase with a token from `/api/supabase-token`, and once
+   `public.revoke_anon_access()` has run the anon key alone opens nothing. Locally
+   the token is signed with the stack's HS256 JWT secret (`JWT_SECRET` in
+   `supabase status --env`), as an `oct` JWK:
+
+   ```bash
+   node -e 'console.log(JSON.stringify({ kty: "oct", k: Buffer.from(process.argv[1]).toString("base64url") }))' "<JWT_SECRET>"
+   ```
+
+   An `oct` key is refused on Vercel; production uses the imported ES256 key (see `DEPLOYMENT.md`).
 
 3. Start the web app:
 

@@ -49,14 +49,15 @@ select unnest(array[
   '62000000-0000-0000-0000-000000000005', '63000000-0000-0000-0000-000000000001',
   '63000000-0000-0000-0000-000000000002', '63000000-0000-0000-0000-000000000003'
 ]::uuid[]) as id;
-grant select on feed_ids to anon;
+grant select on feed_ids to authenticated;
 
 -- This test's games, in the order the function returned them (other live games may exist).
 create function pg_temp.feed_order(ids uuid[]) returns uuid[] language sql as $$
   select array(select u.id from unnest(ids) with ordinality u(id, n) where u.id in (select id from feed_ids) order by u.n)
 $$;
+grant execute on function pg_temp.feed_order(uuid[]) to authenticated;
 
-set local role anon;
+set local role authenticated;
 
 select is(
   pg_temp.feed_order(array(select f.id from public.games_live() f)),
@@ -213,10 +214,10 @@ select ok(
 );
 
 select ok(
-  has_function_privilege('anon', 'public.games_feed(text, date, text, int, timestamptz, text, uuid)', 'execute')
-  and has_function_privilege('anon', 'public.games_live()', 'execute')
+  has_function_privilege('authenticated', 'public.games_feed(text, date, text, int, timestamptz, text, uuid)', 'execute')
+  and has_function_privilege('authenticated', 'public.games_live()', 'execute')
   and has_function_privilege('authenticated', 'public.games_activity(date, text, text)', 'execute'),
-  'the browser roles can call the feed'
+  'the browser (authenticated) can call the feed'
 );
 
 select * from finish();

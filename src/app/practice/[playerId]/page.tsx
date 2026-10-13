@@ -1,4 +1,5 @@
 import PracticeClient from '@/components/PracticeClient';
+import { requirePageSession } from '@/lib/auth/requirePageSession';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { notFound } from 'next/navigation';
 
@@ -10,6 +11,7 @@ type Props = {
 
 export default async function PracticePlayerPage({ params }: Props) {
   const { playerId } = await params;
+  await requirePageSession(`/practice/${playerId}`);
   const supabase = await getSupabaseClient();
   
   // Get the specific player

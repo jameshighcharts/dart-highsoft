@@ -41,7 +41,7 @@ Help make small, correct changes in a TypeScript Next.js + Supabase dart scoring
 - `src/auth.ts` and `src/auth.test.ts`: Slack is the primary player identity. Google sessions map verified work emails through the configured Slack workspace, retry unresolved identities after one minute, and revalidate resolved identities after five minutes. Provider changes clear previous identity claims.
 - `src/lib/slack/members.test.ts`: Covers exact normalized email matching without membership-metadata requirements, mismatched emails, malformed responses, configuration failures, and cached lookup recovery.
 
-- `src/proxy.ts`: Accepts authenticated Slack and Google sessions with email and workspace identity, including Google users without a Slack link. `src/proxy.test.ts` covers redirect-loop prevention and anonymous access restrictions.
+- Sign-in: there is no proxy. Pages are static shells served from the CDN to anyone; `SignInGate` sends a signed-out visitor to `/login` (or `/signin` for `/admin`). Data needs a signed-in member: every API route wraps its handlers in `withSession` (`src/lib/auth/withSession.ts`, enforced by `src/app/api/apiRoutes.test.ts`; `PUBLIC_API_ROUTES` lists the exceptions), the browser reaches Supabase with a short-lived `authenticated` token from `/api/supabase-token` (`src/lib/server/supabaseToken.ts`; the `anon` role has no access), and server-rendered pages that read data call `requirePageSession` (enforced by `src/app/serverPages.test.ts`). The token route also renews the sign-in cookie. Accepted sessions are Slack and Google sign-ins with email and workspace identity, including Google users without a Slack link.
 
 ### Pages (`src/app`)
 | Path | Purpose |

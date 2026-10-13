@@ -188,10 +188,10 @@ select is(
 );
 
 select ok(
-  has_function_privilege('anon', 'public.count_matches_in_windows(timestamptz[], timestamptz[])', 'execute')
-    and has_function_privilege('anon', 'public.get_multi_elo_climbs(timestamptz)', 'execute')
-    and has_table_privilege('anon', 'public.player_match_records', 'select'),
-  'the browser (anon) can read the aggregates'
+  has_function_privilege('authenticated', 'public.count_matches_in_windows(timestamptz[], timestamptz[])', 'execute')
+    and has_function_privilege('authenticated', 'public.get_multi_elo_climbs(timestamptz)', 'execute')
+    and has_table_privilege('authenticated', 'public.player_match_records', 'select'),
+  'the browser (authenticated) can read the aggregates'
 );
 
 select ok(
@@ -202,18 +202,18 @@ select ok(
 );
 
 -- As the browser: the security-invoker objects still read through RLS.
-set local role anon;
+set local role authenticated;
 
 select results_eq(
   $$select games_played, wins from public.player_match_records where player_id = '51000000-0000-0000-0000-00000000000a'$$,
   $$values (4, 2)$$,
-  'anon reads player_match_records'
+  'authenticated reads player_match_records'
 );
 
 select is(
   public.count_matches_in_windows(array['2096-10-24 22:00:00+00']::timestamptz[], array['2096-10-25 23:00:00+00']::timestamptz[]),
   array[4],
-  'anon counts matches in windows'
+  'authenticated counts matches in windows'
 );
 
 reset role;

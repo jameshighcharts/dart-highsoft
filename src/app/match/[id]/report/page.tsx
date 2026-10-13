@@ -16,6 +16,7 @@ import { reconstructDartIQTimeline, type DartIQDartEvent } from '@/lib/dartiq/re
 import { loadMatchData } from '@/lib/match/loadMatchData';
 import type { TurnWithThrows } from '@/lib/match/types';
 import { loadFrozenDartIQEvidence } from '@/lib/server/dartiqEvidence';
+import { requirePageSession } from '@/lib/auth/requirePageSession';
 import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
 const SERIES_COLORS = ['#22c55e', '#38bdf8', '#f59e0b', '#f43f5e', '#a78bfa', '#14b8a6'];
@@ -41,6 +42,7 @@ export default async function DartIQReportPage({
   searchParams: Promise<{ dart?: string }>;
 }) {
   const { id } = await params;
+  await requirePageSession(`/match/${id}/report`);
   const requestedDartId = (await searchParams).dart;
   const supabase = getSupabaseServerClient();
   const [data, evidence] = await Promise.all([

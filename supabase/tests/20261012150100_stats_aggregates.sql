@@ -75,7 +75,7 @@ begin
   -- The functions run with the caller's rights and are for clients, not the public role.
   assert not (select prosecdef from pg_proc where oid = 'public.stats_overview()'::regprocedure), 'stats_overview must be security invoker';
   assert not (select prosecdef from pg_proc where oid = 'public.stats_player_detail(uuid)'::regprocedure), 'stats_player_detail must be security invoker';
-  assert has_function_privilege('anon', 'public.stats_overview()', 'execute'), 'anon must be able to read the overview';
+  assert has_function_privilege('authenticated', 'public.stats_overview()', 'execute'), 'signed-in users must read the overview';
   assert has_function_privilege('authenticated', 'public.stats_player_detail(uuid)', 'execute'), 'signed-in users must read player detail';
 
   -- Overview: the old count queries, run over the same filters.
