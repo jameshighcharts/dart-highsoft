@@ -1,23 +1,16 @@
-import { requirePageSession } from '@/lib/auth/requirePageSession';
-import { getSupabaseClient } from '@/lib/supabaseClient';
+"use client";
+
+import { useQuery } from '@tanstack/react-query';
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { practicePlayersQuery } from '@/lib/queries/practice';
 
-// The player list is live data and needs Supabase at request time, so never
-// prerender this page at build (build hosts may not have the env vars).
-export const dynamic = 'force-dynamic';
-
-export default async function PracticePage() {
-  await requirePageSession('/practice');
-  const supabase = await getSupabaseClient();
-  
-  const { data: players } = await supabase
-    .from('players')
-    .select('id, display_name, avatar_url')
-    .eq('is_active', true)
-    .order('display_name', { ascending: true });
+// A static shell served from the CDN; the players load in the browser.
+export default function PracticePage() {
+  const { data: players, isPending } = useQuery(practicePlayersQuery());
 
   return (
     <div className="container mx-auto p-6">
@@ -43,7 +36,7 @@ export default async function PracticePage() {
                 </Link>
               </Button>
             ))}
-            {(!players || players.length === 0) && (
+            {!isPending && (!players || players.length === 0) && (
               <p className="text-center text-muted-foreground">
                 No players found. <Link href="/players" className="text-blue-600 hover:underline">Create some players</Link> first.
               </p>
