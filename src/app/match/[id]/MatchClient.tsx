@@ -154,9 +154,11 @@ export default function MatchClient({ matchId }: { matchId: string }) {
   }>({ playerId: null, darts: [] });
 
 
-  // Real-time connection
-  const realtime = useRealtime(matchId);
-  const realtimeEnabled = true; // For now, always enabled
+  // Real-time connection. A finished match opened from history (the games list, a report) won't
+  // change, so it doesn't join the channels at all; a history view waits for the match to load to
+  // know. A match that finishes while open stays connected (spectators follow its rematch).
+  const realtimeEnabled = !historyParam || Boolean(match && !match.ended_early && !selectMatchWinnerId(match, legs));
+  const realtime = useRealtime(matchId, realtimeEnabled);
   const realtimeIsConnected = realtime.isConnected;
   const realtimeConnectionStatus = realtime.connectionStatus;
   const realtimeUpdatePresence = realtime.updatePresence;
@@ -697,6 +699,7 @@ export default function MatchClient({ matchId }: { matchId: string }) {
           dartIQWorkerEvidence={dartIQ.workerEvidence}
           hasPersonalDartIQEvidence={dartIQ.hasPersonalProfiles}
           isHistoryView={historyParam}
+          realtimeEnabled={realtimeEnabled}
           onBackToGames={backToGames}
         />
         <RealtimeDebugPanel
