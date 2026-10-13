@@ -31,7 +31,12 @@ function loadSigningKey(): Promise<SigningKey | null> {
   signingKey ??= (async () => {
     const raw = process.env.SUPABASE_JWT_SIGNING_KEY?.trim();
     if (!raw) return null;
-    const jwk = JSON.parse(raw) as JWK;
+    // `supabase gen signing-key` writes the key with "key_ops": ["sign", "verify"], and WebCrypto
+    // refuses a private key that claims to verify; only the key material matters for signing.
+    const jwk = { ...(JSON.parse(raw) as JWK) };
+    delete jwk.key_ops;
+    delete jwk.use;
+    delete jwk.ext;
     if (jwk.kty === 'EC' && jwk.crv === 'P-256' && jwk.d && jwk.kid) {
       return { key: await importJWK(jwk, 'ES256'), alg: 'ES256', kid: jwk.kid };
     }
