@@ -67,7 +67,7 @@ A conditional `NULL` → `sending` update claims delivery before contacting Slac
 
 ## Finals draw
 
-The Sluttspill tab has four rounds. Play-offs use 301 straight out; quarterfinals and semifinals use 301 double out; the final uses 501 double out. Every match is first to two legs, with fair ending off. The new-match page and pre-start tagging use the fixture's stage to select and enforce these settings. Fair ending remains visible beside Highdarts and can be enabled for regular single-leg matches.
+The Sluttspill tab has four rounds. Play-offs use 301 straight out; quarterfinals and semifinals use 301 double out; the final uses 501 double out. These are defaults, with first to two legs. For play-offs, quarterfinals, semifinals and the final, the new-match page allows single or double out and any positive number of legs to win. Pre-start tagging preserves those choices. Start scores remain fixed by stage and fair ending stays off. Group matches and qualification tie-breaks remain 301/single out/first to two. Fair ending remains visible beside Highdarts and can be enabled for regular single-leg matches.
 
 `projectFinals` takes group standings and enumerates the legal cross-office play-off pairs: two 2nd-vs-4th pairs, one 3rd-vs-4th pair, and one 3rd-vs-3rd pair. It evaluates quarterfinal assignments, minimizing possible same-office quarterfinal meetings first and semifinal meetings second. Two byes from the same office must be in opposite halves. Deterministic ordering makes repeated projections stable. Untouched or unresolved places show TBD.
 
@@ -261,3 +261,5 @@ Production database update completed October 12 through the Supabase SQL Editor.
 
 Validation: 1,613 unit/component tests passed, lint had zero errors and 23 existing warnings, the webpack production build passed, and the disposable PostgreSQL regression passed. Chrome verified the local app against the updated production snapshot: grey #1 Babar and #2 Nick, Aleksander's bye, Kseniia's second qualifying position, and Stian/Håvard's play-off places. The projected finals exclude both absent players; no draw was locked. Browser console had no errors.
 
+
+Deploy `20261013120000_highdarts_finals_match_options.sql` before the optional sluttspill controls. It preserves existing matches and service-only RPC permissions. Verify with `supabase/tests/highdarts_finals_match_options.sql`.

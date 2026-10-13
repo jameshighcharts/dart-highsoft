@@ -112,6 +112,7 @@ export function HighdartsRules() {
             </tbody>
           </table>
         </div>
+        <p className="text-sm text-muted-foreground">Sluttspill formats above are defaults. Choose single or double out and legs to win before starting each play-off, quarterfinal, semifinal or final. Start scores stay fixed and fair ending stays off.</p>
         {steps.map(([title, body], i) => (
           <section key={title} className="rounded-xl border bg-muted/30 p-4">
             <h3 className="mb-2 font-semibold">

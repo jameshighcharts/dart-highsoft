@@ -484,7 +484,7 @@ export function HighdartsBracket({ snapshot, isAdmin, onRefresh }: Props) {
                         }
                       />
                       <div className="border-t border-white/5 px-3 py-2 text-[10px] text-muted-foreground">
-                        {format.startScore}{' '}
+                        Default: {format.startScore}{' '}
                         {format.finish === 'single_out'
                           ? 'straight out'
                           : 'double out'}{' '}
