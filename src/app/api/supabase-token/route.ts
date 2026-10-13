@@ -23,7 +23,10 @@ async function getHandler(request: NextRequest) {
       : NextResponse.json({ error: 'Supabase tokens are not configured' }, { status: 503, headers: NO_STORE });
   } catch (error) {
     console.error('Could not sign a Supabase token:', error);
-    response = NextResponse.json({ error: 'Could not sign a Supabase token' }, { status: 500, headers: NO_STORE });
+    // The reason (a malformed or unusable SUPABASE_JWT_SIGNING_KEY) holds no key material, and only
+    // signed-in members get this far.
+    const reason = error instanceof Error ? error.message : 'unknown error';
+    response = NextResponse.json({ error: 'Could not sign a Supabase token', reason }, { status: 500, headers: NO_STORE });
   }
   if (isAuthConfigured) {
     try {

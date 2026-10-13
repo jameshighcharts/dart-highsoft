@@ -37,6 +37,15 @@ describe('signSupabaseToken', () => {
     expect(payload).toEqual({ role: 'authenticated', aud: 'authenticated', iat: now / 1000, exp: now / 1000 + 3600 });
   });
 
+  it('signs with a key as `supabase gen signing-key` writes it', async () => {
+    // The CLI's JWK claims both uses, which WebCrypto refuses for a private key.
+    const cliKey = { ...privateJwk, use: 'sig', key_ops: ['sign', 'verify'], alg: 'ES256', ext: true };
+    const { signSupabaseToken } = await load(JSON.stringify(cliKey));
+    const signed = await signSupabaseToken();
+    const { protectedHeader } = await jwtVerify(signed!.token, publicKey, { audience: 'authenticated' });
+    expect(protectedHeader.kid).toBe('test-kid');
+  });
+
   it('signs nothing without a key, so the app keeps using the anon key', async () => {
     const { signSupabaseToken, isSupabaseTokenConfigured } = await load(undefined);
     expect(isSupabaseTokenConfigured()).toBe(false);
