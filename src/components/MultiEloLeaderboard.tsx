@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PlayerAvatarById } from '@/components/PlayerAvatarById';
+import { multiEloLeaderboardQuery } from '@/lib/queries/elo';
 import {
-  getMultiEloLeaderboard,
-  getRecentMultiEloChanges,
   type MultiEloLeaderboardEntry,
   type RecentMultiEloChange,
 } from '@/utils/eloRatingMultiplayer';
@@ -19,27 +19,11 @@ type Props = {
 };
 
 export function MultiEloLeaderboard({ limit = 20, showRecentChanges = false }: Props) {
-  const [leaderboard, setLeaderboard] = useState<MultiEloLeaderboardEntry[]>([]);
-  const [recent, setRecent] = useState<RecentMultiEloChange[]>([]);
-  const [loading, setLoading] = useState(true);
+  const query = useQuery(multiEloLeaderboardQuery(limit, showRecentChanges));
+  const leaderboard: MultiEloLeaderboardEntry[] = query.data?.leaderboard ?? [];
+  const recent: RecentMultiEloChange[] = query.data?.recent ?? [];
+  const loading = query.isPending;
   const [activeTab, setActiveTab] = useState<'leaderboard' | 'recent'>('leaderboard');
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const [lb, rc] = await Promise.all([
-          getMultiEloLeaderboard(limit),
-          showRecentChanges ? getRecentMultiEloChanges(20) : Promise.resolve([]),
-        ]);
-        setLeaderboard(lb);
-        setRecent(rc);
-      } catch (e) {
-        console.error('Failed to load multi elo data', e);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [limit, showRecentChanges]);
 
   if (loading) {
     return (

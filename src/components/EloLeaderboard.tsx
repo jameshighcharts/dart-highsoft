@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PlayerAvatarById } from '@/components/PlayerAvatarById';
+import { eloLeaderboardQuery } from '@/lib/queries/elo';
 import {
-  getEloLeaderboard,
-  getRecentEloChanges,
   getEloTier,
   formatEloChange,
   type EloLeaderboardEntry,
@@ -20,30 +20,11 @@ type Props = {
 };
 
 export function EloLeaderboard({ limit = 20, showRecentChanges = false }: Props) {
-  const [leaderboard, setLeaderboard] = useState<EloLeaderboardEntry[]>([]);
-  const [recentChanges, setRecentChanges] = useState<RecentEloChange[]>([]);
-  const [loading, setLoading] = useState(true);
+  const query = useQuery(eloLeaderboardQuery(limit, showRecentChanges));
+  const leaderboard: EloLeaderboardEntry[] = query.data?.leaderboard ?? [];
+  const recentChanges: RecentEloChange[] = query.data?.recent ?? [];
+  const loading = query.isPending;
   const [activeTab, setActiveTab] = useState<'leaderboard' | 'recent'>('leaderboard');
-
-  const loadData = async () => {
-    try {
-      const [leaderboardData, recentData] = await Promise.all([
-        getEloLeaderboard(limit),
-        showRecentChanges ? getRecentEloChanges(20) : Promise.resolve([])
-      ]);
-      
-      setLeaderboard(leaderboardData);
-      setRecentChanges(recentData);
-    } catch (error) {
-      console.error('Error loading Elo data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
-  }, [limit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (

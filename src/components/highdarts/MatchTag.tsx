@@ -1,4 +1,5 @@
 'use client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Trophy } from 'lucide-react';
@@ -9,8 +10,8 @@ import {
   fixturesForPair,
   isCompleted,
   type FixtureResult,
-  type Snapshot,
 } from '@/lib/highdarts/standings';
+import { highdartsQuery } from '@/lib/queries/highdarts';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -20,6 +21,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import type { MatchRecord, Player } from '@/lib/match/types';
+
+const NO_FIXTURES: FixtureResult[] = [];
 
 export function HighdartsMatchTag({
   match,
@@ -34,21 +37,23 @@ export function HighdartsMatchTag({
   spectator: boolean;
   reload: () => Promise<void>;
 }) {
-  const [fixtures, setFixtures] = useState<FixtureResult[]>([]);
+  const queryClient = useQueryClient();
   const [dismissed, setDismissed] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [chosenId, setChosenId] = useState('');
+  const eligible =
+    Boolean(match.highdarts_fixture_id) ||
+    (!spectator &&
+      !hasThrows &&
+      players.length === 2 &&
+      !match.ended_early &&
+      !match.winner_player_id &&
+      !match.tournament_match_id);
+  // The tournament snapshot Bengt keeps: from the browser's saved cache at once, refreshed on mount.
+  // Linking is checked by the server, so a briefly outdated fixture list can't link a taken fixture.
+  const fixtures = useQuery({ ...highdartsQuery(), enabled: eligible }).data?.fixtures ?? NO_FIXTURES;
   useEffect(() => {
-    let cancelled = false;
-    const eligible =
-      Boolean(match.highdarts_fixture_id) ||
-      (!spectator &&
-        !hasThrows &&
-        players.length === 2 &&
-        !match.ended_early &&
-        !match.winner_player_id &&
-        !match.tournament_match_id);
     if (!eligible) return;
     try {
       setDismissed(
@@ -57,24 +62,7 @@ export function HighdartsMatchTag({
     } catch {
       setDismissed(false);
     }
-    void apiRequest<Snapshot>('/api/highdarts', { method: 'GET' })
-      .then((data) => {
-        if (!cancelled) setFixtures(data.fixtures);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    match.id,
-    match.highdarts_fixture_id,
-    match.ended_early,
-    match.winner_player_id,
-    match.tournament_match_id,
-    players.length,
-    hasThrows,
-    spectator,
-  ]);
+  }, [eligible, match.id]);
   const linked = fixtures.find((f) => f.id === match.highdarts_fixture_id);
   const available = fixturesForPair(
     fixtures,
@@ -108,6 +96,7 @@ export function HighdartsMatchTag({
         body: { fixtureId: candidate.id },
       });
       await reload();
+      void queryClient.invalidateQueries({ queryKey: highdartsQuery().queryKey });
       setDismissed(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not link the fixture');

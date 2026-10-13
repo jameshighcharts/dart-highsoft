@@ -13,7 +13,7 @@
  */
 
 import React from 'react';
-import { act, render, screen, cleanup, within } from '@testing-library/react';
+import { act, render, screen, cleanup, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi, describe, beforeEach, beforeAll, it, expect } from 'vitest';
 import {
@@ -135,8 +135,13 @@ vi.mock('next/dynamic', async () => {
   };
 });
 
+// Every `enabled` the page passed, to check when it joins the channels.
+const realtimeEnabledCalls: boolean[] = [];
 vi.mock('@/hooks/useRealtime', () => ({
-  useRealtime: () => mockRealtime,
+  useRealtime: (_matchId: string, enabled = true) => {
+    realtimeEnabledCalls.push(enabled);
+    return mockRealtime;
+  },
 }));
 
 vi.mock('@/components/Dartboard', () => ({
@@ -438,6 +443,30 @@ describe('MatchClient', () => {
       expect(screen.getByText('Final Leg Score Progress')).toBeInTheDocument();
       expect(screen.queryByText('Live Match')).not.toBeInTheDocument();
       expect(screen.queryByText('Undo dart')).not.toBeInTheDocument();
+
+      view.unmount();
+    });
+
+    it('never joins the realtime channels for a finished match opened from history', async () => {
+      setSearchParams('spectator=true&history=true');
+      mockDb.matches[0]!.legs_to_win = 1;
+      mockDb.legs[0]!.winner_player_id = 'player-1';
+      realtimeEnabledCalls.length = 0;
+      const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
+
+      expect(await screen.findByRole('heading', { name: 'Match Stats' })).toBeInTheDocument();
+      expect(realtimeEnabledCalls.length).toBeGreaterThan(0);
+      expect(realtimeEnabledCalls.every((enabled) => !enabled)).toBe(true);
+
+      view.unmount();
+    });
+
+    it('joins them for a history view of a match still in progress', async () => {
+      setSearchParams('spectator=true&history=true');
+      realtimeEnabledCalls.length = 0;
+      const view = render(<TestQueryProvider><MatchClient matchId="match-1" /></TestQueryProvider>);
+
+      await waitFor(() => expect(realtimeEnabledCalls.at(-1)).toBe(true));
 
       view.unmount();
     });

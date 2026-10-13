@@ -58,6 +58,7 @@ const nextConfig: NextConfig = {
         : []),
       { source: '/bengt', missing: documentOnly, headers: preload(...token, '/api/highdarts') },
       { source: '/new', missing: documentOnly, headers: preload(...token, '/api/highdarts', '/api/scolia/boards/available') },
+      { source: '/tournament/new', missing: documentOnly, headers: preload(...token, '/api/scolia/boards/available') },
     ];
   },
 };

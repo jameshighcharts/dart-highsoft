@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { HighdartsMatchTag } from './MatchTag';
@@ -47,7 +48,9 @@ function setup(extra = {}, reported = false) {
     reload,
     ...extra,
   };
-  const view = render(<HighdartsMatchTag {...props} />);
+  // The fixtures come through React Query, as the app provides it.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = render(<QueryClientProvider client={client}><HighdartsMatchTag {...props} /></QueryClientProvider>);
   return { ...view, fetch, reload, props };
 }
 it('offers an unplayed fixture and reloads canonical settings after confirmation', async () => {
