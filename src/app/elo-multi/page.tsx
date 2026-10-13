@@ -1,29 +1,17 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { getSupabaseClient } from '@/lib/supabaseClient';
+import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { newMatchPlayersQuery } from '@/lib/queries/newMatch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { MultiEloLeaderboard } from '@/components/MultiEloLeaderboard';
 import { PlayerMultiEloStats } from '@/components/PlayerMultiEloStats';
 
-type Player = { id: string; display_name: string };
-
 export default function MultiEloPage() {
-  const [players, setPlayers] = useState<Player[]>([]);
+  // The active players, shared with /new and /tournament/new: from the browser's saved cache at once.
+  const players = useQuery(newMatchPlayersQuery()).data ?? [];
   const [selectedPlayer, setSelectedPlayer] = useState<string>('');
-
-  useEffect(() => {
-    (async () => {
-      const supabase = await getSupabaseClient();
-      const { data } = await supabase
-        .from('players')
-        .select('id, display_name')
-        .eq('is_active', true)
-        .order('display_name');
-      setPlayers(((data as unknown) as Player[]) ?? []);
-    })();
-  }, []);
 
   const selected = players.find((p) => p.id === selectedPlayer);
 
