@@ -19,7 +19,7 @@ describe('API routes', () => {
     for (const route of PUBLIC_API_ROUTES) expect(routeFiles.map(routeOf)).toContain(route);
   });
 
-  // The proxy doesn't run for /api (src/proxy.ts), so a route is only protected by its own check.
+  // There is no proxy in front of requests, so a route is only protected by its own check.
   it('checks the session in every route that is not explicitly public', () => {
     const unprotected: string[] = [];
     for (const file of routeFiles) {

@@ -7,8 +7,8 @@ import { isAuthPerformanceBypassEnabled } from '@/lib/auth/devBypass';
  * Runs an API route handler only for a signed-in member (a verified work email in the Slack
  * workspace, as `getAuthenticatedSession` checks), or the CI Lighthouse audit; anyone else gets 401.
  *
- * The proxy (src/proxy.ts) guards pages but not /api: on Vercel it is a separate step in front of
- * every request, which cost each API call about 65 ms. The same check here takes a few.
+ * Every API route checks for itself: there is no proxy in front of requests (on Vercel it was a
+ * separate step that cost each request about 65 ms; this check takes a few).
  */
 export function withSession<Args extends unknown[]>(
   handler: (...args: Args) => Response | Promise<Response>,

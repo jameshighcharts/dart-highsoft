@@ -1,3 +1,4 @@
+import { requirePageSession } from '@/lib/auth/requirePageSession';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +10,7 @@ import { PlayerAvatar } from '@/components/PlayerAvatar';
 export const dynamic = 'force-dynamic';
 
 export default async function PracticePage() {
+  await requirePageSession('/practice');
   const supabase = await getSupabaseClient();
   
   const { data: players } = await supabase

@@ -11,8 +11,8 @@ export type AdminSession = Session & {
 };
 
 /**
- * Guard for /api/admin routes. The proxy already redirects anonymous
- * requests, but every handler re-checks so the API fails closed on its own.
+ * Guard for /api/admin routes: a signed-in member (withSession checks that
+ * too) who is an admin.
  */
 export async function requireAdmin(): Promise<AdminSession | NextResponse> {
   if (!isAuthConfigured && !isAuthDevBypassEnabled()) {
