@@ -36,6 +36,7 @@ const ROUTE_PREFETCH: Record<string, RoutePrefetch> = {
     return prefetchAll(queryClient, [newMatchPlayersQuery(), meQuery()]);
   },
   '/players': async (queryClient) => prefetchAll(queryClient, [(await import('./players')).playerListQuery()]),
+  '/tournament/new': async (queryClient) => prefetchAll(queryClient, [(await import('./newMatch')).newMatchPlayersQuery()]),
   '/stats': async (queryClient) => prefetchAll(queryClient, [(await import('@/hooks/useStatsData')).statsGlobalQuery()]),
 };
 

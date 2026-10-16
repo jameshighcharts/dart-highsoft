@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { getSupabaseClient } from '@/lib/supabaseClient';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/apiClient';
+import { availableBoardsQuery, newMatchPlayersQuery, type AvailableBoards, type NewMatchPlayer } from '@/lib/queries/newMatch';
+import { playerListQuery } from '@/lib/queries/players';
+import { refreshAfterChange } from '@/lib/queries/refreshAfterChange';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +23,10 @@ import { requestTVModeFullscreen } from '@/lib/tvMode';
 import { SelectedPlayerLineup } from '@/components/games/SelectedPlayerLineup';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 
-type Player = { id: string; display_name: string; location: string | null; avatar_url?: string | null };
+type Player = NewMatchPlayer;
+
+const NO_PLAYERS: Player[] = [];
+const NO_BOARDS: ScoliaBoardOption[] = [];
 type StartScore = '201' | '301' | '501';
 type FinishRule = 'single_out' | 'double_out';
 
@@ -41,7 +47,10 @@ function loadEnabledLocations(): LocationValue[] {
 
 export default function NewTournamentPage() {
   const router = useRouter();
-  const [players, setPlayers] = useState<Player[]>([]);
+  const queryClient = useQueryClient();
+  // The same queries as /new: players come from the browser's saved cache at once and refresh in
+  // the background; board availability is never shown from an earlier visit.
+  const players = useQuery(newMatchPlayersQuery()).data ?? NO_PLAYERS;
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [name, setName] = useState('');
   const [playerSearch, setPlayerSearch] = useState('');
@@ -66,55 +75,46 @@ export default function NewTournamentPage() {
   }, []);
   const [creating, setCreating] = useState(false);
   const [selectedBoardId, setSelectedBoardId] = useState(MANUAL_BOARD_VALUE);
-  const [boards, setBoards] = useState<ScoliaBoardOption[]>([]);
-  const [boardsLoading, setBoardsLoading] = useState(true);
-  const [boardsError, setBoardsError] = useState<string | null>(null);
+  const boardsQuery = useQuery(availableBoardsQuery());
+  const boards = boardsQuery.data?.boards ?? NO_BOARDS;
+  const boardsLoading = boardsQuery.isPending;
+  const boardsError = boardsQuery.error
+    ? boardsQuery.error instanceof Error ? boardsQuery.error.message : 'Failed to load boards'
+    : null;
   const [commentaryEnabled, setCommentaryEnabled] = useState(false);
-  const boardsRequestInFlight = useRef(false);
 
   useEffect(() => {
     setSelectedBoardId(loadStoredBoardId());
     try { setCommentaryEnabled(localStorage.getItem(COMMENTARY_STORAGE_KEY) === 'true'); } catch { /* optional preference */ }
   }, []);
 
-  const loadBoards = useCallback(async () => {
-    if (boardsRequestInFlight.current) return;
-    boardsRequestInFlight.current = true;
-    try {
-      const result = await apiRequest<{ boards: ScoliaBoardOption[] }>('/api/scolia/boards/available', { method: 'GET' });
-      setBoards(result.boards);
-      setBoardsError(null);
-    } catch (error) {
-      setBoardsError(error instanceof Error ? error.message : 'Failed to load boards');
-    } finally {
-      boardsRequestInFlight.current = false;
-      setBoardsLoading(false);
-    }
-  }, []);
-  useEffect(() => { void loadBoards(); }, [loadBoards]);
+  const boardsKey = availableBoardsQuery().queryKey;
+  const updateBoards = (update: (current: ScoliaBoardOption[]) => ScoliaBoardOption[]) =>
+    queryClient.setQueryData<AvailableBoards>(boardsKey, (current) => current && { ...current, boards: update(current.boards) });
+  // An occupancy change during a fetch that already read the boards still gets a fresh read.
+  const refreshBoards = () => refreshAfterChange(queryClient, boardsKey);
   const [boardChannel, setBoardChannel] = useState<RealtimeChannelStatus | undefined>(undefined);
   // Status rows (mostly heartbeats) merge in place; only occupancy changes need the API.
   useScoliaBoardRealtime({
-    onUpsert: (status) => setBoards((current) => mergeBoardStatus(current, status)),
-    onRemove: (boardId) => setBoards((current) => current.filter((board) => board.id !== boardId)),
-    onOccupancyChange: loadBoards,
-    onReconcile: loadBoards,
+    onUpsert: (status) => updateBoards((current) => mergeBoardStatus(current, status)),
+    onRemove: (boardId) => updateBoards((current) => current.filter((board) => board.id !== boardId)),
+    onOccupancyChange: refreshBoards,
+    onReconcile: refreshBoards,
     onChannelStatus: setBoardChannel,
   });
   useEffect(() => {
-    const interval = window.setInterval(() => setBoards((current) => expireStaleBoards(current)), 1_000);
+    const key = availableBoardsQuery().queryKey;
+    const interval = window.setInterval(() => {
+      // Only write when a board expired: every cache write notifies all cache subscribers.
+      const current = queryClient.getQueryData<AvailableBoards>(key);
+      if (!current) return;
+      const next = expireStaleBoards(current.boards);
+      if (next !== current.boards) queryClient.setQueryData<AvailableBoards>(key, { ...current, boards: next });
+    }, 1_000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [queryClient]);
   const boardUnavailable = selectedBoardId !== MANUAL_BOARD_VALUE
     && (boardsLoading || Boolean(boardsError) || !boards.some((board) => board.id === selectedBoardId && board.selectable));
-
-  useEffect(() => {
-    (async () => {
-      const supabase = await getSupabaseClient();
-      const { data } = await supabase.from('players').select('*').eq('is_active', true).order('display_name');
-      setPlayers((data as Player[]) ?? []);
-    })();
-  }, []);
 
   useEffect(() => {
     if (!locationsLoaded) return;
@@ -161,7 +161,8 @@ export default function NewTournamentPage() {
     setAddPlayerError(null);
     try {
       const result = await apiRequest<{ player: Player }>('/api/players', { body: { displayName: trimmed } });
-      setPlayers((prev) => [...prev, result.player]);
+      queryClient.setQueryData(newMatchPlayersQuery().queryKey, (prev) => [...(prev ?? []), result.player]);
+      void queryClient.invalidateQueries({ queryKey: playerListQuery().queryKey });
       setSelectedIds((prev) => [...prev, result.player.id]);
       setNewPlayerName('');
       setPlayerSearch('');

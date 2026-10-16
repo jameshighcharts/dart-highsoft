@@ -16,7 +16,11 @@ export type LiveConnectionState = 'connecting' | 'live' | 'reconnecting' | 'offl
 export const LIVE_RECONNECTING_GRACE_MS = 2_000;
 const BROADCAST_RETRY_MAX_MS = 30_000;
 
-export function useRealtime(matchId: string) {
+/**
+ * The match's realtime channels. With `enabled` false (a finished match opened from history,
+ * where nothing will change) none is joined, and an open one is left.
+ */
+export function useRealtime(matchId: string, enabled = true) {
   const [lastError, setLastError] = useState<{ matchId: string; message: string } | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -247,6 +251,7 @@ export function useRealtime(matchId: string) {
 
   // Separate private channel: clients may receive committed scores, never publish them.
   useEffect(() => {
+    if (!enabled) return;
     let disposed = false;
     let broadcastChannel: RealtimeChannel | null = null;
     let client: SupabaseClient | null = null;
@@ -306,17 +311,19 @@ export function useRealtime(matchId: string) {
         });
       }
     };
-  }, [matchId, broadcastAttempt]);
+  }, [matchId, broadcastAttempt, enabled]);
 
   // Stable ownership: state changes never tear down a healthy subscription.
   useEffect(() => {
+    if (!enabled) return;
     void connect();
     return disconnect;
-  }, [connect, disconnect]);
+  }, [connect, disconnect, enabled]);
 
   const retryAttempt = useRef(0);
   const [retryVersion, setRetryVersion] = useState(0);
   useEffect(() => {
+    if (!enabled) return;
     if (connectionStatus === 'connected') {
       retryAttempt.current = 0;
       return;
@@ -346,7 +353,7 @@ export function useRealtime(matchId: string) {
       window.removeEventListener('online', wake);
       document.removeEventListener('visibilitychange', wake);
     };
-  }, [connectionStatus, connect, disconnect, retryVersion]);
+  }, [connectionStatus, connect, disconnect, retryVersion, enabled]);
 
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine);
   useEffect(() => {

@@ -109,6 +109,8 @@ type Props = {
   dartIQWorkerEvidence?: DartIQLiveEvidence;
   hasPersonalDartIQEvidence: boolean;
   isHistoryView?: boolean;
+  /** False when the page joins no realtime channel (a finished match opened from history). */
+  realtimeEnabled?: boolean;
   onBackToGames: () => void;
 };
 
@@ -222,6 +224,7 @@ export function MatchSpectatorView({
   dartIQWorkerEvidence,
   hasPersonalDartIQEvidence,
   isHistoryView = false,
+  realtimeEnabled = true,
   onBackToGames,
 }: Props) {
   const [boardCollapsed, setBoardCollapsed] = useState(false);
@@ -468,11 +471,11 @@ export function MatchSpectatorView({
 
         {/* Connection status and refresh indicator */}
         {(!isHistoryView || realtimeConnectionError) ? <div className="fixed bottom-4 right-4 z-50 flex flex-wrap items-center justify-end gap-2 max-w-[calc(100vw-2rem)]">
-          <RealtimeConnectionError message={realtimeConnectionError} connected={realtimeConnectionStatus === 'connected'} />
+          {realtimeEnabled && <RealtimeConnectionError message={realtimeConnectionError} connected={realtimeConnectionStatus === 'connected'} />}
           {scoliaBoardId && !isHistoryView ? (
             <ScoliaBoardConnection boardId={scoliaBoardId} compact className="shadow-sm" onStatusChange={followBoardPhase} />
           ) : null}
-          <LiveUpdatesPill state={realtimeConnectionStatus} liveState={liveState} since={liveStateSince} className="shadow-sm" />
+          {realtimeEnabled && <LiveUpdatesPill state={realtimeConnectionStatus} liveState={liveState} since={liveStateSince} className="shadow-sm" />}
 
           {/* Loading indicator for fallback polling */}
           {spectatorLoading && !realtimeIsConnected && (

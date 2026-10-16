@@ -1,4 +1,6 @@
-import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, cleanup, render as renderPage, screen, fireEvent, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { hydrateRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -8,6 +10,7 @@ import { LOCATIONS } from '@/utils/locations';
 const mocks = vi.hoisted(() => ({ api: vi.fn(), push: vi.fn() }));
 vi.mock('@/lib/apiClient', () => ({ apiRequest: mocks.api }));
 beforeEach(() => {
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   vi.clearAllMocks();
   mocks.api.mockImplementation(async (path: string) => path === '/api/scolia/boards/available'
     ? { boards: [{ id: 'board', name: 'Bergen', selectable: true, workerConnectionStatus: 'connected', boardStatus: 'Ready', activeMatchId: null, activeGameSessionId: null }] }
@@ -17,8 +20,15 @@ vi.mock('@/hooks/useScoliaBoardRealtime', () => ({ useScoliaBoardRealtime: vi.fn
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock('@/lib/supabaseClient', () => ({
-  getSupabaseClient: async () => ({ from: () => ({ select: () => ({ eq: () => ({ order: async () => ({ data: [{ id: "a", display_name: "Alice", location: null }, { id: "b", display_name: "Bob", location: null }, { id: "c", display_name: "Carol", location: null }] }) }) }) }) }),
+  getSupabaseClient: async () => ({ from: () => ({ select: () => ({ eq: () => ({ order: async () => ({ data: ['Alice', 'Bob', 'Carol'].map((display_name) => ({
+    id: display_name[0].toLowerCase(), display_name, location: null, match_players: [], game_session_players: [],
+  })), error: null }) }) }) }) }),
 }));
+
+// The page reads players and boards through React Query, as the app provides it.
+let queryClient: QueryClient;
+const withQueries = (page: ReactElement) => <QueryClientProvider client={queryClient}>{page}</QueryClientProvider>;
+const render = (page: ReactElement) => renderPage(withQueries(page));
 
 afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks(); });
 
@@ -28,12 +38,12 @@ it('hydrates identical location buttons before restoring the saved filter withou
   const writes = vi.spyOn(Storage.prototype, 'setItem');
   const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
   const container = document.createElement('div');
-  container.innerHTML = renderToString(<NewTournamentPage />);
+  container.innerHTML = renderToString(withQueries(<NewTournamentPage />));
   document.body.appendChild(container);
   const recoverable = vi.fn();
   let root: ReturnType<typeof hydrateRoot>;
   try {
-    await act(async () => { root = hydrateRoot(container, <NewTournamentPage />, { onRecoverableError: recoverable }); });
+    await act(async () => { root = hydrateRoot(container, withQueries(<NewTournamentPage />), { onRecoverableError: recoverable }); });
     expect(screen.getByRole('button', { name: LOCATIONS[0].label })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: LOCATIONS[1].label })).toHaveAttribute('aria-pressed', 'false');
     expect(localStorage.getItem('match-location-filter')).toBe(saved);

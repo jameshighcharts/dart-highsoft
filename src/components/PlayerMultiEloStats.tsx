@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { playerMultiEloQuery } from '@/lib/queries/elo';
 import {
-  getPlayerMultiEloStats,
-  getPlayerMultiEloHistory,
   type PlayerMultiEloStats,
   type MultiEloRating,
 } from '@/utils/eloRatingMultiplayer';
@@ -16,26 +15,10 @@ type Player = { id: string; display_name: string };
 type Props = { player: Player; showHistory?: boolean };
 
 export function PlayerMultiEloStats({ player, showHistory = true }: Props) {
-  const [stats, setStats] = useState<PlayerMultiEloStats | null>(null);
-  const [history, setHistory] = useState<MultiEloRating[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const [s, h] = await Promise.all([
-          getPlayerMultiEloStats(player.id),
-          showHistory ? getPlayerMultiEloHistory(player.id, 10) : Promise.resolve([]),
-        ]);
-        setStats(s);
-        setHistory(h);
-      } catch (e) {
-        console.error('Failed to load multiplayer elo stats', e);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [player.id, showHistory]);
+  const query = useQuery(playerMultiEloQuery(player.id, showHistory));
+  const stats: PlayerMultiEloStats | null = query.data?.stats ?? null;
+  const history: MultiEloRating[] = query.data?.history ?? [];
+  const loading = query.isPending;
 
   if (loading) {
     return (

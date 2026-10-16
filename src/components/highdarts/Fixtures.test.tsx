@@ -7,7 +7,8 @@ import {
   within,
   type RenderOptions,
 } from "@testing-library/react";
-import type { ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState, type ReactElement, type ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { fixture, finish } from "@/test-utils/highdartsFixtures";
 import { withReportedResults } from "@/lib/highdarts/reportedResults";
@@ -19,8 +20,13 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
+// The schedule comes through React Query, as the app provides it.
+function Providers({ children }: { children: ReactNode }) {
+  const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
+  return <QueryClientProvider client={client}><TooltipProvider>{children}</TooltipProvider></QueryClientProvider>;
+}
 const render = (ui: ReactElement, options?: Omit<RenderOptions, "wrapper">) =>
-  renderWithoutTooltip(ui, { wrapper: TooltipProvider, ...options });
+  renderWithoutTooltip(ui, { wrapper: Providers, ...options });
 
 const players = [
   { id: "a", display_name: "Ada Jones" },
@@ -90,7 +96,8 @@ it("retains the last schedule and reports a refresh failure", async () => {
   render(<ProfileFixtures playerId="a" />);
   await screen.findByText("1 remaining · 0 finished");
   await act(async () => window.dispatchEvent(new Event("focus")));
-  expect(screen.getByRole("status")).toHaveTextContent("could not refresh");
+  // The refetch on focus fails asynchronously.
+  expect(await screen.findByRole("status")).toHaveTextContent("could not refresh");
   expect(screen.getByText("1 remaining · 0 finished")).toBeInTheDocument();
 });
 

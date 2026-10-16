@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Play } from "lucide-react";
@@ -12,6 +13,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { apiRequest } from "@/lib/apiClient";
+import { highdartsQuery } from "@/lib/queries/highdarts";
 import {
   fixtureAvailability,
   fixtureWinner,
@@ -172,37 +174,18 @@ export function ProfileFixtures({
   title?: string;
   canEditCounting?: boolean;
 }) {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [error, setError] = useState("");
+  const queryClient = useQueryClient();
+  // The tournament snapshot Bengt keeps: from the browser's saved cache at once, then polled while
+  // the tab is visible and on focus, as before.
+  const highdarts = useQuery({ ...highdartsQuery(), refetchInterval: 15_000 });
   useEffect(() => {
-    let cancelled = false;
-    let inFlight = false;
-    async function refresh() {
-      if (inFlight || document.hidden) return;
-      inFlight = true;
-      try {
-        const data = await apiRequest<Snapshot>("/api/highdarts", {
-          method: "GET",
-        });
-        if (!cancelled) {
-          setSnapshot(data);
-          setError("");
-        }
-      } catch {
-        if (!cancelled) setError("Your tournament schedule could not refresh.");
-      } finally {
-        inFlight = false;
-      }
-    }
-    void refresh();
-    const timer = setInterval(refresh, 15000);
+    // Window focus, not only the tab becoming visible (React Query's focus refetch).
+    const refresh = () => void queryClient.refetchQueries({ queryKey: highdartsQuery().queryKey });
     window.addEventListener("focus", refresh);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      window.removeEventListener("focus", refresh);
-    };
-  }, []);
+    return () => window.removeEventListener("focus", refresh);
+  }, [queryClient]);
+  const snapshot = highdarts.data ?? null;
+  const error = highdarts.isError ? "Your tournament schedule could not refresh." : "";
   const fixtures = snapshot ? personalFixtures(snapshot, playerId) : [];
   const remaining = fixtures.filter(
     (f) => !isCompleted(f) && !f.match?.ended_early,
@@ -250,11 +233,9 @@ export function ProfileFixtures({
             playerId={playerId}
             snapshot={snapshot}
             canEdit={canEditCounting}
-            onRefresh={async () =>
-              setSnapshot(
-                await apiRequest<Snapshot>("/api/highdarts", { method: "GET" }),
-              )
-            }
+            onRefresh={async () => {
+              await queryClient.refetchQueries({ queryKey: highdartsQuery().queryKey });
+            }}
           />
         )}
         {snapshot &&

@@ -15,6 +15,8 @@ const AFFECTED_QUERIES = [
   ['games'],
   ['highdarts'],
   ['players'],
+  ['profile'],
+  ['elo'],
 ] as const;
 
 /**
